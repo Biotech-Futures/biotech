@@ -70,6 +70,8 @@ export type BulkStatusFilters = {
   role?: UserRole;
   state?: string;
   active?: boolean;
+  // Students tab: restrict to grouped ("yes") or ungrouped ("no") users.
+  inGroup?: "yes" | "no";
 };
 
 export type BulkStatusVars =
@@ -301,13 +303,15 @@ export type BulkDeleteResult = {
 };
 
 export type BulkDeleteVars =
-  | { ids: string[] }
+  | { ids: string[]; force?: boolean }
   | {
       selectAll: true;
       filters: BulkStatusFilters;
       excludeIds: string[];
       /** Count the admin reviewed; the server refuses if the live set grew past it. */
       expectedCount: number;
+      /** Also purge records that PROTECT the user (chat messages, resources, etc.). */
+      force?: boolean;
     };
 
 /** Permanently delete users (hard delete) in one request — explicit ids or
@@ -324,8 +328,9 @@ export function useBulkDeleteUsers() {
               filters: payload.filters,
               excludeIds: payload.excludeIds.map(Number),
               expectedCount: payload.expectedCount,
+              force: payload.force ?? false,
             }
-          : { userIds: payload.ids.map(Number) };
+          : { userIds: payload.ids.map(Number), force: payload.force ?? false };
 
       const res = await myFetch.post<MutationResponse<BulkDeleteResult | null>>(
         "/user/bulk-delete",

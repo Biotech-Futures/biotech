@@ -169,6 +169,10 @@ class UserBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
+        # force=True also purges records that PROTECT the user (chat messages,
+        # uploaded resources, workshops, match runs) — permanently. The admin
+        # portal gates this behind an explicit opt-in + typed confirmation.
+        force = bool(request.data.get("force"))
         # "Select all matching" resolves the target set server-side from the
         # same filters the list uses, instead of shipping every id from the browser.
         if request.data.get("selectAll"):
@@ -177,6 +181,7 @@ class UserBulkDeleteView(APIView):
                 exclude_ids=request.data.get("excludeIds") or [],
                 initiated_by=request.user,
                 expected_count=request.data.get("expectedCount"),
+                force=force,
             )
         else:
             user_ids = request.data.get("userIds")
@@ -185,7 +190,7 @@ class UserBulkDeleteView(APIView):
                     {"msg": "userIds must be a non-empty array", "data": None},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            result = bulk_delete_users(user_ids, initiated_by=request.user)
+            result = bulk_delete_users(user_ids, initiated_by=request.user, force=force)
 
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_400_BAD_REQUEST

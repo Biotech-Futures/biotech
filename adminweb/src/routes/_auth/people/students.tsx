@@ -4,6 +4,8 @@ import { StudentFilters } from "@/components/user/StudentFilters";
 import { StudentTable } from "@/components/user/StudentTable";
 import { studentColumns } from "@/components/user/columns";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +21,7 @@ import {
   useQueryStates,
   useQueryHasUngroupedStudents,
 } from "@/query/student";
-import { useBulkDeleteUsers } from "@/query/user";
+import { useBulkDeleteUsers, type BulkStatusFilters } from "@/query/user";
 import { useRemoveGroupMember } from "@/query/group";
 import type { StudentUser } from "@/type/user";
 import { ShuffleIcon, UserMinusIcon } from "lucide-react";
@@ -53,6 +55,13 @@ function StudentPage() {
   // Selected students, keyed by id, so the selection persists across pages and
   // we keep each student's group info for the batch/remove actions.
   const [selected, setSelected] = useState<Map<number, StudentUser>>(new Map());
+  // "Select all matching" mode targets every student matching the filters
+  // (across pages) except excludedIds. It powers Delete only — Assign/Remove
+  // need the loaded rows, so they're disabled while it's active.
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<number>>(new Set());
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [forceDelete, setForceDelete] = useState(false);
   const [batchAssignOpen, setBatchAssignOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -85,6 +94,8 @@ function StudentPage() {
   useEffect(() => {
     setPage(1);
     setSelected(new Map());
+    setSelectAllMatching(false);
+    setExcludedIds(new Set());
   }, [search, state, inGroup]);
 
   const students = useMemo(
@@ -114,7 +125,23 @@ function StudentPage() {
     [total, pageSize],
   );
 
-  const clearSelection = useCallback(() => setSelected(new Map()), []);
+  const clearSelection = useCallback(() => {
+    setSelected(new Map());
+    setSelectAllMatching(false);
+    setExcludedIds(new Set());
+  }, []);
+
+  // Filters shared by the list query and the "select all matching" delete.
+  const currentFilters: BulkStatusFilters = {
+    role: "student",
+    search: search || undefined,
+    state,
+    inGroup: inGroup === "all" ? undefined : inGroup,
+  };
+
+  const effectiveSelectedCount = selectAllMatching
+    ? Math.max(0, total - excludedIds.size)
+    : selected.size;
 
   const openAssign = useCallback(
     (student: StudentUser) => setAssigningStudent(student),
@@ -194,24 +221,56 @@ function StudentPage() {
     [selectedList],
   );
 
-  const selectedOnPage = students.filter((student) => selected.has(student.id));
+  const isRowSelected = useCallback(
+    (id: number) =>
+      selectAllMatching ? !excludedIds.has(id) : selected.has(id),
+    [selectAllMatching, excludedIds, selected],
+  );
+
+  const selectedOnPageCount = students.filter((s) =>
+    isRowSelected(s.id),
+  ).length;
   const headerState: boolean | "indeterminate" =
-    students.length > 0 && selectedOnPage.length === students.length
+    students.length > 0 && selectedOnPageCount === students.length
       ? true
-      : selectedOnPage.length > 0
+      : selectedOnPageCount > 0
         ? "indeterminate"
         : false;
 
-  const toggleRow = useCallback((student: StudentUser) => {
-    setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(student.id)) next.delete(student.id);
-      else next.set(student.id, student);
-      return next;
-    });
-  }, []);
+  const toggleRow = useCallback(
+    (student: StudentUser) => {
+      if (selectAllMatching) {
+        setExcludedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(student.id)) next.delete(student.id);
+          else next.add(student.id);
+          return next;
+        });
+        return;
+      }
+      setSelected((prev) => {
+        const next = new Map(prev);
+        if (next.has(student.id)) next.delete(student.id);
+        else next.set(student.id, student);
+        return next;
+      });
+    },
+    [selectAllMatching],
+  );
 
   const toggleAllOnPage = useCallback(() => {
+    if (selectAllMatching) {
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        // If every row on this page is currently included, exclude them all.
+        const allIncluded =
+          students.length > 0 && students.every((s) => !next.has(s.id));
+        if (allIncluded) students.forEach((s) => next.add(s.id));
+        else students.forEach((s) => next.delete(s.id));
+        return next;
+      });
+      return;
+    }
     setSelected((prev) => {
       const next = new Map(prev);
       const allSelected =
@@ -223,7 +282,20 @@ function StudentPage() {
       }
       return next;
     });
-  }, [students]);
+  }, [students, selectAllMatching]);
+
+  // Offer to expand a full-page selection to every matching student.
+  const showExpandOffer =
+    !selectAllMatching &&
+    students.length > 0 &&
+    selectedOnPageCount === students.length &&
+    total > students.length;
+
+  const enterSelectAllMatching = useCallback(() => {
+    setSelected(new Map());
+    setExcludedIds(new Set());
+    setSelectAllMatching(true);
+  }, []);
 
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
@@ -276,13 +348,22 @@ function StudentPage() {
   };
 
   const handleBulkDelete = async () => {
-    const ids = [...selected.keys()].map(String);
-    if (!ids.length) {
+    if (!selectAllMatching && selected.size === 0) {
       setDeleteConfirmOpen(false);
       return;
     }
     try {
-      const res = await bulkDeleteUsers.mutateAsync({ ids });
+      const res = await bulkDeleteUsers.mutateAsync(
+        selectAllMatching
+          ? {
+              selectAll: true,
+              filters: currentFilters,
+              excludeIds: [...excludedIds].map(String),
+              expectedCount: effectiveSelectedCount,
+              force: forceDelete,
+            }
+          : { ids: [...selected.keys()].map(String), force: forceDelete },
+      );
       if (!res.data) {
         toast.error(res.msg || "Unable to delete students.");
         return;
@@ -329,16 +410,57 @@ function StudentPage() {
         onInGroupChange={setInGroup}
       />
 
-      {selected.size > 0 && (
+      {effectiveSelectedCount > 0 && (
         <StudentBulkActionsBar
-          count={selected.size}
+          count={effectiveSelectedCount}
           groupedCount={groupedSelected.length}
           onAssign={() => setBatchAssignOpen(true)}
           onRemove={() => setRemoveConfirmOpen(true)}
-          onDelete={() => setDeleteConfirmOpen(true)}
+          onDelete={() => {
+            setDeleteConfirmText("");
+            setForceDelete(false);
+            setDeleteConfirmOpen(true);
+          }}
           onClear={clearSelection}
           isPending={isRemoving || bulkDeleteUsers.isPending}
+          disableGroupActions={selectAllMatching}
         />
+      )}
+
+      {(showExpandOffer || selectAllMatching) && !isPending && (
+        <div className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-center text-sm">
+          {selectAllMatching ? (
+            <span className="inline-flex flex-wrap items-center justify-center gap-2">
+              <span aria-live="polite" className="font-medium">
+                {excludedIds.size > 0
+                  ? `${effectiveSelectedCount} of ${total} students selected.`
+                  : `All ${total} students matching these filters are selected.`}
+              </span>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 font-semibold underline"
+                onClick={clearSelection}
+              >
+                Clear selection
+              </Button>
+            </span>
+          ) : (
+            <span className="inline-flex flex-wrap items-center justify-center gap-2">
+              <span className="font-medium">
+                All {students.length} students on this page are selected.
+              </span>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 font-semibold underline"
+                onClick={enterSelectAllMatching}
+              >
+                Select all {total} students matching these filters
+              </Button>
+            </span>
+          )}
+        </div>
       )}
 
       <StudentTable
@@ -357,7 +479,7 @@ function StudentPage() {
         manualSorting
         isPending={isPending}
         selection={{
-          isSelected: (id) => selected.has(id),
+          isSelected: isRowSelected,
           onToggleRow: toggleRow,
           headerState,
           onToggleAll: toggleAllOnPage,
@@ -412,26 +534,81 @@ function StudentPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open);
+          if (!open) {
+            setDeleteConfirmText("");
+            setForceDelete(false);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {selected.size}{" "}
-              {selected.size === 1 ? "student" : "students"}?
+              Delete {effectiveSelectedCount}{" "}
+              {effectiveSelectedCount === 1 ? "student" : "students"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes the selected{" "}
-              {selected.size === 1 ? "account" : "accounts"} and all related
-              data. This cannot be undone.
+              {effectiveSelectedCount === 1 ? "account" : "accounts"} and all
+              related data. This cannot be undone.
+              {selectAllMatching ? (
+                <> Every student matching the current filters will be deleted.</>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3">
+            <label
+              htmlFor="student-bulk-delete-force"
+              className="flex items-start gap-2 text-sm"
+            >
+              <input
+                id="student-bulk-delete-force"
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={forceDelete}
+                onChange={(event) => setForceDelete(event.target.checked)}
+              />
+              <span>
+                Force delete — also permanently delete each student's chat
+                messages, uploaded resources, and other activity. Required to
+                remove accounts that have any activity.
+              </span>
+            </label>
+            {forceDelete ? (
+              <p className="text-sm font-medium text-destructive">
+                This destroys their content for everyone, not just the account,
+                and cannot be undone.
+              </p>
+            ) : null}
+            {selectAllMatching || forceDelete ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="student-bulk-delete-confirm">
+                  Type <span className="font-semibold">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="student-bulk-delete-confirm"
+                  autoComplete="off"
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                />
+              </div>
+            ) : null}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={bulkDeleteUsers.isPending}
+              disabled={
+                bulkDeleteUsers.isPending ||
+                ((selectAllMatching || forceDelete) &&
+                  deleteConfirmText !== "DELETE")
+              }
               onClick={(event) => {
                 event.preventDefault();
                 void handleBulkDelete();

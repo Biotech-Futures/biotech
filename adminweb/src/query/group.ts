@@ -122,6 +122,24 @@ export function useUpdateGroup() {
   });
 }
 
+// Soft-delete a group (sets deleted_at server-side; the group drops out of lists).
+export function useDeleteGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await myFetch.delete<{ msg: string; data: Group | null }>(
+        `/group/${id}`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
 export function useRemoveGroupMember() {
   const queryClient = useQueryClient();
   return useMutation({
