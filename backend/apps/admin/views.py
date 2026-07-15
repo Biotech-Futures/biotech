@@ -70,6 +70,7 @@ class UserListCreateView(APIView):
             search=request.query_params.get("search"),
             role=request.query_params.get("role"),
             state=request.query_params.get("state"),
+            country=request.query_params.get("country"),
             active=active,
             in_group=request.query_params.get("inGroup"),
             sort_by=request.query_params.get("sortBy", "createdAt"),

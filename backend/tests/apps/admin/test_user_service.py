@@ -12,7 +12,7 @@ from apps.admin.services.user import (
 )
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import StudentProfile, MentorProfile, User
+from apps.users.models import StudentProfile, MentorProfile, User, StudentSupervisor
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -881,3 +881,119 @@ class AdminUserServiceBulkDeleteTests(TestCase):
         self.assertCountEqual(result["data"]["deletedIds"], [self.a.id, self.b.id])
         self.assertEqual(result["data"]["skippedAdmins"], 1)
         self.assertTrue(User.objects.filter(id=self.admin.id).exists())
+
+
+class SupervisorFromStudentImportTests(TestCase):
+    """Supervisors created as a side effect of a student row must look like every
+    other imported user: active, and in the student's state."""
+
+    def setUp(self):
+        # Fixture-only country/state so the assertions can't collide with real rows.
+        self.country, _ = Countries.objects.get_or_create(country_name="Zedonia")
+        self.state = CountryStates.objects.create(
+            country=self.country, state_name="Zednsw"
+        )
+        for name in ["student", "supervisor"]:
+            Roles.objects.get_or_create(role_name=name)
+
+    def _import_student(self, **overrides):
+        payload = {
+            "email": "zed-kid@example.com",
+            "firstName": "Kid",
+            "lastName": "Student",
+            "role": "student",
+            "state": "Zednsw",
+            "country": "Zedonia",
+            "schoolName": "Test High",
+            "yearLevel": 10,
+            "interests": ["Biotechnology"],
+            "supervisorEmail": "zed-sup@example.com",
+            "supervisorFirstName": "Sam",
+            "supervisorLastName": "Super",
+        }
+        payload.update(overrides)
+        return bulk_create_users([payload], admin_user_id=None)
+
+    def test_created_supervisor_is_active(self):
+        self._import_student()
+        sup = User.objects.get(email="zed-sup@example.com")
+        self.assertTrue(sup.is_active)
+        self.assertEqual(sup.account_status, User.AccountStatus.ACTIVE)
+
+    def test_created_supervisor_inherits_student_state(self):
+        self._import_student()
+        sup = User.objects.get(email="zed-sup@example.com")
+        self.assertEqual(sup.state_id, self.state.id)
+        self.assertEqual(sup.state.country.country_name, "Zedonia")
+
+    def test_created_supervisor_is_mapped_to_student(self):
+        self._import_student()
+        sup = User.objects.get(email="zed-sup@example.com")
+        student = User.objects.get(email="zed-kid@example.com")
+        profile = StudentProfile.objects.get(user_id=student.id)
+        self.assertEqual(profile.supervisor_id, sup.id)
+        self.assertTrue(
+            StudentSupervisor.objects.filter(
+                student_user_id=student.id, supervisor_user_id=sup.id
+            ).exists()
+        )
+
+    def test_existing_supervisor_is_not_reactivated_or_moved(self):
+        other_state = CountryStates.objects.create(
+            country=self.country, state_name="Zedvic"
+        )
+        existing = User.objects.create_user(
+            email="zed-sup@example.com", first_name="Sam", last_name="Super",
+            password=None, state_id=other_state.id, is_active=False,
+            account_status=User.AccountStatus.DEACTIVATED,
+        )
+        self._import_student()
+        existing.refresh_from_db()
+        self.assertFalse(existing.is_active)
+        self.assertEqual(existing.state_id, other_state.id)
+
+    def test_stateless_existing_supervisor_gets_backfilled(self):
+        existing = User.objects.create_user(
+            email="zed-sup@example.com", first_name="Sam", last_name="Super",
+            password=None,
+        )
+        self.assertIsNone(existing.state_id)
+        self._import_student()
+        existing.refresh_from_db()
+        self.assertEqual(existing.state_id, self.state.id)
+
+
+class UserCountryFilterTests(TestCase):
+    """Country filter must disambiguate states that share a name across countries."""
+
+    def setUp(self):
+        # Two fixture countries sharing a state name — the exact ambiguity the
+        # country filter exists to resolve. Names are fixture-only so real rows
+        # in the dev DB can't satisfy these filters.
+        zed, _ = Countries.objects.get_or_create(country_name="Zedonia")
+        yar, _ = Countries.objects.get_or_create(country_name="Yartonia")
+        self.zed_vic = CountryStates.objects.create(country=zed, state_name="Sharedvic")
+        self.yar_vic = CountryStates.objects.create(country=yar, state_name="Sharedvic")
+        self.zed_user = User.objects.create_user(
+            email="zed-user@example.com", first_name="Z", last_name="User",
+            password="x", state_id=self.zed_vic.id,
+        )
+        self.yar_user = User.objects.create_user(
+            email="yar-user@example.com", first_name="Y", last_name="User",
+            password="x", state_id=self.yar_vic.id,
+        )
+
+    def test_country_filter_narrows_same_named_state(self):
+        result = query_users(country="Zedonia", state="Sharedvic")
+        emails = [u["email"] for u in result["data"]["items"]]
+        self.assertEqual(emails, ["zed-user@example.com"])
+
+    def test_state_without_country_still_matches_both(self):
+        result = query_users(state="Sharedvic")
+        emails = sorted(u["email"] for u in result["data"]["items"])
+        self.assertEqual(emails, ["yar-user@example.com", "zed-user@example.com"])
+
+    def test_country_filter_alone(self):
+        result = query_users(country="Yartonia")
+        emails = [u["email"] for u in result["data"]["items"]]
+        self.assertEqual(emails, ["yar-user@example.com"])

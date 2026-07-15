@@ -65,16 +65,18 @@ type UserSearchParams = {
   limit?: number;
   search?: string;
   role?: UserRole;
+  country?: string;
   state?: string;
   status?: UserStatusFilter;
   sort?: SortOption;
 };
 type EditableUserSearchParams = Omit<
   Partial<UserSearchParams>,
-  "role" | "state"
+  "role" | "state" | "country"
 > & {
   role?: UserRole | "all";
   state?: string | "all";
+  country?: string | "all";
 };
 
 export const Route = createFileRoute("/_auth/people/")({
@@ -109,6 +111,10 @@ export const Route = createFileRoute("/_auth/people/")({
       params.role = search.role as UserRole;
     }
 
+    if (typeof search.country === "string" && search.country.trim()) {
+      params.country = search.country;
+    }
+
     if (typeof search.state === "string" && search.state.trim()) {
       params.state = search.state;
     }
@@ -138,6 +144,7 @@ function UserManagementPage() {
   const searchParams = Route.useSearch();
   const search = searchParams.search ?? "";
   const role = searchParams.role ?? "all";
+  const countryFilter = searchParams.country ?? "all";
   const stateFilter = searchParams.state ?? "all";
   const status = searchParams.status ?? "all";
   const sort = searchParams.sort ?? "createdAt_desc";
@@ -187,6 +194,7 @@ function UserManagementPage() {
   const currentFilters: BulkStatusFilters = {
     search: search.trim() || undefined,
     role: role === "all" ? undefined : role,
+    country: countryFilter === "all" ? undefined : countryFilter,
     state: stateFilter === "all" ? undefined : stateFilter,
     active: status === "all" ? undefined : status === "active",
   };
@@ -215,6 +223,7 @@ function UserManagementPage() {
     filters: Partial<{
       search: string;
       role: UserRole | "all";
+      country: string | "all";
       state: string | "all";
       status: UserStatusFilter;
       sort: SortOption;
@@ -528,6 +537,11 @@ function UserManagementPage() {
           onSearchChange={(value) => updateFilters({ search: value })}
           role={role}
           onRoleChange={(value) => updateFilters({ role: value })}
+          country={countryFilter}
+          // Changing country invalidates the chosen state, so clear both at once.
+          onCountryChange={(value) =>
+            updateFilters({ country: value, state: "all" })
+          }
           state={stateFilter}
           onStateChange={(value) => updateFilters({ state: value })}
           states={statesData?.data ?? []}
@@ -770,6 +784,7 @@ function cleanSearchParams(params: EditableUserSearchParams): UserSearchParams {
   }
   if (search) next.search = search;
   if (params.role && params.role !== "all") next.role = params.role;
+  if (params.country && params.country !== "all") next.country = params.country;
   if (params.state && params.state !== "all") next.state = params.state;
   if (params.status && params.status !== "all") next.status = params.status;
   if (params.sort && params.sort !== "createdAt_desc") next.sort = params.sort;

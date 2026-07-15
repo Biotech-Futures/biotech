@@ -68,6 +68,7 @@ type BulkStatusResult = {
 export type BulkStatusFilters = {
   search?: string;
   role?: UserRole;
+  country?: string;
   state?: string;
   active?: boolean;
   // Students tab: restrict to grouped ("yes") or ungrouped ("no") users.
@@ -93,6 +94,7 @@ interface QueryUsersParams {
   limit?: number;
   search?: string;
   role?: UserRole;
+  country?: string;
   state?: string;
   active?: boolean;
   sortBy?: "name" | "email" | "role" | "state" | "status" | "createdAt";
@@ -113,10 +115,10 @@ function writeStorage<T>(key: string, value: T) {
 }
 
 export function useQueryUsers(params: QueryUsersParams = {}) {
-  const { page = 1, limit = 100, search, role, state, active, sortBy, sortOrder } = params;
+  const { page = 1, limit = 100, search, role, country, state, active, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["users", page, limit, search, role, state, active, sortBy, sortOrder],
+    queryKey: ["users", page, limit, search, role, country, state, active, sortBy, sortOrder],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -145,6 +147,7 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
           limit,
           search,
           role,
+          country,
           state,
           active,
           sortBy,
