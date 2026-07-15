@@ -10,6 +10,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useState } from "react";
+import { AlertTriangleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,10 +33,19 @@ function RouteComponent() {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [confirmedCount, setConfirmedCount] = useState(0);
 
-  const { data: unmatchedGroupsData, isPending: isLoadingGroups } =
-    useQueryUnmatchedGroups();
-  const { data: mentorListData, isPending: isLoadingMentors } =
-    useQueryMentorList();
+  const {
+    data: unmatchedGroupsData,
+    isPending: isLoadingGroups,
+    error: groupsError,
+    refetch: refetchGroups,
+  } = useQueryUnmatchedGroups();
+  const {
+    data: mentorListData,
+    isPending: isLoadingMentors,
+    error: mentorsError,
+    refetch: refetchMentors,
+  } = useQueryMentorList();
+  const loadError = groupsError ?? mentorsError;
   const {
     data: matchInfoData,
     isFetching: isMatching,
@@ -79,6 +89,27 @@ function RouteComponent() {
     <div className="space-y-4">
       {isLoadingGroups || isLoadingMentors ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : loadError ? (
+        // Without this, a failed load renders an empty board that reads as "everything is matched"
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm">
+          <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div className="space-y-2">
+            <p className="font-medium text-destructive">
+              Could not load mentor matching data
+            </p>
+            <p className="text-muted-foreground">{loadError.message}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void refetchGroups();
+                void refetchMentors();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
       ) : (
         <MentorMatchingBoard
           recommendations={recommendations}

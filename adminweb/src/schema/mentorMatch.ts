@@ -12,7 +12,8 @@ export const groupStudentSchema = z.object({
 export const unmatchedGroupSchema = z.object({
   groupId: z.number(),
   groupName: z.string(),
-  countryName: z.string(),
+  // null when no member has a known country (empty group, or students with no state set)
+  countryName: z.string().nullable(),
   studentInterests: z.array(z.string()),
   studentCount: z.number(),
   students: z.array(groupStudentSchema).optional(),
@@ -36,7 +37,7 @@ export const mentorScoreBreakdownSchema = z.object({
 export const recommendedMentorSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
-  countryName: z.string(),
+  countryName: z.string().nullable(),
   institution: z.string().nullable(),
   interests: z.array(z.string()),
   remainingCapacity: z.number(),
@@ -46,7 +47,7 @@ export const mentorGroupRecommendationSchema = z.object({
   group: z.object({
     groupId: z.number(),
     groupName: z.string(),
-    countryName: z.string(),
+    countryName: z.string().nullable(),
     studentInterests: z.array(z.string()),
     studentCount: z.number(),
     students: z.array(groupStudentSchema).optional(),
@@ -66,7 +67,7 @@ export const mentorMatchResponseSchema = z.object({
 export const mentorListItemSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
-  countryName: z.string(),
+  countryName: z.string().nullable(),
   institution: z.string().nullable(),
   interests: z.array(z.string()),
   maxGroupCount: z.number(),
@@ -93,7 +94,7 @@ export const matchedGroupMentorSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
   isActive: z.boolean(),
-  countryName: z.string(),
+  countryName: z.string().nullable(),
   institution: z.string().nullable(),
 });
 
@@ -101,7 +102,7 @@ export const matchedGroupSchema = z.object({
   membershipId: z.number(),
   groupId: z.number(),
   groupName: z.string(),
-  countryName: z.string(),
+  countryName: z.string().nullable(),
   studentCount: z.number().default(0),
   students: z.array(groupStudentSchema).default([]),
   mentor: matchedGroupMentorSchema,

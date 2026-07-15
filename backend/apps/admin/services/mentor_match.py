@@ -15,6 +15,30 @@ from apps.admin.algorithms.mentor import match_mentors, score_mentor_for_group
 from apps.admin.services.mentor import get_mentor_list
 
 
+def unmatched_groups_qs():
+    """Live groups that need a mentor: no mentor member, and at least one student to mentor.
+
+    Empty groups are excluded — a mentor on a 0-student group is meaningless, and the
+    algorithm scores on student interests, so they would consume capacity for no benefit.
+    """
+    mentor_subquery = GroupMembership.objects.filter(
+        group_id=OuterRef('id'),
+        left_at__isnull=True,
+        user__mentorprofile__isnull=False,
+    )
+    student_subquery = GroupMembership.objects.filter(
+        group_id=OuterRef('id'),
+        left_at__isnull=True,
+        user__studentprofile__isnull=False,
+    )
+
+    return Groups.objects.filter(
+        ~Exists(mentor_subquery),
+        Exists(student_subquery),
+        deleted_at__isnull=True,
+    )
+
+
 def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: str) -> Dict[Any, List[str]]:
     """Group interests by a key field"""
     interest_map = {}
@@ -186,17 +210,8 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         List of mentor match recommendations
     """
     # Find groups without mentors
-    mentor_subquery = GroupMembership.objects.filter(
-        group_id=OuterRef('id'),
-        left_at__isnull=True,
-        user__mentorprofile__isnull=False
-    )
-    
     groups_without_mentor = (
-        Groups.objects
-        .filter(
-            ~Exists(mentor_subquery), deleted_at__isnull=True
-        )
+        unmatched_groups_qs()
         .values(
             'group_name',
             group_id=F('id'),
@@ -311,16 +326,8 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     Returns:
         List of unmatched group dictionaries
     """
-    mentor_subquery = GroupMembership.objects.filter(
-        group_id=OuterRef('id'),
-        left_at__isnull=True,
-        user__mentorprofile__isnull=False
-    )
-
-    groups_qs = Groups.objects.filter(~Exists(mentor_subquery), deleted_at__isnull=True)
-
     unmatched_groups_base = (
-        groups_qs
+        unmatched_groups_qs()
         .values(
             'group_name',
             group_id=F('id'),

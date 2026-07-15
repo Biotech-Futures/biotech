@@ -268,7 +268,7 @@ export function MatchedGroupsPanel() {
                     </TableCell>
                     <TableCell className="font-medium">{group.groupName}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{group.countryName}</Badge>
+                      <Badge variant="outline">{group.countryName ?? "Unknown"}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {group.studentCount}
@@ -387,7 +387,7 @@ export function MatchedGroupsPanel() {
                                 <p className="text-xs text-muted-foreground">{group.mentor.institution}</p>
                               )}
                               <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">{group.mentor.countryName}</Badge>
+                                <Badge variant="outline" className="text-xs">{group.mentor.countryName ?? "Unknown"}</Badge>
                                 {group.mentor.isActive ? (
                                   <span className="text-xs text-green-600">Active</span>
                                 ) : (
