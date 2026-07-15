@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import {
   USER_ROLES,
+  labelizeUserRole,
   type StateOption,
   type UserRole,
 } from "@/type/user";
@@ -18,6 +20,8 @@ interface UserFiltersProps {
   onSearchChange: (value: string) => void;
   role: UserRole | "all";
   onRoleChange: (value: UserRole | "all") => void;
+  country: string | "all";
+  onCountryChange: (value: string | "all") => void;
   state: string | "all";
   onStateChange: (value: string | "all") => void;
   states?: StateOption[];
@@ -30,17 +34,36 @@ export function UserFilters({
   onSearchChange,
   role,
   onRoleChange,
+  country,
+  onCountryChange,
   state,
   onStateChange,
   states,
   status,
   onStatusChange,
 }: UserFiltersProps) {
-  const availableStates = states ?? [];
+  const availableStates = useMemo(() => states ?? [], [states]);
+
+  const countries = useMemo(() => {
+    const unique = new Set<string>();
+    for (const item of availableStates) {
+      if (item.countryName) unique.add(item.countryName);
+    }
+    return [...unique].sort((a, b) => a.localeCompare(b));
+  }, [availableStates]);
+
+  // Cascade: once a country is picked, only its states are selectable.
+  const visibleStates = useMemo(
+    () =>
+      country === "all"
+        ? availableStates
+        : availableStates.filter((item) => item.countryName === country),
+    [availableStates, country],
+  );
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-      <div className="space-y-1">
+    <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="space-y-1.5">
         <Label htmlFor="user-search">Search</Label>
         <Input
           id="user-search"
@@ -50,18 +73,35 @@ export function UserFilters({
         />
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <Label htmlFor="user-role">Role</Label>
         <Select
           value={role}
           onValueChange={(value) => onRoleChange(value as UserRole | "all")}
         >
-          <SelectTrigger id="user-role">
+          <SelectTrigger id="user-role" className="w-full">
             <SelectValue placeholder="All roles" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All roles</SelectItem>
             {USER_ROLES.map((item) => (
+              <SelectItem key={item} value={item}>
+                {labelizeUserRole(item)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="user-country">Country</Label>
+        <Select value={country} onValueChange={onCountryChange}>
+          <SelectTrigger id="user-country" className="w-full">
+            <SelectValue placeholder="All countries" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All countries</SelectItem>
+            {countries.map((item) => (
               <SelectItem key={item} value={item}>
                 {item}
               </SelectItem>
@@ -70,20 +110,18 @@ export function UserFilters({
         </Select>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <Label htmlFor="user-state">State</Label>
-        <Select
-          value={state}
-          onValueChange={(value) => onStateChange(value)}
-        >
-          <SelectTrigger id="user-state">
+        <Select value={state} onValueChange={onStateChange}>
+          <SelectTrigger id="user-state" className="w-full">
             <SelectValue placeholder="All states" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All states</SelectItem>
-            {availableStates.map((item) => (
+            {visibleStates.map((item) => (
               <SelectItem key={item.id} value={item.stateName}>
-                {item.countryName
+                {/* State names repeat across countries, so qualify them until a country narrows the list. */}
+                {country === "all" && item.countryName
                   ? `${item.stateName} · ${item.countryName}`
                   : item.stateName}
               </SelectItem>
@@ -92,7 +130,7 @@ export function UserFilters({
         </Select>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <Label htmlFor="user-status">Status</Label>
         <Select
           value={status}
@@ -100,7 +138,7 @@ export function UserFilters({
             onStatusChange(value as "all" | "active" | "inactive")
           }
         >
-          <SelectTrigger id="user-status">
+          <SelectTrigger id="user-status" className="w-full">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>

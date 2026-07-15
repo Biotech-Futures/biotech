@@ -109,6 +109,7 @@ def _resolve_supervisor_id(
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
     school_name: Optional[str] = None,
+    state_id: Optional[int] = None,
 ) -> Optional[int]:
     """
     Resolve a student's supervisor to a SupervisorProfile id.
@@ -117,6 +118,10 @@ def _resolve_supervisor_id(
     imports carry the supervisor's name) and no user exists, get_or_creates the
     supervisor User + supervisor role + SupervisorProfile. Returns None when
     there is nothing to link/create.
+
+    A created supervisor inherits the student's state and lands active, matching
+    how add_users_by_role creates every other user — imports carry no separate
+    supervisor state column, and the pair are always at the same school.
     """
     email = (supervisor_email or "").strip()
     if not email:
@@ -126,18 +131,28 @@ def _resolve_supervisor_id(
     if sup_user is None:
         if not (first_name or last_name):
             return None  # lookup-only: no name to create a supervisor with
+        now = timezone.now()
         sup_user = User.objects.create_user(
             email=email.lower(),
             first_name=(first_name or "").strip(),
             last_name=(last_name or "").strip(),
             password=None,
+            state_id=state_id,
+            is_active=True,
+            account_status=STATUS_ACTIVE,
+            invited_at=now,
+            activated_at=now,
         )
         RoleAssignmentHistory.objects.create(
             user_id=sup_user.id,
             role_id=resolve_role_id("supervisor"),
-            valid_from=timezone.now(),
+            valid_from=now,
             valid_to=None,
         )
+    elif state_id and sup_user.state_id is None:
+        # Backfill supervisors created before they inherited a state.
+        sup_user.state_id = state_id
+        sup_user.save(update_fields=["state"])
 
     sup_profile, _ = SupervisorProfile.objects.get_or_create(
         user_id=sup_user.id,
@@ -159,6 +174,7 @@ def upsert_student_profile(
     guardian_last_name: Optional[str] = None,
     guardian_email: Optional[str] = None,
     joinperm_response_id: Any = _UNSET,
+    state_id: Optional[int] = None,
 ) -> None:
     """
     Create or update student profile.
@@ -194,6 +210,7 @@ def upsert_student_profile(
             supervisor_first_name,
             supervisor_last_name,
             school_name,
+            state_id,
         )
 
     student_profile, _ = StudentProfile.objects.update_or_create(
@@ -440,7 +457,7 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None):
     """Filtered (unpaginated) user queryset shared by the list view and
     filter-based bulk actions, so 'select all matching' hits exactly the rows
     the list would show for the same filters."""
@@ -462,6 +479,10 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
             Q(roleassignmenthistory__valid_to__gte=now)
         )
 
+    if country:
+        filters &= Q(state__country__country_name=country)
+
+    # State names are unique only per country, so pair with country when both are set.
     if state:
         filters &= Q(state__state_name=state)
 
@@ -478,7 +499,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                role: Optional[str] = None, state: Optional[str] = None,
                active: Optional[bool] = None, in_group: Optional[str] = None,
                sort_by: str = "createdAt", sort_order: str = "desc",
-               requesting_user=None) -> Dict[str, Any]:
+               requesting_user=None, country: Optional[str] = None) -> Dict[str, Any]:
     """
     Query users with pagination and filters.
     """
@@ -486,6 +507,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
+        country=country,
     )
 
     # Get total count
@@ -1040,6 +1062,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         joinperm_response_id=input_data.get(
                             "joinpermResponseId", _UNSET
                         ),
+                        state_id=state_id,
                     )
                 
                 if role == "supervisor":
@@ -1365,6 +1388,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     input_data.get("schoolName"),
                     input_data.get("yearLevel"),
                     supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
+                    state_id=user.state_id,
                 )
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
@@ -1530,6 +1554,7 @@ def bulk_update_status_by_filter(filters: Dict[str, Any], is_active: bool,
         state=filters.get("state"),
         active=active_filter if isinstance(active_filter, bool) else None,
         in_group=filters.get("inGroup"),
+        country=filters.get("country"),
     )
     ids = list(queryset.values_list("id", flat=True).distinct())
 
@@ -1709,6 +1734,7 @@ def bulk_delete_users_by_filter(filters: Dict[str, Any], exclude_ids=None,
         state=filters.get("state"),
         active=active_filter if isinstance(active_filter, bool) else None,
         in_group=filters.get("inGroup"),
+        country=filters.get("country"),
     )
     ids = list(queryset.values_list("id", flat=True).distinct())
 
