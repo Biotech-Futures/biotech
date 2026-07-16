@@ -42,6 +42,8 @@ export function useQueryMentorList() {
       const res = await myFetch.get("mentor-match/mentors");
       return mentorListResponseSchema.parse(res.data);
     },
+    // Capacity shifts as assignments are confirmed on either matching tab.
+    refetchOnMount: true,
   });
 }
 

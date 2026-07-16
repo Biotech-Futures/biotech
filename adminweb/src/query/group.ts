@@ -45,6 +45,9 @@ export function useQueryGroups(params: QueryGroupsParams) {
       });
       return res.data;
     },
+    // Mentor assignments change on the sibling matching tabs; the global
+    // refetchOnMount:false would otherwise serve stale rows on tab switch.
+    refetchOnMount: true,
   });
 }
 
