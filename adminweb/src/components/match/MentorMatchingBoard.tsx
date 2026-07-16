@@ -97,7 +97,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
         <div className="text-xs space-y-1">
           <p className="font-medium">{group.groupName}</p>
           <p className="text-muted-foreground">
-            Country: <span className="text-foreground">{group.countryName}</span>
+            Country: <span className="text-foreground">{group.countryName ?? "Unknown"}</span>
           </p>
           <p className="text-muted-foreground">
             Students: <span className="text-foreground">{group.studentCount}</span>
@@ -210,7 +210,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
               <p className="text-muted-foreground">{recommendedMentor.institution}</p>
             )}
             <p className="text-muted-foreground">
-              Country: <span className="text-foreground">{recommendedMentor.countryName}</span>
+              Country: <span className="text-foreground">{recommendedMentor.countryName ?? "Unknown"}</span>
             </p>
             <p className="text-muted-foreground">
               Remaining capacity:{" "}
@@ -280,7 +280,11 @@ export function MentorMatchingBoard({
   const availableCountries = useMemo(() => {
     return [
       "all",
-      ...new Set(recommendations.map((r) => r.group.countryName).filter(Boolean)),
+      ...new Set(
+        recommendations
+          .map((r) => r.group.countryName)
+          .filter((c): c is string => Boolean(c)),
+      ),
     ];
   }, [recommendations]);
 
@@ -293,7 +297,7 @@ export function MentorMatchingBoard({
         return (
           r.group.groupName.toLowerCase().includes(query) ||
           r.recommendedMentor?.name.toLowerCase().includes(query) ||
-          r.group.countryName.toLowerCase().includes(query)
+          r.group.countryName?.toLowerCase().includes(query)
         );
       });
   }, [recommendations, countryFilter, search]);
@@ -539,7 +543,7 @@ export function MentorMatchingBoard({
                           )}
                           <span className="text-sm truncate">{g.groupName}</span>
                         </div>
-                        <Badge variant="outline" className="text-xs flex-shrink-0 ml-2">{g.countryName}</Badge>
+                        <Badge variant="outline" className="text-xs flex-shrink-0 ml-2">{g.countryName ?? "Unknown"}</Badge>
                       </button>
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 bg-muted/10 space-y-2">
@@ -636,7 +640,7 @@ export function MentorMatchingBoard({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                          <Badge variant="outline" className="text-xs">{m.countryName}</Badge>
+                          <Badge variant="outline" className="text-xs">{m.countryName ?? "Unknown"}</Badge>
                           <span className="text-xs text-muted-foreground">{m.currentAssignedCount}/{m.maxGroupCount}</span>
                         </div>
                       </button>
@@ -846,7 +850,7 @@ export function MentorMatchingBoard({
                         {rec.group.groupName}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{rec.group.countryName}</Badge>
+                        <Badge variant="outline">{rec.group.countryName ?? "Unknown"}</Badge>
                       </TableCell>
                       <TableCell>{rec.group.studentCount}</TableCell>
 
@@ -872,7 +876,7 @@ export function MentorMatchingBoard({
                               <option value="">— Select mentor —</option>
                               {mentors.map((m) => (
                                 <option key={m.mentorId} value={m.mentorId}>
-                                  {m.name} ({m.countryName}, {m.remainingCapacity} left)
+                                  {m.name} ({m.countryName ?? "Unknown"}, {m.remainingCapacity} left)
                                 </option>
                               ))}
                             </select>

@@ -73,6 +73,34 @@ class MentorMatchServiceTests(TestCase):
         result = get_unmatched_groups(requesting_user=self.admin_user)
         self.assertEqual(result, [])
 
+    def test_get_unmatched_groups_skips_groups_with_no_students(self):
+        Groups.objects.create(group_name="Empty Group")
+        result = get_unmatched_groups(requesting_user=self.admin_user)
+        self.assertEqual([g["groupName"] for g in result], ["Group A"])
+
+    def test_match_mentor_skips_groups_with_no_students(self):
+        Groups.objects.create(group_name="Empty Group")
+        result = match_mentor(str(self.admin_user.id))
+        self.assertEqual([r["group"]["groupName"] for r in result], ["Group A"])
+
+    def test_get_unmatched_groups_country_is_none_when_no_student_has_a_state(self):
+        stateless = Groups.objects.create(group_name="Stateless Group")
+        student = User.objects.create_user(
+            email="nostate@example.com", first_name="No", last_name="State",
+            state=None, password="testpass",
+        )
+        StudentProfile.objects.create(
+            user=student, pg_first_name="P", pg_last_name="E",
+            parent_guardian_flag=True, school_name="School", year_lvl="10",
+        )
+        GroupMembership.objects.create(
+            user=student, group=stateless, membership_role=STUDENT_ROLE,
+        )
+
+        result = get_unmatched_groups(requesting_user=self.admin_user)
+        group = next(g for g in result if g["groupName"] == "Stateless Group")
+        self.assertIsNone(group["countryName"])
+
     def test_get_matched_groups(self):
         GroupMembership.objects.create(
             user=self.mentor, group=self.group,

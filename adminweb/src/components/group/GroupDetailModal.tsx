@@ -467,7 +467,7 @@ export function GroupDetailModal({
                       )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge variant="outline" className="text-xs">{m.countryName}</Badge>
+                      <Badge variant="outline" className="text-xs">{m.countryName ?? "Unknown"}</Badge>
                       <span className={cn(
                         "text-xs",
                         m.remainingCapacity === 0 ? "text-destructive" : "text-muted-foreground",

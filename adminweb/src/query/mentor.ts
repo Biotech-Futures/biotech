@@ -32,7 +32,7 @@ const mentorDetailSchema = z.object({
   email: z.string(),
   isActive: z.boolean(),
   institution: z.string().nullable(),
-  countryName: z.string(),
+  countryName: z.string().nullable(),
   maxGroupCount: z.number(),
   currentAssignedCount: z.number(),
   remainingCapacity: z.number(),

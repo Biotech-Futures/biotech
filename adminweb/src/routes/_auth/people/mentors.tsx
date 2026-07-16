@@ -435,7 +435,7 @@ function MentorPage() {
                       </p>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{mentor.countryName}</Badge>
+                      <Badge variant="outline">{mentor.countryName ?? "Unknown"}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {mentor.institution ?? "—"}
