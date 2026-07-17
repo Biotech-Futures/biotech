@@ -5,7 +5,8 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from apps.admin.services.user import (
-    query_users, query_user_by_id, query_states,
+    query_users, query_user_by_id, query_countries, query_states,
+    fetch_user_by_id,
     create_user, update_user, update_status, bulk_update_status,
     bulk_update_status_by_filter, delete_user, bulk_delete_users,
     bulk_delete_users_by_filter, has_ungrouped_students, bulk_create_users,
@@ -294,7 +295,7 @@ class AdminUserServiceCreateUserTests(TestCase):
         self.assertEqual(result["msg"], "School is required for student users")
         self.assertIsNone(result["data"])
 
-    def test_create_student_missing_state_returns_error(self):
+    def test_create_student_missing_country_returns_error(self):
         result = create_user({
             "email": "student3@example.com",
             "firstName": "Cara",
@@ -305,7 +306,7 @@ class AdminUserServiceCreateUserTests(TestCase):
             "interests": ["Biotech"],
         })
 
-        self.assertEqual(result["msg"], "State is required")
+        self.assertEqual(result["msg"], "Country is required")
         self.assertIsNone(result["data"])
 
     def test_create_mentor_user(self):
@@ -924,7 +925,13 @@ class SupervisorFromStudentImportTests(TestCase):
         self._import_student()
         sup = User.objects.get(email="zed-sup@example.com")
         self.assertEqual(sup.state_id, self.state.id)
-        self.assertEqual(sup.state.country.country_name, "Zedonia")
+        self.assertEqual(sup.country_id, self.country.id)
+
+    def test_created_supervisor_inherits_country_without_a_state(self):
+        self._import_student(state="")
+        sup = User.objects.get(email="zed-sup@example.com")
+        self.assertEqual(sup.country_id, self.country.id)
+        self.assertIsNone(sup.state_id)
 
     def test_created_supervisor_is_mapped_to_student(self):
         self._import_student()
@@ -976,11 +983,11 @@ class UserCountryFilterTests(TestCase):
         self.yar_vic = CountryStates.objects.create(country=yar, state_name="Sharedvic")
         self.zed_user = User.objects.create_user(
             email="zed-user@example.com", first_name="Z", last_name="User",
-            password="x", state_id=self.zed_vic.id,
+            password="x", country_id=zed.id, state_id=self.zed_vic.id,
         )
         self.yar_user = User.objects.create_user(
             email="yar-user@example.com", first_name="Y", last_name="User",
-            password="x", state_id=self.yar_vic.id,
+            password="x", country_id=yar.id, state_id=self.yar_vic.id,
         )
 
     def test_country_filter_narrows_same_named_state(self):
@@ -997,3 +1004,58 @@ class UserCountryFilterTests(TestCase):
         result = query_users(country="Yartonia")
         emails = [u["email"] for u in result["data"]["items"]]
         self.assertEqual(emails, ["yar-user@example.com"])
+
+
+class InternationalGeographyImportTests(TestCase):
+    """An international registrant gets a country and no state — the country must
+    never be stored as a state (which is how mentors showed 'STATE: UAE')."""
+
+    def setUp(self):
+        for name in ["student", "mentor"]:
+            Roles.objects.get_or_create(role_name=name)
+
+    def _import_mentor(self, **overrides):
+        payload = {
+            "email": "zed-mentor@example.com",
+            "firstName": "Intl",
+            "lastName": "Mentor",
+            "role": "mentor",
+            "country": "Zedonia",
+            "interests": ["Biotechnology"],
+            "mentorInstitution": "Zed University",
+            "mentorReason": "Testing",
+            "mentorMaxGroupCount": 2,
+        }
+        payload.update(overrides)
+        return bulk_create_users([payload], admin_user_id=None)
+
+    def test_country_only_import_leaves_state_blank(self):
+        self._import_mentor()
+        user = User.objects.get(email="zed-mentor@example.com")
+        self.assertEqual(user.country.country_name, "Zedonia")
+        self.assertIsNone(user.state_id)
+
+    def test_country_is_never_stored_as_a_state(self):
+        # The old bug: state fell back to the country name, creating a
+        # CountryStates row named after its own country.
+        self._import_mentor(state="Zedonia")
+        user = User.objects.get(email="zed-mentor@example.com")
+        self.assertEqual(user.country.country_name, "Zedonia")
+        self.assertIsNone(user.state_id)
+        self.assertFalse(
+            CountryStates.objects.filter(state_name="Zedonia").exists()
+        )
+
+    def test_region_is_kept_as_a_state_under_its_country(self):
+        self._import_mentor(state="Zednorth")
+        user = User.objects.get(email="zed-mentor@example.com")
+        self.assertEqual(user.country.country_name, "Zedonia")
+        self.assertEqual(user.state.state_name, "Zednorth")
+        self.assertEqual(user.state.country_id, user.country_id)
+
+    def test_serialized_user_exposes_country_separately_from_state(self):
+        self._import_mentor()
+        user = User.objects.get(email="zed-mentor@example.com")
+        data = fetch_user_by_id(user.id)
+        self.assertEqual(data["country"], {"id": user.country_id, "countryName": "Zedonia"})
+        self.assertIsNone(data["state"])

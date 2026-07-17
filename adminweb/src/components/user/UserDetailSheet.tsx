@@ -6,7 +6,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
+import {
+  labelizeCountry,
+  labelizeState,
+  labelizeUserRole,
+  type UserAccount,
+} from "@/type/user";
 
 interface UserDetailSheetProps {
   open: boolean;
@@ -41,6 +46,7 @@ export function UserDetailSheet({
                   <span className="text-muted-foreground">—</span>
                 ),
               },
+              { label: "Country", value: labelizeCountry(user.country) },
               { label: "State", value: labelizeState(user.state) },
               {
                 label: "Status",

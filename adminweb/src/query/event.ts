@@ -1,10 +1,5 @@
 import { myFetch } from "@/lib/myFetch";
-import type {
-  CreateEvent,
-  CreateEventRsvp,
-  UpdateEvent,
-  UpdateEventRsvp,
-} from "@/schema/event";
+import type { CreateEvent, UpdateEvent } from "@/schema/event";
 import type {
   ApiResponse,
   Event,
@@ -23,17 +18,6 @@ export function useQueryEvents(params: QueryEventsParams) {
       });
       return res.data;
     },
-  });
-}
-
-export function useQueryEvent(id: string) {
-  return useQuery({
-    queryKey: ["event", id],
-    queryFn: async (): Promise<ApiResponse<Event | null>> => {
-      const res = await myFetch.get<ApiResponse<Event | null>>(`/event/${id}`);
-      return res.data;
-    },
-    enabled: !!id,
   });
 }
 
@@ -136,53 +120,6 @@ export function useQueryEventRsvps(eventId: number | null) {
       return res.data;
     },
     enabled: eventId !== null,
-  });
-}
-
-export function useCreateEventRsvp() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      eventId,
-      data,
-    }: {
-      eventId: number;
-      data: CreateEventRsvp;
-    }): Promise<ApiResponse<EventRsvp | null>> => {
-      const res = await myFetch.post<ApiResponse<EventRsvp | null>>(
-        `/event/${eventId}/rsvp`,
-        data,
-      );
-      return res.data;
-    },
-    onSuccess: (_, { eventId }) => {
-      queryClient.invalidateQueries({ queryKey: ["event-rsvps", eventId] });
-    },
-  });
-}
-
-export function useUpdateEventRsvp() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      rsvpId,
-      data,
-    }: {
-      eventId: number;
-      rsvpId: number;
-      data: UpdateEventRsvp;
-    }): Promise<ApiResponse<EventRsvp | null>> => {
-      const res = await myFetch.put<ApiResponse<EventRsvp | null>>(
-        `/event/rsvp/${rsvpId}`,
-        data,
-      );
-      return res.data;
-    },
-    onSuccess: (_, { eventId }) => {
-      queryClient.invalidateQueries({ queryKey: ["event-rsvps", eventId] });
-    },
   });
 }
 

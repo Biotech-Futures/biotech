@@ -21,7 +21,11 @@ import {
   useQueryStates,
   useQueryHasUngroupedStudents,
 } from "@/query/student";
-import { useBulkDeleteUsers, type BulkStatusFilters } from "@/query/user";
+import {
+  useBulkDeleteUsers,
+  useQueryCountries,
+  type BulkStatusFilters,
+} from "@/query/user";
 import { useRemoveGroupMember } from "@/query/group";
 import type { StudentUser } from "@/type/user";
 import { ShuffleIcon, UserMinusIcon } from "lucide-react";
@@ -42,6 +46,7 @@ export const Route = createFileRoute("/_auth/people/students")({
 function StudentPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [country, setCountry] = useState<string | undefined>();
   const [state, setState] = useState<string | undefined>();
   const [inGroup, setInGroup] = useState<"yes" | "no" | "all">("all");
   const [page, setPage] = useState(1);
@@ -71,11 +76,13 @@ function StudentPage() {
     page,
     limit: pageSize,
     search: search || undefined,
+    country,
     state,
     inGroup: inGroup === "all" ? undefined : inGroup,
     sortBy:
       sorting[0]?.id === "school" ||
       sorting[0]?.id === "yearLevel" ||
+      sorting[0]?.id === "country" ||
       sorting[0]?.id === "state" ||
       sorting[0]?.id === "group"
         ? sorting[0].id
@@ -83,6 +90,7 @@ function StudentPage() {
     sortOrder: sorting[0]?.desc ? "desc" : "asc",
   });
 
+  const { data: countriesData } = useQueryCountries({ inUse: true });
   const { data: statesData, isPending: isLoadingStates } = useQueryStates();
   const { data: ungroupedData } = useQueryHasUngroupedStudents();
   const hasUngrouped = ungroupedData?.data?.hasUngrouped ?? false;
@@ -96,7 +104,7 @@ function StudentPage() {
     setSelected(new Map());
     setSelectAllMatching(false);
     setExcludedIds(new Set());
-  }, [search, state, inGroup]);
+  }, [search, country, state, inGroup]);
 
   const students = useMemo(
     () => data?.data?.items ?? [],
@@ -135,6 +143,7 @@ function StudentPage() {
   const currentFilters: BulkStatusFilters = {
     role: "student",
     search: search || undefined,
+    country,
     state,
     inGroup: inGroup === "all" ? undefined : inGroup,
   };
@@ -402,8 +411,15 @@ function StudentPage() {
       <StudentFilters
         search={search}
         onSearchChange={setSearch}
+        country={country}
+        // Changing country invalidates the chosen state, so clear both at once.
+        onCountryChange={(value) => {
+          setCountry(value);
+          setState(undefined);
+        }}
         state={state}
         onStateChange={setState}
+        countries={countriesData?.data ?? []}
         states={statesData?.data ?? []}
         isLoadingStates={isLoadingStates}
         inGroup={inGroup}

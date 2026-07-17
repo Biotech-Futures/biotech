@@ -86,14 +86,14 @@ def _build_mentor_sources() -> List[Dict[str, Any]]:
     mentor_rows = (
         MentorProfile.objects
         .filter(user__is_active=True)
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'institution',
             mentor_id=F('user_id'),
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             max_grp_cnt=F('max_group_count'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )
@@ -128,8 +128,8 @@ def _build_group_source(group) -> Dict[str, Any]:
     geo_rows = list(
         GroupMembership.objects
         .filter(group_id=group.id, left_at__isnull=True, user__studentprofile__isnull=False)
-        .select_related('user', 'user__state', 'user__state__country')
-        .values('user_id', country_name=F('user__state__country__country_name'),
+        .select_related('user', 'user__country')
+        .values('user_id', country_name=F('user__country__country_name'),
                 user_tz=F('user__timezone'))
     )
     student_ids = [r['user_id'] for r in geo_rows]
@@ -266,10 +266,10 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'group_id',
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )
@@ -374,13 +374,13 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
         )
     )
 
@@ -432,7 +432,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
 
     rows = (
         membership_qs
-        .select_related('group', 'user', 'user__state', 'user__state__country')
+        .select_related('group', 'user', 'user__country')
         .values(
             'group_id',
             membership_id=F('id'),
@@ -442,7 +442,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             mentor_last_name=F('user__last_name'),
             is_active=F('user__is_active'),
             institution=F('user__mentorprofile__institution'),
-            mentor_country_name=F('user__state__country__country_name'),
+            mentor_country_name=F('user__country__country_name'),
         )
     )
 
@@ -459,13 +459,13 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
         )
     )
     

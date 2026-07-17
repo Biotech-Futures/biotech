@@ -10,6 +10,9 @@ from apps.events.models import Events
 from apps.groups.models import Groups
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
 from apps.users.models import AdminScope
+from apps.groups.models import Countries, CountryStates
+from apps.resources.models import Roles
+from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
 
 
 User = get_user_model()
@@ -514,3 +517,72 @@ class ReceiveJoinPermissionTokenTests(TestCase):
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_responseID, "form-response-1")
+
+
+class RegistrationGeographyTests(TestCase):
+    """Self-registration must store the country on its own field and only record a
+    Region as a state. Non-Australian registrants used to get a synthetic state row
+    named after their country, which surfaced as "STATE: United Arab Emirates"."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("registration")
+        for name in [ROLE_STUDENT, ROLE_SUPERVISOR]:
+            Roles.objects.get_or_create(role_name=name)
+
+    def _register(self, country, region=""):
+        payload = {
+            "body": {
+                "Title": "kid@example.com",
+                "FirstName": "Kid",
+                "Surname": "Student",
+                "Country": country,
+                "Region": region,
+                "SupervisorEmail": "sup@example.com",
+                "SupervisorFirstName": "Sam",
+                "SupervisorSurname": "Super",
+                "GuardianEmail": "parent@example.com",
+                "GuardianName": "Pat",
+                "GuardianSurname": "Parent",
+                "SchoolName": "Test High",
+                "YearLevel": "10",
+                "Areaofinterest": "Biotechnology",
+            }
+        }
+        return self.client.post(self.url, payload, format="json")
+
+    def test_international_registrant_has_country_and_no_state(self):
+        self._register("United Arab Emirates")
+        user = User.objects.get(email="kid@example.com")
+        self.assertEqual(user.country.country_name, "United Arab Emirates")
+        self.assertIsNone(user.state_id)
+        self.assertFalse(
+            CountryStates.objects.filter(state_name="United Arab Emirates").exists()
+        )
+
+    def test_country_echoed_as_region_is_not_stored_as_a_state(self):
+        self._register("United Arab Emirates", region="United Arab Emirates")
+        user = User.objects.get(email="kid@example.com")
+        self.assertEqual(user.country.country_name, "United Arab Emirates")
+        self.assertIsNone(user.state_id)
+
+    def test_australian_registrant_keeps_region_as_state(self):
+        self._register("Australia", region="NSW")
+        user = User.objects.get(email="kid@example.com")
+        self.assertEqual(user.country.country_name, "Australia")
+        self.assertEqual(user.state.state_name, "NSW")
+        self.assertEqual(user.state.country_id, user.country_id)
+
+    def test_supervisor_inherits_the_students_geography(self):
+        self._register("Australia", region="NSW")
+        sup = User.objects.get(email="sup@example.com")
+        student = User.objects.get(email="kid@example.com")
+        self.assertEqual(sup.country_id, student.country_id)
+        self.assertEqual(sup.state_id, student.state_id)
+
+    def test_country_casing_variant_reuses_the_existing_country(self):
+        Countries.objects.create(country_name="Australia")
+        self._register("australia", region="NSW")
+        user = User.objects.get(email="kid@example.com")
+        self.assertEqual(user.country.country_name, "Australia")
+        self.assertEqual(Countries.objects.filter(country_name__iexact="australia").count(), 1)

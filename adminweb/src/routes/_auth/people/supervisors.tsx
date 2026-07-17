@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  useQueryCountries,
   useQueryStates,
   useQueryUsers,
   useCreateUser,
@@ -77,6 +78,7 @@ function SupervisorsPage() {
     sortBy: sortState.key,
     sortOrder: sortState.direction,
   });
+  const { data: countriesData } = useQueryCountries();
   const { data: statesData } = useQueryStates();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -87,6 +89,13 @@ function SupervisorsPage() {
   const pageItems = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
   const total = data?.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const countryNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const item of countriesData?.data ?? [])
+      map.set(item.id, item.countryName);
+    return map;
+  }, [countriesData]);
 
   const stateNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -126,12 +135,15 @@ function SupervisorsPage() {
   };
 
   const handleSaveUser = async (values: UserFormValues) => {
-    const stateName =
-      values.role === "admin"
+    const isAdmin = values.role === "admin";
+    const countryName =
+      isAdmin || values.countryId == null
         ? undefined
-        : values.stateId != null
-          ? stateNameById.get(values.stateId)
-          : undefined;
+        : countryNameById.get(values.countryId);
+    const stateName =
+      isAdmin || values.stateId == null
+        ? undefined
+        : stateNameById.get(values.stateId);
     try {
       if (editorMode === "create") {
         const response = await createUser.mutateAsync({
@@ -139,6 +151,7 @@ function SupervisorsPage() {
           lastName: values.lastName,
           email: values.email,
           role: values.role,
+          country: countryName,
           state: stateName,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : undefined,
@@ -159,7 +172,8 @@ function SupervisorsPage() {
           firstName: values.firstName,
           lastName: values.lastName,
           role: values.role,
-          stateId: values.role === "admin" ? null : values.stateId,
+          countryId: isAdmin ? null : values.countryId,
+          stateId: isAdmin ? null : values.stateId,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,
         },
@@ -474,6 +488,7 @@ function SupervisorsPage() {
         onOpenChange={setEditorOpen}
         mode={editorMode}
         user={selectedUser}
+        countries={countriesData?.data ?? []}
         states={statesData?.data ?? []}
         defaultRole="supervisor"
         onSubmit={handleSaveUser}

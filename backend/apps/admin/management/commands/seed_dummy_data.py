@@ -112,15 +112,11 @@ MESSAGE_SNIPPETS = [
     "Let's sync before the presentation.", "Uploaded the poster draft for review.",
     "Thanks everyone, really solid progress this week.",
 ]
-STATES_BY_COUNTRY = {
-    "Australia": ["New South Wales", "Victoria", "Queensland", "Western Australia",
-                  "South Australia", "Tasmania", "Australian Capital Territory"],
-    "Singapore": ["Central Region", "East Region", "West Region"],
-    "United Kingdom": ["England", "Scotland", "Wales"],
-    "United States": ["California", "New York", "Texas", "Massachusetts"],
-    "India": ["Maharashtra", "Karnataka", "Delhi"],
-    "New Zealand": ["Auckland", "Wellington"],
-}
+# Mirror real registration data: only Australia carries a sub-national region
+# (Qualtrics sends the abbreviation), everyone else is country-only.
+SEED_COUNTRIES = ["Australia", "Singapore", "United Kingdom", "United States",
+                  "India", "New Zealand"]
+AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
 
 
 class Command(BaseCommand):
@@ -164,8 +160,8 @@ class Command(BaseCommand):
                 return
 
         self._resolve_roles()
-        state_ids = self._ensure_states()
-        buckets = self._create_users(opts["users"], state_ids)
+        geography = self._ensure_geography()
+        buckets = self._create_users(opts["users"], geography)
         groups = self._create_groups(buckets)
         self._create_tasks(groups, buckets)
         self._create_resources_and_announcements(groups, buckets)
@@ -178,20 +174,23 @@ class Command(BaseCommand):
         self.role_ids = {name: resolve_role_id(name)
                          for name in ("student", "mentor", "supervisor", "admin")}
 
-    def _ensure_states(self):
-        """Create a clean set of CountryStates and return a list of their ids."""
-        ids = []
-        for country_name, states in STATES_BY_COUNTRY.items():
+    def _ensure_geography(self):
+        """Create the seed countries + AU states; return (country_id, state_id) picks."""
+        picks = []
+        for country_name in SEED_COUNTRIES:
             country, _ = Countries.objects.get_or_create(country_name=country_name)
-            for state_name in states:
-                state, _ = CountryStates.objects.get_or_create(
-                    country=country, state_name=state_name)
-                ids.append(state.id)
-        self.stdout.write(f"  states available: {len(ids)}")
-        return ids
+            if country_name == "Australia":
+                for state_name in AU_STATES:
+                    state, _ = CountryStates.objects.get_or_create(
+                        country=country, state_name=state_name)
+                    picks.append((country.id, state.id))
+            else:
+                picks.append((country.id, None))
+        self.stdout.write(f"  geography available: {len(picks)}")
+        return picks
 
     # ------------------------------------------------------------- users
-    def _create_users(self, total, state_ids):
+    def _create_users(self, total, geography):
         n_admin = round(total * 0.06)
         n_sup = round(total * 0.14)
         n_mentor = round(total * 0.20)
@@ -214,13 +213,15 @@ class Command(BaseCommand):
                 fn, ln = name()
                 email = f"seed.{role}.{counter}@{SEED_EMAIL_DOMAIN}"
                 is_active = random.random() < 0.65
-                # admins may be geography-less; everyone else needs a state
-                state_id = (random.choice(state_ids)
-                            if role != "admin" or random.random() < 0.5 else None)
+                # admins may be geography-less; everyone else needs a country
+                country_id, state_id = (
+                    random.choice(geography)
+                    if role != "admin" or random.random() < 0.5 else (None, None)
+                )
                 try:
                     user = self._create_one(
                         role=role, email=email, first_name=fn, last_name=ln,
-                        state_id=state_id, is_active=is_active,
+                        country_id=country_id, state_id=state_id, is_active=is_active,
                         supervisors=buckets["supervisor"],
                     )
                     buckets[role].append(user)
@@ -233,15 +234,16 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  users created: {made}"))
         return buckets
 
-    def _create_one(self, *, role, email, first_name, last_name, state_id,
-                    is_active, supervisors):
+    def _create_one(self, *, role, email, first_name, last_name, country_id,
+                    state_id, is_active, supervisors):
         now = timezone.now()
         account_status = "active" if is_active else "deactivated"
         interests = random.sample(INTERESTS, k=random.randint(2, 4))
         with transaction.atomic():
             user = User.objects.create_user(
                 email=email, first_name=first_name, last_name=last_name,
-                password=None, state_id=state_id, is_active=is_active,
+                password=None, country_id=country_id, state_id=state_id,
+                is_active=is_active,
                 account_status=account_status,
                 is_staff=(role == "admin"), is_superuser=(role == "admin"),
                 invited_at=now, activated_at=now if is_active else None,

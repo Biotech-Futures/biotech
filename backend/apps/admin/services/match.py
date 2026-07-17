@@ -275,13 +275,13 @@ def match_student(uid: str) -> MatchStudentResult:
     standalone_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             year_level=F('year_lvl'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )
@@ -293,14 +293,14 @@ def match_student(uid: str) -> MatchStudentResult:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('group', 'user', 'user__state', 'user__state__country')
+        .select_related('group', 'user', 'user__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             year_level=F('user__studentprofile__year_lvl'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )
@@ -534,13 +534,13 @@ def match_student(uid: str) -> MatchStudentResult:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
         )
     )
 
@@ -612,13 +612,13 @@ def get_individual_students() -> List[Dict[str, Any]]:
     individual_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             year_level=F('year_lvl'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
         )
     )
     
@@ -661,11 +661,11 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     member_rows = list(
         GroupMembership.objects
         .filter(group_id=group_id, left_at__isnull=True, user__studentprofile__isnull=False)
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'user_id',
             year_level=F('user__studentprofile__year_lvl'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )
@@ -676,13 +676,13 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     standalone = list(
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
         .values(
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             year_level=F('year_lvl'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
         )
     )

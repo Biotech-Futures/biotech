@@ -1,7 +1,6 @@
 import { myFetch } from "@/lib/myFetch";
 import {
   confirmAssignmentsResponseSchema,
-  individualStudentsResponseSchema,
   matchRecommendationsResponseSchema,
   studentSuggestionsResponseSchema,
 } from "@/schema/match";
@@ -17,16 +16,6 @@ export function useQueryMatchInfo() {
       return matchRecommendationsResponseSchema.parse(res.data);
     },
     enabled: false,
-  });
-}
-
-export function useQueryIndividualStudents() {
-  return useQuery({
-    queryKey: ["individualStudents"],
-    queryFn: async () => {
-      const res = await myFetch.get("match/individual");
-      return individualStudentsResponseSchema.parse(res.data);
-    },
   });
 }
 

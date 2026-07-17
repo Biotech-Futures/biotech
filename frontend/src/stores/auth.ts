@@ -21,7 +21,8 @@ interface User {
   current_role_name?: string | null
   is_staff?: boolean
   is_superuser?: boolean
-  state?: { id: number; stateName: string; countryName: string | null } | null
+  country?: { id: number; countryName: string } | null
+  state?: { id: number; stateName: string } | null
   pg_firstname?: string | null
   pg_lastname?: string | null
   year_lvl?: string | null
@@ -145,7 +146,8 @@ export const useAuthStore = defineStore('auth', {
       return fullName || state.user?.email || 'User'
     },
 
-    displayRegion: (state) => state.user?.state?.stateName || 'General',
+    displayRegion: (state) =>
+      state.user?.state?.stateName || state.user?.country?.countryName || 'General',
 
     organizationLabel: (state) => state.user?.ment_inst || state.user?.school_name || BRAND_NAME,
 

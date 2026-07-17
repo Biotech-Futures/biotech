@@ -9,8 +9,8 @@ from apps.users.models.admin_scope import AdminScope
 
 class MentorServiceTests(TestCase):
     def setUp(self):
-        country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=country, state_name="NSW")
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
         self.admin_user = User.objects.create_user(
             email="admin@example.com", first_name="Admin", password="testpass",
         )
@@ -19,6 +19,7 @@ class MentorServiceTests(TestCase):
             email="mentor1@example.com",
             first_name="Mina",
             last_name="Mentor",
+            country=self.country,
             state=self.state,
             password="testpass",
             is_active=True,

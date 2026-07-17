@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from apps.admin.permissions import IsAdminScoped
 
 from apps.admin.services.user import (
-    query_users, query_user_by_id, query_states,
+    query_users, query_user_by_id, query_countries, query_states,
     create_user, bulk_create_users, update_user, update_status,
     bulk_update_status, bulk_update_status_by_filter, delete_user,
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
@@ -35,7 +35,6 @@ from apps.admin.services.resource import (
     list_resource_roles, list_resource_types,
 )
 from apps.resources.services.upload import upload_resource_file
-from apps.resources.models import Resources
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, delete_announcement, send_announcement_email,
@@ -83,6 +82,17 @@ class UserListCreateView(APIView):
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
+
+
+class UserCountriesListView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = query_countries(
+            requesting_user=request.user,
+            in_use=request.query_params.get("inUse", "").lower() == "true",
+        )
+        return Response(result)
 
 
 class UserStatesListView(APIView):

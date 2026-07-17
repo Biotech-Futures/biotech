@@ -1,12 +1,28 @@
 export type UserRole = "student" | "mentor" | "supervisor" | "admin";
-export type ServerUserRole = UserRole;
-export type UserStatus = "active" | "inactive";
 export type UserSource = "server" | "local";
 
+export type CountryOption = {
+  id: number;
+  countryName: string;
+};
+
+/** A row in the /user/states lookup. Carries its country so the picker can
+ *  qualify state names that repeat across countries ("NSW · Australia"). */
 export type StateOption = {
   id: number;
   stateName: string;
   countryName: string | null;
+};
+
+/** A user's own sub-national region. No countryName — read `user.country`. */
+export type UserState = {
+  id: number;
+  stateName: string;
+};
+
+export type CountriesResponse = {
+  msg: string;
+  data: CountryOption[];
 };
 
 export type StatesResponse = {
@@ -21,7 +37,8 @@ export type UserAccount = {
   lastName: string;
   email: string;
   role: UserRole;
-  state: StateOption | null;
+  country: CountryOption | null;
+  state: UserState | null;
   groupId: string | null;
   groupName: string | null;
   age: number | null;
@@ -59,6 +76,7 @@ export type UserFormValues = {
   lastName: string;
   email: string;
   role: UserRole;
+  countryId: number | null;
   stateId: number | null;
   schoolName: string;
   supervisorSchoolName: string;
@@ -72,7 +90,7 @@ export type UserFormValues = {
   supervisorEmail: string;
 };
 
-export type CsvUserRow = Omit<UserFormValues, "stateId"> & {
+export type CsvUserRow = Omit<UserFormValues, "countryId" | "stateId"> & {
   id: string;
   state: string | null;
 };
@@ -91,25 +109,14 @@ export const USER_ROLES: UserRole[] = [
   "admin",
 ];
 
-export const SERVER_USER_ROLES: ServerUserRole[] = [
-  "student",
-  "mentor",
-  "supervisor",
-  "admin",
-];
-
-export type StudentInterest = {
-  id: number;
-  description: string;
-};
-
 export type StudentUser = {
   id: number;
   firstName: string;
   lastName: string;
   email: string;
   role: "student";
-  state: StateOption | null;
+  country: CountryOption | null;
+  state: UserState | null;
   isActive: boolean;
   accountStatus: string;
   schoolName: string | null;
@@ -131,14 +138,15 @@ export type StudentPaginatedResponse = {
   };
 };
 
-export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
-  return user.active ? "active" : "inactive";
-}
-
 export function labelizeUserRole(role: UserRole) {
   return role?.charAt(0).toUpperCase() + role?.slice(1);
 }
 
-export function labelizeState(state: StateOption | null) {
-  return state?.stateName ?? "Unassigned";
+export function labelizeCountry(country: CountryOption | null) {
+  return country?.countryName ?? "Unassigned";
+}
+
+// Most non-Australian users have no state — that's expected, not a gap to flag.
+export function labelizeState(state: UserState | null) {
+  return state?.stateName ?? "-";
 }

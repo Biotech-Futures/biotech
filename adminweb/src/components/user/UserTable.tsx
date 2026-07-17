@@ -15,11 +15,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
+import {
+  labelizeCountry,
+  labelizeState,
+  labelizeUserRole,
+  type UserAccount,
+} from "@/type/user";
 
-export type UserSortKey = "name" | "email" | "role" | "state" | "status";
+export type UserSortKey =
+  | "name"
+  | "email"
+  | "role"
+  | "country"
+  | "state"
+  | "status";
 
-const COLUMN_COUNT = 7;
+const COLUMN_COUNT = 8;
 
 export interface UserTableSelection {
   /** Explicitly checked row ids (used when selectAllMatching is false). */
@@ -172,6 +183,7 @@ export function UserTable({
                 />
               </TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>Country</TableHead>
               <TableHead>State</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
@@ -261,6 +273,7 @@ export function UserTable({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell>{labelizeCountry(user.country)}</TableCell>
                   <TableCell>{labelizeState(user.state)}</TableCell>
                   <TableCell>
                     <Badge variant={user.active ? "default" : "secondary"}>

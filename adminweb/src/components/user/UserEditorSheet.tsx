@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   USER_ROLES,
+  type CountryOption,
   type StateOption,
   type UserAccount,
   type UserFormValues,
@@ -33,6 +34,7 @@ interface UserEditorSheetProps {
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   user: UserAccount | null;
+  countries?: CountryOption[];
   states?: StateOption[];
   supervisors?: Array<{ id: string; name: string; email: string }>;
   /** Role to preselect when creating (e.g. "supervisor" on the Supervisors tab). */
@@ -48,6 +50,7 @@ const initialValues: UserFormValues = {
   lastName: "",
   email: "",
   role: "student",
+  countryId: null,
   stateId: null,
   schoolName: "",
   supervisorSchoolName: "",
@@ -122,6 +125,7 @@ export function UserEditorSheet({
   onOpenChange,
   mode,
   user,
+  countries,
   states,
   supervisors,
   defaultRole,
@@ -131,12 +135,31 @@ export function UserEditorSheet({
   isDeleting,
 }: UserEditorSheetProps) {
   const [values, setValues] = useState<UserFormValues>(initialValues);
+  const currentCountry = user?.country ?? null;
+  const countryOptions = countries ?? [];
+  const availableCountries =
+    currentCountry && !countryOptions.some((item) => item.id === currentCountry.id)
+      ? [...countryOptions, currentCountry]
+      : countryOptions;
+
   const currentState = user?.state ?? null;
   const stateOptions = states ?? [];
-  const availableStates =
-    currentState && !stateOptions.some((item) => item.id === currentState.id)
-      ? [...stateOptions, currentState]
+  // The user's own state carries no country (that's `user.country`), so pair it back
+  // up before merging it into the lookup-shaped list the country filter below reads.
+  const currentStateOption: StateOption | null = currentState
+    ? { ...currentState, countryName: currentCountry?.countryName ?? null }
+    : null;
+  const allStates =
+    currentStateOption && !stateOptions.some((item) => item.id === currentStateOption.id)
+      ? [...stateOptions, currentStateOption]
       : stateOptions;
+  // A state belongs to a country, so only the selected country's states are valid.
+  const selectedCountryName =
+    availableCountries.find((item) => item.id === values.countryId)?.countryName ??
+    null;
+  const availableStates = selectedCountryName
+    ? allStates.filter((item) => item.countryName === selectedCountryName)
+    : [];
 
   useEffect(() => {
     if (!open) return;
@@ -147,6 +170,7 @@ export function UserEditorSheet({
         lastName: user.lastName,
         email: user.email,
         role: user.role,
+        countryId: user.country?.id ?? null,
         stateId: user.state?.id ?? null,
         schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
         supervisorSchoolName:
@@ -187,8 +211,9 @@ export function UserEditorSheet({
       toast.error("Invalid email format.");
       return;
     }
-    if (values.role !== "admin" && values.stateId == null) {
-      toast.error("State is required for non-admin users.");
+    // State stays optional — only Australian registrations carry one.
+    if (values.role !== "admin" && values.countryId == null) {
+      toast.error("Country is required for non-admin users.");
       return;
     }
     if (values.role === "student") {
@@ -292,6 +317,7 @@ export function UserEditorSheet({
                 setValues((current) => ({
                   ...current,
                   role: value as UserRole,
+                  countryId: value === "admin" ? null : current.countryId,
                   stateId: value === "admin" ? null : current.stateId,
                 }))
               }
@@ -310,31 +336,58 @@ export function UserEditorSheet({
           </UserFormRow>
 
           {values.role !== "admin" ? (
-            <UserFormRow label="State" htmlFor="user-state-select" required>
-              <Select
-                value={values.stateId != null ? String(values.stateId) : "none"}
-                onValueChange={(value) =>
-                  setValues((current) => ({
-                    ...current,
-                    stateId: value === "none" ? null : Number(value),
-                  }))
-                }
-              >
-                <SelectTrigger id="user-state-select">
-                  <SelectValue placeholder="Select a state" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Unassigned</SelectItem>
-                  {availableStates.map((state) => (
-                    <SelectItem key={state.id} value={String(state.id)}>
-                      {state.countryName
-                        ? `${state.stateName} · ${state.countryName}`
-                        : state.stateName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </UserFormRow>
+            <>
+              <UserFormRow label="Country" htmlFor="user-country-select" required>
+                <Select
+                  value={values.countryId != null ? String(values.countryId) : "none"}
+                  onValueChange={(value) =>
+                    setValues((current) => ({
+                      ...current,
+                      countryId: value === "none" ? null : Number(value),
+                      stateId: null, // states belong to a country; the old pick can't survive
+                    }))
+                  }
+                >
+                  <SelectTrigger id="user-country-select">
+                    <SelectValue placeholder="Select a country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {availableCountries.map((country) => (
+                      <SelectItem key={country.id} value={String(country.id)}>
+                        {country.countryName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </UserFormRow>
+
+              {availableStates.length ? (
+                <UserFormRow label="State" htmlFor="user-state-select">
+                  <Select
+                    value={values.stateId != null ? String(values.stateId) : "none"}
+                    onValueChange={(value) =>
+                      setValues((current) => ({
+                        ...current,
+                        stateId: value === "none" ? null : Number(value),
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="user-state-select">
+                      <SelectValue placeholder="Select a state" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {availableStates.map((state) => (
+                        <SelectItem key={state.id} value={String(state.id)}>
+                          {state.stateName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </UserFormRow>
+              ) : null}
+            </>
           ) : null}
 
           {values.role === "student" ? (

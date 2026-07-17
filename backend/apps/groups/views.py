@@ -1,7 +1,7 @@
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from rest_framework import viewsets, filters, status
+from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -18,7 +18,6 @@ from .serializers import (
 )
 from .services import (
     MEMBER_MEMBERSHIP_ROLE,
-    MENTOR_MEMBERSHIP_ROLE,
     assign_mentor_to_group,
     sync_supervisor_memberships_for_student,
 )

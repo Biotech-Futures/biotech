@@ -45,6 +45,9 @@ export function useQueryGroups(params: QueryGroupsParams) {
       });
       return res.data;
     },
+    // Mentor assignments change on the sibling matching tabs; the global
+    // refetchOnMount:false would otherwise serve stale rows on tab switch.
+    refetchOnMount: true,
   });
 }
 
@@ -105,23 +108,6 @@ export function useCreateGroup() {
 }
 
 // Update group mutation
-export function useUpdateGroup() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: { id: string; updates: Partial<Group> }) => {
-      const res = await myFetch.put<{ msg: string; data: Group | null }>(
-        `/group/${data.id}`,
-        data.updates,
-      );
-      return res.data;
-    },
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ["groups"] });
-      queryClient.invalidateQueries({ queryKey: ["group", id] });
-    },
-  });
-}
-
 // Soft-delete a group (sets deleted_at server-side; the group drops out of lists).
 export function useDeleteGroup() {
   const queryClient = useQueryClient();

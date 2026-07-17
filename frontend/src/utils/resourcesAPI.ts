@@ -197,22 +197,6 @@ export async function fetchResources(params?: {
   return apiRequest<{ results: Resource[]; count: number }>(endpoint)
 }
 
-type ResourceListParams = NonNullable<Parameters<typeof fetchResources>[0]>
-
-export async function fetchAllResources(params?: Omit<ResourceListParams, 'page' | 'page_size'>): Promise<Resource[]> {
-  const pageSize = 100
-  const firstPage = await fetchResources({ ...params, page: 1, page_size: pageSize })
-  const resources = [...firstPage.results]
-  const totalPages = Math.ceil(firstPage.count / pageSize)
-
-  for (let page = 2; page <= totalPages; page += 1) {
-    const nextPage = await fetchResources({ ...params, page, page_size: pageSize })
-    resources.push(...nextPage.results)
-  }
-
-  return resources
-}
-
 export async function fetchResource(resourceId: number): Promise<Resource> {
   return apiRequest<Resource>(`/resources/resource-files/${resourceId}/`)
 }
