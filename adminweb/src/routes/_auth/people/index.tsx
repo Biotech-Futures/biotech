@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusIcon } from "lucide-react";
 import {
+  useQueryCountries,
   useQueryStates,
   useBulkUpdateUserStatus,
   useBulkDeleteUsers,
@@ -54,6 +55,8 @@ const SORT_OPTIONS = [
   "email_desc",
   "role_asc",
   "role_desc",
+  "country_asc",
+  "country_desc",
   "state_asc",
   "state_desc",
   "status_asc",
@@ -206,6 +209,8 @@ function UserManagementPage() {
     sortBy,
     sortOrder,
   });
+  const { data: countriesData } = useQueryCountries();
+  const { data: filterCountriesData } = useQueryCountries({ inUse: true });
   const { data: statesData } = useQueryStates();
   const { data: supervisorsData } = useQueryUsers({
     page: 1,
@@ -263,7 +268,15 @@ function UserManagementPage() {
 
   const pageItems = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
 
-  // Create sends the state by name; map the selected stateId back to its name.
+  // Create sends country/state by name; map the selected ids back to their names.
+  const countryNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const item of countriesData?.data ?? []) {
+      map.set(item.id, item.countryName);
+    }
+    return map;
+  }, [countriesData]);
+
   const stateNameById = useMemo(() => {
     const map = new Map<number, string>();
     for (const item of statesData?.data ?? []) {
@@ -313,6 +326,12 @@ function UserManagementPage() {
           lastName: values.lastName,
           email: values.email,
           role: values.role,
+          country:
+            values.role === "admin"
+              ? undefined
+              : values.countryId != null
+                ? countryNameById.get(values.countryId)
+                : undefined,
           state:
             values.role === "admin"
               ? undefined
@@ -372,6 +391,7 @@ function UserManagementPage() {
           firstName: values.firstName,
           lastName: values.lastName,
           role: values.role,
+          countryId: values.role === "admin" ? null : values.countryId,
           stateId: values.role === "admin" ? null : values.stateId,
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
@@ -544,6 +564,7 @@ function UserManagementPage() {
           }
           state={stateFilter}
           onStateChange={(value) => updateFilters({ state: value })}
+          countries={filterCountriesData?.data ?? []}
           states={statesData?.data ?? []}
           status={status}
           onStatusChange={(value) => updateFilters({ status: value })}
@@ -751,6 +772,7 @@ function UserManagementPage() {
         onOpenChange={setEditorOpen}
         mode={editorMode}
         user={selectedUser}
+        countries={countriesData?.data ?? []}
         states={statesData?.data ?? []}
         supervisors={supervisorOptions}
         onSubmit={handleSaveUser}

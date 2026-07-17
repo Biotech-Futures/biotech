@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import type {
+  CountriesResponse,
   CsvUserRow,
   StatesResponse,
   ServerUser,
@@ -19,10 +20,10 @@ type CreateUserPayload = {
   lastName: string;
   email: string;
   role: UserRole;
-  // Backend create resolves the state by name (add_users_by_role reads `state`).
-  state?: string;
-  // Country lets the backend get_or_create the state for registration-export imports.
+  // Backend create resolves both by name (add_users_by_role reads `country`/`state`).
+  // Country is the required half; state is the optional sub-national region.
   country?: string;
+  state?: string | null;
   schoolName?: string;
   supervisorSchoolName?: string;
   mentorBackground?: string | null;
@@ -39,7 +40,8 @@ type UpdateUserPayload = {
   firstName?: string;
   lastName?: string;
   role?: UserRole;
-  // Backend update resolves the state by id (update_user reads `stateId`).
+  // Backend update resolves both by id (update_user reads `countryId`/`stateId`).
+  countryId?: number | null;
   stateId?: number | null;
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
@@ -97,7 +99,14 @@ interface QueryUsersParams {
   country?: string;
   state?: string;
   active?: boolean;
-  sortBy?: "name" | "email" | "role" | "state" | "status" | "createdAt";
+  sortBy?:
+    | "name"
+    | "email"
+    | "role"
+    | "country"
+    | "state"
+    | "status"
+    | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 
@@ -166,6 +175,26 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
         },
       };
     },
+    // The same users are edited from the sibling People tabs; the global
+    // refetchOnMount:false would otherwise serve stale rows on tab switch.
+    refetchOnMount: true,
+  });
+}
+
+/**
+ * Countries for assignment. Pass inUse for filter dropdowns — the lookup holds
+ * every country on earth, but only a couple of dozen have users to filter to.
+ */
+export function useQueryCountries(options: { inUse?: boolean } = {}) {
+  const { inUse = false } = options;
+  return useQuery({
+    queryKey: ["user-countries", inUse],
+    queryFn: async (): Promise<CountriesResponse> => {
+      const res = await myFetch.get<CountriesResponse>("/user/countries", {
+        params: inUse ? { inUse: true } : undefined,
+      });
+      return res.data;
+    },
   });
 }
 
@@ -229,6 +258,10 @@ export function useUpdateUser() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["user", id] });
+      // A country/state edit here changes the same row the Students and Mentors
+      // tabs render.
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["mentorDetail"] });
     },
   });
 }
@@ -389,6 +422,7 @@ export function normalizeServerUser(
     lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
     role: (user.role ?? "") as UserRole,
+    country: user.country ?? null,
     state: user.state ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
@@ -422,6 +456,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     lastName: values.lastName.trim(),
     email: values.email.trim(),
     role: values.role,
+    country: null,
     state: null,
     groupId: null,
     groupName: null,
@@ -668,7 +703,8 @@ export type MentorImportRow = {
   lastName: string;
   email: string;
   country: string;
-  state: string;
+  /** Sub-national region; null unless the export carries one (AU sends NSW/VIC/...). */
+  state: string | null;
   interests: string[];
   mentorReason: string;
   mentorInstitution: string;
@@ -782,7 +818,9 @@ export function parseMentorCsv(text: string): {
       const capacityRaw = cell(row, "capacity");
       const backgroundRaw = cell(row, "background");
 
-      const state = country === "Australia" ? region : country;
+      // Region is sub-national and usually blank outside Australia. Never fall back
+      // to the country name — that's what showed "United Arab Emirates" as a state.
+      const state = region && region !== country ? region : null;
       const capacity = Number(capacityRaw);
 
       const problems: string[] = [];
@@ -790,7 +828,7 @@ export function parseMentorCsv(text: string): {
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         problems.push("invalid email");
       if (!firstName || !lastName) problems.push("missing first or last name");
-      if (!state) problems.push("missing country/region");
+      if (!country) problems.push("missing country");
       if (!interests.length) problems.push("no interests");
       if (!mentorReason) problems.push("missing mentor reason");
       if (!institution) problems.push("missing institution");
@@ -835,7 +873,8 @@ export type StudentImportRow = {
   lastName: string;
   email: string;
   country: string;
-  state: string;
+  /** Sub-national region; null unless the export carries one (AU sends NSW/VIC/...). */
+  state: string | null;
   schoolName: string;
   yearLevel: number;
   interests: string[];
@@ -953,7 +992,9 @@ export function parseStudentCsv(text: string): {
       const interests = parseInterestList(cell(row, "interests"));
       const responseId = cell(row, "responseId");
 
-      const state = country === "Australia" ? region : country;
+      // Region is sub-national and usually blank outside Australia. Never fall back
+      // to the country name — that's what showed the country in the State column.
+      const state = region && region !== country ? region : null;
       const yearLevel = Number(yearLevelRaw);
 
       const problems: string[] = [];
@@ -961,7 +1002,7 @@ export function parseStudentCsv(text: string): {
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         problems.push("invalid email");
       if (!firstName || !lastName) problems.push("missing first or last name");
-      if (!state) problems.push("missing country/region");
+      if (!country) problems.push("missing country");
       if (!schoolName) problems.push("missing school");
       if (!yearLevelRaw || !Number.isInteger(yearLevel) || yearLevel < 9 || yearLevel > 12)
         problems.push("year level must be 9–12");

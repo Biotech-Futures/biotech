@@ -48,6 +48,10 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=False)
     last_name  = models.CharField(max_length=255, blank=False)
+    country = models.ForeignKey('groups.Countries', on_delete=models.PROTECT,
+                                null=True, blank=True, related_name='users')
+    # Sub-national region, and only when registration supplies one (AU sends NSW/VIC/...).
+    # Country lives on `country` — never fold it in here.
     state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT,
                               null=True, blank=True, related_name='users')
     is_active = models.BooleanField(default=False)
@@ -70,6 +74,7 @@ class User(AbstractUser):
         verbose_name = "User"
         verbose_name_plural = "Users"
         indexes = [
+            models.Index(fields=["country"]),
             models.Index(fields=["state"]),
             models.Index(fields=["account_status"]),
         ]

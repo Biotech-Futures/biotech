@@ -39,7 +39,7 @@
       <div class="profile-header">
         <div class="profile-avatar-large">{{ getInitials(user.name) }}</div>
         <h2 class="profile-name">{{ user.name }}</h2>
-        <p class="profile-role">{{ capitalise(user.role) }} | {{ user.region }}</p>
+        <p class="profile-role">{{ capitalise(user.role) }} | {{ user.country }}</p>
       </div>
 
       <div class="profile-content">
@@ -48,6 +48,10 @@
           <div class="profile-field">
             <span class="profile-field-label">Email:</span>
             <span class="profile-field-value">{{ user.email }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Country:</span>
+            <span class="profile-field-value">{{ user.country }}</span>
           </div>
           <div class="profile-field">
             <span class="profile-field-label">Region:</span>
@@ -363,7 +367,9 @@ const user = computed(() => {
     email: source?.email || 'Unavailable',
     role: roleName || 'Member',
     accountStatus: source?.account_status || 'Unavailable',
-    region: source?.state?.stateName || 'Unassigned',
+    country: source?.country?.countryName || 'Unassigned',
+    // Sub-national only, and blank for most non-Australian users — not a gap to flag.
+    region: source?.state?.stateName || unsetLabel,
     student: {
       hasDetails: hasStudentDetails,
       schoolName: valueOrFallback(source?.school_name, unsetLabel),

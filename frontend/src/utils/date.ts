@@ -238,17 +238,3 @@ function getEventTimeZoneAbbreviation(date: Date, timeZone: string): string {
   return parts.find((part) => part.type === 'timeZoneName')?.value || normalizedTimeZone
 }
 
-export function formatEventDateUTC(value: string | Date | null | undefined): string {
-  return formatEventDate(value, DEFAULT_TIME_ZONE)
-}
-
-export function formatEventTimeRangeUTC(
-  startValue: string | Date | null | undefined,
-  endValue?: string | Date | null,
-): string {
-  return formatEventTimeRange(startValue, endValue, DEFAULT_TIME_ZONE)
-}
-
-export function toUTCDateKey(value: string | Date | null | undefined): string {
-  return toTimeZoneDateKey(value, DEFAULT_TIME_ZONE)
-}

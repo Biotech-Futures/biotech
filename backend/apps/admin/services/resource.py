@@ -245,11 +245,6 @@ def iter_resource_blob_clients(storage_key: str):
         yield container_client.get_blob_client(storage_key)
 
 
-def get_resource_blob_client(storage_key: str):
-    """Build a blob client for the preferred resource storage container."""
-    return next(iter_resource_blob_clients(storage_key))
-
-
 def get_page_content_html(resource: Resources) -> Optional[str]:
     """Read stored HTML for page resources."""
     if resource.kind != RESOURCE_KIND_PAGE or not resource.storage_key:
@@ -681,76 +676,6 @@ def create_resource(
         ]
         resource.labels.set(labels)
 
-    return query_resource_by_id(resource.id)
-
-
-@transaction.atomic
-def upload_resource(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Upload a file resource."""
-    uploader_profile = resolve_uploader_for_db(payload.get('uploader'))
-    available_roles = get_roles_from_db()
-    
-    requested_role_ids = payload.get('role_ids', [])
-    role_ids = normalize_role_ids(requested_role_ids, available_roles)
-    
-    requested_resource_type = payload.get('resource_type')
-    resource_type_id = payload.get('resource_type_id')
-    
-    if requested_resource_type and not resource_type_id:
-        try:
-            rt = ResourceType.objects.get(type_name=requested_resource_type)
-            resource_type_id = rt.id
-        except ResourceType.DoesNotExist:
-            resource_type_id = None
-    
-    file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
-    
-    visibility_scope = normalize_visibility_scope(
-        payload.get('visibility_scope'),
-        requested_role_ids,
-    )
-    
-    resource = Resources.objects.create(
-        name=payload['resource_name'],
-        description=payload.get('resource_description', ''),
-        kind=RESOURCE_KIND_FILE,
-        type_id=resource_type_id,
-        uploaded_by_id=uploader_profile['id'],
-        visibility_scope=visibility_scope,
-        group_id=payload.get('group_id'),
-        file_mime_type=file_mime_type,
-        file_size=payload.get('file_size', 0),
-        uploaded_at=timezone.now(),
-    )
-    
-    # Upload file to blob storage
-    storage_key = build_storage_key(resource.id, payload.get('file_name', 'file'))
-    file_bytes = payload.get('file_bytes', b'')
-    
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        if isinstance(file_bytes, bytes):
-            tmp.write(file_bytes)
-        else:
-            tmp.write(bytes(file_bytes))
-        tmp.flush()
-        try:
-            upload_file(tmp.name, storage_key)
-        finally:
-            os.unlink(tmp.name)
-    
-    resource.storage_key = storage_key
-    resource.save()
-    
-    # Assign roles
-    if role_ids:
-        ResourceAudience.objects.bulk_create([
-            ResourceAudience(
-                resource_id=resource.id,
-                role_id=role_id,
-            )
-            for role_id in role_ids
-        ])
-    
     return query_resource_by_id(resource.id)
 
 

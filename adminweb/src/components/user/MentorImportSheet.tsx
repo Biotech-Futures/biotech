@@ -27,7 +27,7 @@ export function MentorImportSheet({
         note: row.backgroundNote,
       })}
       rowBadges={(row) => [
-        row.state,
+        row.state ? `${row.country} · ${row.state}` : row.country,
         row.mentorBackground ?? "no background",
         `cap ${row.mentorMaxGroupCount}`,
         `${row.interests.length} interests`,

@@ -29,7 +29,7 @@ export function StudentImportSheet({
           : "no approval yet — will import inactive",
       })}
       rowBadges={(row) => [
-        row.state,
+        row.state ? `${row.country} · ${row.state}` : row.country,
         `Yr ${row.yearLevel}`,
         `${row.interests.length} interests`,
         row.supervisorEmail ? "has supervisor" : "no supervisor",

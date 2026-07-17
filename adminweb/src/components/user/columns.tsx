@@ -37,16 +37,16 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     },
   },
   {
+    id: "country",
+    accessorFn: (row) => row.country?.countryName ?? "",
+    header: "Country",
+    cell: ({ row }) => row.original.country?.countryName ?? "Unassigned",
+  },
+  {
     id: "state",
     accessorFn: (row) => row.state?.stateName ?? "",
     header: "State",
-    cell: ({ row }) => {
-      const state = row.original.state;
-      if (!state) return "-";
-      return state.countryName
-        ? `${state.stateName} · ${state.countryName}`
-        : state.stateName;
-    },
+    cell: ({ row }) => row.original.state?.stateName ?? "-",
   },
   {
     id: "group",

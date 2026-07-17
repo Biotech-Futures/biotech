@@ -76,8 +76,10 @@ class UserSerializer(serializers.ModelSerializer):
     # flow before they're allowed into the dashboard. See `get_must_change_password`.
     must_change_password = serializers.SerializerMethodField()
 
-    # Region/geography for matching + profile display. Read-only nested shape;
-    # writes go through the admin user service (stateId).
+    # Geography for matching + profile display. Read-only nested shapes; writes go
+    # through the admin user service (countryId/stateId). Country is the field that
+    # matters — state is sub-national and often blank.
+    country = serializers.SerializerMethodField()
     state = serializers.SerializerMethodField()
 
     class Meta:
@@ -88,6 +90,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "account_status",
+            "country",
             "state",
             "current_role_id",
             "current_role_name",
@@ -125,14 +128,19 @@ class UserSerializer(serializers.ModelSerializer):
         self._cache_interests: dict[int, list[str]] = {}
 
     @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_country(self, obj):
+        if not obj.country_id:
+            return None
+        return {"id": obj.country.id, "countryName": obj.country.country_name}
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_state(self, obj):
         if not obj.state_id:
             return None
-        state = obj.state
+        # No countryName here — `country` is the single source of truth for that.
         return {
-            "id": state.id,
-            "stateName": state.state_name,
-            "countryName": state.country.country_name if state.country_id else None,
+            "id": obj.state.id,
+            "stateName": obj.state.state_name,
         }
 
     def validate_timezone(self, value):
@@ -313,12 +321,6 @@ class UserSerializer(serializers.ModelSerializer):
         # portal via `AdminPasswordStatusView.hasPassword` and so requires no
         # new schema / migration.
         return not obj.has_usable_password()
-
-
-class UserStatusPatchSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["account_status"]
 
 
 class BulkUserStatusSerializer(serializers.Serializer):

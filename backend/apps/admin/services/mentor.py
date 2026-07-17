@@ -37,7 +37,7 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     # 2. Fetch all mentor base info
     mentor_qs = (
         MentorProfile.objects
-        .select_related('user', 'user__state', 'user__state__country')
+        .select_related('user', 'user__country')
     )
     mentor_rows = (
         mentor_qs
@@ -49,7 +49,7 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
             email=F('user__email'),
             is_active=F('user__is_active'),
             max_grp_cnt=F('max_group_count'),
-            country_name=F('user__state__country__country_name'),
+            country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
             background_desc=F('background'),
         )

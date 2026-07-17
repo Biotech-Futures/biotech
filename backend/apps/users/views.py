@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import login
 from django.middleware.csrf import get_token
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
@@ -31,7 +31,6 @@ from .serializers import (
     JoinPermissionRequestSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
-    UserStatusPatchSerializer,
 )
 from apps.common.rbac import is_admin
 from config.errors import (
@@ -158,7 +157,7 @@ class UserListHTMLView(generics.ListAPIView):
         if not is_admin(self.request.user):
             raise OperationalAdminRequired()
 
-        queryset = User.objects.select_related("state", "state__country").order_by("id")
+        queryset = User.objects.select_related("country", "state").order_by("id")
 
         account_status_param = self.request.query_params.get("account_status")
         if account_status_param is not None:
@@ -177,7 +176,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     caller flip ``account_status`` or assign an arbitrary ``role_id``
     (including admin) for any user — see CONSOLIDATED issues list 1.2.
     """
-    queryset = User.objects.select_related("state", "state__country")
+    queryset = User.objects.select_related("country", "state")
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [TemplateHTMLRenderer]
     template_name = "users/details.html"
@@ -245,6 +244,7 @@ SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
     "account_status",
     "is_staff", "is_superuser", "is_active",
     "state", "state_id",
+    "country", "country_id",
 })
 
 SELF_PATCH_REJECTED_MESSAGE = (
@@ -347,16 +347,21 @@ class UserRegisterView(APIView):
         user.first_name = databody["FirstName"]
         user.last_name = databody["Surname"]
 
-        country, created = Countries.objects.get_or_create(country_name=databody["Country"])
-
-        if databody["Country"] == "Australia":
-            state_name = databody["Region"]
-        else:
-            state_name = databody["Country"]
-        user_state, s_created = CountryStates.objects.get_or_create(
-            country=country, state_name=state_name
+        # iexact so a casing variant can't fork a second country off the real one.
+        country, created = Countries.objects.get_or_create(
+            country_name__iexact=databody["Country"],
+            defaults={"country_name": databody["Country"]},
         )
-        user.state = user_state
+        user.country = country
+
+        # Region is sub-national (AU sends NSW/VIC/...) and is often absent. A blank
+        # state is fine — country is what matching needs. Never fall back to the
+        # country name here: that is what used to show "United Arab Emirates" as a state.
+        region = (databody.get("Region") or "").strip()
+        if region and region.casefold() != country.country_name.strip().casefold():
+            user.state, s_created = CountryStates.objects.get_or_create(
+                country=country, state_name=region
+            )
 
         user.save()
 
@@ -370,6 +375,13 @@ class UserRegisterView(APIView):
         sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
         sup.first_name = databody["SupervisorFirstName"]
         sup.last_name = databody["SupervisorSurname"]
+        # Registration carries no supervisor geography and the pair are at the same
+        # school, so inherit the student's — matching _resolve_supervisor_id on the
+        # import path. Only fills gaps; never moves an existing supervisor.
+        if sup.country_id is None:
+            sup.country = user.country
+        if sup.state_id is None:
+            sup.state = user.state
         sup.save()
         sup_role = get_role_by_name(ROLE_SUPERVISOR)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))

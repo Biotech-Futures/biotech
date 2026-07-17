@@ -8,6 +8,7 @@ urlpatterns = [
     # USER ROUTES
     # ========================================================================
     path('user/', views.UserListCreateView.as_view(), name='user-list-create'),
+    path('user/countries/', views.UserCountriesListView.as_view(), name='user-countries-list'),
     path('user/states/', views.UserStatesListView.as_view(), name='user-states-list'),
     path('user/bulk/', views.UserBulkCreateView.as_view(), name='user-bulk-create'),
     path('user/bulk-csv/', views.UserBulkCsvView.as_view(), name='user-bulk-csv'),

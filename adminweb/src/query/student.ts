@@ -18,17 +18,29 @@ interface QueryStudentsParams {
   page: number;
   limit?: number;
   search?: string;
+  country?: string;
   state?: string;
   inGroup?: "yes" | "no";
-  sortBy?: "name" | "email" | "state" | "status" | "school" | "yearLevel" | "group" | "createdAt";
+  sortBy?: "name" | "email" | "country" | "state" | "status" | "school" | "yearLevel" | "group" | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 
 export function useQueryStudents(params: QueryStudentsParams) {
-  const { page, limit = 10, search, state, inGroup, sortBy, sortOrder } = params;
+  const { page, limit = 10, search, country, state, inGroup, sortBy, sortOrder } =
+    params;
 
   return useQuery({
-    queryKey: ["students", page, limit, search, state, inGroup, sortBy, sortOrder],
+    queryKey: [
+      "students",
+      page,
+      limit,
+      search,
+      country,
+      state,
+      inGroup,
+      sortBy,
+      sortOrder,
+    ],
     queryFn: async (): Promise<StudentPaginatedResponse> => {
       const res = await myFetch.get<StudentPaginatedResponse>("/user", {
         params: {
@@ -36,6 +48,7 @@ export function useQueryStudents(params: QueryStudentsParams) {
           limit,
           search,
           role: "student",
+          country,
           state,
           inGroup,
           sortBy,
@@ -44,6 +57,9 @@ export function useQueryStudents(params: QueryStudentsParams) {
       });
       return res.data;
     },
+    // Students are edited from the People tab; the global refetchOnMount:false
+    // would otherwise serve stale rows on tab switch.
+    refetchOnMount: true,
   });
 }
 

@@ -11,6 +11,7 @@ import {
 import {
   USER_ROLES,
   labelizeUserRole,
+  type CountryOption,
   type StateOption,
   type UserRole,
 } from "@/type/user";
@@ -24,6 +25,7 @@ interface UserFiltersProps {
   onCountryChange: (value: string | "all") => void;
   state: string | "all";
   onStateChange: (value: string | "all") => void;
+  countries?: CountryOption[];
   states?: StateOption[];
   status: "all" | "active" | "inactive";
   onStatusChange: (value: "all" | "active" | "inactive") => void;
@@ -38,19 +40,22 @@ export function UserFilters({
   onCountryChange,
   state,
   onStateChange,
+  countries: countryOptions,
   states,
   status,
   onStatusChange,
 }: UserFiltersProps) {
   const availableStates = useMemo(() => states ?? [], [states]);
 
-  const countries = useMemo(() => {
-    const unique = new Set<string>();
-    for (const item of availableStates) {
-      if (item.countryName) unique.add(item.countryName);
-    }
-    return [...unique].sort((a, b) => a.localeCompare(b));
-  }, [availableStates]);
+  // From the countries lookup, not the states list: most users have no state, so
+  // deriving this from states would hide their country from the filter entirely.
+  const countries = useMemo(
+    () =>
+      (countryOptions ?? [])
+        .map((item) => item.countryName)
+        .sort((a, b) => a.localeCompare(b)),
+    [countryOptions],
+  );
 
   // Cascade: once a country is picked, only its states are selectable.
   const visibleStates = useMemo(

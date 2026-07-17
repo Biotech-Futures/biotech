@@ -20,14 +20,6 @@ import type { StudentUser } from "@/type/user";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
 
-export type StudentSortKey =
-  | "name"
-  | "school"
-  | "yearLevel"
-  | "state"
-  | "group"
-  | "interests";
-
 export interface StudentTableSelection {
   isSelected: (id: number) => boolean;
   onToggleRow: (student: StudentUser) => void;

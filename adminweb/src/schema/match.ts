@@ -37,29 +37,6 @@ const tutorSchema = z.preprocess(
     .optional(),
 );
 
-export const individualStudentSchema = z.preprocess(
-  (value) =>
-    withAliases(value, {
-      user_id: "userId",
-      first_name: "firstName",
-      last_name: "lastName",
-      year_level: "yearLevel",
-      country_name: "countryName",
-    }),
-  z.object({
-    userId: z.number(),
-    firstName: z.string(),
-    lastName: z.string(),
-    yearLevel: z.number().int().nullable(),
-    countryName: z.string().nullable(),
-    interests: z.array(z.string()).default([]),
-  }),
-);
-
-export const individualStudentsResponseSchema = z.object({
-  data: z.array(individualStudentSchema),
-});
-
 const recommendationStudentSchema = z.preprocess(
   (value) =>
     withAliases(value, {
@@ -261,16 +238,8 @@ export const studentSuggestionsResponseSchema = z.object({
 
 export type StudentSuggestion = z.infer<typeof studentSuggestionSchema>;
 
-export type IndividualStudent = z.infer<typeof individualStudentSchema>;
-export type IndividualStudentsResponse = z.infer<
-  typeof individualStudentsResponseSchema
->;
-export type MatchRecommendation = z.infer<typeof matchRecommendationSchema>;
 export type MatchRecommendationGroup = z.infer<
   typeof groupedRecommendationSchema
 >;
 export type MatchRecommendedStudent = z.infer<typeof recommendedStudentSchema>;
 export type NotFullGroup = z.infer<typeof notFullGroupSchema>;
-export type ConfirmAssignmentsResponse = z.infer<
-  typeof confirmAssignmentsResponseSchema
->;

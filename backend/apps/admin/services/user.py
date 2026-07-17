@@ -110,6 +110,7 @@ def _resolve_supervisor_id(
     last_name: Optional[str] = None,
     school_name: Optional[str] = None,
     state_id: Optional[int] = None,
+    country_id: Optional[int] = None,
 ) -> Optional[int]:
     """
     Resolve a student's supervisor to a SupervisorProfile id.
@@ -119,9 +120,9 @@ def _resolve_supervisor_id(
     supervisor User + supervisor role + SupervisorProfile. Returns None when
     there is nothing to link/create.
 
-    A created supervisor inherits the student's state and lands active, matching
-    how add_users_by_role creates every other user — imports carry no separate
-    supervisor state column, and the pair are always at the same school.
+    A created supervisor inherits the student's country/state and lands active,
+    matching how add_users_by_role creates every other user — imports carry no
+    separate supervisor geography column, and the pair are always at the same school.
     """
     email = (supervisor_email or "").strip()
     if not email:
@@ -137,6 +138,7 @@ def _resolve_supervisor_id(
             first_name=(first_name or "").strip(),
             last_name=(last_name or "").strip(),
             password=None,
+            country_id=country_id,
             state_id=state_id,
             is_active=True,
             account_status=STATUS_ACTIVE,
@@ -149,10 +151,17 @@ def _resolve_supervisor_id(
             valid_from=now,
             valid_to=None,
         )
-    elif state_id and sup_user.state_id is None:
-        # Backfill supervisors created before they inherited a state.
-        sup_user.state_id = state_id
-        sup_user.save(update_fields=["state"])
+    else:
+        # Backfill supervisors created before they inherited the student's geography.
+        backfilled = []
+        if country_id and sup_user.country_id is None:
+            sup_user.country_id = country_id
+            backfilled.append("country")
+        if state_id and sup_user.state_id is None:
+            sup_user.state_id = state_id
+            backfilled.append("state")
+        if backfilled:
+            sup_user.save(update_fields=backfilled)
 
     sup_profile, _ = SupervisorProfile.objects.get_or_create(
         user_id=sup_user.id,
@@ -175,6 +184,7 @@ def upsert_student_profile(
     guardian_email: Optional[str] = None,
     joinperm_response_id: Any = _UNSET,
     state_id: Optional[int] = None,
+    country_id: Optional[int] = None,
 ) -> None:
     """
     Create or update student profile.
@@ -211,6 +221,7 @@ def upsert_student_profile(
             supervisor_last_name,
             school_name,
             state_id,
+            country_id,
         )
 
     student_profile, _ = StudentProfile.objects.update_or_create(
@@ -292,15 +303,26 @@ def rollback_created_user(user_id: int) -> None:
         User.objects.filter(id=user_id).delete()
 
 
+def _user_country_dict(user: User) -> Optional[Dict[str, Any]]:
+    """Serialize the user's country for the admin API, or None."""
+    if not user.country_id:
+        return None
+    return {"id": user.country.id, "countryName": user.country.country_name}
+
+
 def _user_state_dict(user: User) -> Optional[Dict[str, Any]]:
-    """Serialize the user's region/state for the admin API, or None."""
+    """Serialize the user's sub-national state for the admin API, or None.
+
+    Blank for most non-Australian users — country is on its own field. The state's
+    own country is deliberately not echoed here: `country` is the single source of
+    truth, and a second copy could only ever disagree with it.
+    """
     if not user.state_id:
         return None
     state = user.state
     return {
         "id": state.id,
         "stateName": state.state_name,
-        "countryName": state.country.country_name if state.country_id else None,
     }
 
 
@@ -355,6 +377,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "lastName": user.last_name,
         "email": user.email,
         "role": role_str,
+        "country": _user_country_dict(user),
         "state": state,
         "groupName": group_name,
         "schoolName": school_name,
@@ -381,7 +404,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     Fetch complete user data by ID with all related profiles.
     """
     try:
-        user = User.objects.select_related('state', 'state__country').get(id=user_id)
+        user = User.objects.select_related('country', 'state').get(id=user_id)
     except User.DoesNotExist:
         return None
 
@@ -480,7 +503,7 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
         )
 
     if country:
-        filters &= Q(state__country__country_name=country)
+        filters &= Q(country__country_name=country)
 
     # State names are unique only per country, so pair with country when both are set.
     if state:
@@ -518,6 +541,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         "name": ["first_name", "last_name", "id"],
         "email": ["email", "id"],
         "role": ["roleassignmenthistory__role__role_name", "first_name", "last_name", "id"],
+        "country": ["country__country_name", "first_name", "last_name", "id"],
         "state": ["state__state_name", "first_name", "last_name", "id"],
         "status": ["is_active", "first_name", "last_name", "id"],
         "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
@@ -552,7 +576,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     # Bulk fetch all related data (6 queries instead of ~8 per user)
     users_by_id = {
-        u.id: u for u in User.objects.filter(id__in=user_ids).select_related('state', 'state__country')
+        u.id: u for u in User.objects.filter(id__in=user_ids).select_related('country', 'state')
     }
 
     student_profiles = {
@@ -652,6 +676,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "lastName": user.last_name,
             "email": user.email,
             "role": role_map.get(uid),
+            "country": _user_country_dict(user),
             "state": _user_state_dict(user),
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
@@ -695,6 +720,24 @@ def query_user_by_id(user_id: int) -> Dict[str, Any]:
     return {"msg": "User retrieved successfully", "data": user}
 
 
+def query_countries(requesting_user=None, in_use: bool = False) -> Dict[str, Any]:
+    """Get countries for assignment, or with in_use=True only those that have users.
+
+    Reads the Countries lookup directly — deriving this from the states list would
+    drop every country whose users have no sub-national region (i.e. most of them).
+    in_use keeps the filter dropdowns to countries that can actually return rows;
+    assignment still needs the full list.
+    """
+    queryset = Countries.objects.order_by("country_name")
+    if in_use:
+        queryset = queryset.filter(users__isnull=False).distinct()
+    items = [
+        {"id": c["id"], "countryName": c["country_name"]}
+        for c in queryset.values("id", "country_name")
+    ]
+    return {"msg": "Countries retrieved successfully", "data": items}
+
+
 def query_states(requesting_user=None) -> Dict[str, Any]:
     """Get all states/regions for filtering and assignment."""
     states_list = (
@@ -732,133 +775,6 @@ def _filter_by_active_group_membership(queryset, in_group: Optional[str]):
 
 
 # ============================================================================
-# STUDENT QUERY FUNCTIONS (student.ts logic)
-# ============================================================================
-
-def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
-                  year_level: Optional[int] = None, state: Optional[str] = None,
-                  interest: Optional[str] = None, in_group: Optional[str] = None,
-                  active: Optional[bool] = None) -> Dict[str, Any]:
-    """
-    Query students with student-specific filters.
-    """
-    offset = (page - 1) * limit
-    now = timezone.now()
-
-    # Base query: only students
-    filters = Q(roleassignmenthistory__role__role_name='student') & (
-        Q(roleassignmenthistory__valid_to__isnull=True) |
-        Q(roleassignmenthistory__valid_to__gte=now)
-    )
-    
-    if search:
-        filters &= (
-            Q(first_name__icontains=search) |
-            Q(last_name__icontains=search) |
-            Q(email__icontains=search)
-        )
-    
-    if year_level:
-        filters &= Q(studentprofile__year_lvl=str(year_level))
-
-    if state:
-        filters &= Q(state__state_name=state)
-
-    if active is not None:
-        filters &= Q(is_active=active)
-    
-    if interest:
-        filters &= Q(
-            userinterest__interest__interest_desc__icontains=interest
-        )
-    
-    queryset = _filter_by_active_group_membership(
-        User.objects.filter(filters),
-        in_group,
-    )
-    
-    # Get total count
-    total = queryset.values('id').distinct().count()
-    
-    # Get paginated user IDs
-    user_ids = (
-        queryset
-        .values_list('id', flat=True)
-        .distinct()
-        .order_by('last_name', 'first_name', 'id')[offset:offset + limit]
-    )
-    
-    if not user_ids:
-        return {
-            "msg": "Students retrieved successfully",
-            "data": {
-                "items": [],
-                "total": 0,
-                "page": page,
-                "limit": limit,
-                "hasMore": False,
-            }
-        }
-    
-    # Fetch detailed student data
-    students_list = []
-    for user_id in user_ids:
-        user = User.objects.select_related('state', 'state__country').get(id=user_id)
-        student_profile = StudentProfile.objects.get(user_id=user_id)
-        
-        # Get group
-        group_name = None
-        group_id = None
-        group_membership = GroupMembership.objects.filter(
-            user_id=user_id,
-            left_at__isnull=True
-        ).select_related('group').first()
-        
-        if group_membership and not group_membership.group.deleted_at:
-            group_name = group_membership.group.group_name
-            group_id = group_membership.group.id
-        
-        # Get interests
-        interests = [
-            {
-                "id": ui.interest_id,
-                "description": ui.interest.interest_desc
-            }
-            for ui in UserInterest.objects.filter(user_id=user_id).select_related('interest')
-        ]
-        
-        student_item = {
-            "id": user.id,
-            "firstName": user.first_name,
-            "lastName": user.last_name,
-            "email": user.email,
-            "role": "student",
-            "state": _user_state_dict(user),
-            "isActive": user.is_active,
-            "accountStatus": "active" if user.is_active else "deactivated",
-            "schoolName": student_profile.school_name,
-            "yearLevel": int(student_profile.year_lvl) if student_profile.year_lvl else None,
-            "hasJoinPermission": True,
-            "joinpermResponseId": student_profile.joinperm_responseID,
-            "groupId": group_id,
-            "groupName": group_name,
-            "interests": interests,
-        }
-        students_list.append(student_item)
-    
-    return {
-        "msg": "Students retrieved successfully",
-        "data": {
-            "items": students_list,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "hasMore": offset + len(students_list) < total,
-        }
-    }
-
-
-# ============================================================================
 # MUTATION FUNCTIONS (mutation.ts logic)
 # ============================================================================
 
@@ -874,6 +790,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         first_name = input_data.get("firstName", "")
         last_name = input_data.get("lastName", "")
         role = input_data.get("role", "student")
+        country_name = (input_data.get("country") or "").strip()
         state_name = (input_data.get("state") or "").strip()
 
         # Check if user exists
@@ -885,11 +802,13 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Validate state/region for non-admin users
-        if role != "admin" and not state_name:
+        # Validate geography for non-admin users. Country is the required field;
+        # state is optional. A bare state still resolves a country (see below), so
+        # accept either.
+        if role != "admin" and not country_name and not state_name:
             results.append({
                 "input": input_data,
-                "msg": "State is required",
+                "msg": "Country is required",
                 "data": None
             })
             continue
@@ -965,31 +884,39 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 })
                 continue
         
-        # Resolve state ID. When a country is supplied (registration-export
-        # imports), get_or_create the Country + CountryState so international
-        # registrants without a pre-seeded state still import.
-        state_id = None
-        if state_name:
-            country_name = (input_data.get("country") or "").strip()
-            if country_name:
-                country_obj, _ = Countries.objects.get_or_create(
-                    country_name=country_name
-                )
+        # Resolve country + state. Country is what matching needs and is
+        # get_or_create'd so international registrants import cleanly. State is the
+        # sub-national region — blank unless the export carries one, and never the
+        # country name wearing a state's hat.
+        country_obj = None
+        state_obj = None
+        if country_name:
+            # iexact so a casing variant in one export ("australia") can't fork a
+            # second country off the real one.
+            country_obj, _ = Countries.objects.get_or_create(
+                country_name__iexact=country_name,
+                defaults={"country_name": country_name},
+            )
+            if state_name and state_name.casefold() != country_name.casefold():
                 state_obj, _ = CountryStates.objects.get_or_create(
                     country=country_obj, state_name=state_name
                 )
-            else:
-                state_obj = CountryStates.objects.filter(
-                    state_name=state_name
-                ).first()
-                if state_obj is None:
-                    results.append({
-                        "input": input_data,
-                        "msg": f'State "{state_name}" not found',
-                        "data": None
-                    })
-                    continue
-            state_id = state_obj.id
+        elif state_name:
+            # Callers that send a state name only (the single-create form): derive
+            # the country from the state row.
+            state_obj = CountryStates.objects.filter(
+                state_name=state_name
+            ).select_related("country").first()
+            if state_obj is None:
+                results.append({
+                    "input": input_data,
+                    "msg": f'State "{state_name}" not found',
+                    "data": None
+                })
+                continue
+            country_obj = state_obj.country
+        country_id = country_obj.id if country_obj else None
+        state_id = state_obj.id if state_obj else None
         
         # Resolve role ID
         try:
@@ -1026,6 +953,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     first_name=first_name,
                     last_name=last_name,
                     password=None,  # No password set
+                    country_id=country_id,
                     state_id=state_id,
                     is_active=is_active,
                     account_status=account_status,
@@ -1063,6 +991,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                             "joinpermResponseId", _UNSET
                         ),
                         state_id=state_id,
+                        country_id=country_id,
                     )
                 
                 if role == "supervisor":
@@ -1336,17 +1265,39 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id) if role_changed else None
 
-    # Handle state/region update
+    # Handle geography update. Country is the required half for non-admins; state
+    # is sub-national and may always be cleared (most non-AU users have none).
+    if "countryId" in input_data:
+        if input_data["countryId"] is None:
+            if next_role != "admin":
+                return {"msg": "Country cannot be cleared", "data": None}
+            user.country_id = None
+            user.state_id = None  # a state without its country is meaningless
+        else:
+            if not Countries.objects.filter(id=input_data["countryId"]).exists():
+                return {"msg": f'Country "{input_data["countryId"]}" not found', "data": None}
+            user.country_id = input_data["countryId"]
+
+    country_cleared = "countryId" in input_data and input_data["countryId"] is None
+
     if "stateId" in input_data:
         if input_data["stateId"] is None:
-            if next_role != "admin":
-                return {"msg": "State cannot be cleared", "data": None}
             user.state_id = None
+        elif country_cleared:
+            # Same payload clears the country and sets a state — contradictory.
+            # Reject rather than let the state quietly reinstate a country.
+            return {"msg": "Cannot set a state while clearing the country", "data": None}
         else:
-            if not CountryStates.objects.filter(id=input_data["stateId"]).exists():
+            state_obj = CountryStates.objects.filter(
+                id=input_data["stateId"]
+            ).select_related("country").first()
+            if state_obj is None:
                 return {"msg": f'State "{input_data["stateId"]}" not found', "data": None}
-            user.state_id = input_data["stateId"]
-    
+            if user.country_id and user.country_id != state_obj.country_id:
+                return {"msg": "State does not belong to the selected country", "data": None}
+            user.state_id = state_obj.id
+            user.country_id = state_obj.country_id  # keep the pair coherent
+
     try:
         with transaction.atomic():
             # Update basic user fields
@@ -1354,7 +1305,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if "stateId" in input_data or any(k in input_data for k in ["firstName", "lastName"]):
+            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName"]):
                 user.save()
             
             # Handle role change
@@ -1389,6 +1340,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     input_data.get("yearLevel"),
                     supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
                     state_id=user.state_id,
+                    country_id=user.country_id,
                 )
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
