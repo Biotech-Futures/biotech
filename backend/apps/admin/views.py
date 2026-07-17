@@ -297,6 +297,7 @@ class GroupDetailView(APIView):
         result = update_group(
             group_id,
             name=request.data.get("name"),
+            initiated_by=request.user,
         )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST

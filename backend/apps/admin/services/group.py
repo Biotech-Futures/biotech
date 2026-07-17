@@ -440,6 +440,40 @@ def query_group_messages(
     }
 
 
+GROUP_NAME_MAX_LENGTH = Groups._meta.get_field("group_name").max_length
+
+
+def _clean_group_name(name) -> str:
+    """
+    Normalize a client-supplied group name.
+
+    Raises:
+        ValueError: with a user-facing message when the name is unusable.
+    """
+    # Non-strings reach here straight off request.data; .strip() would AttributeError.
+    if not isinstance(name, str):
+        raise ValueError("Group name is required")
+
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Group name is required")
+
+    # save() skips field validators, so an over-length name would otherwise reach
+    # Postgres as a DataError -- which `except IntegrityError` cannot catch.
+    if len(cleaned) > GROUP_NAME_MAX_LENGTH:
+        raise ValueError(f"Group name must be {GROUP_NAME_MAX_LENGTH} characters or fewer")
+
+    return cleaned
+
+
+def _active_name_taken(name: str, exclude_pk: Optional[int] = None) -> bool:
+    """Whether another active group already holds this name."""
+    qs = Groups.objects.filter(group_name=name, deleted_at__isnull=True)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.exists()
+
+
 @transaction.atomic
 def create_group(name: Optional[str]) -> dict:
     """
@@ -451,15 +485,19 @@ def create_group(name: Optional[str]) -> dict:
     Returns:
         Dictionary with the created group data or an error message
     """
-    cleaned = (name or "").strip()
-    if not cleaned:
-        return {"msg": "Group name is required", "data": None}
+    try:
+        cleaned = _clean_group_name(name)
+    except ValueError as exc:
+        return {"msg": str(exc), "data": None}
 
-    if Groups.objects.filter(group_name=cleaned, deleted_at__isnull=True).exists():
+    if _active_name_taken(cleaned):
         return {"msg": "A group with this name already exists", "data": None}
 
     try:
-        group = Groups.objects.create(group_name=cleaned)
+        # Inner atomic so a name that raced past the check above only rolls back
+        # to a savepoint, rather than poisoning the transaction we were called in.
+        with transaction.atomic():
+            group = Groups.objects.create(group_name=cleaned)
     except IntegrityError:
         return {"msg": "A group with this name already exists", "data": None}
 
@@ -471,13 +509,15 @@ def create_group(name: Optional[str]) -> dict:
     }
 
 
-def update_group(group_id: str, name: Optional[str] = None) -> dict:
+@transaction.atomic
+def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -> dict:
     """
     Update group information.
-    
+
     Args:
         group_id: The group ID as string
-        name: New group name
+        name: New group name (must be unique among active groups)
+        initiated_by: Admin performing the update, recorded on the audit event
 
     Returns:
         Dictionary with updated group data or error message
@@ -486,22 +526,43 @@ def update_group(group_id: str, name: Optional[str] = None) -> dict:
         gid = int(group_id)
     except (ValueError, TypeError):
         return {"msg": "Group not found", "data": None}
-    
+
     try:
-        group = Groups.objects.get(id=gid, deleted_at__isnull=True)
+        # Locked for the read-modify-write below, so a concurrent rename can't make
+        # this one record a before_state that was never the committed value.
+        group = Groups.objects.select_for_update().get(id=gid, deleted_at__isnull=True)
     except Groups.DoesNotExist:
         return {"msg": "Group not found", "data": None}
-    
-    updates = {}
-    
-    if name is not None:
-        updates["group_name"] = name
 
-    if updates:
-        for key, value in updates.items():
-            setattr(group, key, value)
-        group.save()
-    
+    if name is not None:
+        try:
+            cleaned = _clean_group_name(name)
+        except ValueError as exc:
+            return {"msg": str(exc), "data": None}
+
+        if cleaned != group.group_name:
+            if _active_name_taken(cleaned, exclude_pk=gid):
+                return {"msg": "A group with this name already exists", "data": None}
+
+            before_state = {"name": group.group_name}
+            group.group_name = cleaned
+            try:
+                # Inner atomic so a name that raced past the check above only rolls back
+                # to a savepoint, rather than poisoning the transaction we were called in.
+                with transaction.atomic():
+                    group.save(update_fields=["group_name"])
+            except IntegrityError:
+                return {"msg": "A group with this name already exists", "data": None}
+
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="group",
+                entity_id=gid,
+                action="update",
+                before_state=before_state,
+                after_state={"name": cleaned},
+            )
+
     # Return updated group
     base_row = _fetch_group_base_by_id(gid)
     if not base_row:
