@@ -1,7 +1,7 @@
 from typing import TypedDict, Optional, List
 from datetime import datetime
 
-from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanField, Count, Min
+from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanField, Count, Min, ProtectedError
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -689,3 +689,182 @@ def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> d
             "group_id": str(message.group_id),
         },
     }
+
+
+def _purge_protecting_records_for_group(group_id: int) -> None:
+    """Delete the records that reference a group with on_delete=PROTECT (hosted
+    workshops), so a subsequent hard delete succeeds instead of raising
+    ProtectedError. Workshop attendance cascades from the workshop. Everything
+    else pointing at the group already cascades (chat messages, memberships,
+    event targets, announcement audiences, match recommendations); resources are
+    SET_NULL and survive, just unlinked.
+    """
+    from apps.workshops.models import Workshops
+
+    Workshops.objects.filter(group_id=group_id).delete()
+
+
+def delete_group(group_id: str, initiated_by=None, force: bool = False) -> dict:
+    """
+    Permanently delete an active group (hard delete). Cascades remove its chat
+    messages, memberships, event targets, announcement audiences, tasks, and
+    match recommendations; linked resources are unlinked (SET_NULL) but kept.
+
+    force=True first purges the records that reference the group with
+    on_delete=PROTECT (hosted workshops). This permanently destroys that content,
+    so callers must gate it behind an explicit, confirmed admin action.
+    """
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    try:
+        group = Groups.objects.get(id=gid, deleted_at__isnull=True)
+    except Groups.DoesNotExist:
+        return {"msg": "Group not found", "data": None}
+
+    before_state = {"name": group.group_name}
+    try:
+        with transaction.atomic():
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="group",
+                entity_id=gid,
+                action="force_delete" if force else "delete",
+                before_state=before_state,
+            )
+            if force:
+                _purge_protecting_records_for_group(gid)
+            group.delete()
+    except ProtectedError:
+        # A hosted workshop references the group with on_delete=PROTECT. Fail
+        # cleanly (the atomic block rolls back) instead of a 500 that would
+        # strand a bulk delete mid-loop. force=True purges these first, so this
+        # path is only reached for a normal (non-force) delete.
+        return {
+            "msg": "Group cannot be deleted because other records reference it",
+            "data": None,
+        }
+
+    return {"msg": "Group deleted successfully", "data": {"id": str(gid)}}
+
+
+def bulk_delete_groups(group_ids, initiated_by=None, force: bool = False) -> dict:
+    """
+    Permanently delete multiple groups in one call (hard delete). Dedupes ids;
+    each row is removed via delete_group (its own transaction + audit event), so
+    a group blocked by a PROTECT reference is reported in failedIds rather than
+    aborting the batch. force=True purges those blockers first — see delete_group.
+    """
+    try:
+        ids = list(dict.fromkeys(int(gid) for gid in group_ids))
+    except (TypeError, ValueError):
+        return {"msg": "groupIds must be a list of integer ids", "data": None}
+    if not ids:
+        return {"msg": "groupIds must be a non-empty list", "data": None}
+
+    existing_ids = set(
+        Groups.objects.filter(id__in=ids, deleted_at__isnull=True)
+        .values_list("id", flat=True)
+    )
+    deleted_ids: List[int] = []
+    failed_ids: List[int] = []
+    not_found_ids = [gid for gid in ids if gid not in existing_ids]
+    for gid in ids:
+        if gid not in existing_ids:
+            continue
+        result = delete_group(gid, initiated_by=initiated_by, force=force)
+        if result.get("msg") == "Group deleted successfully":
+            deleted_ids.append(gid)
+        else:
+            failed_ids.append(gid)
+
+    msg_parts = [f"{len(deleted_ids)} group(s) deleted"]
+    if failed_ids:
+        msg_parts.append(
+            f"{len(failed_ids)} could not be deleted (referenced by other records)"
+        )
+    if not_found_ids:
+        msg_parts.append(f"{len(not_found_ids)} not found")
+
+    return {
+        "msg": "; ".join(msg_parts),
+        "data": {
+            "deletedIds": deleted_ids,
+            "failedIds": failed_ids,
+            "notFoundIds": not_found_ids,
+        },
+    }
+
+
+def bulk_delete_groups_by_filter(filters, exclude_ids=None, expected_count=None,
+                                 initiated_by=None, force: bool = False,
+                                 limit=None) -> dict:
+    """
+    Permanently delete groups matching the given list filters ("select all
+    matching"). Reuses _build_group_where so the action hits exactly the rows
+    the admin was viewing; exclude_ids drops rows they unchecked before
+    confirming. expected_count guards against the set growing between preview
+    and confirm (groups created in that window are not silently swept in).
+
+    A mass hard delete cascades a lot (chat history, memberships, …), so the
+    client drains the set in batches: ``limit`` caps how many are deleted per
+    call and the response reports ``remaining`` so the caller can loop. Rows the
+    caller has already handled (deleted, or failed and re-queued) are passed back
+    in ``exclude_ids`` so each batch resolves fresh work.
+    """
+    filters = filters or {}
+    where = _build_group_where(
+        search_name=filters.get("searchName"),
+        search_group=filters.get("searchGroup"),
+        mentor_status=filters.get("mentorStatus"),
+    )
+    ids = list(Groups.objects.filter(where).values_list("id", flat=True).distinct())
+
+    if exclude_ids:
+        try:
+            excluded = {int(x) for x in exclude_ids}
+        except (TypeError, ValueError):
+            return {"msg": "excludeIds must be a list of integer ids", "data": None}
+        ids = [gid for gid in ids if gid not in excluded]
+
+    # Refuse if the live set grew beyond what the admin reviewed — the delete
+    # must not reach groups created after the count was shown.
+    if expected_count is not None:
+        try:
+            expected = int(expected_count)
+        except (TypeError, ValueError):
+            expected = None
+        if expected is not None and len(ids) > expected:
+            return {
+                "msg": (
+                    f"The matching set changed (now {len(ids)}, was {expected}). "
+                    "Refresh and re-review before deleting."
+                ),
+                "data": None,
+            }
+
+    if not ids:
+        return {
+            "msg": "No matching groups to delete",
+            "data": {
+                "deletedIds": [], "failedIds": [], "notFoundIds": [], "remaining": 0,
+            },
+        }
+
+    # Take at most `limit` this call; the caller loops on `remaining`.
+    remaining = 0
+    if limit is not None:
+        try:
+            lim = int(limit)
+        except (TypeError, ValueError):
+            lim = None
+        if lim is not None and lim > 0 and lim < len(ids):
+            remaining = len(ids) - lim
+            ids = ids[:lim]
+
+    result = bulk_delete_groups(ids, initiated_by=initiated_by, force=force)
+    if result.get("data") is not None:
+        result["data"]["remaining"] = remaining
+    return result

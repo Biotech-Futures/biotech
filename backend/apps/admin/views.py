@@ -17,6 +17,7 @@ from apps.admin.services.user import (
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
     create_group, update_group, remove_group_member, remove_group_message,
+    delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
@@ -301,6 +302,56 @@ class GroupDetailView(APIView):
         )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+    """DELETE /api/v1/group/{id} - Permanently delete a group"""
+
+    def delete(self, request, group_id):
+        result = delete_group(group_id, initiated_by=request.user)
+        if result.get("data"):
+            code = status.HTTP_200_OK
+        elif result.get("msg") == "Group not found":
+            code = status.HTTP_404_NOT_FOUND
+        else:
+            code = status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class GroupBulkDeleteView(APIView):
+    """POST /api/v1/group/bulk-delete - Permanently delete groups in one request.
+
+    Accepts explicit ``groupIds`` or ``selectAll`` (resolved server-side from
+    the same list filters), mirroring UserBulkDeleteView. force=True also purges
+    the hosted workshops that PROTECT a group so it can be deleted.
+    """
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request):
+        force = bool(request.data.get("force"))
+        # "Select all matching" resolves the target set server-side from the
+        # same filters the list uses, instead of shipping every id from the browser.
+        if request.data.get("selectAll"):
+            result = bulk_delete_groups_by_filter(
+                request.data.get("filters") or {},
+                exclude_ids=request.data.get("excludeIds") or [],
+                expected_count=request.data.get("expectedCount"),
+                initiated_by=request.user,
+                force=force,
+                limit=request.data.get("limit"),
+            )
+        else:
+            group_ids = request.data.get("groupIds")
+            if not isinstance(group_ids, list) or not group_ids:
+                return Response(
+                    {"msg": "groupIds must be a non-empty array", "data": None},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            result = bulk_delete_groups(
+                group_ids, initiated_by=request.user, force=force
+            )
+
+        code = status.HTTP_200_OK if result.get(
+            "data") is not None else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
