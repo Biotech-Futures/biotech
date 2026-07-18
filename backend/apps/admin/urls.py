@@ -22,6 +22,7 @@ urlpatterns = [
     # GROUP ROUTES
     # ========================================================================
     path('group/', views.GroupListView.as_view(), name='group-list'),
+    path('group/bulk-delete/', views.GroupBulkDeleteView.as_view(), name='group-bulk-delete'),
     path('group/<str:group_id>/', views.GroupDetailView.as_view(), name='group-detail'),
     path('group/<str:group_id>/messages/', views.GroupMessagesListView.as_view(), name='group-messages-list'),
     path('group/<str:group_id>/messages/<str:message_id>/', views.GroupMessageDetailView.as_view(), name='group-message-detail'),

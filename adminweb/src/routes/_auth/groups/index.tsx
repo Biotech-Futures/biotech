@@ -11,10 +11,12 @@ import {
   createColumns,
 } from "@/components/group";
 import {
+  useBulkDeleteGroups,
   useCreateGroup,
   useDeleteGroup,
   useQueryGroup,
   useQueryGroups,
+  type GroupListFilters,
 } from "@/query/group";
 import {
   MAX_PAGE_SIZE,
@@ -47,6 +49,19 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 25;
+// A hard group delete cascades a lot (chat history, memberships, …), so large
+// selections are deleted in batches across several requests rather than one
+// long-running call that could time out.
+const BULK_DELETE_BATCH_SIZE = 50;
+const BULK_DELETE_TOAST_ID = "bulk-delete-groups";
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
+}
 
 type GroupSearchParams = {
   groupId?: string;
@@ -115,10 +130,27 @@ function GroupPage() {
   const [newGroupName, setNewGroupName] = useState("");
   // Page-level bulk selection, keyed by group id.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // "Select all matching" mode: every row in the filtered set is selected
+  // except the ids the admin explicitly unchecked (excludedIds).
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // Snapshot the count/mode when the dialog opens so its copy stays stable while
+  // the selection is cleared and the dialog animates out.
+  const [bulkDelete, setBulkDelete] = useState<{
+    count: number;
+    selectAll: boolean;
+  } | null>(null);
+  // Mass "select all matching" delete requires typing DELETE to confirm.
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  // Force delete also purges the hosted workshops that PROTECT a group —
+  // required to delete a group that has any workshops scheduled.
+  const [forceDelete, setForceDelete] = useState(false);
+  // True for the whole batched delete loop (spans several requests).
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const createGroup = useCreateGroup();
   const deleteGroup = useDeleteGroup();
+  const bulkDeleteGroups = useBulkDeleteGroups();
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -141,38 +173,27 @@ function GroupPage() {
   );
 
   const groups = data?.data.items ?? [];
-  const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / pageSize));
+  const total = data?.data.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const clearSelection = () => setSelectedIds(new Set());
-  const selectedOnPage = groups.filter((g) => selectedIds.has(g.id));
-  const headerState: boolean | "indeterminate" =
-    groups.length > 0 && selectedOnPage.length === groups.length
-      ? true
-      : selectedOnPage.length > 0
-        ? "indeterminate"
-        : false;
-
-  const toggleRow = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    setExcludedIds(new Set());
   };
 
-  const toggleAllOnPage = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      const allSelected =
-        groups.length > 0 && groups.every((g) => next.has(g.id));
-      if (allSelected) groups.forEach((g) => next.delete(g.id));
-      else groups.forEach((g) => next.add(g.id));
-      return next;
-    });
+  // Filters shared by the list query and "select all matching" bulk delete.
+  const currentFilters: GroupListFilters = {
+    searchName,
+    searchGroup,
+    mentorStatus,
   };
 
-  // Delete returns 204 (no body), so a resolved request means success.
+  const effectiveSelectedCount = selectAllMatching
+    ? Math.max(0, total - excludedIds.size)
+    : selectedIds.size;
+
+  // A resolved request means the soft-delete succeeded (404s reject).
   const handleDeleteGroup = async () => {
     if (!deletingGroup) return;
     const { id, name } = deletingGroup;
@@ -184,36 +205,96 @@ function GroupPage() {
         next.delete(id);
         return next;
       });
-    } catch {
-      toast.error("Unable to delete the group right now.");
+    } catch (error) {
+      // Surface the server reason (e.g. a group blocked by a scheduled
+      // workshop) instead of a generic failure.
+      const serverMsg = (
+        error as { response?: { data?: { msg?: string } } }
+      )?.response?.data?.msg;
+      toast.error(serverMsg || "Unable to delete the group right now.");
     } finally {
       setDeletingGroup(null);
     }
   };
 
   const handleBulkDelete = async () => {
-    const ids = [...selectedIds];
-    if (!ids.length) {
-      setBulkDeleteOpen(false);
+    if (!selectAllMatching && selectedIds.size === 0) {
+      setBulkDelete(null);
       return;
     }
-    // Settle each delete independently so one failure doesn't strand the rest.
-    const outcomes = await Promise.allSettled(
-      ids.map((id) => deleteGroup.mutateAsync(id)),
-    );
-    const failed = outcomes.filter((o) => o.status === "rejected").length;
-    const deleted = ids.length - failed;
 
-    if (deleted > 0) {
-      toast.success(`Deleted ${deleted} group${deleted === 1 ? "" : "s"}.`);
-    }
-    if (failed > 0) {
+    setIsBulkDeleting(true);
+    toast.loading("Deleting groups…", { id: BULK_DELETE_TOAST_ID });
+    let deleted = 0;
+    let failed = 0;
+
+    try {
+      if (selectAllMatching) {
+        // Drain the matching set batch by batch. Rows that fail this call (e.g.
+        // protected without force) are re-queued into excludeIds so each request
+        // resolves fresh work and the loop terminates.
+        const excluded = new Set(excludedIds);
+        for (;;) {
+          const res = await bulkDeleteGroups.mutateAsync({
+            selectAll: true,
+            filters: currentFilters,
+            excludeIds: [...excluded],
+            // The guard must shrink with each batch: we've already handled
+            // `deleted + failed` of the reviewed set, so anything beyond the
+            // remainder is a group created after review — refuse to sweep it in.
+            expectedCount: effectiveSelectedCount - deleted - failed,
+            force: forceDelete,
+            limit: BULK_DELETE_BATCH_SIZE,
+          });
+          deleted += res.data?.deletedIds.length ?? 0;
+          failed += res.data?.failedIds.length ?? 0;
+          res.data?.failedIds.forEach((id) => excluded.add(String(id)));
+          const attempted =
+            (res.data?.deletedIds.length ?? 0) +
+            (res.data?.failedIds.length ?? 0);
+          toast.loading(`Deleting groups… ${deleted} done`, {
+            id: BULK_DELETE_TOAST_ID,
+          });
+          if (attempted === 0) break;
+        }
+      } else {
+        for (const batch of chunk([...selectedIds], BULK_DELETE_BATCH_SIZE)) {
+          const res = await bulkDeleteGroups.mutateAsync({
+            groupIds: batch,
+            force: forceDelete,
+          });
+          deleted += res.data?.deletedIds.length ?? 0;
+          failed += res.data?.failedIds.length ?? 0;
+          toast.loading(`Deleting groups… ${deleted} done`, {
+            id: BULK_DELETE_TOAST_ID,
+          });
+        }
+      }
+
+      if (failed > 0) {
+        toast.warning(
+          `Deleted ${deleted} group${deleted === 1 ? "" : "s"}; ${failed} could not be deleted (in use by a workshop — use Force delete).`,
+          { id: BULK_DELETE_TOAST_ID },
+        );
+      } else {
+        toast.success(`Deleted ${deleted} group${deleted === 1 ? "" : "s"}.`, {
+          id: BULK_DELETE_TOAST_ID,
+        });
+      }
+    } catch {
+      // A 400 (e.g. the matching set grew past the reviewed count) or network
+      // error rejects the request; earlier batches already committed.
       toast.error(
-        `${failed} group${failed === 1 ? "" : "s"} could not be deleted.`,
+        deleted > 0
+          ? `Deleted ${deleted} group${deleted === 1 ? "" : "s"}, then stopped. Refresh and retry.`
+          : "Unable to delete groups right now.",
+        { id: BULK_DELETE_TOAST_ID },
       );
+    } finally {
+      setIsBulkDeleting(false);
+      setBulkDelete(null);
+      clearSelection();
     }
-    clearSelection();
-    setBulkDeleteOpen(false);
   };
 
   const updateFilters = (
@@ -223,6 +304,9 @@ function GroupPage() {
       mentorStatus: MentorStatusFilter;
     }>,
   ) => {
+    // Filters change the matching set, so any selection (including
+    // "all matching") no longer maps to what's on screen.
+    clearSelection();
     void navigate({
       to: "/groups",
       search: (prev) => ({
@@ -355,19 +439,26 @@ function GroupPage() {
         }}
       />
 
-      {selectedIds.size > 0 && (
+      {effectiveSelectedCount > 0 && (
         <BulkActionsBar
-          count={selectedIds.size}
+          count={effectiveSelectedCount}
           noun="group"
           onClear={clearSelection}
-          disabled={deleteGroup.isPending}
+          disabled={isBulkDeleting}
         >
           <Button
             variant="outline"
             size="sm"
             className="text-destructive hover:text-destructive"
-            onClick={() => setBulkDeleteOpen(true)}
-            disabled={deleteGroup.isPending}
+            onClick={() => {
+              setDeleteConfirmText("");
+              setForceDelete(false);
+              setBulkDelete({
+                count: effectiveSelectedCount,
+                selectAll: selectAllMatching,
+              });
+            }}
+            disabled={isBulkDeleting}
           >
             <Trash2Icon />
             Delete
@@ -392,10 +483,18 @@ function GroupPage() {
         manualSorting
         isPending={isPending}
         selection={{
-          isSelected: (id) => selectedIds.has(id),
-          onToggleRow: toggleRow,
-          headerState,
-          onToggleAll: toggleAllOnPage,
+          selectedIds,
+          selectAllMatching,
+          excludedIds,
+          total,
+          onSelectionChange: setSelectedIds,
+          onExcludedChange: setExcludedIds,
+          onSelectAllMatching: () => {
+            setSelectedIds(new Set());
+            setExcludedIds(new Set());
+            setSelectAllMatching(true);
+          },
+          onClear: clearSelection,
         }}
       />
 
@@ -424,8 +523,9 @@ function GroupPage() {
               Delete &ldquo;{deletingGroup?.name}&rdquo;?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the group from the platform. Its students become
-              ungrouped and can be reassigned at any time.
+              This permanently deletes the group and its chat history,
+              memberships, and event links. Students become ungrouped and can be
+              reassigned. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -446,26 +546,76 @@ function GroupPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+      <AlertDialog
+        open={bulkDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkDelete(null);
+            setDeleteConfirmText("");
+            setForceDelete(false);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {selectedIds.size}{" "}
-              {selectedIds.size === 1 ? "group" : "groups"}?
+              Delete {bulkDelete?.count}{" "}
+              {bulkDelete?.count === 1 ? "group" : "groups"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the selected{" "}
-              {selectedIds.size === 1 ? "group" : "groups"} from the platform.
-              Their students become ungrouped and can be reassigned at any time.
+              This permanently deletes the selected{" "}
+              {bulkDelete?.count === 1 ? "group" : "groups"} and{" "}
+              {bulkDelete?.count === 1 ? "its" : "their"} chat history,
+              memberships, and event links. Students become ungrouped. This
+              cannot be undone.
+              {bulkDelete?.selectAll ? (
+                <> Every group matching the current filters will be deleted.</>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3">
+            <label
+              htmlFor="bulk-delete-force"
+              className="flex items-start gap-2 text-sm"
+            >
+              <input
+                id="bulk-delete-force"
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={forceDelete}
+                onChange={(event) => setForceDelete(event.target.checked)}
+              />
+              <span>
+                Force delete — also permanently delete any workshops scheduled
+                for these groups. Required to delete a group that has workshops.
+              </span>
+            </label>
+            {bulkDelete?.selectAll || forceDelete ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-delete-confirm">
+                  Type <span className="font-semibold">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="bulk-delete-confirm"
+                  autoComplete="off"
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                />
+              </div>
+            ) : null}
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteGroup.isPending}>
+            <AlertDialogCancel disabled={isBulkDeleting}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={deleteGroup.isPending}
+              disabled={
+                isBulkDeleting ||
+                ((bulkDelete?.selectAll === true || forceDelete) &&
+                  deleteConfirmText !== "DELETE")
+              }
               onClick={(event) => {
                 event.preventDefault();
                 void handleBulkDelete();

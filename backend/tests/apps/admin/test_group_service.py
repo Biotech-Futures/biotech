@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.admin.services.group import (
     create_group, query_groups, query_group_by_id, query_group_messages,
     update_group, remove_group_member, remove_group_message,
+    delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
 from apps.audit.models import AuditLog
 from apps.chat.models import Messages
@@ -292,3 +293,190 @@ class AdminGroupServiceTests(TestCase):
         result = remove_group_message("bad", 1)
         self.assertEqual(result["msg"], "Group not found")
         self.assertIsNone(result["data"])
+
+    # --- delete_group (hard delete) ----------------------------------------
+
+    def _make_workshop(self, group):
+        from apps.workshops.models import Workshops
+
+        return Workshops.objects.create(
+            workshop_name="Intro Session",
+            start_datetime=timezone.now(),
+            duration=timedelta(hours=1),
+            location="Zoom",
+            host_user=self.mentor,
+            group=group,
+        )
+
+    def test_delete_group_hard_deletes_and_cascades_membership(self):
+        result = delete_group(str(self.group.id), initiated_by=self.admin_user)
+
+        self.assertEqual(result["msg"], "Group deleted successfully")
+        self.assertEqual(result["data"]["id"], str(self.group.id))
+        self.assertFalse(Groups.objects.filter(id=self.group.id).exists())
+        # Memberships CASCADE with the group.
+        self.assertFalse(
+            GroupMembership.objects.filter(id=self.membership.id).exists()
+        )
+
+    def test_delete_group_invalid_id(self):
+        result = delete_group("bad")
+        self.assertEqual(result["msg"], "Group not found")
+        self.assertIsNone(result["data"])
+
+    def test_delete_group_not_found(self):
+        result = delete_group("9999")
+        self.assertEqual(result["msg"], "Group not found")
+        self.assertIsNone(result["data"])
+
+    def test_delete_group_already_deleted_is_not_found(self):
+        g2 = Groups.objects.create(group_name="Group Two")
+        delete_group(str(g2.id))
+        result = delete_group(str(g2.id))
+        self.assertEqual(result["msg"], "Group not found")
+        self.assertIsNone(result["data"])
+
+    def test_delete_group_logs_audit_event(self):
+        delete_group(str(self.group.id), initiated_by=self.admin_user)
+
+        entry = AuditLog.objects.get(entity_type="group", action="delete")
+        self.assertEqual(entry.actor_user, self.admin_user)
+        self.assertEqual(entry.entity_id, self.group.id)
+
+    def test_delete_group_blocked_by_workshop_without_force(self):
+        self._make_workshop(self.group)
+
+        result = delete_group(str(self.group.id))
+
+        self.assertEqual(
+            result["msg"],
+            "Group cannot be deleted because other records reference it",
+        )
+        self.assertIsNone(result["data"])
+        self.assertTrue(Groups.objects.filter(id=self.group.id).exists())
+
+    def test_delete_group_force_purges_workshop(self):
+        workshop = self._make_workshop(self.group)
+
+        result = delete_group(
+            str(self.group.id), initiated_by=self.admin_user, force=True
+        )
+
+        self.assertEqual(result["msg"], "Group deleted successfully")
+        self.assertFalse(Groups.objects.filter(id=self.group.id).exists())
+        from apps.workshops.models import Workshops
+        self.assertFalse(Workshops.objects.filter(pk=workshop.pk).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(
+                entity_type="group", action="force_delete"
+            ).exists()
+        )
+
+    # --- bulk_delete_groups (hard delete) ----------------------------------
+
+    def test_bulk_delete_groups_hard_deletes_multiple(self):
+        g2 = Groups.objects.create(group_name="Group Two")
+        g3 = Groups.objects.create(group_name="Group Three")
+
+        result = bulk_delete_groups([g2.id, g3.id], initiated_by=self.admin_user)
+
+        self.assertCountEqual(result["data"]["deletedIds"], [g2.id, g3.id])
+        self.assertEqual(result["data"]["failedIds"], [])
+        self.assertEqual(result["data"]["notFoundIds"], [])
+        self.assertFalse(Groups.objects.filter(id__in=[g2.id, g3.id]).exists())
+
+    def test_bulk_delete_groups_reports_failed_when_protected(self):
+        g2 = Groups.objects.create(group_name="Group Two")
+        self._make_workshop(g2)
+
+        result = bulk_delete_groups([g2.id])
+
+        self.assertEqual(result["data"]["deletedIds"], [])
+        self.assertEqual(result["data"]["failedIds"], [g2.id])
+        self.assertTrue(Groups.objects.filter(id=g2.id).exists())
+
+        forced = bulk_delete_groups([g2.id], force=True)
+        self.assertEqual(forced["data"]["deletedIds"], [g2.id])
+        self.assertFalse(Groups.objects.filter(id=g2.id).exists())
+
+    def test_bulk_delete_groups_dedupes_and_reports_not_found(self):
+        g2 = Groups.objects.create(group_name="Group Two")
+
+        result = bulk_delete_groups([g2.id, g2.id, 9999])
+
+        self.assertEqual(result["data"]["deletedIds"], [g2.id])
+        self.assertEqual(result["data"]["notFoundIds"], [9999])
+
+    def test_bulk_delete_groups_rejects_empty_or_bad_ids(self):
+        self.assertIsNone(bulk_delete_groups([])["data"])
+        self.assertIsNone(bulk_delete_groups(["bad"])["data"])
+
+    # --- bulk_delete_groups_by_filter --------------------------------------
+
+    def test_bulk_delete_groups_by_filter_respects_mentor_status(self):
+        # self.group has a mentor (matched); g2 has none (unmatched).
+        g2 = Groups.objects.create(group_name="Unmatched Group")
+
+        result = bulk_delete_groups_by_filter(
+            {"mentorStatus": "unmatched"}, initiated_by=self.admin_user
+        )
+
+        self.assertEqual(result["data"]["deletedIds"], [g2.id])
+        self.assertTrue(Groups.objects.filter(id=self.group.id).exists())
+        self.assertFalse(Groups.objects.filter(id=g2.id).exists())
+
+    def test_bulk_delete_groups_by_filter_honors_exclude_ids(self):
+        g2 = Groups.objects.create(group_name="Group Two")
+
+        result = bulk_delete_groups_by_filter({}, exclude_ids=[g2.id])
+
+        self.assertNotIn(g2.id, result["data"]["deletedIds"])
+        self.assertIn(self.group.id, result["data"]["deletedIds"])
+        self.assertTrue(Groups.objects.filter(id=g2.id).exists())
+
+    def test_bulk_delete_groups_by_filter_expected_count_guard(self):
+        # Two active groups now match, but the admin reviewed only one.
+        Groups.objects.create(group_name="Group Two")
+
+        result = bulk_delete_groups_by_filter({}, expected_count=1)
+
+        self.assertIsNone(result["data"])
+        self.assertIn("changed", result["msg"])
+        self.assertTrue(Groups.objects.filter(id=self.group.id).exists())
+
+    def test_bulk_delete_groups_by_filter_force_purges_workshops(self):
+        # self.group is matched and has a PROTECT-ing workshop.
+        workshop = self._make_workshop(self.group)
+
+        result = bulk_delete_groups_by_filter(
+            {"mentorStatus": "matched"}, initiated_by=self.admin_user, force=True
+        )
+
+        self.assertIn(self.group.id, result["data"]["deletedIds"])
+        self.assertFalse(Groups.objects.filter(id=self.group.id).exists())
+        from apps.workshops.models import Workshops
+        self.assertFalse(Workshops.objects.filter(pk=workshop.pk).exists())
+
+    def test_bulk_delete_groups_by_filter_empty_set(self):
+        result = bulk_delete_groups_by_filter({"searchGroup": "no-such-group"})
+
+        self.assertEqual(result["msg"], "No matching groups to delete")
+        self.assertEqual(result["data"]["deletedIds"], [])
+        self.assertEqual(result["data"]["remaining"], 0)
+
+    def test_bulk_delete_groups_by_filter_limit_deletes_one_batch(self):
+        # self.group + 2 more = 3 active groups; a limit of 2 deletes 2, leaving 1.
+        Groups.objects.create(group_name="Group Two")
+        Groups.objects.create(group_name="Group Three")
+
+        result = bulk_delete_groups_by_filter({}, limit=2, initiated_by=self.admin_user)
+
+        self.assertEqual(len(result["data"]["deletedIds"]), 2)
+        self.assertEqual(result["data"]["remaining"], 1)
+        self.assertEqual(Groups.objects.filter(deleted_at__isnull=True).count(), 1)
+
+        # A second call drains the rest; remaining hits 0.
+        rest = bulk_delete_groups_by_filter({}, limit=2, initiated_by=self.admin_user)
+        self.assertEqual(len(rest["data"]["deletedIds"]), 1)
+        self.assertEqual(rest["data"]["remaining"], 0)
+        self.assertEqual(Groups.objects.filter(deleted_at__isnull=True).count(), 0)

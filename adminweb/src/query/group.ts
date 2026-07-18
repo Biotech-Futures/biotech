@@ -107,8 +107,8 @@ export function useCreateGroup() {
   });
 }
 
-// Update group mutation
-// Soft-delete a group (sets deleted_at server-side; the group drops out of lists).
+// Permanently delete a group (hard delete; cascades chat history, memberships,
+// event links, and match recommendations). Fails if a workshop references it.
 export function useDeleteGroup() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -116,6 +116,71 @@ export function useDeleteGroup() {
       const res = await myFetch.delete<{ msg: string; data: Group | null }>(
         `/group/${id}`,
       );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+// Filters mirror the list query so a "select all matching" bulk action targets
+// exactly the rows the admin was viewing.
+export type GroupListFilters = {
+  searchName?: string;
+  searchGroup?: string;
+  mentorStatus?: MentorStatusFilter;
+};
+
+export type GroupBulkDeleteResult = {
+  deletedIds: number[];
+  failedIds: number[];
+  notFoundIds: number[];
+  /** Matching groups not attempted this call — the caller loops until 0. */
+  remaining?: number;
+};
+
+export type GroupBulkDeleteVars =
+  | { groupIds: string[]; force?: boolean }
+  | {
+      selectAll: true;
+      filters: GroupListFilters;
+      excludeIds: string[];
+      /** Count the admin reviewed; the server refuses if the live set grew past it. */
+      expectedCount: number;
+      force?: boolean;
+      /** Max groups to delete this call; the response reports `remaining`. */
+      limit?: number;
+    };
+
+/** Permanently delete groups in one request — explicit ids or "select all
+ *  matching" (resolved server-side from the same list filters). force=true also
+ *  purges the hosted workshops that PROTECT a group. */
+export function useBulkDeleteGroups() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: GroupBulkDeleteVars) => {
+      const body =
+        "selectAll" in payload
+          ? {
+              selectAll: true,
+              filters: payload.filters,
+              excludeIds: payload.excludeIds.map(Number),
+              expectedCount: payload.expectedCount,
+              force: payload.force ?? false,
+              ...(payload.limit != null ? { limit: payload.limit } : {}),
+            }
+          : {
+              groupIds: payload.groupIds.map(Number),
+              force: payload.force ?? false,
+            };
+
+      const res = await myFetch.post<{
+        msg: string;
+        data: GroupBulkDeleteResult | null;
+      }>("/group/bulk-delete", body);
       return res.data;
     },
     onSuccess: () => {
