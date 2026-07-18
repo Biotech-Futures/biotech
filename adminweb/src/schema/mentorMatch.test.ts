@@ -15,7 +15,7 @@ describe("mentorMatch schemas tolerate a null countryName", () => {
       data: [
         {
           groupId: 1,
-          groupName: "Co-registered Group R_7tu2mdyEsPq80mC",
+          groupName: "BTF_C7f3a9b2c1d4e5f6a7b8c9d0e1f2a3b4c",
           countryName: null,
           studentInterests: [],
           studentCount: 0,
