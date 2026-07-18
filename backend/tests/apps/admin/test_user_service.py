@@ -661,9 +661,10 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         )
         co = result["data"]["coRegistration"]
         self.assertEqual(len(co["groupsCreated"]), 1)
-        self.assertEqual(co["groupsCreated"][0]["name"], "Co-registered Group 1")
+        self.assertRegex(co["groupsCreated"][0]["name"], r"^BTF_C[0-9a-f]{32}$")
         self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
-        group = Groups.objects.get(group_name="Co-registered Group 1")
+        group = Groups.objects.get()
+        self.assertEqual(group.group_name, co["groupsCreated"][0]["name"])
         self.assertEqual(
             GroupMembership.objects.filter(
                 group=group, membership_role=STUDENT_ROLE, left_at__isnull=True
@@ -712,21 +713,26 @@ class AdminUserServiceCoRegistrationTests(TestCase):
             "",
         )
         self.assertEqual(result["data"]["coRegistration"]["groupsCreated"][0]["memberCount"], 2)
-        group = Groups.objects.get(group_name="Co-registered Group 1")
+        group = Groups.objects.get()
         self.assertFalse(
             GroupMembership.objects.filter(group=group, membership_role=MENTOR_ROLE).exists()
         )
 
-    def test_group_name_collision_gets_unique_suffix(self):
-        Groups.objects.create(group_name="Co-registered Group 1")
+    def test_co_registered_groups_get_unique_btf_c_names(self):
         result = bulk_create_users(
-            [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
+            [
+                self._student("a@example.com", "1"),
+                self._student("b@example.com", "1"),
+                self._student("c@example.com", "2"),
+                self._student("d@example.com", "2"),
+            ],
             "",
         )
-        self.assertEqual(
-            result["data"]["coRegistration"]["groupsCreated"][0]["name"],
-            "Co-registered Group 1 (2)",
-        )
+        names = [g["name"] for g in result["data"]["coRegistration"]["groupsCreated"]]
+        self.assertEqual(len(names), 2)
+        for name in names:
+            self.assertRegex(name, r"^BTF_C[0-9a-f]{32}$")
+        self.assertEqual(len(set(names)), 2)  # each group gets its own uuid
 
     def test_supervisor_synced_into_co_registration_group(self):
         result = bulk_create_users(
@@ -744,7 +750,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
             ],
             "",
         )
-        group = Groups.objects.get(group_name="Co-registered Group 1")
+        group = Groups.objects.get()
         sup_user = User.objects.get(email="sup@example.com")
         self.assertTrue(
             GroupMembership.objects.filter(

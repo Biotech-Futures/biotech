@@ -2,6 +2,8 @@
 TypeScript User Module Conversion to Python
 Literal translation from admin/apps/server/src/module/user/
 """
+import uuid
+
 from django.db import transaction, IntegrityError
 from django.utils import timezone
 from django.db.models import Exists, OuterRef, Q, ProtectedError
@@ -1054,16 +1056,6 @@ def create_user(input_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"msg": result["msg"], "data": result["data"]}
 
 
-def _available_group_name(base: str) -> str:
-    """Return `base`, appending ' (2)', ' (3)'... until it is unique among active groups."""
-    name = base
-    suffix = 2
-    while Groups.objects.filter(group_name=name, deleted_at__isnull=True).exists():
-        name = f"{base} ({suffix})"
-        suffix += 1
-    return name
-
-
 def _apply_co_registration(
     users_input: List[Dict[str, Any]], created_student_emails: set
 ) -> Dict[str, Any]:
@@ -1097,9 +1089,10 @@ def _apply_co_registration(
             continue
 
         with transaction.atomic():
-            group = Groups.objects.create(
-                group_name=_available_group_name(f"Co-registered Group {group_number}")
-            )
+            # Auto-name co-registered groups BTF_C<uuid> (C = co-registered). The random
+            # uuid keeps it unique with no counter and no collision retry, unlike the
+            # Qualtrics response id previously used as the group number.
+            group = Groups.objects.create(group_name=f"BTF_C{uuid.uuid4().hex}")
             GroupMembership.objects.bulk_create([
                 GroupMembership(
                     group=group,
