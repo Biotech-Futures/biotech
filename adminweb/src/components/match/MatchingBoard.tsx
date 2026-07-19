@@ -722,7 +722,13 @@ export function MatchingBoard({
           item.group.tutor.toLowerCase().includes(query)
         );
       })
-      .sort((a, b) => a.group.name.localeCompare(b.group.name));
+      .sort((a, b) =>
+        // Auto names are no longer zero-padded, so BTF9 must sort before BTF10.
+        a.group.name.localeCompare(b.group.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
   }, [groupFilter, groupSearch, groupSummaries]);
 
   const waitingStudentIds = effectiveContainers[WAITING_CONTAINER_ID] ?? [];

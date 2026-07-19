@@ -38,6 +38,10 @@ export function groupsWithFreeSeats(
     .filter((group) => group.remaining > 0)
     .sort((a, b) => {
       if (a.remaining !== b.remaining) return b.remaining - a.remaining;
-      return a.name.localeCompare(b.name);
+      // Auto names are no longer zero-padded, so BTF9 must sort before BTF10.
+      return a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
     });
 }

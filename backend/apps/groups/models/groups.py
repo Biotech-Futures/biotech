@@ -1,29 +1,84 @@
-import uuid
+import random
+import time
 
 from django.db import IntegrityError, models, transaction
-from django.db.models import F, Q
+from django.db.models import Case, CharField, F, Max, Q, Value, When
+from django.db.models.functions import Concat, Length, LPad, Substr
 from django.utils import timezone
 
-GROUP_NAME_PREFIX = "BTF_"
+GROUP_NAME_PREFIX = "BTF"
+AUTO_NAME_REGEX = r"^BTF[0-9]+$"
+
+# Ordering-only pad width; LPad truncates past it, so this bounds display order, not numbering.
+_AUTO_NAME_PAD = 12
+_AUTO_NAME_ATTEMPTS = 25
+_AUTO_NAME_BACKOFF = 0.05
 
 
 class GroupAutoNameUnavailable(Exception):
-    """The pk-derived auto name is already held by a hand-named active group."""
+    """The next auto name lost the race to a concurrent create on every attempt."""
 
     def __init__(self, name: str):
         self.name = name
         super().__init__(
-            f'The auto-generated group name "{name}" is already taken by another '
-            "group. Rename that group or supply a name explicitly."
+            f'Could not reserve an auto-generated group name (last tried "{name}") '
+            "because other groups were being created at the same time. Try again, "
+            "or supply a name explicitly."
         )
 
 
-def generate_group_name(group_id: int, marker: str = "") -> str:
-    """Auto-name for a group, derived from its pk so uniqueness needs no counter.
+def generate_group_name(number: int) -> str:
+    """Auto-name for a group -> ``BTF7``."""
+    return f"{GROUP_NAME_PREFIX}{number}"
 
-    ``marker`` tags the group's origin (``"C"`` = co-registered) -> ``BTF_C0042``.
+
+def next_group_number() -> int:
+    """One past the highest auto-name number still on the table.
+
+    Soft-deleted rows count, so tombstones keep their number; a hand-named
+    ``BTF8`` counts as well, so the counter steps over it instead of colliding.
+    A hard delete of the *highest* group does release its number — interior
+    gaps are still never refilled.
     """
-    return f"{GROUP_NAME_PREFIX}{marker}{group_id:04d}"
+    auto_names = Groups.objects.filter(group_name__regex=AUTO_NAME_REGEX).annotate(
+        digits=Substr("group_name", len(GROUP_NAME_PREFIX) + 1)
+    )
+    # Pad to the widest run present rather than a constant: a fixed width would
+    # truncate longer digit runs and hand back a number that is already taken.
+    width = auto_names.aggregate(width=Max(Length("digits")))["width"]
+    if not width:
+        return 1
+
+    highest = auto_names.aggregate(
+        highest=Max(LPad("digits", width, Value("0")))
+    )["highest"]
+    return int(highest) + 1
+
+
+def group_name_sort_key(field: str = "group_name"):
+    """Ordering expression that zero-pads auto-names at query time.
+
+    Without it ``BTF10`` sorts before ``BTF9`` as text. String ops only —
+    casting to int would blow up on a hand-named group under Postgres.
+    ``field`` accepts a related path so joins can reuse the same key.
+
+    Usage: ``.annotate(group_name_key=group_name_sort_key()).order_by("group_name_key", "id")``
+    """
+    return Case(
+        When(
+            **{f"{field}__regex": AUTO_NAME_REGEX},
+            then=Concat(
+                Value(GROUP_NAME_PREFIX),
+                LPad(
+                    Substr(field, len(GROUP_NAME_PREFIX) + 1),
+                    _AUTO_NAME_PAD,
+                    Value("0"),
+                ),
+            ),
+        ),
+        default=F(field),
+        output_field=CharField(),
+    )
 
 
 class GroupQuerySet(models.QuerySet):
@@ -111,28 +166,25 @@ class Groups(models.Model):
         return self.group_name
 
     @classmethod
-    def create_auto_named(cls, marker: str = "") -> "Groups":
-        """Create a group named ``BTF_<marker><zero-padded pk>``.
-
-        The pk isn't known until after the insert, so seed a collision-proof
-        placeholder and rename once.
+    def create_auto_named(cls) -> "Groups":
+        """Create a group named ``BTF<n>``, the next number in the single series.
 
         Raises:
-            GroupAutoNameUnavailable: a hand-named group already holds that slot.
+            GroupAutoNameUnavailable: the slot was taken on every attempt.
         """
-        placeholder = f"{GROUP_NAME_PREFIX}new-{uuid.uuid4().hex}"
         name = None
-        try:
-            # Insert and rename share one savepoint, so a taken slot rolls the
-            # placeholder row back too rather than leaving it as the real name.
-            with transaction.atomic():
-                group = cls.objects.create(group_name=placeholder)
-                name = generate_group_name(group.id, marker)
-                group.group_name = name
-                group.save(update_fields=["group_name"])
-        except IntegrityError as exc:
-            raise GroupAutoNameUnavailable(name or placeholder) from exc
-        return group
+        for attempt in range(_AUTO_NAME_ATTEMPTS):
+            if attempt:
+                # Concurrent creators abort in lock-step on the unique index; jitter breaks it up.
+                time.sleep(random.uniform(0, _AUTO_NAME_BACKOFF))
+            name = generate_group_name(next_group_number())
+            try:
+                # Own savepoint so a lost race doesn't poison an enclosing atomic block.
+                with transaction.atomic():
+                    return cls.objects.create(group_name=name)
+            except IntegrityError:
+                continue
+        raise GroupAutoNameUnavailable(name)
 
     @property
     def is_deleted(self):

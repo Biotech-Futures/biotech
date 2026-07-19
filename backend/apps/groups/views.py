@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
-from .models import GroupAutoNameUnavailable, Groups, Countries, GroupMembership
+from .models import GroupAutoNameUnavailable, Groups, Countries, GroupMembership, group_name_sort_key
 from .serializers import (
     CountrySerializer,
     GroupMembershipSerializer,
@@ -118,7 +118,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                 groupmembership__left_at__isnull=True,
             ).distinct()
 
-        return queryset.order_by("group_name", "id")
+        # Order on the padded key: raw group_name would sort "BTF10" before "BTF9".
+        return queryset.annotate(group_name_key=group_name_sort_key()).order_by("group_name_key", "id")
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:

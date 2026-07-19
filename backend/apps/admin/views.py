@@ -16,7 +16,7 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services.group import (
-    query_groups, query_group_by_id, query_group_messages,
+    query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
@@ -289,6 +289,14 @@ class GroupListView(APIView):
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
+
+
+class GroupNextNameView(APIView):
+    """GET /api/v1/group/next-name - Preview the next auto-generated group name"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(query_next_group_name())
 
 
 class GroupDetailView(APIView):

@@ -11,7 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCreateGroup, useUpdateGroup } from "@/query/group";
+import {
+  useCreateGroup,
+  useQueryNextGroupName,
+  useUpdateGroup,
+} from "@/query/group";
 import type { Group } from "@/type/group";
 
 type GroupNameDialogProps = {
@@ -37,23 +41,54 @@ export function GroupNameDialog({
 }: GroupNameDialogProps) {
   const isEdit = mode === "edit";
   const [name, setName] = useState("");
+  /** Last suggestion received; the input holds it unless the admin typed over it. */
+  const [prefill, setPrefill] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
+  const nextName = useQueryNextGroupName(open && !isEdit);
   const isPending = isEdit ? updateGroup.isPending : createGroup.isPending;
+
+  // A cached preview from an earlier open may already be superseded, so it counts
+  // only once this open's fetch has settled successfully — while it is in flight,
+  // or if it failed (react-query keeps the last good data), the field stays empty.
+  const suggestedName =
+    nextName.isSuccess && !nextName.isFetching
+      ? nextName.data.data.name
+      : "";
 
   useEffect(() => {
     if (open) {
       setName(isEdit ? (group?.name ?? "") : "");
+      setPrefill("");
       setError(null);
     }
   }, [open, isEdit, group?.name]);
 
+  useEffect(() => {
+    if (!open || isEdit || !suggestedName || suggestedName === prefill) return;
+    // The suggestion lands after the dialog opens; never clobber what was typed.
+    setName((current) => (current === prefill ? suggestedName : current));
+    setPrefill(suggestedName);
+  }, [open, isEdit, suggestedName, prefill]);
+
   const trimmed = name.trim();
-  // Blank is valid on create (backend auto-names BTF_<id>); a rename needs a real,
+  // An untouched prefill is submitted as blank so the number is allocated at
+  // commit time — two admins who both opened the dialog can't claim the same one.
+  const isPristinePrefill = !isEdit && !!prefill && trimmed === prefill;
+  const submitName = isPristinePrefill ? "" : trimmed;
+  // Blank is valid on create (backend auto-names); a rename needs a real,
   // changed name.
   const canSubmit = isEdit ? !!trimmed && trimmed !== group?.name : true;
+
+  const nameHint = isEdit
+    ? null
+    : nextName.isFetching
+      ? "Finding the next available name..."
+      : nextName.isError
+        ? "Couldn't suggest a name. Leave this blank and one will be generated."
+        : null;
 
   const handleSubmit = async () => {
     if (!canSubmit || isPending) return;
@@ -62,7 +97,9 @@ export function GroupNameDialog({
       const res =
         isEdit && group
           ? await updateGroup.mutateAsync({ id: group.id, name: trimmed })
-          : await createGroup.mutateAsync(trimmed ? { name: trimmed } : {});
+          : await createGroup.mutateAsync(
+              submitName ? { name: submitName } : {},
+            );
 
       if (!res.data) {
         setError(res.msg || `Failed to ${isEdit ? "rename" : "create"} group.`);
@@ -105,7 +142,7 @@ export function GroupNameDialog({
             placeholder={
               isEdit
                 ? "e.g. Genomics Team A"
-                : "Leave blank to auto-generate (BTF_0042)"
+                : "Leave blank to auto-generate"
             }
             aria-invalid={!!error}
             onKeyDown={(event) => {
@@ -115,6 +152,9 @@ export function GroupNameDialog({
               }
             }}
           />
+          {nameHint && (
+            <p className="text-sm text-muted-foreground">{nameHint}</p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>

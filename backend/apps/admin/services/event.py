@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.db import transaction
 
 from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
-from apps.groups.models import Groups
+from apps.groups.models import Groups, group_name_sort_key
 from apps.resources.models import Roles
 from apps.users.models import User
 from apps.audit.services import log_audit_event
@@ -605,7 +605,12 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
 def query_groups(requesting_user=None) -> Dict[str, Any]:
     """Get all groups for reference data."""
     qs = Groups.objects.filter(deleted_at__isnull=True)
-    groups = list(qs.order_by("group_name").values("id", "group_name"))
+    # Order on the padded key: raw group_name would sort "BTF10" before "BTF9".
+    groups = list(
+        qs.annotate(group_name_key=group_name_sort_key())
+        .order_by("group_name_key")
+        .values("id", "group_name")
+    )
     return {
         "msg": "Groups retrieved successfully",
         "data": [

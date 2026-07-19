@@ -16,6 +16,7 @@ from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
+    group_name_sort_key,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.audit.services import log_audit_event
@@ -548,13 +549,19 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         "status": ["is_active", "first_name", "last_name", "id"],
         "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
         "yearLevel": ["studentprofile__year_lvl", "first_name", "last_name", "id"],
-        "group": ["groupmembership__group__group_name", "first_name", "last_name", "id"],
+        # Padded key, not the raw column: unpadded auto-names sort "BTF10" before "BTF9".
+        "group": ["group_name_key", "first_name", "last_name", "id"],
         "createdAt": ["date_joined", "id"],
     }
     order_by = sort_map.get(sort_by, sort_map["createdAt"])
 
     if sort_order == "desc":
         order_by = [f"-{field}" if field != "id" else field for field in order_by]
+
+    if sort_by == "group":
+        queryset = queryset.annotate(
+            group_name_key=group_name_sort_key("groupmembership__group__group_name")
+        )
 
     # Get paginated user IDs
     user_ids = list(
@@ -1092,9 +1099,8 @@ def _apply_co_registration(
 
         try:
             with transaction.atomic():
-                # BTF_C<pk> — same pk-derived format as every other auto-name, with
-                # C marking the group as co-registered.
-                group = Groups.create_auto_named(marker="C")
+                # Co-registered groups draw from the same BTF<n> series as every other auto-name.
+                group = Groups.create_auto_named()
                 GroupMembership.objects.bulk_create([
                     GroupMembership(
                         group=group,
