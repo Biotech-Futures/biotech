@@ -1040,3 +1040,92 @@ export function parseStudentCsv(text: string): {
 
   return { valid, invalid };
 }
+
+// ── Downloadable CSV templates ─────────────────────────────────────────────────
+
+export type CsvTemplate = {
+  fileName: string;
+  headers: string[];
+  sampleRow: string[];
+};
+
+/**
+ * Resolve the header to print for a canonical column. Uses the friendly
+ * spelling only while the alias map still accepts it, so a template can never
+ * hand out a header its own parser would ignore.
+ */
+function templateHeader(
+  aliases: Record<string, string>,
+  canonical: string,
+  preferred: string,
+): string {
+  if (aliases[normalizeHeader(preferred)] === canonical) return preferred;
+  return (
+    Object.keys(aliases).find((alias) => aliases[alias] === canonical) ??
+    preferred
+  );
+}
+
+function buildCsvTemplate(
+  fileName: string,
+  aliases: Record<string, string>,
+  columns: Array<[canonical: string, header: string, sample: string]>,
+): CsvTemplate {
+  return {
+    fileName,
+    headers: columns.map(([canonical, header]) =>
+      templateHeader(aliases, canonical, header),
+    ),
+    sampleRow: columns.map(([, , sample]) => sample),
+  };
+}
+
+export const STUDENT_CSV_TEMPLATE = buildCsvTemplate(
+  "student-import-template.csv",
+  STUDENT_HEADER_ALIASES,
+  [
+    ["email", "Student email address", "ada.lovelace@example.edu"],
+    ["firstName", "First Name", "Ada"],
+    ["lastName", "Surname", "Lovelace"],
+    ["guardianFirstName", "Guardian First Name", "Anne"],
+    ["guardianLastName", "Guardian Surname", "Lovelace"],
+    ["guardianEmail", "Guardian Email", "anne.lovelace@example.com"],
+    ["school", "School Name", "Sydney Girls High School"],
+    ["yearLevel", "Year Level", "11"],
+    ["interests", "Area(s) of Interest", "Genetics, Bioinformatics"],
+    ["supervisorFirstName", "Supervisor First Name", "Mary"],
+    ["supervisorLastName", "Supervisor Surname", "Somerville"],
+    ["supervisorEmail", "Supervisor Email", "m.somerville@example.edu"],
+    [
+      "responseId",
+      "Parent/Guardian Approval ResponseID",
+      "R_1a2b3c4d5e6f7g8",
+    ],
+    ["country", "Country", "Australia"],
+    ["region", "Region", "NSW"],
+    // Optional, and the least discoverable feature: students sharing this value
+    // are placed in one group instead of being auto-matched.
+    ["groupNumber", "Group Number", "1"],
+  ],
+);
+
+export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
+  "mentor-import-template.csv",
+  MENTOR_HEADER_ALIASES,
+  [
+    ["email", "Email Address", "m.somerville@example.edu"],
+    ["firstName", "First Name", "Mary"],
+    ["lastName", "Surname", "Somerville"],
+    ["country", "Country", "Australia"],
+    ["region", "Region", "NSW"],
+    [
+      "mentorReason",
+      "Mentor Reason",
+      "I want to support students exploring biotech careers.",
+    ],
+    ["capacity", "Capacity", "2"],
+    ["interests", "Area(s) of Interest", "Genetics, Bioinformatics"],
+    ["background", "Background", "Postgraduate"],
+    ["institution", "Institution or Company", "University of Sydney"],
+  ],
+);

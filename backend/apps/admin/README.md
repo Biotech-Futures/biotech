@@ -235,7 +235,6 @@ templates/emails/announcement.html
 | `GET` | `mentor-match/matched-groups/` | List groups with assigned mentors. |
 | `POST` | `mentor-match/confirm/` | Confirm mentor assignments. |
 | `POST` | `mentor-match/replace/` | Replace a mentor assignment. |
-| `POST` | `mentor-match/bulk-replace-inactive/` | Replace inactive mentors in bulk. |
 | `POST` | `mentor-match/unassign/` | Unassign mentors from groups. |
 
 Mentor matching logic lives in:

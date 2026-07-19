@@ -225,12 +225,37 @@ class AdminGroupServiceTests(TestCase):
         self.assertEqual(result["msg"], "A group with this name already exists")
         self.assertIsNone(result["data"])
 
-    def test_create_group_rejects_blank_name(self):
+    def test_create_group_auto_names_when_name_blank(self):
         for blank in (None, "", "   "):
             with self.subTest(name=blank):
                 result = create_group(blank)
-                self.assertEqual(result["msg"], "Group name is required")
-                self.assertIsNone(result["data"])
+                self.assertEqual(result["msg"], "Group created successfully")
+                group = Groups.objects.get(id=result["data"]["id"])
+                self.assertEqual(result["data"]["name"], f"BTF_{group.id:04d}")
+
+    def test_create_group_auto_name_is_zero_padded(self):
+        result = create_group(None)
+        self.assertRegex(result["data"]["name"], r"^BTF_\d{4,}$")
+
+    def test_create_group_explicit_name_wins_over_auto(self):
+        result = create_group("Human Chosen")
+        self.assertEqual(result["data"]["name"], "Human Chosen")
+
+    def test_create_group_errors_when_auto_name_slot_taken(self):
+        # A human can hand-name a group into the BTF_ slot the next pk would want.
+        # The probe row consumes a pk itself, so the next insert lands at probe + 2.
+        probe_id = Groups.objects.create(group_name="placeholder-probe").id
+        squatted = f"BTF_{probe_id + 2:04d}"
+        Groups.objects.create(group_name=squatted)
+        before_ids = set(Groups.objects.values_list("id", flat=True))
+
+        result = create_group(None)
+
+        self.assertIsNone(result["data"])
+        self.assertIn(squatted, result["msg"])
+        # No group created at all -- in particular no orphan uuid placeholder.
+        self.assertEqual(set(Groups.objects.values_list("id", flat=True)), before_ids)
+        self.assertFalse(Groups.objects.filter(group_name__startswith="BTF_new-").exists())
 
     def test_create_group_rejects_non_string_name(self):
         result = create_group(123)

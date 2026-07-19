@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/select";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryMentorReplaceSuggestions } from "@/query/mentorMatch";
+import { ShowFullMentorsToggle } from "@/components/mentor/ShowFullMentorsToggle";
+import { isMentorSelectable, useMentorPrefs } from "@/store/mentorPrefs";
 import type { MatchedGroup, MentorListItem } from "@/type/mentorMatch";
 
 const UNASSIGN_VALUE = "__unassign__";
@@ -51,11 +53,17 @@ function BulkReplaceRow({
   value: string | undefined;
   onSelect: (value: string) => void;
 }) {
+  const showFullMentors = useMentorPrefs((s) => s.showFullMentors);
   const { data, isLoading } = useQueryMentorReplaceSuggestions(
     group.groupId,
     open,
   );
-  const suggestions = data?.data.suggestions ?? [];
+  const allSuggestions = data?.data.suggestions ?? [];
+  // Never auto-select or offer a mentor with no room, unless the admin opted in.
+  // The admin's own current pick always stays listed so the Select keeps its value.
+  const suggestions = allSuggestions.filter(
+    (s) => showFullMentors || !s.atCapacity || value === String(s.mentorUserId),
+  );
   const top = suggestions[0];
 
   // Pre-select the best match once suggestions load, unless the admin already chose.
@@ -63,8 +71,12 @@ function BulkReplaceRow({
     if (value === undefined && top) onSelect(String(top.mentorUserId));
   }, [top, value, onSelect]);
 
-  const scoredIds = new Set(suggestions.map((s) => s.mentorUserId));
-  const extraMentors = mentors.filter((m) => !scoredIds.has(m.mentorId));
+  const scoredIds = new Set(allSuggestions.map((s) => s.mentorUserId));
+  const extraMentors = mentors.filter(
+    (m) =>
+      !scoredIds.has(m.mentorId) &&
+      isMentorSelectable(m, showFullMentors, value ? Number(value) : null),
+  );
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -82,6 +94,13 @@ function BulkReplaceRow({
           </p>
         ) : isLoading ? (
           <p className="text-xs text-muted-foreground">Scoring mentors…</p>
+        ) : allSuggestions.length > 0 ? (
+          // Every scored mentor was filtered out, so nothing pre-selects — say why
+          // rather than silently leaving Confirm disabled.
+          <p className="text-xs text-muted-foreground">
+            Every suggested mentor is at capacity — turn on “Show mentors at
+            capacity” to pick one.
+          </p>
         ) : null}
       </div>
       <Select value={value ?? ""} onValueChange={onSelect}>
@@ -163,6 +182,10 @@ export function BulkReplaceDialog({
             "Unassign" to leave a group unmatched.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex justify-end border-b pb-2">
+          <ShowFullMentorsToggle />
+        </div>
 
         <div className="max-h-72 space-y-3 overflow-y-auto py-1">
           {inactiveGroups.map((g) => (

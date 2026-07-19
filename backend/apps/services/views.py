@@ -162,7 +162,7 @@ class VerifyLoginCodeView(APIView):
 
         user = User.objects.get(email=email)
 
-        if user.account_status in ['suspended', 'deactivated']:
+        if user.account_status in User.INACTIVE_LOGIN_STATUSES:
             raise AccountInactive()
 
         login(request, user)
@@ -251,7 +251,7 @@ class MagicLoginView(APIView):
         except User.DoesNotExist:
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
-        if user.account_status in ['suspended', 'deactivated']:
+        if user.account_status in User.INACTIVE_LOGIN_STATUSES:
             return redirect(f"{callback_base}?error=account_inactive")
 
         login(request, user)

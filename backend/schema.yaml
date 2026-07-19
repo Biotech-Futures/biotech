@@ -490,18 +490,6 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/v1/admin/mentor-match/bulk-replace-inactive/:
-    post:
-      operationId: api_v1_admin_mentor_match_bulk_replace_inactive_create
-      description: POST /api/v1/mentor-match/bulk-replace-inactive - Replace all inactive
-        mentor assignments
-      tags:
-      - api
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          description: No response body
   /api/v1/admin/mentor-match/confirm/:
     post:
       operationId: api_v1_admin_mentor_match_confirm_create

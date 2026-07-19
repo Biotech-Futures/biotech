@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.admin.permissions import IsAdminScoped
+from apps.admin.serializers import BulkUserRowSerializer, bulk_user_error_message
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_countries, query_states,
@@ -48,7 +49,7 @@ from apps.admin.services.task import (
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
-    confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
+    confirm_mentor_assignments, replace_mentor,
     unassign_mentors, recommend_mentors_for_group,
 )
 
@@ -223,6 +224,13 @@ class UserBulkCreateView(APIView):
                 {"msg": "Expected a JSON array of users", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        serializer = BulkUserRowSerializer(data=users, many=True, allow_empty=False)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": bulk_user_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
         result = bulk_create_users(users, "")
         return Response(result, status=status.HTTP_201_CREATED)
 
@@ -1068,15 +1076,6 @@ class MentorMatchReplaceSuggestionsView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
-
-
-class MentorMatchBulkReplaceInactiveView(APIView):
-    """POST /api/v1/mentor-match/bulk-replace-inactive - Replace all inactive mentor assignments"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request):
-        result = bulk_replace_inactive_mentors()
-        return Response({"msg": "Inactive mentors replaced successfully", "data": result})
 
 
 class MentorMatchUnassignView(APIView):

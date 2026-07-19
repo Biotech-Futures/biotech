@@ -40,6 +40,12 @@ onMounted(async () => {
       ? route.query.error[0]
       : route.query.error
 
+    // Hand inactive accounts to the login page, which explains it in the user's language.
+    if (callbackError === 'account_inactive') {
+      router.replace({ name: 'login', query: { error: callbackError } })
+      return
+    }
+
     if (success !== 'true') {
       error.value = 'Invalid authentication link. Please try logging in again.'
       setTimeout(redirectToLogin, 3000)

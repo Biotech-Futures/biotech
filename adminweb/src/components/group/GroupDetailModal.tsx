@@ -19,6 +19,7 @@ import {
   UserMinusIcon,
   UserPlusIcon,
   UserXIcon,
+  PencilIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,6 +34,9 @@ import {
 import type { StudentSuggestion } from "@/schema/match";
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from "@/lib/group-capacity";
 import { GroupAddStudentsDialog } from "./GroupAddStudentsDialog";
+import { GroupNameDialog } from "./GroupNameDialog";
+import { ShowFullMentorsToggle } from "@/components/mentor/ShowFullMentorsToggle";
+import { isMentorSelectable, useMentorPrefs } from "@/store/mentorPrefs";
 import {
   useQueryMentorList,
   useQueryMentorReplaceSuggestions,
@@ -58,6 +62,8 @@ export function GroupDetailModal({
 }: GroupDetailModalProps) {
   const queryClient = useQueryClient();
   const [mentorDialogOpen, setMentorDialogOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const showFullMentors = useMentorPrefs((s) => s.showFullMentors);
   const [selectedMentorId, setSelectedMentorId] = useState("");
   const [addStudentsOpen, setAddStudentsOpen] = useState(false);
 
@@ -89,6 +95,17 @@ export function GroupDetailModal({
           return a.name.localeCompare(b.name);
         }),
     [mentors, mentorScores],
+  );
+
+  // The group's own mentor stays listed even at capacity, so a replace dialog
+  // never hides the assignment it is replacing.
+  const currentMentorId = group?.mentor ? Number(group.mentor.id) : null;
+  const visibleMentors = useMemo(
+    () =>
+      sortedMentors.filter((m) =>
+        isMentorSelectable(m, showFullMentors, currentMentorId),
+      ),
+    [sortedMentors, showFullMentors, currentMentorId],
   );
 
   const replaceMentor = useMutationReplaceMentor();
@@ -248,7 +265,18 @@ export function GroupDetailModal({
             <div className="space-y-4">
               <div>
                 <Label className="text-muted-foreground">Group Name</Label>
-                <p className="font-medium">{group.name}</p>
+                <div className="flex items-center gap-1">
+                  <p className="font-medium">{group.name}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    aria-label={`Rename ${group.name}`}
+                    onClick={() => setRenameOpen(true)}
+                  >
+                    <PencilIcon className="size-3.5" />
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -406,6 +434,10 @@ export function GroupDetailModal({
             </DialogDescription>
           </DialogHeader>
 
+          <div className="flex justify-end border-b pb-2">
+            <ShowFullMentorsToggle />
+          </div>
+
           <div className="max-h-80 space-y-2 overflow-y-auto py-1 pr-1">
             {isMentorSuggestLoading ? (
               <p className="px-1 text-xs text-muted-foreground">
@@ -416,6 +448,13 @@ export function GroupDetailModal({
                 No match recommendations — showing all mentors.
               </p>
             ) : null}
+            {!isMentorSuggestLoading && visibleMentors.length === 0 && (
+              <p className="px-1 text-xs text-muted-foreground">
+                {mentors.length === 0
+                  ? "No mentors found."
+                  : "All mentors are at capacity."}
+              </p>
+            )}
 
             {/* Unassign option — only shown when replacing */}
             {isReplacing && (
@@ -436,7 +475,7 @@ export function GroupDetailModal({
               </button>
             )}
 
-            {sortedMentors.map((m, index) => {
+            {visibleMentors.map((m, index) => {
               const selected = selectedMentorId === String(m.mentorId);
               const isTopMatch = index === 0 && m.score !== undefined;
               return (
@@ -506,6 +545,16 @@ export function GroupDetailModal({
         open={addStudentsOpen}
         onOpenChange={setAddStudentsOpen}
         onAdded={handleStudentsAdded}
+      />
+
+      <GroupNameDialog
+        mode="edit"
+        group={group}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        onSaved={(renamed) => {
+          if (group) onGroupChange?.({ ...group, name: renamed.name });
+        }}
       />
     </>
   );

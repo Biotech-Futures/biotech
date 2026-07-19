@@ -50,9 +50,20 @@ class GroupSerializer(serializers.ModelSerializer):
     # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
     # check flows through validate() and surfaces as non_field_errors (the shape
     # the frontend expects), not a group_name field error.
-    extra_kwargs = {'group_name': {'validators': []}}
+    # Optional on write: a blank name means "auto-generate BTF_<pk>" (see perform_create).
+    extra_kwargs = {
+      'group_name': {'validators': [], 'required': False, 'allow_blank': True},
+    }
 
   def validate(self, attrs):
+    # required=False/allow_blank exist for the create auto-name path only; on update
+    # they would otherwise let a blank name through to the DB check constraint (500).
+    if self.instance is not None:
+      if not self.partial and 'group_name' not in attrs:
+        raise serializers.ValidationError({'group_name': ['This field is required.']})
+      if 'group_name' in attrs and not attrs['group_name'].strip():
+        raise serializers.ValidationError({'group_name': ['This field may not be blank.']})
+
     group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))
     deleted_at = attrs.get('deleted_at', getattr(self.instance, 'deleted_at', None))
 
@@ -75,7 +86,8 @@ class BulkUserSerializer(serializers.Serializer):
 
 
 class BulkGroupCreateItemSerializer(serializers.Serializer):
-  group_name = serializers.CharField(max_length=255)
+  # Blank means "auto-generate BTF_<pk>", matching the single-create path.
+  group_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
   member_user_ids = serializers.ListField(
     child=serializers.PrimaryKeyRelatedField(queryset=User.objects.all()),
     required=False,

@@ -75,7 +75,6 @@ Endpoint source of truth: `../backend/apps/admin/urls.py` and `../backend/apps/a
 | GET | `/mentor-match/matched-groups/` | List matched groups. |
 | POST | `/mentor-match/confirm/` | Confirm mentor assignments. |
 | POST | `/mentor-match/replace/` | Replace one mentor assignment. |
-| POST | `/mentor-match/bulk-replace-inactive/` | Replace inactive mentor assignments. |
 | POST | `/mentor-match/unassign/` | Body: `groupIds`. |
 
 ### Mentors

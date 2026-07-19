@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction, IntegrityError
 
-from apps.groups.models import Groups, GroupMembership
+from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.audit.services import log_audit_event
@@ -474,32 +474,45 @@ def _active_name_taken(name: str, exclude_pk: Optional[int] = None) -> bool:
     return qs.exists()
 
 
+def _is_blank_name(name) -> bool:
+    """Whether the caller omitted a name (so we auto-generate one)."""
+    # Only None/whitespace means "auto"; a non-string is a bad request, not a blank.
+    return name is None or (isinstance(name, str) and not name.strip())
+
+
 @transaction.atomic
-def create_group(name: Optional[str]) -> dict:
+def create_group(name: Optional[str] = None) -> dict:
     """
-    Create a new (empty) group with the given name.
+    Create a new (empty) group.
 
     Args:
-        name: The group name (required, must be unique among active groups)
+        name: The group name. Optional — when blank, an auto-generated
+            ``BTF_<pk>`` name is used. Must be unique among active groups.
 
     Returns:
         Dictionary with the created group data or an error message
     """
-    try:
-        cleaned = _clean_group_name(name)
-    except ValueError as exc:
-        return {"msg": str(exc), "data": None}
+    if _is_blank_name(name):
+        try:
+            group = Groups.create_auto_named()
+        except GroupAutoNameUnavailable as exc:
+            return {"msg": str(exc), "data": None}
+    else:
+        try:
+            cleaned = _clean_group_name(name)
+        except ValueError as exc:
+            return {"msg": str(exc), "data": None}
 
-    if _active_name_taken(cleaned):
-        return {"msg": "A group with this name already exists", "data": None}
+        if _active_name_taken(cleaned):
+            return {"msg": "A group with this name already exists", "data": None}
 
-    try:
-        # Inner atomic so a name that raced past the check above only rolls back
-        # to a savepoint, rather than poisoning the transaction we were called in.
-        with transaction.atomic():
-            group = Groups.objects.create(group_name=cleaned)
-    except IntegrityError:
-        return {"msg": "A group with this name already exists", "data": None}
+        try:
+            # Inner atomic so a name that raced past the check above only rolls back
+            # to a savepoint, rather than poisoning the transaction we were called in.
+            with transaction.atomic():
+                group = Groups.objects.create(group_name=cleaned)
+        except IntegrityError:
+            return {"msg": "A group with this name already exists", "data": None}
 
     base_row = _fetch_group_base_by_id(group.id)
     groups = _build_groups([base_row]) if base_row else []

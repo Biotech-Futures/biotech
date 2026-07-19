@@ -114,7 +114,7 @@ class PasswordLoginView(APIView):
             cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             raise InvalidCredentials()
 
-        if user_obj.account_status in ['suspended', 'deactivated']:
+        if user_obj.account_status in User.INACTIVE_LOGIN_STATUSES:
             raise AccountInactive()
 
         # Bypass authenticate()'s second bcrypt by setting the backend manually;

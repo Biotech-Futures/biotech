@@ -119,13 +119,6 @@ export const replaceMentorResponseSchema = z.object({
   data: z.object({ replaced: z.number().int().nonnegative() }),
 });
 
-// ─── Bulk replace inactive response ──────────────────────────────────────────
-
-export const bulkReplaceInactiveResponseSchema = z.object({
-  msg: z.string(),
-  data: z.object({ removedCount: z.number().int().nonnegative() }),
-});
-
 // ─── Replacement mentor suggestions (scored) ─────────────────────────────────
 
 export const mentorReplaceSuggestionSchema = z.object({

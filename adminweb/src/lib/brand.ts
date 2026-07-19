@@ -4,3 +4,4 @@
 export const BRAND_NAME = "BIOTech Futures";
 export const BRAND_CONNECT = "BIOTech Connect";
 export const BRAND_TAGLINE = "Mentoring Portal";
+export const SUPPORT_EMAIL = "support@biotechfutures.org";

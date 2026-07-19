@@ -56,7 +56,6 @@ Base URL for this frontend: `/api/v1/admin`.
 | GET | `/mentor-match/matched-groups/` | List groups with mentors. |
 | POST | `/mentor-match/confirm/` | Confirm mentor assignments. |
 | POST | `/mentor-match/replace/` | Replace a mentor assignment. |
-| POST | `/mentor-match/bulk-replace-inactive/` | Replace inactive mentor assignments in bulk. |
 | POST | `/mentor-match/unassign/` | Unassign mentors. Body: `groupIds`. |
 
 ### Mentors

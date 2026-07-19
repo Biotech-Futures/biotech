@@ -1,5 +1,5 @@
 import { CsvImportSheet } from "@/components/user/CsvImportSheet";
-import { parseMentorCsv } from "@/query/user";
+import { MENTOR_CSV_TEMPLATE, parseMentorCsv } from "@/query/user";
 import { useImportMentors } from "@/query/mentor";
 
 interface MentorImportSheetProps {
@@ -19,6 +19,7 @@ export function MentorImportSheet({
       title="Import Mentors CSV"
       description="Upload the mentor registration export (Email Address, First Name, Surname, Country, Region, Mentor Reason, Capacity, Area(s) of Interest, Background, Institution or Company). Existing emails are skipped."
       noun="mentor"
+      template={MENTOR_CSV_TEMPLATE}
       parse={parseMentorCsv}
       rowKey={(row) => row.email}
       rowPrimary={(row) => ({

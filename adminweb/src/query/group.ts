@@ -90,11 +90,11 @@ export function useQueryGroupMessages(
   });
 }
 
-// Create group mutation
+// Create group mutation. Omit `name` to let the backend auto-generate BTF_<id>.
 export function useCreateGroup() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { name: string }) => {
+    mutationFn: async (data: { name?: string }) => {
       const res = await myFetch.post<{ msg: string; data: Group | null }>(
         `/group`,
         data,
@@ -103,6 +103,27 @@ export function useCreateGroup() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
+    },
+  });
+}
+
+// Rename a group. Duplicate names are rejected by the backend with a 400.
+export function useUpdateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      const res = await myFetch.put<{ msg: string; data: Group | null }>(
+        `/group/${data.id}`,
+        { name: data.name },
+      );
+      return res.data;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["group", id] });
+      // The matching boards render group names, so a rename must reach them too.
+      queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] });
+      queryClient.invalidateQueries({ queryKey: ["matchedGroups"] });
     },
   });
 }
