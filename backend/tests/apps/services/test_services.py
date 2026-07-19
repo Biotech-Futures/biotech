@@ -410,6 +410,49 @@ class MagicLinkAdminRedirectTest(TestCase):
         )
 
 
+class MagicLinkErrorRedirectTest(TestCase):
+    """Error redirects must reach the frontend route that renders the explanation."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        from rest_framework.test import APIClient
+
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="err@example.com",
+            password="testpass123",
+            first_name="Err",
+            last_name="User",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+
+    def _bad_code_url(self, redirect_url: str | None = None) -> str:
+        url = f"/services/magic/?email={self.user.email}&code=not-a-real-code"
+        if redirect_url is not None:
+            from urllib.parse import quote
+
+            url += f"&redirect_url={quote(redirect_url, safe='')}"
+        return url
+
+    def test_error_redirect_keeps_the_hash_route(self):
+        """The user app routes on the hash, so a stripped fragment strands ?error= at the site root."""
+        callback = "http://localhost:5173/#/auth/callback"
+        response = self.client.get(self._bad_code_url(callback))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{callback}?error=invalid_or_expired_code")
+
+    def test_error_redirect_without_redirect_url_targets_the_user_app(self):
+        response = self.client.get(self._bad_code_url())
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response.url.startswith(settings.MAGIC_LINK_REDIRECT_URL),
+            f"unexpected redirect: {response.url}",
+        )
+
+
 class PasswordResetAdminRedirectTest(TestCase):
     """Password-reset emails point admins at the admin portal and regular users at the user app."""
 

@@ -1,25 +1,17 @@
 <template>
   <div class="callback-container">
     <div class="callback-content">
-      <div v-if="loading" class="loading-state">
+      <div class="loading-state">
         <div class="spinner"></div>
         <p>Authenticating...</p>
-      </div>
-
-      <div v-else-if="error" class="error-state">
-        <div class="error-icon">⚠️</div>
-        <h2>Authentication Failed</h2>
-        <p>{{ error }}</p>
-        <button @click="redirectToLogin" class="btn btn-primary">
-          Back to Login
-        </button>
       </div>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref, onMounted } from 'vue'
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import type { LocationQueryValue } from 'vue-router'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
@@ -29,60 +21,41 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const loading = ref(true)
-const error = ref('')
+const firstQueryValue = (value: LocationQueryValue | LocationQueryValue[]) =>
+  Array.isArray(value) ? value[0] : value
+
+// Hand every rejection to the login page, which explains it in the user's language.
+const failToLogin = (error: string) => router.replace({ name: 'login', query: { error } })
 
 onMounted(async () => {
   try {
-    const success = route.query.success
-    const email = route.query.email
-    const callbackError = Array.isArray(route.query.error)
-      ? route.query.error[0]
-      : route.query.error
+    const callbackError = firstQueryValue(route.query.error)
 
-    // Hand inactive accounts to the login page, which explains it in the user's language.
-    if (callbackError === 'account_inactive') {
-      router.replace({ name: 'login', query: { error: callbackError } })
+    if (callbackError) {
+      await failToLogin(callbackError)
       return
     }
 
-    if (success !== 'true') {
-      error.value = 'Invalid authentication link. Please try logging in again.'
-      setTimeout(redirectToLogin, 3000)
+    if (firstQueryValue(route.query.success) !== 'true') {
+      await failToLogin('callback_failed')
       return
     }
 
-    const csrfToken = Array.isArray(route.query.csrfToken)
-      ? route.query.csrfToken[0]
-      : route.query.csrfToken
-    if (!setCsrfToken(csrfToken)) {
+    if (!setCsrfToken(firstQueryValue(route.query.csrfToken))) {
       resetCsrfToken()
     }
 
-    const userData = await auth.fetchUserData()
-
-    if (userData) {
+    if (await auth.fetchUserData()) {
       await redirectAfterLogin(auth, router)
       return
     }
 
-    error.value = email
-      ? `Authentication succeeded for ${email}, but the user session could not be loaded. Please try again.`
-      : 'Authentication succeeded, but the user session could not be loaded. Please try again.'
-
-    setTimeout(redirectToLogin, 3000)
+    await failToLogin('session_load_failed')
   } catch (err) {
     console.error('Authentication callback failed:', err)
-    error.value = 'Authentication failed. Please try logging in again.'
-    setTimeout(redirectToLogin, 3000)
-  } finally {
-    loading.value = false
+    await failToLogin('callback_failed')
   }
 })
-
-const redirectToLogin = () => {
-  router.push('/login')
-}
 </script>
 
 <style scoped>
@@ -121,43 +94,5 @@ const redirectToLogin = () => {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
-}
-
-.error-state {
-  padding: 1rem 0;
-}
-
-.error-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
-.error-state h2 {
-  color: var(--charcoal);
-  margin-bottom: 1rem;
-}
-
-.error-state p {
-  color: #6c757d;
-  margin-bottom: 2rem;
-}
-
-.btn {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-}
-
-.btn-primary {
-  background: var(--dark-green);
-  color: white;
-}
-
-.btn-primary:hover {
-  background: var(--green);
 }
 </style>

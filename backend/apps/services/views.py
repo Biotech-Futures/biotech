@@ -204,8 +204,13 @@ class MagicLoginView(APIView):
         if redirect_url_param:
             parsed = urlparse(redirect_url_param)
             if parsed.hostname in self._ALLOWED_REDIRECT_DOMAINS:
-                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        return settings.ADMIN_MAGIC_LINK_REDIRECT_URL
+                # The user app routes on the hash, so dropping the fragment would strand
+                # ?error= at the site root where its router never sees it.
+                fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}{fragment}"
+        # Errors often precede knowing who the user is, so default to the app almost
+        # everyone signs in through rather than the admin portal.
+        return settings.MAGIC_LINK_REDIRECT_URL
 
     @extend_schema(
         responses={
