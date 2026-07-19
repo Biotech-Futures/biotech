@@ -49,20 +49,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 import routes from './routes'
-
-const normalizeDirectAuthRedirect = () => {
-  const directAuthPaths = ['/auth/callback', '/auth/reset-password', '/auth/set-password']
-
-  if (!directAuthPaths.includes(window.location.pathname) || window.location.hash) {
-    return
-  }
-
-  window.history.replaceState(
-    null,
-    '',
-    `/#${window.location.pathname}${window.location.search}`
-  )
-}
+import { normalizeDirectAuthRedirect } from './normalizeAuthRedirect'
 
 normalizeDirectAuthRedirect()
 

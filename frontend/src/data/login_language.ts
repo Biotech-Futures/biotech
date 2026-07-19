@@ -67,6 +67,11 @@ export const LOGIN_MESSAGES = {
     errorNetworkOtp: 'Network error. Please try again.',
     errorEnterEmailFirst: 'Please enter your email address first.',
     errorResendFail: 'Failed to resend the code. Please try again.',
+    errorMagicLinkExpired:
+      'This sign-in link is no longer valid. Links expire and can only be used once. Please request a new code.',
+    errorMagicLinkThrottled:
+      'Too many sign-in attempts. Please wait a few minutes before requesting another code.',
+    errorMagicLinkFailed: 'We could not complete that sign-in link. Please request a new code.',
     resendSuccess: 'If an account exists for that email, a new code has been sent.',
     sendingSuccess: 'If an account exists for that email, a verification code has been sent.',
     signingIn: 'Loading dashboard',
@@ -163,6 +168,9 @@ export const LOGIN_MESSAGES = {
     errorNetworkOtp: '网络异常，请重试。',
     errorEnterEmailFirst: '请先输入邮箱地址。',
     errorResendFail: '重新发送验证码失败，请重试。',
+    errorMagicLinkExpired: '此登录链接已失效。链接会过期且仅能使用一次，请重新获取验证码。',
+    errorMagicLinkThrottled: '登录尝试次数过多。请等待几分钟后再获取新的验证码。',
+    errorMagicLinkFailed: '无法完成此登录链接。请重新获取验证码。',
     resendSuccess: '如果该邮箱对应账户存在，新的验证码已发送。',
     sendingSuccess: '如果该邮箱对应账户存在，验证码已发送。',
     signingIn: 'loading dashboard',
@@ -258,6 +266,12 @@ export const LOGIN_MESSAGES = {
     errorNetworkOtp: 'ネットワークエラーです。もう一度お試しください。',
     errorEnterEmailFirst: '先にメールアドレスを入力してください。',
     errorResendFail: 'コードの再送信に失敗しました。もう一度お試しください。',
+    errorMagicLinkExpired:
+      'このサインインリンクは無効です。リンクには有効期限があり、一度しか使用できません。新しいコードを取得してください。',
+    errorMagicLinkThrottled:
+      'サインインの試行回数が多すぎます。数分お待ちいただいてから、新しいコードを取得してください。',
+    errorMagicLinkFailed:
+      'このサインインリンクを処理できませんでした。新しいコードを取得してください。',
     resendSuccess: 'そのメールアドレスのアカウントが存在する場合、新しいコードを送信しました。',
     sendingSuccess: 'そのメールアドレスのアカウントが存在する場合、確認コードを送信しました。',
     signingIn: 'loading dashboard',
@@ -353,6 +367,11 @@ export const LOGIN_MESSAGES = {
     errorNetworkOtp: '네트워크 오류입니다. 다시 시도해 주세요.',
     errorEnterEmailFirst: '먼저 이메일 주소를 입력해 주세요.',
     errorResendFail: '코드 재전송에 실패했습니다. 다시 시도해 주세요.',
+    errorMagicLinkExpired:
+      '이 로그인 링크는 더 이상 사용할 수 없습니다. 링크는 만료되며 한 번만 사용할 수 있습니다. 새 코드를 요청해 주세요.',
+    errorMagicLinkThrottled:
+      '로그인 시도가 너무 많습니다. 몇 분 기다린 후 새 코드를 요청해 주세요.',
+    errorMagicLinkFailed: '이 로그인 링크를 처리하지 못했습니다. 새 코드를 요청해 주세요.',
     resendSuccess: '해당 이메일의 계정이 존재하는 경우 새 코드가 전송되었습니다.',
     sendingSuccess: '해당 이메일의 계정이 존재하는 경우 인증 코드가 전송되었습니다.',
     signingIn: 'loading dashboard',
@@ -448,6 +467,11 @@ export const LOGIN_MESSAGES = {
     errorNetworkOtp: 'خطأ في الشبكة. يرجى المحاولة مرة أخرى.',
     errorEnterEmailFirst: 'يرجى إدخال بريدك الإلكتروني أولاً.',
     errorResendFail: 'فشل إعادة إرسال الرمز. يرجى المحاولة مرة أخرى.',
+    errorMagicLinkExpired:
+      'لم يعد رابط تسجيل الدخول هذا صالحًا. تنتهي صلاحية الروابط ويمكن استخدامها مرة واحدة فقط. يرجى طلب رمز جديد.',
+    errorMagicLinkThrottled:
+      'محاولات تسجيل دخول كثيرة جدًا. يرجى الانتظار بضع دقائق قبل طلب رمز جديد.',
+    errorMagicLinkFailed: 'تعذّر إكمال رابط تسجيل الدخول هذا. يرجى طلب رمز جديد.',
     resendSuccess: 'إذا كان هناك حساب مرتبط بهذا البريد الإلكتروني، فقد تم إرسال رمز جديد.',
     sendingSuccess: 'إذا كان هناك حساب مرتبط بهذا البريد الإلكتروني، فقد تم إرسال رمز التحقق.',
     signingIn: 'loading dashboard',

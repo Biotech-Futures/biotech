@@ -272,7 +272,7 @@
                 <button
                   type="submit"
                   class="primary-button"
-                  :disabled="sendingCode || loginOnCooldown"
+                  :disabled="sendingCode || submitBlockedByCooldown"
                 >
                   <span v-if="sendingCode && isPasswordLoginMode">{{ t('loadingDashboard') }}</span>
                   <span v-else-if="sendingCode">{{ t('sendingCode') }}</span>
@@ -460,6 +460,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const RESEND_SECONDS = 30
 const REQUEST_TIMEOUT_MS = 15000
 
+// Magic-link failures arrive as ?error= codes forwarded by the callback view.
+const MAGIC_LINK_ERROR_KEYS = {
+  invalid_or_expired_code: 'errorMagicLinkExpired',
+  too_many_attempts: 'errorMagicLinkThrottled',
+  session_load_failed: 'errorUserLoadFailed',
+  callback_failed: 'errorMagicLinkFailed',
+}
+
 /*
   Shared page data.
 */
@@ -535,8 +543,10 @@ const passwordVisibilityLabel = computed(() =>
   showPassword.value ? 'Conceal password' : 'Show password',
 )
 const loginOnCooldown = computed(() => loginCooldownSeconds.value > 0)
+// The OTP throttle only governs code requests; password sign-in is rate-limited separately server-side.
+const submitBlockedByCooldown = computed(() => loginOnCooldown.value && !isPasswordLoginMode.value)
 const loginActionLabel = computed(() => {
-  if (loginOnCooldown.value) return `${t('resendIn')} ${loginCooldownSeconds.value}s`
+  if (submitBlockedByCooldown.value) return `${t('resendIn')} ${loginCooldownSeconds.value}s`
   return isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode')
 })
 const emailStepHelper = computed(() =>
@@ -909,7 +919,7 @@ const handleLogin = async () => {
     return
   }
 
-  if (sendingCode.value || loginOnCooldown.value) {
+  if (sendingCode.value || submitBlockedByCooldown.value) {
     return
   }
 
@@ -1122,7 +1132,21 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
 */
 onMounted(async () => {
   // Magic-link rejections land here as a redirect from the callback view.
-  if (route.query.error === 'account_inactive') currentStep.value = 'inactive'
+  const linkError = Array.isArray(route.query.error) ? route.query.error[0] : route.query.error
+
+  if (linkError === 'account_inactive') {
+    currentStep.value = 'inactive'
+  } else if (linkError) {
+    // A throttled user must wait, not re-request; the cooldown blocks the submit button meanwhile.
+    if (linkError === 'too_many_attempts') startLoginCooldown()
+
+    // Guard the lookup: a code like "constructor" would otherwise resolve to an inherited property.
+    const messageKey = MAGIC_LINK_ERROR_KEYS[linkError]
+    error.value = t(typeof messageKey === 'string' ? messageKey : 'errorMagicLinkFailed')
+
+    // Drop ?error= so a refresh does not replay a stale failure or restart the cooldown.
+    router.replace({ name: 'login' })
+  }
 
   ensureCsrfCookie(API_BASE_URL).catch((error) => {
     console.error('Initial CSRF warm-up failed:', error)
