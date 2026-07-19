@@ -841,10 +841,12 @@ def send_announcement_email(
 
 def list_announcement_groups(requesting_user=None) -> Dict[str, Any]:
     """Get all active groups for announcement reference data."""
-    from apps.groups.models import Groups
+    from apps.groups.models import Groups, group_name_sort_key
+    # Order on the padded key: raw group_name would sort "BTF10" before "BTF9".
     groups = list(
         Groups.objects.filter(deleted_at__isnull=True)
-        .order_by("group_name")
+        .annotate(group_name_key=group_name_sort_key())
+        .order_by("group_name_key")
         .values("id", name=F("group_name"))
     )
     return {"msg": "Groups retrieved successfully", "data": groups}

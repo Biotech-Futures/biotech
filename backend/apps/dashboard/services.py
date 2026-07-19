@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from apps.common.rbac import active_role_ids
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
-from apps.groups.models import Groups, GroupMembership
+from apps.groups.models import Groups, GroupMembership, group_name_sort_key
 from apps.common.rbac import is_admin
 
 
@@ -173,7 +173,9 @@ def get_groups_preview(*, user, mine=False):
                 to_attr=MENTOR_MEMBERSHIPS_ATTR,
             )
         )
-        .order_by("group_name", "id")
+        # Order on the padded key: raw group_name would sort "BTF10" before "BTF9".
+        .annotate(group_name_key=group_name_sort_key())
+        .order_by("group_name_key", "id")
     )
 
     return qs

@@ -11,7 +11,7 @@ from apps.admin.services.group import (
 )
 from apps.audit.models import AuditLog
 from apps.chat.models import Messages
-from apps.groups.models import Groups, GroupMembership
+from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
 from apps.users.models import MentorProfile, StudentProfile, User
 
 
@@ -63,6 +63,21 @@ class AdminGroupServiceTests(TestCase):
         self.assertEqual(
             [group["id"] for group in result["data"]["items"]],
             [str(newer.id), str(older.id)],
+        )
+
+    def test_query_groups_sorted_by_name_orders_auto_names_numerically(self):
+        # Without the virtual zero-padding "BTF10" would sort before "BTF9".
+        for name in ("BTF10", "BTF9", "BTF100", "BTF2"):
+            Groups.objects.create(group_name=name)
+
+        result = query_groups(
+            limit=20, sort_by="name", sort_order="asc", requesting_user=self.admin_user,
+        )
+
+        names = [group["name"] for group in result["data"]["items"]]
+        self.assertEqual(
+            [name for name in names if name.startswith("BTF")],
+            ["BTF2", "BTF9", "BTF10", "BTF100"],
         )
 
     def test_query_group_messages_handles_removed_gif_relation(self):
@@ -226,36 +241,43 @@ class AdminGroupServiceTests(TestCase):
         self.assertIsNone(result["data"])
 
     def test_create_group_auto_names_when_name_blank(self):
-        for blank in (None, "", "   "):
+        for number, blank in enumerate((None, "", "   "), start=1):
             with self.subTest(name=blank):
                 result = create_group(blank)
                 self.assertEqual(result["msg"], "Group created successfully")
-                group = Groups.objects.get(id=result["data"]["id"])
-                self.assertEqual(result["data"]["name"], f"BTF_{group.id:04d}")
-
-    def test_create_group_auto_name_is_zero_padded(self):
-        result = create_group(None)
-        self.assertRegex(result["data"]["name"], r"^BTF_\d{4,}$")
+                self.assertEqual(result["data"]["name"], f"BTF{number}")
 
     def test_create_group_explicit_name_wins_over_auto(self):
         result = create_group("Human Chosen")
         self.assertEqual(result["data"]["name"], "Human Chosen")
 
-    def test_create_group_errors_when_auto_name_slot_taken(self):
-        # A human can hand-name a group into the BTF_ slot the next pk would want.
-        # The probe row consumes a pk itself, so the next insert lands at probe + 2.
-        probe_id = Groups.objects.create(group_name="placeholder-probe").id
-        squatted = f"BTF_{probe_id + 2:04d}"
-        Groups.objects.create(group_name=squatted)
-        before_ids = set(Groups.objects.values_list("id", flat=True))
+    def test_create_group_steps_over_a_hand_named_squatter(self):
+        Groups.objects.create(group_name="BTF5")
 
         result = create_group(None)
 
+        self.assertEqual(result["msg"], "Group created successfully")
+        self.assertEqual(result["data"]["name"], "BTF6")
+
+    def test_create_group_never_reuses_a_soft_deleted_number(self):
+        create_group(None)
+        dead_id = create_group(None)["data"]["id"]
+        now = timezone.now()
+        Groups.objects.filter(id=dead_id).update(
+            created_at=now - timedelta(days=1), deleted_at=now,
+        )
+
+        self.assertEqual(create_group(None)["data"]["name"], "BTF3")
+
+    def test_create_group_reports_an_exhausted_auto_name(self):
+        # Only reachable now by losing every retry, so drive it directly.
+        with mock.patch.object(
+            Groups, "create_auto_named", side_effect=GroupAutoNameUnavailable("BTF7"),
+        ):
+            result = create_group(None)
+
         self.assertIsNone(result["data"])
-        self.assertIn(squatted, result["msg"])
-        # No group created at all -- in particular no orphan uuid placeholder.
-        self.assertEqual(set(Groups.objects.values_list("id", flat=True)), before_ids)
-        self.assertFalse(Groups.objects.filter(group_name__startswith="BTF_new-").exists())
+        self.assertIn("BTF7", result["msg"])
 
     def test_create_group_rejects_non_string_name(self):
         result = create_group(123)

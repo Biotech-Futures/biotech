@@ -789,7 +789,7 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
                 if isinstance(gid, str) and gid.startswith('new-'):
                     synthetic_ids.setdefault(gid, True)
 
-            # One new group per synthetic ID, each auto-named BTF_<pk>.
+            # One new group per synthetic ID, each auto-named BTF<n>.
             created_group_by_synthetic = {}
             for synthetic_id in synthetic_ids:
                 try:

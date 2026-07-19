@@ -178,6 +178,26 @@ class AdminUserServiceTests(TestCase):
             ],
         )
 
+    def test_query_users_sorts_group_column_numerically(self):
+        # Unpadded auto-names would order BTF10 before BTF2 as raw text.
+        for index, name in enumerate(("BTF10", "BTF2", "BTF100", "BTF9")):
+            student = self._create_student(f"sorted{index}@example.com", f"S{index}")
+            GroupMembership.objects.create(
+                user=student,
+                group=Groups.objects.create(group_name=name),
+                membership_role="student",
+            )
+
+        result = query_users(
+            role="student", in_group="yes", sort_by="group", sort_order="asc",
+            requesting_user=self.admin_user,
+        )
+
+        self.assertEqual(
+            [item["groupName"] for item in result["data"]["items"]],
+            ["BTF2", "BTF9", "BTF10", "BTF100"],
+        )
+
     def _create_student(self, email, last_name):
         user = User.objects.create_user(
             email=email,
@@ -799,7 +819,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         self.assertEqual(len(co["groupsCreated"]), 1)
         self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
         group = Groups.objects.get()
-        self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
+        self.assertEqual(group.group_name, "BTF1")
         self.assertEqual(group.group_name, co["groupsCreated"][0]["name"])
         self.assertEqual(
             GroupMembership.objects.filter(
@@ -864,7 +884,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
             GroupMembership.objects.filter(group=group, membership_role=MENTOR_ROLE).exists()
         )
 
-    def test_co_registered_groups_get_unique_btf_c_names(self):
+    def test_co_registered_groups_draw_from_the_shared_auto_name_series(self):
         result = bulk_create_users(
             [
                 self._student("a@example.com", "1"),
@@ -875,23 +895,36 @@ class AdminUserServiceCoRegistrationTests(TestCase):
             "",
         )
         names = [g["name"] for g in result["data"]["coRegistration"]["groupsCreated"]]
-        self.assertEqual(len(names), 2)
-        for group in Groups.objects.all():
-            self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
-            self.assertIn(group.group_name, names)
-        self.assertEqual(len(set(names)), 2)  # pk-derived, so no two collide
+        self.assertEqual(names, ["BTF1", "BTF2"])  # no "C" marker, same single series
+        self.assertEqual(
+            sorted(Groups.objects.values_list("group_name", flat=True)),
+            ["BTF1", "BTF2"],
+        )
 
-    def test_co_registration_name_collision_degrades_to_a_warning(self):
-        # Hand-name a group into the BTF_C slot the co-registered group would claim.
-        # The probe row consumes a pk itself, so the next insert lands at probe + 2.
-        probe_id = Groups.objects.create(group_name="collision-probe").id
-        squatted = f"BTF_C{probe_id + 2:04d}"
-        Groups.objects.create(group_name=squatted)
+    def test_co_registration_steps_over_a_hand_named_squatter(self):
+        Groups.objects.create(group_name="BTF5")
 
         result = bulk_create_users(
             [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
             "",
         )
+
+        co = result["data"]["coRegistration"]
+        self.assertEqual(co["warnings"], [])
+        self.assertEqual(co["groupsCreated"][0]["name"], "BTF6")
+
+    def test_co_registration_name_failure_degrades_to_a_warning(self):
+        # Only reachable now by losing every retry, so drive it directly.
+        with patch.object(
+            Groups, "create_auto_named", side_effect=GroupAutoNameUnavailable("BTF1"),
+        ):
+            result = bulk_create_users(
+                [
+                    self._student("a@example.com", "1"),
+                    self._student("b@example.com", "1"),
+                ],
+                "",
+            )
 
         # The import itself still succeeds -- both students were created.
         self.assertEqual(len(result["data"]["created"]), 2)
@@ -899,21 +932,18 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         self.assertEqual(co["groupsCreated"], [])
         self.assertEqual(len(co["warnings"]), 1)
         self.assertIn("left ungrouped", co["warnings"][0])
-        self.assertEqual(Groups.objects.count(), 2)  # probe + squatter only
-        self.assertFalse(Groups.objects.filter(group_name__startswith="BTF_new-").exists())
+        self.assertFalse(Groups.objects.exists())
         self.assertTrue(has_ungrouped_students())
 
     def test_one_failed_co_registration_group_does_not_block_the_next(self):
-        # Which pk a rolled-back insert frees up is backend-specific (SQLite reuses
-        # it, Postgres does not), so drive the failure directly.
         real = Groups.create_auto_named
         calls = []
 
-        def fail_first(marker=""):
-            calls.append(marker)
+        def fail_first():
+            calls.append(1)
             if len(calls) == 1:
-                raise GroupAutoNameUnavailable("BTF_C0001")
-            return real(marker=marker)
+                raise GroupAutoNameUnavailable("BTF1")
+            return real()
 
         with patch.object(Groups, "create_auto_named", side_effect=fail_first):
             result = bulk_create_users(
@@ -931,7 +961,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         self.assertEqual(len(co["warnings"]), 1)
         self.assertIn("left ungrouped", co["warnings"][0])
         group = Groups.objects.get()
-        self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
+        self.assertEqual(group.group_name, "BTF1")
         self.assertEqual(
             GroupMembership.objects.filter(group=group, left_at__isnull=True).count(), 2
         )

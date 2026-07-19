@@ -50,7 +50,7 @@ class GroupSerializer(serializers.ModelSerializer):
     # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
     # check flows through validate() and surfaces as non_field_errors (the shape
     # the frontend expects), not a group_name field error.
-    # Optional on write: a blank name means "auto-generate BTF_<pk>" (see perform_create).
+    # Optional on write: a blank name means "auto-generate BTF<n>" (see perform_create).
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},
     }
@@ -86,7 +86,7 @@ class BulkUserSerializer(serializers.Serializer):
 
 
 class BulkGroupCreateItemSerializer(serializers.Serializer):
-  # Blank means "auto-generate BTF_<pk>", matching the single-create path.
+  # Blank means "auto-generate BTF<n>", matching the single-create path.
   group_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
   member_user_ids = serializers.ListField(
     child=serializers.PrimaryKeyRelatedField(queryset=User.objects.all()),

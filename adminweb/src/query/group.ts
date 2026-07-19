@@ -90,7 +90,26 @@ export function useQueryGroupMessages(
   });
 }
 
-// Create group mutation. Omit `name` to let the backend auto-generate BTF_<id>.
+/** Preview of the name the backend would auto-generate next (e.g. "BTF7"). It
+ *  reserves nothing, so it goes stale as soon as anyone else creates a group. */
+export function useQueryNextGroupName(enabled: boolean) {
+  return useQuery({
+    queryKey: ["group", "next-name"],
+    queryFn: async () => {
+      const res = await myFetch.get<{ msg: string; data: { name: string } }>(
+        `/group/next-name`,
+      );
+      return res.data;
+    },
+    enabled,
+    // Every dialog open must hit the server; the global refetchOnMount:false
+    // would otherwise show a preview from an earlier visit.
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+}
+
+// Create group mutation. Omit `name` to let the backend allocate the next BTF number.
 export function useCreateGroup() {
   const queryClient = useQueryClient();
   return useMutation({

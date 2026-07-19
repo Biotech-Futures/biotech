@@ -7,7 +7,14 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction, IntegrityError
 
-from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
+from apps.groups.models import (
+    GroupAutoNameUnavailable,
+    Groups,
+    GroupMembership,
+    generate_group_name,
+    group_name_sort_key,
+    next_group_number,
+)
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.audit.services import log_audit_event
@@ -245,10 +252,11 @@ def query_groups(
     # Get total count
     total = Groups.objects.filter(where).count()
 
+    # Sorts on the padded key, not group_name: unpadded auto-names sort "BTF10" before "BTF9" as text.
     sort_map = {
-        "name": ["group_name", "id"],
-        "members": ["member_count", "group_name", "id"],
-        "mentor": ["mentor_name", "group_name", "id"],
+        "name": ["group_name_key", "id"],
+        "members": ["member_count", "group_name_key", "id"],
+        "mentor": ["mentor_name", "group_name_key", "id"],
         "createdAt": ["created_at", "id"],
     }
     order_by = sort_map.get(sort_by, sort_map["createdAt"])
@@ -260,6 +268,7 @@ def query_groups(
         Groups.objects
         .filter(where)
         .annotate(
+            group_name_key=group_name_sort_key(),
             member_count=Count(
                 "groupmembership",
                 filter=Q(
@@ -480,14 +489,28 @@ def _is_blank_name(name) -> bool:
     return name is None or (isinstance(name, str) and not name.strip())
 
 
+def query_next_group_name() -> dict:
+    """
+    Preview the name create_group() would auto-generate.
+
+    Returns:
+        Dictionary with the previewed name. Reserves nothing — the number is only
+        allocated at insert time, so callers must submit a blank name to claim it.
+    """
+    return {
+        "msg": "Next group name retrieved successfully",
+        "data": {"name": generate_group_name(next_group_number())},
+    }
+
+
 @transaction.atomic
 def create_group(name: Optional[str] = None) -> dict:
     """
     Create a new (empty) group.
 
     Args:
-        name: The group name. Optional — when blank, an auto-generated
-            ``BTF_<pk>`` name is used. Must be unique among active groups.
+        name: The group name. Optional — when blank, the next sequential
+            ``BTF<n>`` name is used. Must be unique among active groups.
 
     Returns:
         Dictionary with the created group data or an error message
