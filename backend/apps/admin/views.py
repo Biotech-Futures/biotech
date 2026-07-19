@@ -46,6 +46,7 @@ from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
     list_admin_tasks, get_admin_task_by_id, create_admin_task,
     update_admin_task, delete_admin_task, toggle_admin_task,
+    count_role_recipients,
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
@@ -1112,6 +1113,18 @@ class AdminTaskListCreateView(APIView):
     def post(self, request):
         result = create_admin_task(request.user, request.data)
         code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminTaskRoleRecipientsView(APIView):
+    """GET /api/v1/admin/task/role-recipients/?role=mentor — how many users a
+    role fan-out would create tasks for."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = count_role_recipients(request.user, request.query_params.get("role"))
+        code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 

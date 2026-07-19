@@ -202,7 +202,11 @@ function TaskManagementPage() {
   const handleSubmit = async (values: TaskCreateValues | TaskUpdateValues) => {
     try {
       if (editorMode === "create") {
-        await createTask.mutateAsync(values as TaskCreateValues);
+        const created = values as TaskCreateValues;
+        const result = await createTask.mutateAsync(created);
+        // Fan-out creates N rows from one submit — say so, or the task list
+        // suddenly growing by a dozen entries looks like a bug.
+        if (created.assigned_role) toast.success(result.msg);
       } else if (selectedTask) {
         await updateTask.mutateAsync({
           id: selectedTask.id,
