@@ -310,10 +310,10 @@
                 <p class="auth-subtitle" role="alert">{{ t('accountInactiveBody') }}</p>
               </header>
 
-              <!-- Support link row. -->
+              <!-- Support row spells out the address: nothing else on this screen can unblock the user. -->
               <div class="support-row">
-                <span>{{ t('needHelp') }}</span>
-                <a :href="`mailto:${SUPPORT_EMAIL}`">{{ t('contactSupport') }}</a>
+                <span>{{ t('accountInactiveContact') }}</span>
+                <a class="support-email" :href="`mailto:${SUPPORT_EMAIL}`">{{ SUPPORT_EMAIL }}</a>
               </div>
 
               <button type="button" class="secondary-button" @click="goBackToEmailStep">
@@ -1995,6 +1995,11 @@ onBeforeUnmount(() => {
 .support-row a:hover,
 .support-row a:focus-visible {
   text-decoration: underline;
+}
+
+/* Address is long enough to overflow the card on narrow screens. */
+.support-email {
+  overflow-wrap: anywhere;
 }
 
 /*

@@ -4,13 +4,19 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import AuthCallbackPage from '../AuthCallbackPage.vue'
 import LoginPage from '../LoginPage.vue'
+import { SUPPORT_EMAIL } from '@/constants/brand'
 import { LOGIN_MESSAGES } from '@/data/login_language'
 import { normalizeDirectAuthRedirect } from '@/router/normalizeAuthRedirect'
 import { useAuthStore } from '@/stores/auth'
 
 const en = LOGIN_MESSAGES.en
 const LOCALES = ['en', 'zh-CN', 'ja', 'ko', 'ar'] as const
-const MAGIC_LINK_KEYS = ['errorMagicLinkExpired', 'errorMagicLinkThrottled', 'errorMagicLinkFailed'] as const
+const MAGIC_LINK_KEYS = [
+  'errorMagicLinkExpired',
+  'errorMagicLinkThrottled',
+  'errorMagicLinkFailed',
+  'accountInactiveContact',
+] as const
 
 const stub = { template: '<div />' }
 
@@ -114,6 +120,13 @@ describe('magic-link error copy', () => {
 
     expect(wrapper?.text()).toContain(en.accountInactiveTitle)
     expect(wrapper?.text()).toContain(en.accountInactiveBody)
+
+    // The support address has to be readable, not just linked: it is the only way off this screen.
+    const support = wrapper!.find('.support-row a')
+    expect(support.text()).toBe(SUPPORT_EMAIL)
+    expect(support.attributes('href')).toBe(`mailto:${SUPPORT_EMAIL}`)
+    expect(wrapper?.text()).toContain(en.accountInactiveContact)
+
     expect(router.currentRoute.value.query.error).toBe('account_inactive')
     expect(wrapper?.find('.error-message').exists()).toBe(false)
     expect(wrapper?.find('.auth-progress').exists()).toBe(false)
