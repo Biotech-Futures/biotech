@@ -1,4 +1,3 @@
-import uuid
 from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
@@ -7,7 +6,7 @@ from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from apps.groups.models import Groups, GroupMembership
+from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
@@ -790,16 +789,15 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
                 if isinstance(gid, str) and gid.startswith('new-'):
                     synthetic_ids.setdefault(gid, True)
 
-            # Create one new group per synthetic ID. Seed with a unique
-            # placeholder so the create never collides with an existing active
-            # group literally named "Auto Group" (group names are globally
-            # unique now), then rename to the stable pk-based name.
+            # One new group per synthetic ID, each auto-named BTF_<pk>.
             created_group_by_synthetic = {}
             for synthetic_id in synthetic_ids:
-                group = Groups.objects.create(group_name=f'Auto Group {uuid.uuid4()}')
-                group.group_name = f'Auto Group {group.id}'
-                group.save()
-                created_group_by_synthetic[synthetic_id] = group.id
+                try:
+                    created_group_by_synthetic[synthetic_id] = Groups.create_auto_named().id
+                except GroupAutoNameUnavailable as exc:
+                    # Abort the whole confirm (atomic rollback restores the memberships
+                    # deleted above) rather than silently leaving students ungrouped.
+                    raise ValidationError(str(exc)) from exc
 
             # Resolve assignments
             resolved_assignments = []

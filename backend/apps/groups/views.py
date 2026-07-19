@@ -1,13 +1,13 @@
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
-from .models import Groups, Countries, GroupMembership
+from .models import GroupAutoNameUnavailable, Groups, Countries, GroupMembership
 from .serializers import (
     CountrySerializer,
     GroupMembershipSerializer,
@@ -127,7 +127,15 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         self._ensure_admin_track_access(self.request, None)
-        group = serializer.save()
+        if (serializer.validated_data.get("group_name") or "").strip():
+            group = serializer.save()
+        else:
+            try:
+                group = Groups.create_auto_named()
+            except GroupAutoNameUnavailable as exc:
+                raise ValidationError({"group_name": [str(exc)]}) from exc
+            # Point the serializer at the real row so the response carries the auto name.
+            serializer.instance = group
         log_audit_event(
             actor=self.request.user,
             entity_type="group",
@@ -202,9 +210,25 @@ class GroupViewSet(viewsets.ModelViewSet):
         created_groups = []
         for group_payload in serializer.validated_data["groups"]:
             self._ensure_admin_track_access(request, None)
-            group = Groups.objects.create(
-                group_name=group_payload["group_name"],
-            )
+            requested_name = (group_payload.get("group_name") or "").strip()
+            if requested_name:
+                taken_error = ValidationError({
+                    "group_name": [f'An active group named "{requested_name}" already exists.']
+                })
+                if Groups.objects.filter(
+                    group_name=requested_name, deleted_at__isnull=True,
+                ).exists():
+                    raise taken_error
+                try:
+                    with transaction.atomic():
+                        group = Groups.objects.create(group_name=requested_name)
+                except IntegrityError as exc:
+                    raise taken_error from exc
+            else:
+                try:
+                    group = Groups.create_auto_named()
+                except GroupAutoNameUnavailable as exc:
+                    raise ValidationError({"group_name": [str(exc)]}) from exc
             member_users = group_payload.get("member_user_ids") or []
             for member_user in member_users:
                 GroupMembership.objects.get_or_create(

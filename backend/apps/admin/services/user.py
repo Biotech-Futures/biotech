@@ -2,8 +2,6 @@
 TypeScript User Module Conversion to Python
 Literal translation from admin/apps/server/src/module/user/
 """
-import uuid
-
 from django.db import transaction, IntegrityError
 from django.utils import timezone
 from django.db.models import Exists, OuterRef, Q, ProtectedError
@@ -16,7 +14,9 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
+from apps.groups.models import (
+    Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
+)
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.audit.services import log_audit_event
 
@@ -32,11 +32,11 @@ CO_REGISTRATION_MAX_RECOMMENDED = 5
 _CO_REGISTRATION_BLANK = {"", "none", "unassigned", "n/a", "na"}
 
 _UNSET = object()  # sentinel: "not provided" vs explicit None/empty
-STATUS_INVITED = "invited"
-STATUS_PENDING = "pending"
-STATUS_ACTIVE = "active"
-STATUS_SUSPENDED = "suspended"
-STATUS_DEACTIVATED = "deactivated"
+STATUS_INVITED = User.AccountStatus.INVITED.value
+STATUS_PENDING = User.AccountStatus.PENDING.value
+STATUS_ACTIVE = User.AccountStatus.ACTIVE.value
+STATUS_SUSPENDED = User.AccountStatus.SUSPENDED.value
+STATUS_DEACTIVATED = User.AccountStatus.DEACTIVATED.value
 
 DEFAULT_MENTOR_PROFILE = {
     "background": None,
@@ -1070,7 +1070,9 @@ def _apply_co_registration(
     for input_data in users_input:
         if (input_data.get("role") or "student") != "student":
             continue
-        group_number = (input_data.get("groupNumber") or "").strip()
+        # A "group number" is naturally numeric, so coerce rather than assume str.
+        raw_group_number = input_data.get("groupNumber")
+        group_number = ("" if raw_group_number is None else str(raw_group_number)).strip()
         if not group_number or group_number.lower() in _CO_REGISTRATION_BLANK:
             continue
         email = (input_data.get("email") or "").lower().strip()
@@ -1088,19 +1090,27 @@ def _apply_co_registration(
         if len(member_ids) < 2:
             continue
 
-        with transaction.atomic():
-            # Auto-name co-registered groups BTF_C<uuid> (C = co-registered). The random
-            # uuid keeps it unique with no counter and no collision retry, unlike the
-            # Qualtrics response id previously used as the group number.
-            group = Groups.objects.create(group_name=f"BTF_C{uuid.uuid4().hex}")
-            GroupMembership.objects.bulk_create([
-                GroupMembership(
-                    group=group,
-                    user_id=uid,
-                    membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-                )
-                for uid in member_ids
-            ])
+        try:
+            with transaction.atomic():
+                # BTF_C<pk> — same pk-derived format as every other auto-name, with
+                # C marking the group as co-registered.
+                group = Groups.create_auto_named(marker="C")
+                GroupMembership.objects.bulk_create([
+                    GroupMembership(
+                        group=group,
+                        user_id=uid,
+                        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                    )
+                    for uid in member_ids
+                ])
+        except GroupAutoNameUnavailable as exc:
+            # One unusable auto-name must not abort the whole import.
+            warnings.append(
+                f'Group number "{group_number}" ({len(member_ids)} students) could not '
+                f"be created: {exc} Those students were left ungrouped."
+            )
+            continue
+
         # Attach supervisors to the new group, mirroring the matching-confirm flow.
         for uid in member_ids:
             sync_supervisor_memberships_for_student(uid)
@@ -1165,6 +1175,9 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
     if co_registration["groupsCreated"]:
         count = len(co_registration["groupsCreated"])
         msg += f", {count} co-registration group{'s' if count != 1 else ''} created"
+    # Warnings must survive even when no group was created, or a run that failed
+    # every group would report a clean import.
+    if co_registration["groupsCreated"] or co_registration["warnings"]:
         data["coRegistration"] = co_registration
 
     return {"msg": msg, "data": data}

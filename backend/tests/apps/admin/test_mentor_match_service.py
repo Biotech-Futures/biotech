@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
-    confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
+    confirm_mentor_assignments, replace_mentor,
     unassign_mentors, recommend_mentors_for_group,
 )
 from apps.admin.services.match import recommend_students_for_group
@@ -181,19 +181,6 @@ class MentorMatchServiceTests(TestCase):
                 "groupId": self.group.id,
                 "newMentorUserId": non_mentor.id,
             })
-
-    def test_bulk_replace_inactive_mentors(self):
-        GroupMembership.objects.create(
-            user=self.mentor, group=self.group,
-            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
-        )
-        self.mentor.deactivate()
-        result = bulk_replace_inactive_mentors()
-        self.assertEqual(result, {"removedCount": 1})
-
-    def test_bulk_replace_inactive_mentors_none(self):
-        result = bulk_replace_inactive_mentors()
-        self.assertEqual(result, {"removedCount": 0})
 
     def test_unassign_mentors(self):
         GroupMembership.objects.create(

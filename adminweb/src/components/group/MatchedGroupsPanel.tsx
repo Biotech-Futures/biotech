@@ -11,6 +11,8 @@ import type { MatchedGroup } from "@/type/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BulkReplaceDialog } from "@/components/match/BulkReplaceDialog";
+import { ShowFullMentorsToggle } from "@/components/mentor/ShowFullMentorsToggle";
+import { isMentorSelectable, useMentorPrefs } from "@/store/mentorPrefs";
 import {
   Select,
   SelectContent,
@@ -69,6 +71,7 @@ export function MatchedGroupsPanel() {
 
   const matchedGroups: MatchedGroup[] = matchedData?.data ?? [];
   const mentors = mentorListData?.data ?? [];
+  const showFullMentors = useMentorPrefs((s) => s.showFullMentors);
   const inactiveGroups = matchedGroups.filter((g) => !g.mentor.isActive);
   const inactiveCount = inactiveGroups.length;
   const getSortValue = useCallback(
@@ -190,12 +193,15 @@ export function MatchedGroupsPanel() {
             </Badge>
           )}
         </div>
-        {inactiveCount > 0 && (
-          <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)}>
-            <RefreshCwIcon className="size-3.5 mr-1.5" />
-            Replace Inactive Mentors
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          <ShowFullMentorsToggle />
+          {inactiveCount > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)}>
+              <RefreshCwIcon className="size-3.5 mr-1.5" />
+              Replace Inactive Mentors
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -305,14 +311,20 @@ export function MatchedGroupsPanel() {
                               <SelectItem value="unassign" className="text-muted-foreground">
                                 — Unassign (leave unmatched)
                               </SelectItem>
-                              {mentors.map((m) => (
-                                <SelectItem key={m.mentorId} value={String(m.mentorId)}>
-                                  {m.name}
-                                  {m.remainingCapacity === 0 && (
-                                    <span className="ml-1 text-muted-foreground">(full)</span>
-                                  )}
-                                </SelectItem>
-                              ))}
+                              {mentors
+                                .filter((m) =>
+                                  // Keep this group's own mentor listed even at
+                                  // capacity, or the Select loses its value.
+                                  isMentorSelectable(m, showFullMentors, group.mentor.mentorId),
+                                )
+                                .map((m) => (
+                                  <SelectItem key={m.mentorId} value={String(m.mentorId)}>
+                                    {m.name}
+                                    {m.remainingCapacity === 0 && (
+                                      <span className="ml-1 text-muted-foreground">(full)</span>
+                                    )}
+                                  </SelectItem>
+                                ))}
                             </SelectContent>
                           </Select>
                           <Button

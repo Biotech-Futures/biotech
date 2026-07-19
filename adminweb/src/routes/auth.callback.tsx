@@ -3,12 +3,16 @@ import { useEffect } from "react";
 import { AlertCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SUPPORT_EMAIL } from "@/lib/brand";
 
 export const Route = createFileRoute("/auth/callback")({
   component: RouteComponent,
 });
 
-const ERROR_MESSAGES: Record<string, { title: string; description: string }> = {
+const ERROR_MESSAGES: Record<
+  string,
+  { title: string; description: React.ReactNode }
+> = {
   invalid_or_expired_code: {
     title: "Link expired",
     description:
@@ -21,8 +25,19 @@ const ERROR_MESSAGES: Record<string, { title: string; description: string }> = {
   },
   account_inactive: {
     title: "Account inactive",
-    description:
-      "Your account has been suspended or deactivated. Please contact an administrator.",
+    description: (
+      <>
+        Your account has been suspended or deactivated. Please contact an
+        administrator at{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}`}
+          className="font-medium underline underline-offset-4"
+        >
+          {SUPPORT_EMAIL}
+        </a>
+        .
+      </>
+    ),
   },
 };
 

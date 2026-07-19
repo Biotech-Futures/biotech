@@ -584,35 +584,6 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
     return {'replaced': 1}
 
 
-def bulk_replace_inactive_mentors() -> Dict[str, int]:
-    """
-    Replace all inactive mentors with removal from groups.
-
-    Returns:
-        Dictionary with 'removedCount' of inactive mentor assignments
-    """
-    # Find inactive mentors in groups
-    inactive_rows = (
-        GroupMembership.objects
-        .filter(
-            left_at__isnull=True,
-            user__is_active=False,
-            user__mentorprofile__isnull=False
-        )
-        .values('id')
-    )
-    
-    if not inactive_rows:
-        return {'removedCount': 0}
-
-    # Mark as left
-    count = GroupMembership.objects.filter(
-        id__in=[r['id'] for r in inactive_rows],
-    ).update(left_at=timezone.now())
-
-    return {'removedCount': count}
-
-
 def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     """
     Confirm and finalize mentor assignments to groups.

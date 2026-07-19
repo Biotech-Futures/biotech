@@ -1,6 +1,29 @@
-from django.db import models
+import uuid
+
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
+
+GROUP_NAME_PREFIX = "BTF_"
+
+
+class GroupAutoNameUnavailable(Exception):
+    """The pk-derived auto name is already held by a hand-named active group."""
+
+    def __init__(self, name: str):
+        self.name = name
+        super().__init__(
+            f'The auto-generated group name "{name}" is already taken by another '
+            "group. Rename that group or supply a name explicitly."
+        )
+
+
+def generate_group_name(group_id: int, marker: str = "") -> str:
+    """Auto-name for a group, derived from its pk so uniqueness needs no counter.
+
+    ``marker`` tags the group's origin (``"C"`` = co-registered) -> ``BTF_C0042``.
+    """
+    return f"{GROUP_NAME_PREFIX}{marker}{group_id:04d}"
 
 
 class GroupQuerySet(models.QuerySet):
@@ -86,6 +109,30 @@ class Groups(models.Model):
 
     def __str__(self):
         return self.group_name
+
+    @classmethod
+    def create_auto_named(cls, marker: str = "") -> "Groups":
+        """Create a group named ``BTF_<marker><zero-padded pk>``.
+
+        The pk isn't known until after the insert, so seed a collision-proof
+        placeholder and rename once.
+
+        Raises:
+            GroupAutoNameUnavailable: a hand-named group already holds that slot.
+        """
+        placeholder = f"{GROUP_NAME_PREFIX}new-{uuid.uuid4().hex}"
+        name = None
+        try:
+            # Insert and rename share one savepoint, so a taken slot rolls the
+            # placeholder row back too rather than leaving it as the real name.
+            with transaction.atomic():
+                group = cls.objects.create(group_name=placeholder)
+                name = generate_group_name(group.id, marker)
+                group.group_name = name
+                group.save(update_fields=["group_name"])
+        except IntegrityError as exc:
+            raise GroupAutoNameUnavailable(name or placeholder) from exc
+        return group
 
     @property
     def is_deleted(self):

@@ -44,6 +44,14 @@ class User(AbstractUser):
         SUSPENDED = "suspended", "Suspended"
         DEACTIVATED = "deactivated", "Deactivated"
 
+    # The single source of truth for "this account may not log in". `invited` and
+    # `pending` are deliberately absent: they are is_active=False but can still
+    # sign in with a usable password (they are only blocked from password reset).
+    INACTIVE_LOGIN_STATUSES = frozenset({
+        AccountStatus.SUSPENDED.value,
+        AccountStatus.DEACTIVATED.value,
+    })
+
     username = None
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=False)

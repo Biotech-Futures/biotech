@@ -8,11 +8,11 @@ import {
   GroupTable,
   GroupDetailModal,
   GroupMessagesDialog,
+  GroupNameDialog,
   createColumns,
 } from "@/components/group";
 import {
   useBulkDeleteGroups,
-  useCreateGroup,
   useDeleteGroup,
   useQueryGroup,
   useQueryGroups,
@@ -37,14 +37,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -127,7 +119,7 @@ function GroupPage() {
     { id: "createdAt", desc: true },
   ]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
+  const [renamingGroup, setRenamingGroup] = useState<Group | null>(null);
   // Page-level bulk selection, keyed by group id.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // "Select all matching" mode: every row in the filtered set is selected
@@ -148,7 +140,6 @@ function GroupPage() {
   const [forceDelete, setForceDelete] = useState(false);
   // True for the whole batched delete loop (spans several requests).
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const createGroup = useCreateGroup();
   const deleteGroup = useDeleteGroup();
   const bulkDeleteGroups = useBulkDeleteGroups();
 
@@ -376,27 +367,11 @@ function GroupPage() {
     setMessagesOpen(true);
   };
 
-  const handleCreateGroup = async () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    try {
-      const res = await createGroup.mutateAsync({ name });
-      if (!res.data) {
-        toast.error(res.msg || "Failed to create group.");
-        return;
-      }
-      toast.success(res.msg || "Group created.");
-      setNewGroupName("");
-      setCreateOpen(false);
-    } catch {
-      toast.error("Failed to create group.");
-    }
-  };
-
   // Columns with handlers
   const columns = createColumns({
     onViewDetail: handleViewDetail,
     onViewMessages: handleViewMessages,
+    onRename: setRenamingGroup,
     onDelete: setDeletingGroup,
   });
 
@@ -627,53 +602,28 @@ function GroupPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog
+      <GroupNameDialog
+        mode="create"
         open={createOpen}
+        onOpenChange={setCreateOpen}
+      />
+
+      <GroupNameDialog
+        mode="edit"
+        group={renamingGroup}
+        open={renamingGroup !== null}
         onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) setNewGroupName("");
+          if (!open) setRenamingGroup(null);
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create group</DialogTitle>
-            <DialogDescription>
-              Creates an empty group. Add students from the group's detail view,
-              and a mentor from the matching tools.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="new-group-name">Group name</Label>
-            <Input
-              id="new-group-name"
-              value={newGroupName}
-              onChange={(event) => setNewGroupName(event.target.value)}
-              placeholder="e.g. Genomics Team A"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void handleCreateGroup();
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={createGroup.isPending}
-              onClick={() => setCreateOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!newGroupName.trim() || createGroup.isPending}
-              onClick={() => void handleCreateGroup()}
-            >
-              {createGroup.isPending ? "Creating..." : "Create group"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onSaved={(group) => {
+          // Keep an open detail modal in sync with the new name.
+          setSelectedGroup((current) =>
+            current && current.id === group.id
+              ? { ...current, name: group.name }
+              : current,
+          );
+        }}
+      />
     </div>
   );
 }

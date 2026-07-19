@@ -211,6 +211,42 @@ class AuthUnificationTests(TestCase):
             format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # The frontend branches on this code — keep it stable.
+        self.assertEqual(response.json()["code"], "account_inactive")
+
+    def test_password_login_fails_suspended_account(self):
+        self.target_user.suspend()
+
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "account_inactive")
+
+    def test_inactive_login_statuses_is_only_suspended_and_deactivated(self):
+        """invited/pending must never be added here — they are is_active=False
+        but are deliberately still allowed to log in."""
+        self.assertEqual(
+            User.INACTIVE_LOGIN_STATUSES,
+            frozenset({"suspended", "deactivated"}),
+        )
+
+    def test_password_login_allowed_for_invited_and_pending(self):
+        from django.core.cache import cache
+
+        for transition in ("invite", "mark_pending"):
+            with self.subTest(transition=transition):
+                cache.clear()
+                getattr(self.target_user, transition)()
+
+                response = self.client.post(
+                    reverse("password-login"),
+                    {"email": self.user_email, "password": self.user_pass},
+                    format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_password_login_per_ip_throttle_blocks_credential_stuffing(self):
         """Regression: a single IP must not be able to fan out brute-force

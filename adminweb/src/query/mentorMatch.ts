@@ -1,6 +1,5 @@
 import { myFetch } from "@/lib/myFetch";
 import {
-  bulkReplaceInactiveResponseSchema,
   confirmMentorAssignmentsResponseSchema,
   matchedGroupsResponseSchema,
   mentorListResponseSchema,
@@ -99,15 +98,6 @@ export function useMutationReplaceMentor() {
     mutationFn: async (payload: ReplaceMentorPayload) => {
       const res = await myFetch.post("mentor-match/replace", payload);
       return replaceMentorResponseSchema.parse(res.data);
-    },
-  });
-}
-
-export function useMutationBulkReplaceInactive() {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await myFetch.post("mentor-match/bulk-replace-inactive", {});
-      return bulkReplaceInactiveResponseSchema.parse(res.data);
     },
   });
 }

@@ -28,6 +28,8 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ShowFullMentorsToggle } from "@/components/mentor/ShowFullMentorsToggle";
+import { isMentorSelectable, useMentorPrefs } from "@/store/mentorPrefs";
 
 const MATCH_MODES: {
   value: MatchMode;
@@ -264,12 +266,20 @@ export function MentorMatchingBoard({
   const [search, setSearch] = useState("");
   const [overrides, setOverrides] = useState<Map<number, number>>(new Map());
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const showFullMentors = useMentorPrefs((s) => s.showFullMentors);
 
   // Reset overrides when a new match is run
   useEffect(() => {
     setOverrides(new Map());
     setEditingGroupId(null);
   }, [recommendations]);
+
+  // Hidden by default so admins aren't offered mentors they can't actually use.
+  // Lookups elsewhere still read the full `mentors` list.
+  const visibleMentors = useMemo(
+    () => mentors.filter((m) => showFullMentors || m.remainingCapacity > 0),
+    [mentors, showFullMentors],
+  );
 
   const capacityShortage = useMemo(() => {
     const totalCapacity = mentors.reduce((sum, m) => sum + m.remainingCapacity, 0);
@@ -596,27 +606,35 @@ export function MentorMatchingBoard({
               <p className="text-sm font-semibold">
                 Mentors
                 <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                  {mentors.length}
+                  {visibleMentors.length}
                 </span>
               </p>
-              <div className="flex gap-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span className="inline-block size-2 rounded-full bg-green-500" />
-                  Available
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
-                  At capacity
-                </span>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-2 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block size-2 rounded-full bg-green-500" />
+                    Available
+                  </span>
+                  {/* The at-capacity legend only means something when they're shown. */}
+                  {showFullMentors && (
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
+                      At capacity
+                    </span>
+                  )}
+                </div>
+                <ShowFullMentorsToggle />
               </div>
             </div>
             <div className="divide-y max-h-96 overflow-y-auto">
-              {mentors.length === 0 ? (
+              {visibleMentors.length === 0 ? (
                 <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No mentors found.
+                  {mentors.length === 0
+                    ? "No mentors found."
+                    : "All mentors are at capacity."}
                 </p>
               ) : (
-                mentors.map((m) => {
+                visibleMentors.map((m) => {
                   const hasCapacity = m.remainingCapacity > 0;
                   const isExpanded = expandedMentorIds.has(m.mentorId);
                   return (
@@ -874,11 +892,21 @@ export function MentorMatchingBoard({
                               }}
                             >
                               <option value="">— Select mentor —</option>
-                              {mentors.map((m) => (
-                                <option key={m.mentorId} value={m.mentorId}>
-                                  {m.name} ({m.countryName ?? "Unknown"}, {m.remainingCapacity} left)
-                                </option>
-                              ))}
+                              {mentors
+                                .filter((m) =>
+                                  isMentorSelectable(
+                                    m,
+                                    showFullMentors,
+                                    // Keep the current pick listed even at capacity,
+                                    // or the select renders blank.
+                                    overrideMentorId ?? rec.recommendedMentor?.mentorId,
+                                  ),
+                                )
+                                .map((m) => (
+                                  <option key={m.mentorId} value={m.mentorId}>
+                                    {m.name} ({m.countryName ?? "Unknown"}, {m.remainingCapacity} left)
+                                  </option>
+                                ))}
                             </select>
                             <button
                               className="text-xs text-muted-foreground hover:text-foreground"

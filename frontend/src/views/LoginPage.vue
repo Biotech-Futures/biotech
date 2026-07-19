@@ -126,7 +126,11 @@
           <div class="auth-card-noise"></div>
 
           <!-- Two-step progress indicator. -->
-          <div class="auth-progress" aria-label="Authentication progress">
+          <div
+            v-if="currentStep !== 'inactive'"
+            class="auth-progress"
+            aria-label="Authentication progress"
+          >
             <div class="progress-item active current">
               <span class="progress-dot">1</span>
               <span class="progress-label">{{ t('emailStep') }}</span>
@@ -290,6 +294,33 @@
               </transition>
             </div>
 
+            <!-- Inactive account panel: replaces the form, since no credential can unblock it. -->
+            <div v-else-if="currentStep === 'inactive'" key="inactive" class="step-panel">
+              <header class="auth-header">
+                <div class="auth-logo-wrap">
+                  <div class="auth-logo">
+                    <img :src="logo" :alt="BRAND_NAME" />
+                  </div>
+
+                  <div class="auth-logo-copy">
+                    <h2 class="auth-title">{{ t('accountInactiveTitle') }}</h2>
+                  </div>
+                </div>
+
+                <p class="auth-subtitle" role="alert">{{ t('accountInactiveBody') }}</p>
+              </header>
+
+              <!-- Support link row. -->
+              <div class="support-row">
+                <span>{{ t('needHelp') }}</span>
+                <a :href="`mailto:${SUPPORT_EMAIL}`">{{ t('contactSupport') }}</a>
+              </div>
+
+              <button type="button" class="secondary-button" @click="goBackToEmailStep">
+                {{ t('backToSignIn') }}
+              </button>
+            </div>
+
             <!-- OTP step panel. -->
             <div v-else key="otp" class="step-panel step-panel--otp">
               <header class="auth-header auth-header--compact">
@@ -403,7 +434,7 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
@@ -418,6 +449,7 @@ import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
 /*
   Page-level instances.
 */
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -840,6 +872,8 @@ const triggerOtpErrorFeedback = async () => {
   Step navigation helper.
 */
 const goBackToEmailStep = async () => {
+  // Drop ?error= so a refresh does not drop the user back on the inactive screen.
+  if (route.query.error) router.replace({ name: 'login' })
   currentStep.value = 'email'
   clearMessages()
   otpErrorActive.value = false
@@ -906,6 +940,7 @@ const handleLogin = async () => {
       statusMessage.value = ''
       const apiError = await parseApiError(response, t('errorSendLink'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
       error.value = loginErrorMessage(apiError)
       return
     }
@@ -919,6 +954,7 @@ const handleLogin = async () => {
     statusMessage.value = ''
     const apiError = apiErrorFromUnknown(requestError, t('errorNetworkLogin'))
     if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+    if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
     error.value = loginErrorMessage(apiError)
   } finally {
     sendingCode.value = false
@@ -959,6 +995,11 @@ const verifyOTP = async () => {
       const apiError = await parseApiError(response, t('errorInvalidCode'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
       error.value = loginErrorMessage(apiError)
+      // The OTP was correct — skip the shake/refocus, the inputs are gone.
+      if (apiError.code === 'account_inactive') {
+        currentStep.value = 'inactive'
+        return
+      }
       await triggerOtpErrorFeedback()
       return
     }
@@ -1012,6 +1053,7 @@ const resendCode = async () => {
     if (!response.ok) {
       const apiError = await parseApiError(response, t('errorResendFail'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
       error.value = loginErrorMessage(apiError)
       return
     }
@@ -1079,6 +1121,9 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
   Lifecycle: initial focus.
 */
 onMounted(async () => {
+  // Magic-link rejections land here as a redirect from the callback view.
+  if (route.query.error === 'account_inactive') currentStep.value = 'inactive'
+
   ensureCsrfCookie(API_BASE_URL).catch((error) => {
     console.error('Initial CSRF warm-up failed:', error)
   })

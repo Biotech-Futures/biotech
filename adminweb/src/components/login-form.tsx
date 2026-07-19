@@ -12,8 +12,9 @@ import { Controller, useForm } from "react-hook-form";
 import z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
-import { useMagicLinkSignIn, usePasswordSignIn } from "@/fetch/auth";
-import { BRAND_CONNECT } from "@/lib/brand";
+import { AlertTriangleIcon } from "lucide-react";
+import { AuthError, useMagicLinkSignIn, usePasswordSignIn } from "@/fetch/auth";
+import { BRAND_CONNECT, SUPPORT_EMAIL } from "@/lib/brand";
 
 type LoginMode = "password" | "magic";
 
@@ -35,11 +36,24 @@ export function LoginForm({
     resolver: zodResolver(loginSchema),
   });
 
-  const { mutate: sendMagicLink, isPending: isMagicLinkPending } =
-    useMagicLinkSignIn();
-  const { mutate: signInWithPassword, isPending: isPasswordPending } =
-    usePasswordSignIn();
+  const {
+    mutate: sendMagicLink,
+    isPending: isMagicLinkPending,
+    error: magicLinkError,
+    reset: resetMagicLink,
+  } = useMagicLinkSignIn();
+  const {
+    mutate: signInWithPassword,
+    isPending: isPasswordPending,
+    error: passwordError,
+    reset: resetPasswordSignIn,
+  } = usePasswordSignIn();
   const isPending = isMagicLinkPending || isPasswordPending;
+
+  // The toast disappears after a few seconds; a blocked admin needs the next step to stay put.
+  const isAccountInactive = [magicLinkError, passwordError].some(
+    (error) => error instanceof AuthError && error.code === "account_inactive",
+  );
 
   return (
     <div
@@ -48,11 +62,15 @@ export function LoginForm({
     >
       <form
         onSubmit={handleSubmit((data) => {
+          // Each mutation keeps its last error until it reruns, so drop the
+          // other one's — the panel must reflect this attempt only.
           if (mode === "magic") {
+            resetPasswordSignIn();
             sendMagicLink(data.email);
             return;
           }
 
+          resetMagicLink();
           signInWithPassword({
             email: data.email,
             password: data.password ?? "",
@@ -147,6 +165,28 @@ export function LoginForm({
                 </Field>
               )}
             />
+          )}
+
+          {isAccountInactive && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
+            >
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="space-y-2">
+                <p className="font-medium text-destructive">Account inactive</p>
+                <p className="text-muted-foreground">
+                  Your account has been suspended or deactivated. An
+                  administrator needs to reactivate it before you can sign in.
+                </p>
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                  className="inline-block font-medium underline underline-offset-4"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+              </div>
+            </div>
           )}
 
           <Field>

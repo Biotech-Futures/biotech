@@ -11,7 +11,9 @@ from apps.admin.services.user import (
     bulk_update_status_by_filter, delete_user, bulk_delete_users,
     bulk_delete_users_by_filter, has_ungrouped_students, bulk_create_users,
 )
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
+from apps.groups.models import (
+    Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
+)
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import StudentProfile, MentorProfile, User, StudentSupervisor
 from apps.users.models.admin_scope import AdminScope
@@ -258,6 +260,140 @@ class AdminUserBulkCreateViewTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "Expected a JSON array of users")
         mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_string_body(self, mock_bulk_create_users):
+        response = self.client.post(self.url, '"nope"', content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_empty_array(self, mock_bulk_create_users):
+        response = self.client.post(self.url, [], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_non_object_row(self, mock_bulk_create_users):
+        response = self.client.post(self.url, ["not-an-object"], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Row 1", response.data["msg"])
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_missing_email(self, mock_bulk_create_users):
+        response = self.client.post(self.url, [{"role": "student"}], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data["msg"])
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_invalid_email(self, mock_bulk_create_users):
+        response = self.client.post(
+            self.url,
+            [self.payload[0], {"email": "not-an-email", "role": "student"}],
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Row 2", response.data["msg"])
+        self.assertIn("email", response.data["msg"])
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_unknown_role(self, mock_bulk_create_users):
+        response = self.client.post(
+            self.url,
+            [{"email": "teach@example.com", "role": "teacher"}],
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("role", response.data["msg"])
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_rejects_container_group_number(self, mock_bulk_create_users):
+        # A list/dict group number is meaningless and would crash the service.
+        for bad in (["1"], {"n": 1}):
+            with self.subTest(groupNumber=bad):
+                response = self.client.post(
+                    self.url,
+                    [{"email": "ava@example.com", "role": "student", "groupNumber": bad}],
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("groupNumber", response.data["msg"])
+        mock_bulk_create_users.assert_not_called()
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_allows_scalar_group_numbers(self, mock_bulk_create_users):
+        # A "group number" is naturally numeric; the service str()-coerces it.
+        mock_bulk_create_users.return_value = {"msg": "ok", "data": {}}
+        for ok in (None, "", "7", 7):
+            with self.subTest(groupNumber=ok):
+                response = self.client.post(
+                    self.url,
+                    [{"email": "ava@example.com", "role": "student", "groupNumber": ok}],
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+    def test_valid_payload_still_imports(self):
+        response = self.client.post(self.url, [_full_student_row()], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["data"]["skipped"], [])
+        user = User.objects.get(email="ava.full@example.com")
+        profile = StudentProfile.objects.get(user_id=user.id)
+        self.assertEqual(profile.school_name, "Sydney High")
+        self.assertEqual(profile.year_lvl, "10")
+        self.assertEqual(user.country.country_name, "Australia")
+        self.assertEqual(user.state.state_name, "NSW")
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_full_key_set_reaches_service_untouched(self, mock_bulk_create_users):
+        """Regression guard: the serializer must not drop keys it doesn't declare."""
+        mock_bulk_create_users.return_value = {"msg": "ok", "data": {}}
+        row = _full_student_row()
+
+        response = self.client.post(self.url, [row], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        sent_rows = mock_bulk_create_users.call_args.args[0]
+        self.assertEqual(sent_rows, [row])
+        self.assertEqual(set(sent_rows[0]), set(row))
+
+
+def _full_student_row():
+    """Every key add_users_by_role / _apply_co_registration read off a student row."""
+    return {
+        "email": "ava.full@example.com",
+        "firstName": "Ava",
+        "lastName": "Nguyen",
+        "role": "student",
+        "country": "Australia",
+        "state": "NSW",
+        "schoolName": "Sydney High",
+        "yearLevel": "10",
+        "interests": ["Biotech"],
+        "groupNumber": "7",
+        "guardianFirstName": "Gina",
+        "guardianLastName": "Nguyen",
+        "guardianEmail": "gina@example.com",
+        "supervisorFirstName": "Sam",
+        "supervisorLastName": "Super",
+        "supervisorEmail": "sam@example.com",
+        "joinpermResponseId": "R_123",
+        "active": True,
+    }
 
 
 class AdminUserServiceCreateUserTests(TestCase):
@@ -661,9 +797,9 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         )
         co = result["data"]["coRegistration"]
         self.assertEqual(len(co["groupsCreated"]), 1)
-        self.assertRegex(co["groupsCreated"][0]["name"], r"^BTF_C[0-9a-f]{32}$")
         self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
         group = Groups.objects.get()
+        self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
         self.assertEqual(group.group_name, co["groupsCreated"][0]["name"])
         self.assertEqual(
             GroupMembership.objects.filter(
@@ -680,6 +816,16 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         )
         # Both now have an active membership, so the auto-matcher's pool excludes them.
         self.assertFalse(has_ungrouped_students())
+
+    def test_numeric_group_number_groups_students(self):
+        # A JSON int group number must group, not crash _apply_co_registration.
+        result = bulk_create_users(
+            [self._student("a@example.com", 7), self._student("b@example.com", 7)],
+            "",
+        )
+        co = result["data"]["coRegistration"]
+        self.assertEqual(len(co["groupsCreated"]), 1)
+        self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
 
     def test_blank_group_number_leaves_student_ungrouped(self):
         result = bulk_create_users([self._student("solo@example.com")], "")
@@ -730,9 +876,65 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         )
         names = [g["name"] for g in result["data"]["coRegistration"]["groupsCreated"]]
         self.assertEqual(len(names), 2)
-        for name in names:
-            self.assertRegex(name, r"^BTF_C[0-9a-f]{32}$")
-        self.assertEqual(len(set(names)), 2)  # each group gets its own uuid
+        for group in Groups.objects.all():
+            self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
+            self.assertIn(group.group_name, names)
+        self.assertEqual(len(set(names)), 2)  # pk-derived, so no two collide
+
+    def test_co_registration_name_collision_degrades_to_a_warning(self):
+        # Hand-name a group into the BTF_C slot the co-registered group would claim.
+        # The probe row consumes a pk itself, so the next insert lands at probe + 2.
+        probe_id = Groups.objects.create(group_name="collision-probe").id
+        squatted = f"BTF_C{probe_id + 2:04d}"
+        Groups.objects.create(group_name=squatted)
+
+        result = bulk_create_users(
+            [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
+            "",
+        )
+
+        # The import itself still succeeds -- both students were created.
+        self.assertEqual(len(result["data"]["created"]), 2)
+        co = result["data"]["coRegistration"]
+        self.assertEqual(co["groupsCreated"], [])
+        self.assertEqual(len(co["warnings"]), 1)
+        self.assertIn("left ungrouped", co["warnings"][0])
+        self.assertEqual(Groups.objects.count(), 2)  # probe + squatter only
+        self.assertFalse(Groups.objects.filter(group_name__startswith="BTF_new-").exists())
+        self.assertTrue(has_ungrouped_students())
+
+    def test_one_failed_co_registration_group_does_not_block_the_next(self):
+        # Which pk a rolled-back insert frees up is backend-specific (SQLite reuses
+        # it, Postgres does not), so drive the failure directly.
+        real = Groups.create_auto_named
+        calls = []
+
+        def fail_first(marker=""):
+            calls.append(marker)
+            if len(calls) == 1:
+                raise GroupAutoNameUnavailable("BTF_C0001")
+            return real(marker=marker)
+
+        with patch.object(Groups, "create_auto_named", side_effect=fail_first):
+            result = bulk_create_users(
+                [
+                    self._student("a@example.com", "1"),
+                    self._student("b@example.com", "1"),
+                    self._student("c@example.com", "2"),
+                    self._student("d@example.com", "2"),
+                ],
+                "",
+            )
+
+        co = result["data"]["coRegistration"]
+        self.assertEqual(len(co["groupsCreated"]), 1)
+        self.assertEqual(len(co["warnings"]), 1)
+        self.assertIn("left ungrouped", co["warnings"][0])
+        group = Groups.objects.get()
+        self.assertEqual(group.group_name, f"BTF_C{group.id:04d}")
+        self.assertEqual(
+            GroupMembership.objects.filter(group=group, left_at__isnull=True).count(), 2
+        )
 
     def test_supervisor_synced_into_co_registration_group(self):
         result = bulk_create_users(

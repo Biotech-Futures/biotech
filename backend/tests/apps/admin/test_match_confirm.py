@@ -80,6 +80,37 @@ class ConfirmStudentAssignmentsTests(TestCase):
             ).exists()
         )
 
+    def test_synthetic_group_name_collision_aborts_without_dropping_memberships(self):
+        # Hand-name a group into the BTF_ slot the synthetic group would claim; the
+        # probe row consumes a pk itself, so the next insert lands at probe + 2.
+        GroupMembership.objects.create(
+            group=self.group_one,
+            user=self.students[0],
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        probe_id = Groups.objects.create(group_name="collision-probe").id
+        Groups.objects.create(group_name=f"BTF_{probe_id + 2:04d}")
+
+        with self.assertRaises(ValidationError):
+            confirm_student_assignments(
+                {
+                    "assignments": [
+                        {
+                            "studentId": self.students[0].id,
+                            "groupId": f"new-{self.students[0].id}",
+                        }
+                    ]
+                }
+            )
+
+        # Rolled back whole: the student keeps the group they were already in and
+        # no orphan placeholder row survives.
+        self.assertEqual(
+            GroupMembership.objects.get(user=self.students[0]).group_id,
+            self.group_one.id,
+        )
+        self.assertFalse(Groups.objects.filter(group_name__startswith="BTF_new-").exists())
+
     def test_invalid_assignment_payload_raises_validation_error(self):
         with self.assertRaises(ValidationError):
             confirm_student_assignments(

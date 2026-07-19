@@ -11,19 +11,34 @@ const authFetch = axios.create({
 
 authFetch.interceptors.request.use(csrfInterceptor);
 
-function getAuthErrorMessage(error: unknown, fallback: string) {
+// Carries the backend's machine-readable `code` so callers can branch on it
+// instead of string-matching the message.
+export class AuthError extends Error {
+  code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "AuthError";
+    this.code = code;
+  }
+}
+
+function getAuthError(error: unknown, fallback: string) {
   if (error instanceof AxiosError) {
     const data = error.response?.data as
-      | { detail?: string; error?: string; message?: string }
+      | { detail?: string; error?: string; message?: string; code?: string }
       | undefined;
-    return data?.detail || data?.error || data?.message || fallback;
+    return {
+      message: data?.detail || data?.error || data?.message || fallback,
+      code: data?.code,
+    };
   }
 
   if (error instanceof Error) {
-    return error.message;
+    return { message: error.message, code: undefined };
   }
 
-  return fallback;
+  return { message: fallback, code: undefined };
 }
 
 export function useMagicLinkSignIn() {
@@ -38,9 +53,12 @@ export function useMagicLinkSignIn() {
         toast.success("Login code sent to email!");
         return data;
       } catch (error) {
-        const message = getAuthErrorMessage(error, "Failed to send magic link");
+        const { message, code } = getAuthError(
+          error,
+          "Failed to send magic link",
+        );
         toast.error(message);
-        throw new Error(message);
+        throw new AuthError(message, code);
       }
     },
   });
@@ -57,9 +75,9 @@ export function usePasswordSignIn() {
         await ensureCsrfToken();
         return data;
       } catch (error) {
-        const message = getAuthErrorMessage(error, "Failed to sign in");
+        const { message, code } = getAuthError(error, "Failed to sign in");
         toast.error(message);
-        throw new Error(message);
+        throw new AuthError(message, code);
       }
     },
     onSuccess: async () => {
@@ -107,9 +125,9 @@ export function useSignOut() {
         resetCsrfToken();
       } catch (error) {
         resetCsrfToken();
-        const message = getAuthErrorMessage(error, "Failed to sign out");
+        const { message, code } = getAuthError(error, "Failed to sign out");
         toast.error(message);
-        throw new Error(message);
+        throw new AuthError(message, code);
       }
     },
     onSuccess: () => {

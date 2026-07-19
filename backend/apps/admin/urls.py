@@ -101,6 +101,5 @@ urlpatterns = [
     path('mentor-match/confirm/', views.MentorMatchConfirmView.as_view(), name='mentor-match-confirm'),
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/replace-suggestions/', views.MentorMatchReplaceSuggestionsView.as_view(), name='mentor-match-replace-suggestions'),
-    path('mentor-match/bulk-replace-inactive/', views.MentorMatchBulkReplaceInactiveView.as_view(), name='mentor-match-bulk-replace-inactive'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
 ]

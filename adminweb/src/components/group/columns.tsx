@@ -3,17 +3,19 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Group } from "@/type/group";
 import { Button } from "@/components/ui/button";
-import { UsersIcon, UserIcon, Trash2Icon } from "lucide-react";
+import { UsersIcon, UserIcon, Trash2Icon, PencilIcon } from "lucide-react";
 
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
   onViewMessages?: (group: Group) => void;
+  onRename?: (group: Group) => void;
   onDelete?: (group: Group) => void;
 }
 
 export function createColumns({
   onViewDetail,
   onViewMessages,
+  onRename,
   onDelete,
 }: ColumnsOptions = {}): ColumnDef<Group>[] {
   return [
@@ -86,6 +88,16 @@ export function createColumns({
             >
               View Messages
             </Button>
+            {onRename ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Rename ${group.name}`}
+                onClick={() => onRename(group)}
+              >
+                <PencilIcon className="size-4" />
+              </Button>
+            ) : null}
             {onDelete ? (
               <Button
                 variant="ghost"
