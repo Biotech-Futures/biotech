@@ -82,6 +82,8 @@ urlpatterns = [
     # TASK ROUTES
     # ========================================================================
     path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
+    # Must precede the <int:task_id> route so the literal segment wins.
+    path('task/role-recipients/', views.AdminTaskRoleRecipientsView.as_view(), name='admin-task-role-recipients'),
     path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
     path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
 

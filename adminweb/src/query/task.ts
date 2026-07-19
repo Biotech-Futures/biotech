@@ -4,6 +4,7 @@ import type {
   AdminTaskListResponse,
   Task,
   TaskCreateValues,
+  TaskFanoutResult,
   TaskUpdateValues,
 } from "@/type/task";
 
@@ -36,11 +37,28 @@ export function useQueryTasks(params: {
   });
 }
 
+export function useRoleRecipientCount(role: string) {
+  return useQuery({
+    queryKey: [QUERY_KEY, "role-recipients", role],
+    queryFn: async () => {
+      const res = await myFetch.get<{
+        msg: string;
+        data: { role: string; count: number } | null;
+      }>("/task/role-recipients/", { params: { role } });
+      return res.data;
+    },
+    enabled: Boolean(role),
+  });
+}
+
 export function useCreateTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: TaskCreateValues) => {
-      const res = await myFetch.post<{ msg: string; data: Task }>("/task/", data);
+      const res = await myFetch.post<{
+        msg: string;
+        data: Task | TaskFanoutResult;
+      }>("/task/", data);
       return res.data;
     },
     onSuccess: () => {

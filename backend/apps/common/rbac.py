@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from django.apps import apps
+from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
+
+from apps.common.role_names import ROLE_ADMIN
 
 
 def active_role_assignments(user):
@@ -81,3 +84,51 @@ def is_admin(user) -> bool:
         return False
     AdminScope = apps.get_model("users", "AdminScope")
     return AdminScope.objects.filter(user=user).exists()
+
+
+def users_with_role(role_name: str, *, assignable_only: bool = True):
+    """Users who currently hold ``role_name``.
+
+    Reads the global ``RoleAssignmentHistory`` rather than
+    ``GroupMembership``: the per-group membership role cannot express
+    "every mentor on the platform".
+
+    Deliberately NOT a strict inverse of :func:`active_role_names`. ``admin``
+    is an ``AdminScope`` row rather than a role assignment, so this function
+    reports admins that ``user_has_role(u, ROLE_ADMIN)`` does not — that
+    asymmetry is inherited from :func:`is_admin` and is intentional here,
+    because "every admin" is a target callers reasonably ask for.
+
+    ``assignable_only`` (the default) drops only accounts that may not log in,
+    per ``User.INACTIVE_LOGIN_STATUSES``. Note this deliberately KEEPS
+    ``invited`` and ``pending`` users: they are ``is_active=False`` but can
+    still sign in and action work, so filtering on ``account_status=ACTIVE``
+    here would silently skip every student awaiting parent permission.
+    """
+    User = get_user_model()
+    normalized = str(role_name or "").strip().lower()
+    if not normalized:
+        return User.objects.none()
+
+    accounts = User.objects.all()
+    if assignable_only:
+        accounts = accounts.exclude(account_status__in=User.INACTIVE_LOGIN_STATUSES)
+
+    if normalized == ROLE_ADMIN:
+        AdminScope = apps.get_model("users", "AdminScope")
+        return accounts.filter(
+            id__in=AdminScope.objects.values_list("user_id", flat=True)
+        )
+
+    RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
+    now = timezone.now()
+    assigned_user_ids = RoleAssignmentHistory.objects.filter(
+        role__role_name__iexact=normalized,
+        valid_from__lte=now,
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+    ).values_list("user_id", flat=True)
+
+    # `id__in` against a User queryset collapses duplicate assignment rows, so
+    # overlapping grants of the same role still yield each user once.
+    return accounts.filter(id__in=assigned_user_ids)
