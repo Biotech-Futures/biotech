@@ -1,0 +1,42 @@
+name: Daily unread-messages digest
+
+# Hits the HMAC-protected digest dispatcher once a day. The endpoint itself
+# throttles per user (ChatDigestState), so at most one email per user per day.
+#
+# Required configuration:
+#   secret  UNREAD_DIGEST_TOKEN         must match backend env of same name
+#   var     RSVP_REMINDER_BACKEND_URL   shared backend base URL, e.g.
+#                                        https://biotechbe.azurewebsites.net
+#
+# 07:17 UTC is early evening in Australia (AEST/AEDT) — a good nudge to check
+# before the next day. Off-peak minute (17) avoids GitHub's top-of-hour spike.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger unread-messages digest
+        env:
+          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          DIGEST_TOKEN: ${{ secrets.UNREAD_DIGEST_TOKEN }}
+        run: |
+          if [ -z "${BACKEND_URL}" ]; then
+            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
+            exit 1
+          fi
+          if [ -z "${DIGEST_TOKEN}" ]; then
+            echo "UNREAD_DIGEST_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding.
+          curl -fsS -X POST \
+            -H "X-Digest-Token: ${DIGEST_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/chat/admin/send-unread-digest/"

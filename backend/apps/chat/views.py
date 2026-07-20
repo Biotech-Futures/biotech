@@ -1,14 +1,18 @@
+import hmac
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.common.storage import serve_managed_file
 from apps.audit.services import log_audit_event
@@ -1092,6 +1096,50 @@ class MentionViewSet(viewsets.GenericViewSet):
         )
         return Response(
             {"marked_count": updated, "unread_count": 0},
+            status=status.HTTP_200_OK,
+        )
+
+
+class UnreadDigestTriggerView(APIView):
+    """Cron-trigger endpoint for the daily unread-messages email digest.
+
+    Called once a day by ``.github/workflows/unread-digest.yml`` (no in-process
+    scheduler / Celery worker). Auth is a shared-secret header, not a user
+    session — there is no human caller. Mirrors ``RsvpReminderTriggerView``:
+
+    * ``UNREAD_DIGEST_TOKEN`` must be set; if blank the endpoint returns 503 so a
+      misconfigured deploy fails loud instead of silently exposing an
+      unauthenticated trigger.
+    * The header value is compared with ``hmac.compare_digest`` (constant time).
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        from .services.digest import send_unread_message_digests
+
+        expected = getattr(settings, "UNREAD_DIGEST_TOKEN", "") or ""
+        if not expected:
+            return Response(
+                {"detail": "Unread digest trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-Digest-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response(
+                {"detail": "Invalid token."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        considered, sent, failed = send_unread_message_digests()
+        return Response(
+            {
+                "users_considered": considered,
+                "emails_sent": sent,
+                "emails_failed": failed,
+            },
             status=status.HTTP_200_OK,
         )
 

@@ -282,6 +282,23 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
 SUPPORT_EMAIL = "support@biotechfutures.org"
 
+# Second mailbox — the "unread messages" digest sends from here, NOT the default
+# transactional account, so it can live under its own 3000/day send quota and
+# keep the primary mailbox reserved for announcements/event reminders. Host,
+# port and SSL default to the primary account's values, so a deploy only has to
+# supply EMAIL_CONNECT_HOST_PASSWORD to get going. The SMTP *login*
+# (EMAIL_CONNECT_HOST_USER, global@) and the From *header* (CONNECT_FROM_ADDRESS,
+# connect@) are deliberately different — the relay must allow send-as-alias.
+EMAIL_CONNECT_HOST = config("EMAIL_CONNECT_HOST", default=EMAIL_HOST)
+EMAIL_CONNECT_PORT = config("EMAIL_CONNECT_PORT", default=EMAIL_PORT, cast=int)
+EMAIL_CONNECT_USE_SSL = config("EMAIL_CONNECT_USE_SSL", default=EMAIL_USE_SSL, cast=env_bool)
+EMAIL_CONNECT_HOST_USER = config(
+    "EMAIL_CONNECT_HOST_USER", default="global@biotechfutures.org"
+)
+EMAIL_CONNECT_HOST_PASSWORD = config("EMAIL_CONNECT_HOST_PASSWORD", default="")
+CONNECT_FROM_ADDRESS = "connect@biotechfutures.org"
+CONNECT_DEFAULT_FROM_EMAIL = f"{BRAND_CONNECT} <{CONNECT_FROM_ADDRESS}>"
+
 REDIS_URL = config("REDIS_URL", default="")
 
 if REDIS_URL:
@@ -503,6 +520,16 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit daily by
+# .github/workflows/unread-digest.yml. Same fail-loud contract as
+# RSVP_REMINDER_TOKEN: empty value => 503, so a misconfigured deploy can't
+# silently expose an unauthenticated trigger. MIN_INTERVAL is set a little under
+# 24h so a daily cron whose fire time drifts a few minutes never skips a day.
+UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
+UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
+    "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=20, cast=int
+)
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
