@@ -5,6 +5,7 @@ from .message_reaction import MessageReaction
 from .message_resource import MessageResource
 from .message_status import MessageStatus
 from .message_preview import MessagePreview
+from .digest_state import ChatDigestState
 
 __all__ = [
     'Messages',
@@ -15,4 +16,5 @@ __all__ = [
     'MessageResource',
     'MessageStatus',
     'MessagePreview',
+    'ChatDigestState',
 ]
