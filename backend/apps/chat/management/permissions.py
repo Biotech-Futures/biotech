@@ -1,7 +1,32 @@
+from django.conf import settings
 from rest_framework.permissions import BasePermission
 
 from apps.chat.rbac import can_access_chat_group, can_manage_chat_message
 from apps.groups.models import Groups
+
+
+class HasParentalConsentToPost(BasePermission):
+    """Block a student from posting until parental join-permission is recorded.
+
+    No-op unless ``settings.ENFORCE_JOIN_PERMISSION`` is enabled. The consent
+    flag is populated by the external join-permission webhook, so enforcement is
+    deploy-gated — turning it on before that data is backfilled would lock every
+    student out of chat. Non-students (no StudentProfile) are unaffected.
+    """
+
+    message = "Parental join permission must be recorded before you can post."
+
+    def has_permission(self, request, view):
+        if not getattr(settings, "ENFORCE_JOIN_PERMISSION", False):
+            return True
+        from apps.users.models import StudentProfile
+        sp = (
+            StudentProfile.objects
+            .filter(user=request.user)
+            .only("has_join_permission")
+            .first()
+        )
+        return sp is None or sp.has_join_permission
 
 
 class IsGroupMemberOrAdmin(BasePermission):

@@ -18,6 +18,7 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.common.rbac import is_admin
+from apps.common.pii import email_log_tag
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -145,8 +146,8 @@ class VerifyLoginCodeView(APIView):
 
         if attempts >= OTP_ATTEMPT_LIMIT or ip_attempts >= OTP_ATTEMPT_LIMIT * OTP_IP_ATTEMPT_MULTIPLIER:
             logger.warning(
-                "verify_login_code: rate limit hit email=%s ip=%s attempts=%s ip_attempts=%s",
-                email, ip, attempts, ip_attempts,
+                "verify_login_code: rate limit hit email_tag=%s ip=%s attempts=%s ip_attempts=%s",
+                email_log_tag(email), ip, attempts, ip_attempts,
             )
             raise TooManyFailedAttempts()
 
@@ -155,8 +156,8 @@ class VerifyLoginCodeView(APIView):
             cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
             logger.warning(
-                "verify_login_code: invalid code email=%s ip=%s attempt=%s",
-                email, ip, attempts + 1,
+                "verify_login_code: invalid code email_tag=%s ip=%s attempt=%s",
+                email_log_tag(email), ip, attempts + 1,
             )
             raise InvalidOrExpiredCode()
 
@@ -237,8 +238,8 @@ class MagicLoginView(APIView):
 
         if attempts >= OTP_ATTEMPT_LIMIT or ip_attempts >= OTP_ATTEMPT_LIMIT * OTP_IP_ATTEMPT_MULTIPLIER:
             logger.warning(
-                "magic_login: rate limit hit email=%s ip=%s attempts=%s ip_attempts=%s",
-                email, ip, attempts, ip_attempts,
+                "magic_login: rate limit hit email_tag=%s ip=%s attempts=%s ip_attempts=%s",
+                email_log_tag(email), ip, attempts, ip_attempts,
             )
             return redirect(f"{callback_base}?error=too_many_attempts")
 
@@ -246,8 +247,8 @@ class MagicLoginView(APIView):
             cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
             logger.warning(
-                "magic_login: invalid code email=%s ip=%s attempt=%s",
-                email, ip, attempts + 1,
+                "magic_login: invalid code email_tag=%s ip=%s attempt=%s",
+                email_log_tag(email), ip, attempts + 1,
             )
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
