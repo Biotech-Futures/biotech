@@ -17,9 +17,10 @@ dual-mounted through :data:`_DUAL_MOUNTS`. Events is mounted separately because
 it still keeps a legacy in-app ``v1/`` alias; only its canonical app-root
 patterns are exposed under ``/api/v1/events/...``.
 """
+from django.conf import settings
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import include, path
-from django.views.generic import RedirectView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -102,9 +103,15 @@ urlpatterns = [
 
     path("api-auth/", include("rest_framework.urls")),  # browsable API login
 
-    # Schema & docs.
-    path("", RedirectView.as_view(url="/api/docs/", permanent=False)),
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    # Bare 200 at the apex so warmup/uptime probes stay green without leaking anything.
+    path("", lambda request: HttpResponse("OK"), name="root"),
 ]
+
+# Schema + Swagger/Redoc UIs mount only under DEBUG (local dev). In production
+# they don't exist at all — the public host exposes no discoverable API map.
+if settings.DEBUG:
+    urlpatterns += [
+        path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+        path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+        path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    ]
