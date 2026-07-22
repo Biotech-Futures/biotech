@@ -49,8 +49,16 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
+        user = self.request.user
+        admin = is_admin(user)
+        # Non-admins may only read rosters for groups they actively belong to.
+        # Without this, any authenticated user (incl. a student) can enumerate
+        # every member of every group — names plus email. Admins keep full view.
+        if not admin:
+            visible_group_ids = Groups.objects.for_user(user).values_list("id", flat=True)
+            queryset = queryset.filter(group_id__in=visible_group_ids)
         raw = (self.request.query_params.get("include_inactive") or "").lower().strip()
-        if raw == "true" and is_admin(self.request.user):
+        if raw == "true" and admin:
             return queryset
         return queryset.filter(left_at__isnull=True)
 
@@ -285,7 +293,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             action="add_members",
             after_state={"member_user_ids": serializer.validated_data["user_ids"]},
         )
-        return Response(GroupMembershipSerializer(memberships, many=True).data, status=status.HTTP_200_OK)
+        return Response(GroupMembershipSerializer(memberships, many=True, context={"request": request}).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=BulkUserSerializer, responses={200: GroupMembershipSerializer(many=True)})
     @action(detail=True, methods=['post'], url_path='remove-members', permission_classes=[IsAuthenticated])
@@ -319,7 +327,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             action="remove_members",
             after_state={"member_user_ids": serializer.validated_data["user_ids"]},
         )
-        return Response(GroupMembershipSerializer(active_memberships, many=True).data, status=status.HTTP_200_OK)
+        return Response(GroupMembershipSerializer(active_memberships, many=True, context={"request": request}).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=MentorAssignmentSerializer, responses={200: GroupMembershipSerializer})
     @action(detail=True, methods=['post'], url_path='assign-mentor', permission_classes=[IsAuthenticated])
@@ -347,7 +355,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             action="assign_mentor",
             after_state={"mentor_user_id": membership.user_id},
         )
-        return Response(GroupMembershipSerializer(membership).data, status=status.HTTP_200_OK)
+        return Response(GroupMembershipSerializer(membership, context={"request": request}).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=MentorAssignmentSerializer, responses={200: GroupMembershipSerializer})
     @action(detail=True, methods=['post'], url_path='replace-mentor', permission_classes=[IsAuthenticated])
@@ -378,4 +386,4 @@ class GroupViewSet(viewsets.ModelViewSet):
                 "replaced_mentor_user_ids": [item.user_id for item in result["replaced_memberships"]],
             },
         )
-        return Response(GroupMembershipSerializer(membership).data, status=status.HTTP_200_OK)
+        return Response(GroupMembershipSerializer(membership, context={"request": request}).data, status=status.HTTP_200_OK)

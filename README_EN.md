@@ -56,8 +56,9 @@ python manage.py createsuperuser
 ### 3. Import Test Data
 
 ```bash
-# Import data from Excel file (using test data from project root)
-python manage.py import_p11 "../P11 Test User Data.xlsx"
+# Import data from an Excel export (provide your own file — no test data is
+# committed to the repo). The importer expects the P11 column layout.
+python manage.py import_p11 "/path/to/your-export.xlsx"
 ```
 
 ### 4. Start Service

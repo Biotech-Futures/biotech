@@ -14,7 +14,7 @@ def env_bool(value):
     raise ValueError(f"Invalid truth value: {value}")
 
 SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
-DEBUG = config("DEBUG", default="true", cast=env_bool)
+DEBUG = config("DEBUG", default="false", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 # Only honor X-Forwarded-For for rate-limit keys (apps/services/views.py
@@ -384,6 +384,17 @@ CORS_ALLOW_CREDENTIALS = True
 # (download_url, access_url) and the browser blocks them as mixed content.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Additional security headers. nosniff is always safe. SSL-redirect and HSTS
+# default OFF and are env-gated: an app-level HTTP->HTTPS redirect can trip
+# Azure's internal HTTP health probes, and HSTS is hard to unwind — enable them
+# per-env once the platform HTTPS path is confirmed (prefer App Service
+# "HTTPS Only" for the redirect; start HSTS with a short max-age, no preload).
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default="false", cast=env_bool)
+SECURE_HSTS_SECONDS = config("SECURE_HSTS_SECONDS", default=0, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config("SECURE_HSTS_INCLUDE_SUBDOMAINS", default="false", cast=env_bool)
+SECURE_HSTS_PRELOAD = config("SECURE_HSTS_PRELOAD", default="false", cast=env_bool)
+
 SESSION_COOKIE_NAME = 'sessionid'
 SESSION_COOKIE_AGE = 86400
 SESSION_COOKIE_HTTPONLY = True
@@ -520,6 +531,12 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# Gate student participation (chat posting) on recorded parental join-permission.
+# OFF by default: `StudentProfile.has_join_permission` is populated by the
+# join-permission webhook, so enabling this before that data is backfilled would
+# lock every student out. Flip on post-deploy once the consent flow is live.
+ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
 # Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit daily by
 # .github/workflows/unread-digest.yml. Same fail-loud contract as

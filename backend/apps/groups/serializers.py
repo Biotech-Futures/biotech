@@ -23,7 +23,14 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     if user is None:
       return None
     name = f"{user.first_name} {user.last_name}".strip()
-    return name or user.email
+    if name:
+      return name
+    # Email is PII — only fall back to it for admins; others get no email.
+    from apps.common.rbac import is_admin
+    request = self.context.get("request")
+    if request is not None and is_admin(getattr(request, "user", None)):
+      return user.email
+    return None
 
   def validate(self, attrs):
     group = attrs.get('group', getattr(self.instance, 'group', None))

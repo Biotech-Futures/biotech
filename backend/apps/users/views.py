@@ -33,6 +33,7 @@ from .serializers import (
     UserSerializer,
 )
 from apps.common.rbac import is_admin
+from apps.common.pii import email_log_tag
 from config.errors import (
     AccountInactive,
     InvalidCredentials,
@@ -101,8 +102,8 @@ class PasswordLoginView(APIView):
         ip_attempts = cache.get(ip_key, 0)
         if email_attempts >= PWD_LOGIN_PER_EMAIL_LIMIT or ip_attempts >= PWD_LOGIN_PER_IP_LIMIT:
             logger.warning(
-                "password_login: rate limit hit email=%s ip=%s email_attempts=%s ip_attempts=%s",
-                email, ip, email_attempts, ip_attempts,
+                "password_login: rate limit hit email_tag=%s ip=%s email_attempts=%s ip_attempts=%s",
+                email_log_tag(email), ip, email_attempts, ip_attempts,
             )
             raise TooManyFailedAttempts()
 

@@ -19,6 +19,7 @@ from apps.audit.services import log_audit_event
 from .management.permissions import (
     CanEditMessage,
     CanModerateMessage,
+    HasParentalConsentToPost,
     IsGroupMemberOrAdmin,
 )
 from .rbac import can_access_chat_group
@@ -356,6 +357,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated()]
         if self.action in {"read", "delivered", "react", "message_status"}:
             return [IsAuthenticated(), IsGroupMemberOrAdmin()]
+        if self.action == "create":
+            # Posting also requires recorded parental consent (deploy-gated;
+            # no-op unless ENFORCE_JOIN_PERMISSION is on).
+            return [IsGroupMemberOrAdmin(), HasParentalConsentToPost()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
