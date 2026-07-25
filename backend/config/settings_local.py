@@ -1,5 +1,12 @@
 import os
 
+# settings.py fail-loud guards (FRONTEND_BASE_URL / ADMIN_FRONTEND_BASE_URL /
+# BACKEND_URL) raise ImproperlyConfigured unless DEBUG or the env vars are set.
+# Tests and fresh clones (and CI) have no .env, so force DEBUG on *before* the
+# import below — otherwise settings.py crashes before this module's own
+# `DEBUG = True` can run. setdefault leaves an explicit env override untouched.
+os.environ.setdefault("DEBUG", "true")
+
 from .settings import *
 
 # Dev-only secret
