@@ -2,6 +2,7 @@ from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from apps.common.rbac import active_role_ids
+from apps.events.image_storage import resolve_event_image_url
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
 from apps.groups.models import Groups, GroupMembership, group_name_sort_key
 from apps.common.rbac import is_admin
@@ -45,7 +46,7 @@ def _build_payload(event, user_rsvp=None):
         "ends_datetime": event.ends_datetime,
         "location": event.location,
         "location_link": event.location_link,
-        "event_image": getattr(event, 'event_image', None),
+        "event_image": resolve_event_image_url(getattr(event, 'event_image', None)),
         "event_format": event.event_format,
         "rsvp_status": user_rsvp.rsvp_status if user_rsvp else "pending",
     }

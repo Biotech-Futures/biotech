@@ -1,7 +1,10 @@
+from urllib.parse import urlparse
+
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
+from .image_storage import extract_event_image_key, resolve_event_image_url
 from .models import (
     EventRsvp,
     EventTargetGroup,
@@ -54,15 +57,15 @@ class EventSerializer(serializers.ModelSerializer):
     target_roles = serializers.SerializerMethodField()
     accepted_count = serializers.SerializerMethodField()
     waitlist_count = serializers.SerializerMethodField()
-    # event_image is a CharField on the model but should behave like the other
-    # URL-bearing fields (location_link is URLField; dashboard exposes
-    # event_image as URLField). Promoting it here keeps validation uniform —
-    # rejects javascript: and other non-http(s) schemes, accepts blank/null.
-    event_image = serializers.URLField(
+    # Stored value is a durable blob key; a fresh signed URL is minted on read
+    # (see to_representation). Accepts a signed URL, external URL, or bare key on
+    # write and normalizes to a key. max_length is generous because an incoming
+    # signed SAS URL is long — it's shrunk to a key before it hits the model.
+    event_image = serializers.CharField(
         required=False,
         allow_blank=True,
         allow_null=True,
-        max_length=255,
+        max_length=2048,
     )
 
     class Meta:
@@ -161,6 +164,27 @@ class EventSerializer(serializers.ModelSerializer):
         if self.instance is None and value < timezone.now():
             raise serializers.ValidationError("Cannot create events in the past.")
         return value
+
+    def validate_event_image(self, value):
+        if value in (None, ""):
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        # Reject javascript:/data: and other non-http(s) schemes; bare keys have no scheme.
+        scheme = urlparse(value).scheme
+        if scheme and scheme not in ("http", "https"):
+            raise serializers.ValidationError("Image must be an http(s) URL.")
+        normalized = extract_event_image_key(value)
+        # The model column is varchar(255); a too-long external URL would 500 on save.
+        if normalized and len(normalized) > 255:
+            raise serializers.ValidationError("Image URL is too long (max 255 characters).")
+        return normalized
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["event_image"] = resolve_event_image_url(getattr(instance, "event_image", None))
+        return data
 
     @transaction.atomic
     def create(self, validated_data):
