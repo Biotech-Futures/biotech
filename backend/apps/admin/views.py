@@ -500,7 +500,7 @@ class EventImageUploadView(APIView):
         if not upload_result.get("data"):
             return Response(upload_result, status=status.HTTP_400_BAD_REQUEST)
 
-        image_url: str = upload_result["data"]["url"]
+        image_key: str = upload_result["data"]["key"]
 
         # Patch the event record
         try:
@@ -508,7 +508,8 @@ class EventImageUploadView(APIView):
         except (Events.DoesNotExist, ValueError):
             return Response({"msg": "Event not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
 
-        event.event_image = image_url
+        # Store the durable blob key; query_event_by_id below signs a fresh URL for the response.
+        event.event_image = image_key
         event.save(update_fields=["event_image"])
 
         from apps.admin.services.event import query_event_by_id

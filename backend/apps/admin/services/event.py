@@ -5,6 +5,7 @@ from django.db.models import Q, F, Count, Exists, OuterRef, query
 from django.utils import timezone
 from django.db import transaction
 
+from apps.events.image_storage import extract_event_image_key, resolve_event_image_url
 from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
 from apps.groups.models import Groups, group_name_sort_key
 from apps.resources.models import Roles
@@ -101,7 +102,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "location": event.get("location"),
         "deletedFlag": event.get("deleted_at") is not None,
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
-        "eventImage": event.get("event_image"),
+        "eventImage": resolve_event_image_url(event.get("event_image")),
         "eventFormat": event.get("event_format") or Events.EventFormat.IN_PERSON,
         "eventTimezone": event.get("event_timezone") or "UTC",
         "hostUserId": event.get("host_user_id"),
@@ -208,7 +209,7 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "location": event.location,
         "deletedFlag": event.deleted_at is not None,
         "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
-        "eventImage": event.event_image,
+        "eventImage": resolve_event_image_url(event.event_image),
         "eventFormat": event.event_format,
         "eventTimezone": event.event_timezone or "UTC",
         "hostUserId": event.host_user_id,
@@ -347,7 +348,7 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
         location_link=data.get("location_link") or data.get("locationLink") or None,
-        event_image=data.get("eventImage") or data.get("event_image") or None,
+        event_image=extract_event_image_key(data.get("eventImage") or data.get("event_image")),
     )
 
     # Sync targets
@@ -397,9 +398,9 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     if location_link is not None:
         updates["location_link"] = location_link
     if "eventImage" in data:
-        updates["event_image"] = data["eventImage"] or None
+        updates["event_image"] = extract_event_image_key(data["eventImage"])
     elif "event_image" in data:
-        updates["event_image"] = data["event_image"] or None
+        updates["event_image"] = extract_event_image_key(data["event_image"])
     event_format = _resolve_event_format(data)
     if event_format is not None:
         updates["event_format"] = event_format
@@ -429,7 +430,6 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     # Apply updates
     for key, value in updates.items():
         setattr(event, key, value)
-    print("updates:", updates)
     event.save()
 
     # Sync targets regardless of whether event fields changed
@@ -465,6 +465,8 @@ def delete_event(id_str: str, initiated_by=None) -> EventResponseDict:
     # RSVPs are hard-deleted below, so record how many went with the event.
     before_state = {
         **_event_model_to_camel(event),
+        # Store the durable key, not the freshly-signed expiring URL from the camel dict.
+        "eventImage": event.event_image,
         "rsvpCount": EventRsvp.objects.filter(event_id=event_id).count(),
     }
     log_audit_event(

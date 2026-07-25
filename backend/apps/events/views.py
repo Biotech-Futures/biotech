@@ -177,6 +177,15 @@ class EventViewSet(viewsets.ModelViewSet):
         context["accepted_event_ids"] = get_request_accepted_event_ids(self.request)
         return context
 
+    @staticmethod
+    def _audit_state(event):
+        # event_image serializes to a freshly-signed, short-lived SAS URL; record the
+        # durable stored key in audit instead so rows are stable and don't capture
+        # expiring tokens or spurious re-sign diffs.
+        data = EventSerializer(event).data
+        data["event_image"] = event.event_image
+        return data
+
     def perform_create(self, serializer):
         event = serializer.save(
             host_user=self.request.user if self.request.user.is_authenticated else None
@@ -186,12 +195,12 @@ class EventViewSet(viewsets.ModelViewSet):
             entity_type="event",
             entity_id=event.id,
             action="create",
-            after_state=EventSerializer(event).data,
+            after_state=self._audit_state(event),
         )
 
     def perform_update(self, serializer):
         instance = serializer.instance
-        before_state = EventSerializer(instance).data
+        before_state = self._audit_state(instance)
 
         event = serializer.save()
         log_audit_event(
@@ -200,12 +209,12 @@ class EventViewSet(viewsets.ModelViewSet):
             entity_id=event.id,
             action="update",
             before_state=before_state,
-            after_state=EventSerializer(event).data,
+            after_state=self._audit_state(event),
         )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        before_state = EventSerializer(instance).data
+        before_state = self._audit_state(instance)
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
         log_audit_event(
@@ -214,7 +223,7 @@ class EventViewSet(viewsets.ModelViewSet):
             entity_id=instance.id,
             action="delete",
             before_state=before_state,
-            after_state=EventSerializer(instance).data,
+            after_state=self._audit_state(instance),
         )
         return Response(EventSerializer(instance).data, status=status.HTTP_200_OK)
 
