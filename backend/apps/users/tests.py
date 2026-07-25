@@ -163,6 +163,65 @@ class MustChangePasswordFlagTests(TestCase):
         self.assertFalse(response.data["must_change_password"])
 
 
+class SetPasswordEndpointTests(TestCase):
+    """`/api/v1/set-password/` lets a first-time NON-admin set their own password.
+
+    Regression: the user app previously POSTed to the admin-scoped
+    `/api/v1/admin/auth/set-password/`, so every student/mentor/supervisor hit a
+    403 ("You do not have admin privileges.") on first login and could never
+    leave the set-password screen.
+    """
+
+    def setUp(self):
+        self.url = reverse("set-password")
+
+    def test_first_time_user_can_set_password(self):
+        user = User.objects.create_user(
+            email="firsttime@example.com", first_name="First", last_name="Time",
+        )
+        self.assertFalse(user.has_usable_password())
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.post(self.url, {"password": "brandNewPass!1"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["data"])
+        user.refresh_from_db()
+        self.assertTrue(user.has_usable_password())
+        self.assertTrue(user.check_password("brandNewPass!1"))
+
+    def test_anonymous_is_rejected(self):
+        response = APIClient().post(self.url, {"password": "brandNewPass!1"}, format="json")
+        self.assertEqual(response.status_code, 403)
+
+    def test_rejects_when_password_already_set(self):
+        user = User.objects.create_user(
+            email="haspw@example.com", first_name="Has", last_name="Pw",
+            password="existingSecret!1",
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.post(self.url, {"password": "anotherPass!2"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        # Existing password is untouched — this endpoint is first-time only.
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("existingSecret!1"))
+
+    def test_rejects_short_password(self):
+        user = User.objects.create_user(
+            email="short@example.com", first_name="Short", last_name="Pw",
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.post(self.url, {"password": "short"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        user.refresh_from_db()
+        self.assertFalse(user.has_usable_password())
+
+
 class ProfilePageFieldsTests(TestCase):
     """Contract tests for the new read-only profile fields surfaced by
     `UserSerializer` (and therefore `/api/v1/users/me/`):

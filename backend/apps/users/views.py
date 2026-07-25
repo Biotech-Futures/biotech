@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
-from django.contrib.auth import login
+from django.contrib.auth import login, update_session_auth_hash
 from django.middleware.csrf import get_token
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
@@ -131,6 +131,37 @@ class PasswordLoginView(APIView):
         # doesn't keep using the pre-login value on subsequent writes.
         payload["csrfToken"] = get_token(request)
         return Response(payload)
+
+class SetPasswordView(APIView):
+    """POST /api/v1/set-password/ — set the current user's first password.
+
+    First-time onboarding for every role (student / mentor / supervisor / admin):
+    invited users start with an unusable password and are routed here before the
+    dashboard. The `has_usable_password()` guard makes this strictly first-time —
+    it can never overwrite an existing password (that path is the reset-token
+    flow). Twin of `apps.admin.views.AdminSetPasswordView`, which the admin
+    portal keeps for its admin-scoped `/api/v1/admin/auth/` prefix; non-admins
+    were 403ing on that endpoint's `IsAdminScoped` guard.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if request.user.has_usable_password():
+            return Response(
+                {"msg": "Password is already set", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        password = request.data.get("password", "")
+        if not password or len(password) < 8:
+            return Response(
+                {"msg": "Password must be at least 8 characters", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.set_password(password)
+        request.user.save(update_fields=["password"])
+        update_session_auth_hash(request, request.user)
+        return Response({"msg": "Password set successfully", "data": True})
+
 
 class UserPagePagination(PageNumberPagination):
     page_size = 10
