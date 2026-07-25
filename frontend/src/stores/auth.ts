@@ -255,7 +255,9 @@ export const useAuthStore = defineStore('auth', {
         throw new Error('Could not initialize a secure session. Please refresh and try again.')
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/auth/set-password/`, {
+      // Non-admin first-password endpoint. The /admin/auth/ twin is IsAdminScoped
+      // and 403s every student/mentor/supervisor on first login.
+      const response = await fetch(`${API_BASE_URL}/api/v1/set-password/`, {
         method: 'POST',
         credentials: 'include',
         headers: buildSessionHeaders({

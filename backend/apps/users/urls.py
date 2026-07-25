@@ -8,10 +8,12 @@ from .views import (
     AdminOperationalSummaryView,
     BulkUserStatusView,
     PasswordLoginView,
+    SetPasswordView,
 )
 
 urlpatterns = [
     path("login/", PasswordLoginView.as_view(), name="password-login"),
+    path("set-password/", SetPasswordView.as_view(), name="set-password"),
     path("users/<int:pk>/", UsersRetrieveUpdateView.as_view(), name="user-detail"),
     path("users/", UserListHTMLView.as_view(), name="UserListHTMLView"),
     path("users/me/", MeRetrieveView.as_view(), name="MeListHTMLView"),
