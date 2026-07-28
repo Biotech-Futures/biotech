@@ -4,7 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useRequestPasswordReset, useConfirmPasswordReset } from "@/fetch/auth";
+import {
+  AuthError,
+  useRequestPasswordReset,
+  useConfirmPasswordReset,
+} from "@/fetch/auth";
+import { useSendCooldown } from "@/hooks/use-send-cooldown";
 import { resetCsrfToken } from "@/util/csrf";
 import { AxiosError } from "axios";
 import { CheckCircle, ArrowLeft, Eye, EyeOff } from "lucide-react";
@@ -17,6 +22,8 @@ export const Route = createFileRoute("/reset-password")({
 });
 
 function extractCode(error: unknown): string | null {
+  // useRequestPasswordReset wraps failures in AuthError; confirm still throws raw Axios.
+  if (error instanceof AuthError) return error.code ?? null;
   if (error instanceof AxiosError) {
     const data = error.response?.data as Record<string, unknown> | undefined;
     if (data && typeof data.code === "string") return data.code;
@@ -66,6 +73,7 @@ function ResetPasswordPage() {
 
   const requestReset = useRequestPasswordReset();
   const confirmReset = useConfirmPasswordReset();
+  const requestCooldown = useSendCooldown("password-reset-request");
 
   function validateEmail(value: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -88,13 +96,19 @@ function ResetPasswordPage() {
       setRequestError("Please enter a valid email address.");
       return;
     }
+    if (requestCooldown.secondsLeft > 0) return;
 
     requestReset.mutate(normalizedEmail, {
       onSuccess: () => {
         setRequestSuccess(true);
+        requestCooldown.start();
       },
       onError: (error) => {
         const code = extractCode(error);
+        // Hold the button either way — a dropped connection may still have sent.
+        requestCooldown.start(
+          error instanceof AuthError ? error.retryAfter : undefined,
+        );
         if (
           code === "password_reset_rate_limited" ||
           code === "PasswordResetRateLimited"
@@ -237,9 +251,15 @@ function ResetPasswordPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={requestReset.isPending}
+                  disabled={
+                    requestReset.isPending || requestCooldown.secondsLeft > 0
+                  }
                 >
-                  {requestReset.isPending ? "Sending..." : "Send reset link"}
+                  {requestReset.isPending
+                    ? "Sending..."
+                    : requestCooldown.secondsLeft > 0
+                      ? `Resend in ${requestCooldown.secondsLeft}s`
+                      : "Send reset link"}
                 </Button>
 
                 <p className="text-center text-sm text-muted-foreground">

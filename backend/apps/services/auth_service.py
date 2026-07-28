@@ -14,7 +14,8 @@ from apps.common.rbac import is_admin
 from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
 from .email_branding import attach_inline_logo, brand_context
-from .models import LoginToken, PasswordResetToken
+from .mailer import send_async
+from .models import LOGIN_OTP_EXPIRY_MINUTES, LoginToken, PasswordResetToken
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +25,16 @@ PASSWORD_RESET_BLOCKED_STATUSES = {'invited', 'pending', 'suspended', 'deactivat
 
 def send_login_code(email: str, redirect_url: str = None) -> bool:
     """Send OTP login code to user's email using our custom LoginToken"""
-    try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
+    # Stored emails are lowercased on create (users/models/user.py), so an exact
+    # match silently drops any address the caller typed with a capital letter.
+    # .first() not .get(): iexact no longer maps to the unique index, so legacy
+    # mixed-case rows would raise MultipleObjectsReturned and 500 this endpoint.
+    user = User.objects.filter(email__iexact=email).order_by('pk').first()
+    if user is None:
         return False
 
-    # Create a new login token for this user
-    login_token = LoginToken.create_for_user(user, expiry_minutes=10)
+    # Reuse the live token so the code in the email they already have keeps working.
+    login_token = LoginToken.get_or_create_active(user)
     token = login_token.token
 
     if redirect_url:
@@ -43,7 +47,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     # deploy can't silently email magic links pointing at http://localhost:8000.
     backend_url = settings.BACKEND_URL.rstrip("/")
     query_params = {
-        'email': email,
+        'email': user.email,
         'code': token,
         'redirect_url': base_redirect,
     }
@@ -54,30 +58,34 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
         **brand_context(),
         "MAGIC_LINK": magic_link,
         "OTP_CODE": token,
-        "EXPIRY_MINUTES": 10,
+        "EXPIRY_MINUTES": LOGIN_OTP_EXPIRY_MINUTES,
         "First_Name": user.first_name,
     })
 
     # Plaintext fallback
-    text_content = f"Use this link to log in: {magic_link}\nOr enter code: {token} (expires in 10 mins)."
+    text_content = (
+        f"Use this link to log in: {magic_link}\n"
+        f"Or enter code: {token} (expires in {LOGIN_OTP_EXPIRY_MINUTES} mins).\n"
+        "If you asked for more than one code, they are all the same code."
+    )
 
     msg = EmailMultiAlternatives(
         subject=f"{settings.BRAND_NAME}: Log in securely",
         body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email],
+        to=[user.email],
     )
     msg.attach_alternative(html_content, "text/html")
     attach_inline_logo(msg)
-    msg.send()
+    # Built synchronously, sent off-thread: the worker must do no ORM work.
+    send_async(msg, kind="login_code")
     return True
 
 
 def verify_login_code(email: str, code: str) -> bool:
     """Verify OTP login code using our custom LoginToken"""
-    try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
+    user = User.objects.filter(email__iexact=email).order_by('pk').first()
+    if user is None:
         return False
 
     # Verify the token using our LoginToken model
@@ -177,9 +185,11 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
         )
         msg.attach_alternative(html_content, "text/html")
         attach_inline_logo(msg)
-        msg.send()
+        # Off-thread like the login code: this flow got the same 60s client
+        # cooldown, so a blocking send would leave the user waiting with no retry.
+        send_async(msg, kind="password_reset")
     except Exception:
-        logger.exception("password_reset.send_failed", extra={"user_id": user.id})
+        logger.exception("password_reset.render_failed", extra={"user_id": user.id})
 
 
 def _validate_or_raise(new_password: str, user) -> None:
@@ -220,6 +230,6 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
         )
         msg.attach_alternative(html_content, "text/html")
         attach_inline_logo(msg)
-        msg.send()
+        send_async(msg, kind="password_changed")
     except Exception:
         logger.exception("password_reset.notification_failed", extra={"user_id": user.id})

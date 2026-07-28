@@ -44,6 +44,8 @@
 
 export const DASHBOARD_BACKGROUND_KEY = 'dashboard-background-key'
 export const LOGIN_LANGUAGE_KEY = 'login-language'
+// Persisted so a refresh or a second tab can't reset the send cooldown.
+export const LOGIN_SEND_COOLDOWN_KEY = 'login-send-cooldown'
 
 export function safeLocalStorageGet(key: string, fallback: string | null = null): string | null {
   try {

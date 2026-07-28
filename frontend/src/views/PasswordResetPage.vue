@@ -157,9 +157,15 @@
 
               <p v-if="requestError" class="error-message" role="alert">{{ requestError }}</p>
 
-              <button type="submit" class="primary-action" :disabled="requestingLink">
+              <button
+                type="submit"
+                class="primary-action"
+                :disabled="requestingLink || resendCountdown > 0"
+              >
                 <span v-if="requestingLink" class="button-spinner" aria-hidden="true"></span>
-                <span>{{ requestingLink ? 'Sending link...' : 'Send reset link' }}</span>
+                <span v-if="requestingLink">Sending link...</span>
+                <span v-else-if="resendCountdown > 0">Resend in {{ resendCountdown }}s</span>
+                <span v-else>Send reset link</span>
               </button>
             </form>
 
@@ -202,6 +208,8 @@ import { useAuthStore } from '@/stores/auth'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const REQUEST_TIMEOUT_MS = 15000
 const SUCCESS_REDIRECT_MS = 2400
+// Matches the backend PWRESET_REQUEST_MIN_INTERVAL_SECONDS.
+const RESEND_SECONDS = 60
 
 const route = useRoute()
 const router = useRouter()
@@ -221,7 +229,26 @@ const fieldMessages = ref<string[]>([])
 const passwordInputRef = ref<HTMLInputElement | null>(null)
 const emailInputRef = ref<HTMLInputElement | null>(null)
 
+const resendCountdown = ref(0)
+
 let successRedirectTimer: ReturnType<typeof setTimeout> | null = null
+let resendTimer: ReturnType<typeof setInterval> | null = null
+
+function startResendCountdown(seconds: number = RESEND_SECONDS) {
+  resendCountdown.value = Math.max(1, Math.round(seconds))
+  if (resendTimer) clearInterval(resendTimer)
+
+  resendTimer = setInterval(() => {
+    if (resendCountdown.value <= 1) {
+      resendCountdown.value = 0
+      if (resendTimer) clearInterval(resendTimer)
+      resendTimer = null
+      return
+    }
+
+    resendCountdown.value -= 1
+  }, 1000)
+}
 
 const token = computed(() => {
   const rawToken = route.query.token
@@ -389,12 +416,17 @@ async function requestResetLink() {
 
     if (!response.ok) {
       const apiError = await apiErrorFromResponse(response, 'Could not send the reset link.')
+      startResendCountdown(Number(apiError.body?.retry_after) || RESEND_SECONDS)
       applyApiError('password-reset-request', apiError, 'Could not send the reset link.')
       return
     }
 
     statusMessage.value = 'If an account exists for that email, a reset link has been sent.'
+    startResendCountdown()
   } catch (error) {
+    // The request may have gone through before the connection dropped, so hold
+    // the button either way rather than inviting an immediate second link.
+    startResendCountdown()
     applyApiError(
       'password-reset-request',
       error,
@@ -432,6 +464,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (successRedirectTimer) {
     clearTimeout(successRedirectTimer)
+  }
+  if (resendTimer) {
+    clearInterval(resendTimer)
   }
 })
 </script>

@@ -15,30 +15,40 @@ authFetch.interceptors.request.use(csrfInterceptor);
 // instead of string-matching the message.
 export class AuthError extends Error {
   code?: string;
+  // Seconds the server says to wait, so the UI can render an exact countdown.
+  retryAfter?: number;
 
-  constructor(message: string, code?: string) {
+  constructor(message: string, code?: string, retryAfter?: number) {
     super(message);
     this.name = "AuthError";
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
 function getAuthError(error: unknown, fallback: string) {
   if (error instanceof AxiosError) {
     const data = error.response?.data as
-      | { detail?: string; error?: string; message?: string; code?: string }
+      | {
+          detail?: string;
+          error?: string;
+          message?: string;
+          code?: string;
+          retry_after?: number;
+        }
       | undefined;
     return {
       message: data?.detail || data?.error || data?.message || fallback,
       code: data?.code,
+      retryAfter: Number(data?.retry_after) || undefined,
     };
   }
 
   if (error instanceof Error) {
-    return { message: error.message, code: undefined };
+    return { message: error.message, code: undefined, retryAfter: undefined };
   }
 
-  return { message: fallback, code: undefined };
+  return { message: fallback, code: undefined, retryAfter: undefined };
 }
 
 export function useMagicLinkSignIn() {
@@ -47,18 +57,45 @@ export function useMagicLinkSignIn() {
       try {
         const redirectUrl = `${window.location.origin}/auth/callback`;
         const { data } = await authFetch.post("/services/send-login-code/", {
-          email: email,
+          // Stored emails are lowercase and the backend matches case-insensitively,
+          // but normalizing here keeps the throttle keys from splitting on case.
+          email: email.trim().toLowerCase(),
           redirect_url: redirectUrl,
         });
         toast.success("Login code sent to email!");
         return data;
       } catch (error) {
-        const { message, code } = getAuthError(
+        const { message, code, retryAfter } = getAuthError(
           error,
           "Failed to send magic link",
         );
         toast.error(message);
-        throw new AuthError(message, code);
+        throw new AuthError(message, code, retryAfter);
+      }
+    },
+  });
+}
+
+// Consumes the magic-link code. Deliberately a POST behind an explicit click:
+// the GET on /services/magic/ no longer verifies anything, so mail scanners
+// that prefetch the link can't burn the code before the admin arrives.
+export function useVerifyLoginCode() {
+  return useMutation({
+    mutationFn: async ({ email, code }: { email: string; code: string }) => {
+      try {
+        const { data } = await authFetch.post("/services/verify-login-code/", {
+          email: email.trim().toLowerCase(),
+          code,
+        });
+        resetCsrfToken();
+        await ensureCsrfToken();
+        return data;
+      } catch (error) {
+        const { message, code: errorCode } = getAuthError(
+          error,
+          "This login link is no longer valid",
+        );
+        throw new AuthError(message, errorCode);
       }
     },
   });
@@ -91,11 +128,19 @@ export function usePasswordSignIn() {
 export function useRequestPasswordReset() {
   return useMutation({
     mutationFn: async (email: string) => {
-      const { data } = await authFetch.post(
-        "/services/password-reset/request/",
-        { email },
-      );
-      return data;
+      try {
+        const { data } = await authFetch.post(
+          "/services/password-reset/request/",
+          { email: email.trim().toLowerCase() },
+        );
+        return data;
+      } catch (error) {
+        const { message, code, retryAfter } = getAuthError(
+          error,
+          "Failed to send reset link",
+        );
+        throw new AuthError(message, code, retryAfter);
+      }
     },
   });
 }

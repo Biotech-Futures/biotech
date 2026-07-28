@@ -8,12 +8,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { AuthError, useMagicLinkSignIn, usePasswordSignIn } from "@/fetch/auth";
+import { useSendCooldown } from "@/hooks/use-send-cooldown";
 import { BRAND_CONNECT, SUPPORT_EMAIL } from "@/lib/brand";
 
 type LoginMode = "password" | "magic";
@@ -50,6 +51,16 @@ export function LoginForm({
   } = usePasswordSignIn();
   const isPending = isMagicLinkPending || isPasswordPending;
 
+  // The backend enforces a 60s gap between sends; mirroring it here stops the
+  // admin from stacking up codes they can't tell apart while mail is in transit.
+  // Keyed per address to match the server — otherwise fixing a typo'd email
+  // leaves you blocked client-side for one the server would happily serve.
+  const emailValue = useWatch({ control, name: "email" }) ?? "";
+  const magicCooldown = useSendCooldown(
+    `magic-link:${emailValue.trim().toLowerCase()}`,
+  );
+  const magicBlocked = mode === "magic" && magicCooldown.secondsLeft > 0;
+
   // The toast disappears after a few seconds; a blocked admin needs the next step to stay put.
   const isAccountInactive = [magicLinkError, passwordError].some(
     (error) => error instanceof AuthError && error.code === "account_inactive",
@@ -65,8 +76,17 @@ export function LoginForm({
           // Each mutation keeps its last error until it reruns, so drop the
           // other one's — the panel must reflect this attempt only.
           if (mode === "magic") {
+            if (magicBlocked) return;
             resetPasswordSignIn();
-            sendMagicLink(data.email);
+            sendMagicLink(data.email, {
+              // Hold the button either way: on 429 the server tells us how long,
+              // and on a dropped connection the send may still have gone through.
+              onSuccess: () => magicCooldown.start(),
+              onError: (error) =>
+                magicCooldown.start(
+                  error instanceof AuthError ? error.retryAfter : undefined,
+                ),
+            });
             return;
           }
 
@@ -194,9 +214,14 @@ export function LoginForm({
               type="submit"
               size="lg"
               loading={isPending}
+              disabled={magicBlocked}
               className="w-full"
             >
-              {mode === "password" ? "Login" : "Send magic link"}
+              {mode === "password"
+                ? "Login"
+                : magicBlocked
+                  ? `Resend in ${magicCooldown.secondsLeft}s`
+                  : "Send magic link"}
             </Button>
           </Field>
         </FieldGroup>

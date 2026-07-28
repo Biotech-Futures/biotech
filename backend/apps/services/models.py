@@ -1,8 +1,19 @@
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 import secrets
+
+# Single source of truth — the login email quotes this value back to the user.
+LOGIN_OTP_EXPIRY_MINUTES = 10
+
+# A resend refreshes the window, so without a hard cap a 6-digit secret could be
+# kept alive indefinitely by an attacker who can trigger resends.
+LOGIN_OTP_MAX_LIFETIME_MINUTES = 30
+
+# Below this much life left, reuse is worse than a new code: the email promises
+# LOGIN_OTP_EXPIRY_MINUTES, and the 60s send cooldown would strand the user.
+LOGIN_OTP_MIN_REUSABLE_SECONDS = 120
 
 
 class LoginToken(models.Model):
@@ -54,11 +65,11 @@ class LoginToken(models.Model):
         return f"{secrets.randbelow(1000000):06d}"
 
     @classmethod
-    def create_for_user(cls, user, expiry_minutes=10):
+    def create_for_user(cls, user, expiry_minutes=LOGIN_OTP_EXPIRY_MINUTES):
         """Create a new login token for a user and invalidate old ones."""
         # Clean Code: Enforce single active token per user
         cls.objects.filter(user=user, used=False).update(used=True)
-        
+
         token = cls.generate_token()
         expires_at = timezone.now() + timedelta(minutes=expiry_minutes)
 
@@ -67,6 +78,55 @@ class LoginToken(models.Model):
             token=token,
             expires_at=expires_at
         )
+
+    @classmethod
+    def get_or_create_active(
+        cls,
+        user,
+        expiry_minutes=LOGIN_OTP_EXPIRY_MINUTES,
+        max_lifetime_minutes=LOGIN_OTP_MAX_LIFETIME_MINUTES,
+    ):
+        """Return the user's live token, refreshing its window, or mint a new one.
+
+        Resending must not burn the code already sitting in the user's inbox —
+        slow mail means they often open an older email than the one we just sent.
+        """
+        with transaction.atomic():
+            # Lock the user row, not the token queryset: SELECT FOR UPDATE over an
+            # empty result set locks nothing, so two concurrent sends would both
+            # mint a token and the second would invalidate the first.
+            locked_user = user.__class__.objects.select_for_update().get(pk=user.pk)
+
+            now = timezone.now()
+            live = (
+                cls.objects
+                .filter(user=locked_user, used=False, expires_at__gt=now)
+                .order_by('-created_at')
+                .first()
+            )
+
+            if live is not None:
+                # Capped at the hard deadline, and never shortened: past the cap
+                # the token stays usable for its remaining life, just not extendable.
+                hard_deadline = live.created_at + timedelta(minutes=max_lifetime_minutes)
+                target = max(
+                    live.expires_at,
+                    min(now + timedelta(minutes=expiry_minutes), hard_deadline),
+                )
+
+                # Don't re-send a code that's about to die on arrival — past the
+                # cap `target` can't move, so reuse would email a near-dead code.
+                if (target - now).total_seconds() < LOGIN_OTP_MIN_REUSABLE_SECONDS:
+                    return cls.create_for_user(locked_user, expiry_minutes=expiry_minutes)
+
+                # Guarded on used=False because verify doesn't take the user lock:
+                # a zero rowcount means it was consumed between the read and here,
+                # so mint a new one rather than emailing a dead code.
+                if cls.objects.filter(pk=live.pk, used=False).update(expires_at=target):
+                    live.expires_at = target
+                    return live
+
+            return cls.create_for_user(locked_user, expiry_minutes=expiry_minutes)
 
     @classmethod
     def cleanup_expired(cls):
@@ -83,19 +143,18 @@ class LoginToken(models.Model):
         Returns the token object if valid, None otherwise
         Automatically marks valid tokens as used
         """
-        try:
-            login_token = cls.objects.get(
-                user=user,
-                token=token,
-                used=False
-            )
+        # .first() rather than .get(): a create race can leave two unused rows with
+        # the same digits, and MultipleObjectsReturned here would 500 the login path.
+        login_token = (
+            cls.objects
+            .filter(user=user, token=token, used=False)
+            .order_by('-created_at')
+            .first()
+        )
 
-            if login_token.is_valid:
-                login_token.mark_as_used()
-                return login_token
-
-        except cls.DoesNotExist:
-            pass
+        if login_token is not None and login_token.is_valid:
+            login_token.mark_as_used()
+            return login_token
 
         return None
 
