@@ -66,6 +66,8 @@ def _reshape_drf_response(response: Response, exc: Exception, request_id: str) -
         payload.update(extra)
     response.data = payload
     response[REQUEST_ID_HEADER] = request_id
+    if isinstance(extra, dict) and "retry_after" in extra:
+        response["Retry-After"] = str(extra["retry_after"])
     logger.info(
         "Handled %s -> %d [request_id=%s]",
         type(exc).__name__,

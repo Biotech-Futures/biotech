@@ -255,6 +255,102 @@ class AuthServiceIntegrationTest(TestCase):
         self.assertTrue(token1.used)
         self.assertTrue(token2.is_valid)
 
+
+class LoginTokenReuseTest(TestCase):
+    """Resending must not burn the code already sitting in the user's inbox —
+    slow mail means users often open an older email than the one just sent."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="reuse@example.com",
+            password="testpass123",
+            first_name="Re",
+            last_name="Use",
+        )
+
+    def test_resend_returns_the_same_code(self):
+        first = LoginToken.get_or_create_active(self.user)
+        second = LoginToken.get_or_create_active(self.user)
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(first.token, second.token)
+        self.assertEqual(LoginToken.objects.filter(user=self.user).count(), 1)
+
+    def test_resend_refreshes_the_expiry_window(self):
+        first = LoginToken.get_or_create_active(self.user)
+        LoginToken.objects.filter(pk=first.pk).update(
+            expires_at=timezone.now() + timedelta(minutes=2)
+        )
+
+        refreshed = LoginToken.get_or_create_active(self.user)
+        self.assertEqual(refreshed.pk, first.pk)
+        self.assertGreater(refreshed.expires_at, timezone.now() + timedelta(minutes=9))
+
+    def test_expired_token_is_replaced(self):
+        stale = LoginToken.create_for_user(self.user)
+        LoginToken.objects.filter(pk=stale.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+
+        fresh = LoginToken.get_or_create_active(self.user)
+        self.assertNotEqual(fresh.pk, stale.pk)
+        self.assertTrue(fresh.is_valid)
+
+    def test_refresh_is_capped_at_the_absolute_lifetime(self):
+        # Otherwise a caller who can trigger resends keeps a 6-digit secret alive
+        # forever.
+        token = LoginToken.get_or_create_active(self.user)
+        created = timezone.now() - timedelta(minutes=25)
+        LoginToken.objects.filter(pk=token.pk).update(
+            created_at=created, expires_at=timezone.now() + timedelta(minutes=1)
+        )
+
+        refreshed = LoginToken.get_or_create_active(self.user)
+        self.assertEqual(refreshed.pk, token.pk)
+        self.assertLessEqual(refreshed.expires_at, created + timedelta(minutes=30))
+
+    def test_near_expiry_token_is_replaced_rather_than_resent(self):
+        # Past the absolute cap the window can't move, so reusing would email a
+        # code that dies in seconds while the email promises 10 minutes — and the
+        # 60s send cooldown would leave the user with no way to get a live one.
+        token = LoginToken.get_or_create_active(self.user)
+        LoginToken.objects.filter(pk=token.pk).update(
+            created_at=timezone.now() - timedelta(minutes=29),
+            expires_at=timezone.now() + timedelta(seconds=30),
+        )
+
+        fresh = LoginToken.get_or_create_active(self.user)
+        self.assertNotEqual(fresh.pk, token.pk)
+        self.assertGreater(fresh.expires_at, timezone.now() + timedelta(minutes=9))
+
+    def test_consumed_token_is_not_resurrected(self):
+        token = LoginToken.get_or_create_active(self.user)
+        LoginToken.objects.filter(pk=token.pk).update(used=True)
+
+        fresh = LoginToken.get_or_create_active(self.user)
+        self.assertNotEqual(fresh.pk, token.pk)
+        self.assertTrue(fresh.is_valid)
+
+    @patch('apps.services.auth_service.render_to_string', return_value="<html></html>")
+    @patch('apps.services.auth_service.EmailMultiAlternatives')
+    def test_mixed_case_email_still_delivers(self, mock_email, _mock_render):
+        # Stored emails are lowercased on create, so an exact-match lookup would
+        # silently drop anything typed with a capital and never send at all.
+        mock_msg = MagicMock()
+        mock_email.return_value = mock_msg
+
+        self.assertTrue(send_login_code("Reuse@Example.com"))
+        self.assertEqual(LoginToken.objects.filter(user=self.user).count(), 1)
+        # Assert the send itself, not just the return value — otherwise this
+        # passes even if dispatch were a no-op.
+        mock_msg.send.assert_called_once()
+        self.assertEqual(mock_email.call_args.kwargs["to"], [self.user.email])
+
+    def test_mixed_case_email_verifies(self):
+        token = LoginToken.get_or_create_active(self.user)
+        self.assertTrue(verify_login_code("REUSE@example.com", token.token))
+
+
 class LoginEndpointsTest(TestCase):
     """Integration tests for the HTTP Login Endpoints (OTP & Magic)"""
     def setUp(self):
@@ -303,109 +399,106 @@ class LoginEndpointsTest(TestCase):
         )
         self.assertEqual(response.status_code, 429)
 
-    def test_magic_link_login_redirect_success(self):
+    def test_magic_link_get_hands_off_without_consuming_the_code(self):
         token = LoginToken.create_for_user(self.user)
         url = f"/services/magic/?email={self.user_email}&code={token.token}&redirect_url=http://localhost:5173"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.url.startswith("http://localhost:5173?success=true"))
-        self.assertIn("sessionid", response.cookies)
+        self.assertIn(f"code={token.token}", response.url)
+        # The GET must open no session and burn no token — see MagicLinkScannerSafetyTest.
+        self.assertNotIn("sessionid", response.cookies)
+        token.refresh_from_db()
+        self.assertFalse(token.used)
 
 
-class MagicLinkAdminRedirectTest(TestCase):
-    """MagicLoginView routes admins to the admin portal and regular users to the user app."""
+class MagicLinkScannerSafetyTest(TestCase):
+    """Mail security products (Outlook Safe Links, Defender, spam filters) fetch
+    every URL in an email. The magic-link GET must therefore be side-effect free,
+    or the scanner consumes the code and the student is locked out of their own
+    login link — observed twice in three minutes for two different students."""
 
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
         from rest_framework.test import APIClient
         self.client = APIClient()
-
-        self.regular_user = User.objects.create_user(
-            email="regular@example.com",
+        self.user = User.objects.create_user(
+            email="scanned@example.com",
             password="testpass123",
-            first_name="Reg",
-            last_name="User",
+            first_name="Scan",
+            last_name="Target",
             account_status=User.AccountStatus.ACTIVE,
         )
-        self.admin_user = User.objects.create_user(
-            email="admin@example.com",
-            password="testpass123",
-            first_name="Adm",
-            last_name="User",
-            account_status=User.AccountStatus.ACTIVE,
+
+    def _magic_url(self, code: str) -> str:
+        return f"/services/magic/?email={self.user.email}&code={code}"
+
+    def test_scanner_prefetch_leaves_the_code_usable(self):
+        token = LoginToken.create_for_user(self.user)
+
+        # Three scanners hit the link before the student ever sees the email.
+        for _ in range(3):
+            self.client.get(self._magic_url(token.token))
+
+        token.refresh_from_db()
+        self.assertFalse(token.used)
+
+        # The student then signs in normally.
+        response = self.client.post(
+            "/services/verify-login-code/",
+            {"email": self.user.email, "code": token.token},
+            format="json",
         )
-        AdminScope.objects.create(user=self.admin_user)
+        self.assertEqual(response.status_code, 200, response.content)
 
-    def _magic_url(self, email: str, code: str, redirect_url: str | None = None) -> str:
-        url = f"/services/magic/?email={email}&code={code}"
-        if redirect_url is not None:
-            from urllib.parse import quote
-            url += f"&redirect_url={quote(redirect_url, safe='')}"
-        return url
+    def test_scanner_prefetch_opens_no_session(self):
+        token = LoginToken.create_for_user(self.user)
+        response = self.client.get(self._magic_url(token.token))
 
-    def test_admin_default_redirect_goes_to_admin_portal(self):
-        token = LoginToken.create_for_user(self.admin_user)
-        response = self.client.get(self._magic_url(self.admin_user.email, token.token))
+        self.assertNotIn("sessionid", response.cookies)
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
 
-        self.assertEqual(response.status_code, 302)
-        # No redirect_url param → falls through to ADMIN_MAGIC_LINK_REDIRECT_URL
-        self.assertTrue(
-            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
-            f"unexpected redirect: {response.url}",
+    def test_scanner_prefetch_does_not_burn_verify_attempts(self):
+        # A scanner hitting a stale link must not consume the student's 5 tries.
+        for _ in range(10):
+            self.client.get(self._magic_url("000000"))
+
+        token = LoginToken.create_for_user(self.user)
+        response = self.client.post(
+            "/services/verify-login-code/",
+            {"email": self.user.email, "code": token.token},
+            format="json",
         )
-        self.assertIn("success=true", response.url)
-        self.assertIn(f"email={self.admin_user.email}", response.url)
+        self.assertEqual(response.status_code, 200, response.content)
 
-    def test_regular_user_default_redirect_goes_to_user_frontend(self):
-        token = LoginToken.create_for_user(self.regular_user)
-        response = self.client.get(self._magic_url(self.regular_user.email, token.token))
+    def test_handoff_target_comes_from_redirect_url_not_the_account(self):
+        # Routing must not depend on a user lookup: the GET does not validate the
+        # code, so branching on is_admin() would be a free admin-enumeration oracle.
+        from urllib.parse import quote
 
-        self.assertEqual(response.status_code, 302)
-        # No redirect_url param → falls through to MAGIC_LINK_REDIRECT_URL (user frontend)
-        self.assertNotIn("mentoringadmin.biotechfutures.org", response.url)
-        self.assertIn("/auth/callback", response.url)
-        self.assertIn("success=true", response.url)
-
-    def test_admin_host_in_redirect_url_is_honored(self):
-        token = LoginToken.create_for_user(self.admin_user)
-        deep_link = "https://mentoringadmin.biotechfutures.org/dashboard"
-        response = self.client.get(self._magic_url(self.admin_user.email, token.token, deep_link))
-
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.url.startswith(deep_link + "?success=true"))
-
-    def test_disallowed_redirect_url_falls_back_to_admin_default(self):
-        token = LoginToken.create_for_user(self.admin_user)
+        AdminScope.objects.create(user=self.user)
+        token = LoginToken.create_for_user(self.user)
+        callback = "http://localhost:5173/#/auth/callback"
         response = self.client.get(
-            self._magic_url(self.admin_user.email, token.token, "https://evil.example.com/x"),
+            f"{self._magic_url(token.token)}&redirect_url={quote(callback, safe='')}"
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith(callback), response.url)
+        self.assertNotIn("mentoringadmin", response.url)
+
+    def test_disallowed_redirect_url_falls_back_to_the_user_app(self):
+        from urllib.parse import quote
+
+        token = LoginToken.create_for_user(self.user)
+        response = self.client.get(
+            f"{self._magic_url(token.token)}&redirect_url={quote('https://evil.example.com/x', safe='')}"
         )
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
-            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
-            f"unexpected redirect: {response.url}",
-        )
-
-    def test_admin_scope_user_also_redirects_to_admin_portal(self):
-        """A user with an AdminScope row is treated as admin."""
-        from apps.users.models import AdminScope
-        scoped_admin = User.objects.create_user(
-            email="scoped@example.com",
-            password="testpass123",
-            first_name="Scoped",
-            last_name="Admin",
-            account_status=User.AccountStatus.ACTIVE,
-        )
-        AdminScope.objects.create(user=scoped_admin)
-
-        token = LoginToken.create_for_user(scoped_admin)
-        response = self.client.get(self._magic_url(scoped_admin.email, token.token))
-
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
+            response.url.startswith(settings.MAGIC_LINK_REDIRECT_URL),
             f"unexpected redirect: {response.url}",
         )
 
@@ -428,7 +521,9 @@ class MagicLinkErrorRedirectTest(TestCase):
         )
 
     def _bad_code_url(self, redirect_url: str | None = None) -> str:
-        url = f"/services/magic/?email={self.user.email}&code=not-a-real-code"
+        # A malformed link (no code at all) — the GET no longer validates codes,
+        # so this is the only shape that still errors server-side.
+        url = f"/services/magic/?email={self.user.email}"
         if redirect_url is not None:
             from urllib.parse import quote
 

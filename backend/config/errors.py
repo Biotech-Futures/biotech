@@ -174,13 +174,23 @@ class InvalidOrExpiredResetToken(APIException):
     default_code = "invalid_or_expired_reset_token"
 
 
-class PasswordResetRateLimited(APIException):
+class _RetryAfterMixin:
+    """Surfaces the remaining wait so clients can render an exact countdown
+    instead of a bare error the user just clicks through."""
+
+    def __init__(self, retry_after=None):
+        super().__init__()
+        if retry_after is not None:
+            self.extra = {"retry_after": max(1, int(retry_after))}
+
+
+class PasswordResetRateLimited(_RetryAfterMixin, APIException):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     default_detail = "Too many password reset attempts. Try again later."
     default_code = "password_reset_rate_limited"
 
 
-class LoginSendRateLimited(APIException):
+class LoginSendRateLimited(_RetryAfterMixin, APIException):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     default_detail = "Too many login code requests. Try again later."
     default_code = "login_send_rate_limited"

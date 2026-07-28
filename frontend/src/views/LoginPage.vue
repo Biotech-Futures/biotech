@@ -375,7 +375,14 @@
                 />
               </div>
               <div class="otp-footer-copy">
+                <p v-if="codeSecondsLeft > 0" aria-live="polite">
+                  {{ t('codeExpiresIn') }} {{ codeCountdownLabel }}
+                </p>
+                <p v-else-if="codeExpiredNotice" class="otp-expired-note" role="alert">
+                  {{ t('codeExpiredHint') }}
+                </p>
                 <p>{{ t('codeExpiryHint') }}</p>
+                <p v-if="showSpamHint">{{ t('codeSpamHint') }}</p>
               </div>
 
               <!-- OTP primary and secondary actions. -->
@@ -394,11 +401,13 @@
                   <button
                     type="button"
                     class="secondary-button"
-                    :disabled="resendingCode || resendCountdown > 0"
+                    :disabled="resendDisabled"
                     @click="resendCode"
                   >
                     {{
-                      resendCountdown > 0 ? `${t('resendIn')} ${resendCountdown}s` : t('resendCode')
+                      resendDisabled && resendCountdown > 0
+                        ? `${t('resendIn')} ${formatWait(resendCountdown)}`
+                        : t('resendCode')
                     }}
                   </button>
                 </div>
@@ -440,7 +449,13 @@ import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } f
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
-import { LOGIN_LANGUAGE_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
+import {
+  LOGIN_LANGUAGE_KEY,
+  LOGIN_SEND_COOLDOWN_KEY,
+  safeLocalStorageGet,
+  safeLocalStorageRemove,
+  safeLocalStorageSet,
+} from '@/utils/storage'
 
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
@@ -457,8 +472,16 @@ const auth = useAuthStore()
   Static configuration.
 */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const RESEND_SECONDS = 30
-const REQUEST_TIMEOUT_MS = 15000
+const RESEND_SECONDS = 60
+// The send is dispatched off-thread server-side, so the response is immediate;
+// this only guards a genuinely dead connection.
+const REQUEST_TIMEOUT_MS = 30000
+// Mirrors the backend LOGIN_OTP_EXPIRY_MINUTES.
+const CODE_LIFETIME_SECONDS = 600
+const SPAM_HINT_DELAY_SECONDS = 20
+// The 5-per-15-min cap can return a retry_after of ~900; never hold the button
+// longer than that even if a stored deadline is stale.
+const MAX_COOLDOWN_SECONDS = 900
 
 // Magic-link failures arrive as ?error= codes forwarded by the callback view.
 const MAGIC_LINK_ERROR_KEYS = {
@@ -489,6 +512,8 @@ const verifyingCode = ref(false)
 const resendingCode = ref(false)
 const resendCountdown = ref(0)
 const loginCooldownSeconds = ref(0)
+const codeSecondsLeft = ref(0)
+const codeCountdownStarted = ref(false)
 
 /*
   OTP interaction state.
@@ -516,6 +541,7 @@ let resendTimer = null
 let loginCooldownTimer = null
 let otpErrorTimer = null
 let otpAutoSubmitTimer = null
+let codeExpiryTimer = null
 
 /*
   Translation accessor.
@@ -542,13 +568,43 @@ const credentialStepLabel = computed(() =>
 const passwordVisibilityLabel = computed(() =>
   showPassword.value ? 'Conceal password' : 'Show password',
 )
+// Tripping the 15-minute send cap yields a retry_after in the hundreds, and
+// "Resend in 847s" reads as broken; anything past a minute becomes m:ss.
+const formatWait = (totalSeconds) => {
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  return `${minutes}:${String(totalSeconds % 60).padStart(2, '0')}`
+}
+
 const loginOnCooldown = computed(() => loginCooldownSeconds.value > 0)
 // The OTP throttle only governs code requests; password sign-in is rate-limited separately server-side.
-const submitBlockedByCooldown = computed(() => loginOnCooldown.value && !isPasswordLoginMode.value)
+// The resend gap counts here too, or stepping back to the email screen would bypass it.
+const sendBlockedSeconds = computed(() =>
+  Math.max(loginCooldownSeconds.value, resendCountdown.value),
+)
+const submitBlockedByCooldown = computed(
+  () => sendBlockedSeconds.value > 0 && !isPasswordLoginMode.value,
+)
 const loginActionLabel = computed(() => {
-  if (submitBlockedByCooldown.value) return `${t('resendIn')} ${loginCooldownSeconds.value}s`
+  if (submitBlockedByCooldown.value)
+    return `${t('resendIn')} ${formatWait(sendBlockedSeconds.value)}`
   return isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode')
 })
+// Guarded on "did we ever start a countdown": zero also means "not tracking",
+// which must not read as expired or it would unlock resend immediately.
+const codeExpiredNotice = computed(() => codeCountdownStarted.value && codeSecondsLeft.value <= 0)
+const codeCountdownLabel = computed(() => {
+  const minutes = Math.floor(codeSecondsLeft.value / 60)
+  const seconds = String(codeSecondsLeft.value % 60).padStart(2, '0')
+  return `${minutes}:${seconds}`
+})
+// Once expired the code is useless, so let them re-request even mid-cooldown.
+const resendDisabled = computed(
+  () => resendingCode.value || (resendCountdown.value > 0 && !codeExpiredNotice.value),
+)
+const showSpamHint = computed(
+  () => codeSecondsLeft.value > 0 && codeSecondsLeft.value < CODE_LIFETIME_SECONDS - SPAM_HINT_DELAY_SECONDS,
+)
 const emailStepHelper = computed(() =>
   isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'),
 )
@@ -839,22 +895,76 @@ const postJson = async (path, payload) => {
 /*
   Resend countdown logic.
 */
-const startResendCountdown = () => {
-  resendCountdown.value = RESEND_SECONDS
+const cooldownStorageKey = (address) => `${LOGIN_SEND_COOLDOWN_KEY}:${address}`
 
-  if (resendTimer) {
-    clearInterval(resendTimer)
-  }
+// Clamped so a stale deadline or a backwards clock change can't disable the
+// button for an arbitrary length of time.
+const remainingFromDeadline = (address, cap) => {
+  const stored = Number(safeLocalStorageGet(cooldownStorageKey(address), '0'))
+  if (!Number.isFinite(stored) || stored <= 0) return 0
+  return Math.min(cap, Math.max(0, Math.ceil((stored - Date.now()) / 1000)))
+}
 
+const runResendCountdown = () => {
+  if (resendTimer) clearInterval(resendTimer)
+
+  // Recomputed from the stored deadline rather than decremented: browsers throttle
+  // timers in background tabs, so counting down would drift far behind the server.
   resendTimer = setInterval(() => {
-    if (resendCountdown.value <= 1) {
-      resendCountdown.value = 0
+    const remaining = remainingFromDeadline(email.value, MAX_COOLDOWN_SECONDS)
+    resendCountdown.value = remaining
+
+    if (remaining <= 0) {
       clearInterval(resendTimer)
       resendTimer = null
-      return
+      safeLocalStorageRemove(cooldownStorageKey(email.value))
     }
+  }, 1000)
+}
 
-    resendCountdown.value -= 1
+const startResendCountdown = (seconds = RESEND_SECONDS) => {
+  const total = Math.min(
+    MAX_COOLDOWN_SECONDS,
+    Math.max(1, Math.round(Number(seconds) || RESEND_SECONDS)),
+  )
+  resendCountdown.value = total
+  // Persist the deadline, not the remaining count: a refresh must not reset it.
+  safeLocalStorageSet(cooldownStorageKey(email.value), String(Date.now() + total * 1000))
+  runResendCountdown()
+}
+
+const restoreResendCountdown = (address) => {
+  const remaining = remainingFromDeadline(address, MAX_COOLDOWN_SECONDS)
+
+  if (remaining <= 0) {
+    safeLocalStorageRemove(cooldownStorageKey(address))
+    return
+  }
+
+  resendCountdown.value = remaining
+  runResendCountdown()
+}
+
+// The server's retry_after is authoritative; fall back to our own gap if absent.
+const cooldownFromError = (apiError) =>
+  Number(apiError?.body?.retry_after) || RESEND_SECONDS
+
+const startCodeExpiryCountdown = (seconds = CODE_LIFETIME_SECONDS) => {
+  // Anchored to a deadline for the same reason as the resend timer: a throttled
+  // background tab would otherwise show time left on a code that already died.
+  const deadline = Date.now() + seconds * 1000
+  codeSecondsLeft.value = seconds
+  codeCountdownStarted.value = true
+  if (codeExpiryTimer) clearInterval(codeExpiryTimer)
+
+  codeExpiryTimer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    codeSecondsLeft.value = remaining
+
+    if (remaining <= 0) {
+      clearInterval(codeExpiryTimer)
+      codeExpiryTimer = null
+    }
   }, 1000)
 }
 
@@ -919,11 +1029,29 @@ const handleLogin = async () => {
     return
   }
 
-  if (sendingCode.value || submitBlockedByCooldown.value) {
+  email.value = normalizedEmail
+
+  if (sendingCode.value) {
     return
   }
 
-  email.value = normalizedEmail
+  // A stored cooldown means a code is already in flight, so send them straight to
+  // the digit inputs instead of blocking here — silently refusing would strand a
+  // user who has a perfectly good code sitting in their inbox.
+  if (!isPasswordLoginMode.value && resendCountdown.value === 0) {
+    restoreResendCountdown(normalizedEmail)
+    if (resendCountdown.value > 0) {
+      currentStep.value = 'otp'
+      await resetOtpState()
+      return
+    }
+  }
+
+  if (submitBlockedByCooldown.value) {
+    currentStep.value = 'otp'
+    return
+  }
+
   sendingCode.value = true
   statusMessage.value = ''
 
@@ -950,6 +1078,11 @@ const handleLogin = async () => {
       statusMessage.value = ''
       const apiError = await parseApiError(response, t('errorSendLink'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      if (apiError.code === 'login_send_rate_limited') {
+        // A code may already be in flight; show the OTP step so they can use it.
+        startResendCountdown(cooldownFromError(apiError))
+        currentStep.value = 'otp'
+      }
       if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
       error.value = loginErrorMessage(apiError)
       return
@@ -959,12 +1092,18 @@ const handleLogin = async () => {
     currentStep.value = 'otp'
     await resetOtpState()
     startResendCountdown()
+    startCodeExpiryCountdown()
   } catch (requestError) {
     logApiError('login', requestError)
     statusMessage.value = ''
     const apiError = apiErrorFromUnknown(requestError, t('errorNetworkLogin'))
     if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
     if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
+    else if (!isPasswordLoginMode.value) {
+      // The send may well have succeeded before the connection dropped, so hold
+      // the button anyway — an immediate retry is what stacks up codes.
+      startResendCountdown()
+    }
     error.value = loginErrorMessage(apiError)
   } finally {
     sendingCode.value = false
@@ -1047,7 +1186,7 @@ const resendCode = async () => {
     return
   }
 
-  if (resendCountdown.value > 0 || resendingCode.value) {
+  if (resendDisabled.value) {
     return
   }
 
@@ -1063,16 +1202,22 @@ const resendCode = async () => {
     if (!response.ok) {
       const apiError = await parseApiError(response, t('errorResendFail'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      else if (apiError.code === 'login_send_rate_limited') {
+        startResendCountdown(cooldownFromError(apiError))
+      } else startResendCountdown()
       if (apiError.code === 'account_inactive') currentStep.value = 'inactive'
       error.value = loginErrorMessage(apiError)
       return
     }
 
     statusMessage.value = t('resendSuccess')
-    await resetOtpState()
+    // Deliberately NOT clearing the digits: the resent code is the same one, so
+    // anything already typed from an earlier email is still correct.
     startResendCountdown()
+    startCodeExpiryCountdown()
   } catch (requestError) {
     logApiError('resend-login-code', requestError)
+    startResendCountdown()
     error.value = loginErrorMessage(apiErrorFromUnknown(requestError, t('errorNetworkOtp')))
   } finally {
     resendingCode.value = false
@@ -1167,6 +1312,11 @@ onBeforeUnmount(() => {
   if (resendTimer) {
     clearInterval(resendTimer)
     resendTimer = null
+  }
+
+  if (codeExpiryTimer) {
+    clearInterval(codeExpiryTimer)
+    codeExpiryTimer = null
   }
 })
 </script>
@@ -1901,6 +2051,15 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--stone-700);
   line-height: 1.68;
+}
+
+.otp-footer-copy p + p {
+  margin-top: 4px;
+}
+
+.otp-expired-note {
+  color: #b3261e;
+  font-weight: 600;
 }
 
 .otp-box {

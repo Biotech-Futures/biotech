@@ -273,6 +273,14 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+# Django defaults this to None, i.e. no socket timeout at all — a stalled relay
+# (Azure SNAT exhaustion is the usual cause) then pins the worker indefinitely.
+EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=20, cast=int)
+# Synchronous dispatch (used by tests) sends auth mail inline instead of on the
+# pool, so assertions can observe msg.send() without racing a thread.
+AUTH_EMAIL_DISPATCH_SYNC = config(
+    "AUTH_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool,
+)
 # Sender mailbox is pinned here (not env-driven) so the From header is always
 # on-brand; the brand name comes from BRAND_NAME above. SMTP host/credentials
 # below still come from env.

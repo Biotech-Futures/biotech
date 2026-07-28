@@ -22,6 +22,16 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
 
+# CACHES is inherited from settings.py, which points at the shared Azure Redis
+# whenever REDIS_URL is set — and throttle tests call cache.clear() in setUp,
+# i.e. FLUSHDB against live infrastructure. Pin to per-process memory.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "test-locmem",
+    }
+}
+
 
 class _DisableMigrations:
     def __contains__(self, item):
@@ -37,6 +47,9 @@ MIGRATION_MODULES = _DisableMigrations()
 # websocket broadcast immediately — no background thread spun up. The
 # dispatcher reads this flag at call time (see apps/chat/tasks.dispatch_og).
 LINK_PREVIEW_DISPATCH_SYNC = True
+
+# Same reason for auth mail: tests assert on msg.send(), which the pool would race.
+AUTH_EMAIL_DISPATCH_SYNC = True
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
 # which then tries to parse an AZURE_CONNECTION_STRING that CI doesn't set.

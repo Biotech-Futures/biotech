@@ -1,4 +1,5 @@
 import logging
+import time
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -13,7 +14,7 @@ from django.contrib.auth import login, logout
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema
 from django.core.cache import cache
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from django.conf import settings
 from . import auth_service
 from apps.users.models import User
@@ -39,6 +40,9 @@ logger = logging.getLogger(__name__)
 LOGIN_SEND_PER_EMAIL_LIMIT = 5
 LOGIN_SEND_PER_IP_LIMIT = 20
 LOGIN_SEND_WINDOW_SECONDS = 900  # 15 min
+# Minimum gap between two sends for the same address. The fixed windows above cap
+# abuse; this stops an impatient user from stacking up codes they can't tell apart.
+LOGIN_SEND_MIN_INTERVAL_SECONDS = 60
 
 # --- OTP verify rate limits -------------------------------------------------
 OTP_ATTEMPT_LIMIT = 5
@@ -97,13 +101,25 @@ class SendLoginCodeView(APIView):
         # Anti-enumeration: this endpoint always returns 200 for any well-formed
         # email so an attacker cannot tell registered emails apart from unknown
         # ones. 400 = malformed input, 429 = rate-limited. Never 404.
-        email = request.data.get("email")
+        # Stored emails are lowercase, so normalizing here keeps the throttle keys
+        # from splitting on case — otherwise the cooldown is bypassed by shifting
+        # one letter.
+        email = (request.data.get("email") or "").strip().lower()
         redirect_url = request.data.get("redirect_url")
         if not email:
             raise EmailRequired()
 
         ip = _client_ip(request)
         _check_login_send_throttle(email, ip)
+
+        # Cache-keyed on the submitted address and claimed before any user lookup,
+        # so a cooled-down known email is indistinguishable from an unknown one.
+        retry_after = _claim_min_interval(
+            _login_send_cooldown_key(email), LOGIN_SEND_MIN_INTERVAL_SECONDS
+        )
+        if retry_after:
+            raise LoginSendRateLimited(retry_after=retry_after)
+
         _bump_login_send_counters(email, ip)
 
         sent = auth_service.send_login_code(email, redirect_url)
@@ -132,7 +148,7 @@ class VerifyLoginCodeView(APIView):
         },
     )
     def post(self, request):
-        email = request.data.get("email")
+        email = (request.data.get("email") or "").strip().lower()
         code = request.data.get("code")
         if not email or not code:
             raise EmailAndCodeRequired()
@@ -161,7 +177,11 @@ class VerifyLoginCodeView(APIView):
             )
             raise InvalidOrExpiredCode()
 
-        user = User.objects.get(email=email)
+        # iexact no longer maps to the unique index, so .get() could raise
+        # MultipleObjectsReturned on legacy mixed-case rows.
+        user = User.objects.filter(email__iexact=email).order_by('pk').first()
+        if user is None:
+            raise InvalidOrExpiredCode()
 
         if user.account_status in User.INACTIVE_LOGIN_STATUSES:
             raise AccountInactive()
@@ -169,6 +189,13 @@ class VerifyLoginCodeView(APIView):
         login(request, user)
         cache.delete(cache_key)
         cache.delete(ip_key)
+
+        # Only failures were logged before, so a code consumed by anything other
+        # than the student left no trace at all.
+        logger.info(
+            "verify_login_code: session opened email_tag=%s ip=%s",
+            email_log_tag(email), ip,
+        )
 
         return Response(
             {
@@ -221,61 +248,33 @@ class MagicLoginView(APIView):
         },
     )
     def get(self, request):
-        email = request.GET.get("email")
-        code = request.GET.get("code")
+        """Hand the code to the frontend. Deliberately consumes nothing.
+
+        Mail security products (Outlook Safe Links, Defender, spam filters, link
+        previewers) fetch every URL in an email. This endpoint used to verify the
+        code, burn it and open a session on that GET, so the scanner logged in and
+        the student got "invalid or expired code" seconds later. A GET must stay
+        side-effect free: the token is only consumed by the POST behind the
+        "Continue" button on the callback screen.
+        """
+        email = (request.GET.get("email") or "").strip().lower()
+        code = (request.GET.get("code") or "").strip()
         redirect_url_param = request.GET.get("redirect_url")
         callback_base = self._safe_callback_base(redirect_url_param)
 
         if not email or not code:
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
-        ip = _client_ip(request)
-        cache_key = f"otp_attempts:{email}"
-        ip_key = f"otp_attempts_ip:{ip}"
+        # No validation, no attempt-counter bump, no login. Bumping here would let
+        # a scanner hitting a stale link burn the student's 5 verify attempts.
+        logger.info(
+            "magic_login: handoff email_tag=%s ip=%s",
+            email_log_tag(email), _client_ip(request),
+        )
 
-        attempts = cache.get(cache_key, 0)
-        ip_attempts = cache.get(ip_key, 0)
-
-        if attempts >= OTP_ATTEMPT_LIMIT or ip_attempts >= OTP_ATTEMPT_LIMIT * OTP_IP_ATTEMPT_MULTIPLIER:
-            logger.warning(
-                "magic_login: rate limit hit email_tag=%s ip=%s attempts=%s ip_attempts=%s",
-                email_log_tag(email), ip, attempts, ip_attempts,
-            )
-            return redirect(f"{callback_base}?error=too_many_attempts")
-
-        if not auth_service.verify_login_code(email, code):
-            cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
-            cache.set(ip_key, ip_attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
-            logger.warning(
-                "magic_login: invalid code email_tag=%s ip=%s attempt=%s",
-                email_log_tag(email), ip, attempts + 1,
-            )
-            return redirect(f"{callback_base}?error=invalid_or_expired_code")
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return redirect(f"{callback_base}?error=invalid_or_expired_code")
-
-        if user.account_status in User.INACTIVE_LOGIN_STATUSES:
-            return redirect(f"{callback_base}?error=account_inactive")
-
-        login(request, user)
-        cache.delete(cache_key)
-        cache.delete(ip_key)
-
-        # Admins land on the admin portal; everyone else on the user app.
-        if is_admin(user):
-            frontend_callback = settings.ADMIN_MAGIC_LINK_REDIRECT_URL
-        else:
-            frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
-
-        if redirect_url_param:
-            parsed_url = urlparse(redirect_url_param)
-            if parsed_url.hostname in self._ALLOWED_REDIRECT_DOMAINS:
-                frontend_callback = redirect_url_param
-
-        return redirect(f"{frontend_callback}?success=true&email={user.email}")
+        params = urlencode({"email": email, "code": code})
+        separator = "&" if "?" in callback_base else "?"
+        return redirect(f"{callback_base}{separator}{params}")
 
 
 # --- password reset --------------------------------------------------------
@@ -284,6 +283,7 @@ class MagicLoginView(APIView):
 PWRESET_REQUEST_PER_EMAIL_LIMIT = 3
 PWRESET_REQUEST_PER_IP_LIMIT = 10
 PWRESET_REQUEST_WINDOW_SECONDS = 900       # 15 min
+PWRESET_REQUEST_MIN_INTERVAL_SECONDS = 60  # same anti-stacking gap as login send
 PWRESET_CONFIRM_ATTEMPT_LIMIT = 5          # per token — catches accidental retries
 PWRESET_CONFIRM_PER_IP_LIMIT = 20          # per IP — caps brute force across many guessed tokens
 PWRESET_CONFIRM_WINDOW_SECONDS = 900       # 15 min
@@ -314,6 +314,13 @@ class PasswordResetRequestView(APIView):
         ip = _client_ip(request)
 
         _check_request_throttle(email, ip)
+
+        retry_after = _claim_min_interval(
+            _pwreset_request_cooldown_key(email), PWRESET_REQUEST_MIN_INTERVAL_SECONDS
+        )
+        if retry_after:
+            raise PasswordResetRateLimited(retry_after=retry_after)
+
         _bump_request_counters(email, ip)
 
         auth_service.send_password_reset(
@@ -395,6 +402,57 @@ def _strip_port(addr: str) -> str:
     return addr
 
 
+# --- shared throttle primitives ---------------------------------------------
+
+def _deadline_key(key: str) -> str:
+    return f"{key}:until"
+
+
+def _bump_window(key: str, window_seconds: int) -> None:
+    """Increment a fixed-window counter without the get-then-set race.
+
+    ``cache.add`` is SETNX on Redis, so two concurrent double-submits can't both
+    reset the counter to 1 and hand the caller a free extra send.
+    """
+    if cache.add(key, 1, window_seconds):
+        cache.set(_deadline_key(key), time.time() + window_seconds, window_seconds)
+        return
+
+    try:
+        cache.incr(key)
+    except ValueError:  # expired between the add and the incr
+        cache.set(key, 1, window_seconds)
+        cache.set(_deadline_key(key), time.time() + window_seconds, window_seconds)
+        return
+
+    # Django's Redis incr is EXISTS-then-INCRBY, not atomic: if the key lapses in
+    # that gap, INCRBY recreates it with NO expiry and the counter would then
+    # 429 this address forever. The deadline key is the tell — restore both.
+    if cache.get(_deadline_key(key)) is None:
+        cache.set(key, 1, window_seconds)
+        cache.set(_deadline_key(key), time.time() + window_seconds, window_seconds)
+
+
+def _window_retry_after(key: str, window_seconds: int) -> int:
+    deadline = cache.get(_deadline_key(key))
+    if not deadline:
+        return window_seconds
+    return max(1, int(deadline - time.time()))
+
+
+def _claim_min_interval(key: str, seconds: int) -> int:
+    """Claim the next send slot. Returns 0 when claimed, else seconds remaining.
+
+    A rejected caller must not re-arm the window, or hammering the button would
+    lock them out permanently — ``cache.add`` gives that for free.
+    """
+    now = time.time()
+    if cache.add(key, now + seconds, seconds):
+        return 0
+    remaining = int((cache.get(key) or now) - now)
+    return max(1, min(remaining, seconds))
+
+
 def _email_request_key(email: str) -> str:
     return f"pwreset_req_email:{email}"
 
@@ -412,30 +470,37 @@ def _confirm_ip_key(ip: str) -> str:
 
 
 def _check_request_throttle(email: str, ip: str) -> None:
-    if cache.get(_email_request_key(email), 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
-        raise PasswordResetRateLimited()
-    if cache.get(_ip_request_key(ip), 0) >= PWRESET_REQUEST_PER_IP_LIMIT:
-        raise PasswordResetRateLimited()
+    e_key, i_key = _email_request_key(email), _ip_request_key(ip)
+    if cache.get(e_key, 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
+        raise PasswordResetRateLimited(
+            retry_after=_window_retry_after(e_key, PWRESET_REQUEST_WINDOW_SECONDS)
+        )
+    if cache.get(i_key, 0) >= PWRESET_REQUEST_PER_IP_LIMIT:
+        raise PasswordResetRateLimited(
+            retry_after=_window_retry_after(i_key, PWRESET_REQUEST_WINDOW_SECONDS)
+        )
 
 
 def _bump_request_counters(email: str, ip: str) -> None:
-    e_key, i_key = _email_request_key(email), _ip_request_key(ip)
-    cache.set(e_key, cache.get(e_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
-    cache.set(i_key, cache.get(i_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
+    _bump_window(_email_request_key(email), PWRESET_REQUEST_WINDOW_SECONDS)
+    _bump_window(_ip_request_key(ip), PWRESET_REQUEST_WINDOW_SECONDS)
 
 
 def _check_login_send_throttle(email: str, ip: str) -> None:
-    if cache.get(_login_send_email_key(email), 0) >= LOGIN_SEND_PER_EMAIL_LIMIT:
-        raise LoginSendRateLimited()
-    if cache.get(_login_send_ip_key(ip), 0) >= LOGIN_SEND_PER_IP_LIMIT:
-        raise LoginSendRateLimited()
+    e_key, i_key = _login_send_email_key(email), _login_send_ip_key(ip)
+    if cache.get(e_key, 0) >= LOGIN_SEND_PER_EMAIL_LIMIT:
+        raise LoginSendRateLimited(
+            retry_after=_window_retry_after(e_key, LOGIN_SEND_WINDOW_SECONDS)
+        )
+    if cache.get(i_key, 0) >= LOGIN_SEND_PER_IP_LIMIT:
+        raise LoginSendRateLimited(
+            retry_after=_window_retry_after(i_key, LOGIN_SEND_WINDOW_SECONDS)
+        )
 
 
 def _bump_login_send_counters(email: str, ip: str) -> None:
-    e_key = _login_send_email_key(email)
-    i_key = _login_send_ip_key(ip)
-    cache.set(e_key, cache.get(e_key, 0) + 1, LOGIN_SEND_WINDOW_SECONDS)
-    cache.set(i_key, cache.get(i_key, 0) + 1, LOGIN_SEND_WINDOW_SECONDS)
+    _bump_window(_login_send_email_key(email), LOGIN_SEND_WINDOW_SECONDS)
+    _bump_window(_login_send_ip_key(ip), LOGIN_SEND_WINDOW_SECONDS)
 
 
 def _login_send_email_key(email: str) -> str:
@@ -444,6 +509,14 @@ def _login_send_email_key(email: str) -> str:
 
 def _login_send_ip_key(ip: str) -> str:
     return f"login_send_ip:{ip}"
+
+
+def _login_send_cooldown_key(email: str) -> str:
+    return f"login_send_cooldown:{email}"
+
+
+def _pwreset_request_cooldown_key(email: str) -> str:
+    return f"pwreset_req_cooldown:{email}"
 
 
 class LogoutView(APIView):
