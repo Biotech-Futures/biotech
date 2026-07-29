@@ -42,11 +42,12 @@ def can_access_chat_group(user, group) -> bool:
 def chat_recipients_qs(group_id, *, exclude_user_id=None):
     """Members of ``group_id`` a message is actually addressed to.
 
-    Same predicate the unread digest uses (``services/digest.py``):
-    supervisors observe rather than participate, and login-blocked
-    accounts can never open the board. Counting either makes "read by
-    everyone" unreachable. ``invited``/``pending`` users DO count — they
-    are ``is_active=False`` but can still sign in.
+    Role/status predicate matches the unread digest (``services/digest.py``,
+    which additionally scopes to non-deleted groups): supervisors observe
+    rather than participate, and login-blocked accounts can never open the
+    board. Counting either makes "read by everyone" unreachable.
+    ``invited``/``pending`` users DO count — they are ``is_active=False``
+    but can still sign in.
     """
     GroupMembership = apps.get_model("groups", "GroupMembership")
     User = get_user_model()

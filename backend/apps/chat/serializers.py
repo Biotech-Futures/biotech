@@ -85,13 +85,26 @@ class MessageReceiptFieldsMixin:
         return cache[obj.group_id]
 
     def _status_user_ids(self, obj, field: str):
-        # Walks the prefetched ``statuses`` — see the message querysets.
-        allowed = self._recipient_ids(obj)
-        return sorted(
-            s.user_id
-            for s in obj.statuses.all()
-            if getattr(s, field) is not None and s.user_id in allowed
-        )
+        # Walks the prefetched ``statuses`` — see the message querysets. Memoised
+        # per object: the four fields would otherwise walk it four times, and on
+        # an unprefetched instance that is four queries.
+        cache = getattr(self, "_status_ids_by_message", None)
+        if cache is None:
+            cache = self._status_ids_by_message = {}
+        key = (obj.pk, field)
+        if key not in cache:
+            if obj.deleted_at is not None:
+                # Moderated messages blank their content everywhere else; naming
+                # who read a removed message would leak straight past that.
+                cache[key] = []
+            else:
+                allowed = self._recipient_ids(obj)
+                cache[key] = sorted(
+                    s.user_id
+                    for s in obj.statuses.all()
+                    if getattr(s, field) is not None and s.user_id in allowed
+                )
+        return cache[key]
 
     def get_read_by_ids(self, obj):
         return self._status_user_ids(obj, "read_at")
@@ -100,10 +113,10 @@ class MessageReceiptFieldsMixin:
         return self._status_user_ids(obj, "delivered_at")
 
     def get_read_count(self, obj):
-        return len(self.get_read_by_ids(obj))
+        return len(self._status_user_ids(obj, "read_at"))
 
     def get_delivered_count(self, obj):
-        return len(self.get_delivered_to_ids(obj))
+        return len(self._status_user_ids(obj, "delivered_at"))
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):

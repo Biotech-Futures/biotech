@@ -36,8 +36,12 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):
       return False
-    from apps.common.rbac import is_admin
-    if is_admin(user):
+    # Both lookups are cached in the request-scoped context: is_admin() is an
+    # uncached AdminScope query, and this runs once per row of the roster.
+    if "_caller_is_admin" not in self.context:
+      from apps.common.rbac import is_admin
+      self.context["_caller_is_admin"] = is_admin(user)
+    if self.context["_caller_is_admin"]:
       return True
     cache = self.context.setdefault("_staff_groups", {})
     if group_id not in cache:

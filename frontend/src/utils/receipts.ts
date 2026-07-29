@@ -17,6 +17,62 @@ export interface ReceiptMessage {
   deliveredCount?: number
 }
 
+export interface CursorMessage {
+  id?: number | string
+  isOwn?: boolean
+  senderId?: number
+  readBy?: number[]
+  deliveredTo?: number[]
+  readCount?: number
+  deliveredCount?: number
+}
+
+/**
+ * Apply one `message.read_updated` / `message.delivered_updated` cursor frame
+ * to a single message, returning the updated message (or the original when the
+ * frame doesn't apply).
+ *
+ * `recipientIds` is the same set the server filters `read_by_ids` against.
+ * Adding a reader outside it — a supervisor or an admin opening the board —
+ * is what pushed the ticks to "read by everyone" while students who had never
+ * received the message were still listed as pending.
+ */
+export function applyCursorToMessage(
+  message: CursorMessage,
+  options: {
+    userId: number
+    upToId: number
+    field: 'read' | 'delivered'
+    recipientIds: ReadonlySet<number> | number[]
+    currentUserId: number
+  },
+): CursorMessage {
+  const { userId, upToId, field, currentUserId } = options
+  const recipients =
+    options.recipientIds instanceof Set ? options.recipientIds : new Set(options.recipientIds)
+
+  const messageId = Number(message?.id)
+  if (!Number.isFinite(messageId) || messageId > upToId) return message
+
+  // A sender never has a status row for their own message. `senderId` is 0 on
+  // list-loaded messages (the public payload omits it by design), so `isOwn` is
+  // the only guard that holds for my own history.
+  if (Number(message.senderId || 0) === userId) return message
+  if (message.isOwn && userId === currentUserId) return message
+
+  // Only recipients count, matching the server-side filter exactly.
+  if (!recipients.has(userId)) return message
+
+  const deliveredTo = Array.from(new Set([...(message.deliveredTo || []), userId]))
+  if (field === 'delivered') {
+    return { ...message, deliveredTo, deliveredCount: deliveredTo.length }
+  }
+
+  // A read implies delivery — the backend stamps delivered_at alongside read_at.
+  const readBy = Array.from(new Set([...(message.readBy || []), userId]))
+  return { ...message, readBy, deliveredTo, readCount: readBy.length, deliveredCount: deliveredTo.length }
+}
+
 /**
  * single grey  — delivered, nobody has read yet
  * double grey  — some but not all recipients have read

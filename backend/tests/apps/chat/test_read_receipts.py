@@ -515,18 +515,47 @@ class MessageStatusEndpointTests(TestCase):
         self.assertEqual(self._names(resp.data["delivered_by"]), ["Bo Tan"])
         self.assertNotIn("Bo Tan", self._names(resp.data["pending"]))
 
-    def test_supervisor_who_reads_appears_but_is_never_pending(self):
-        # Supervisors are excluded from the recipient denominator, but they can
-        # still open the board — a real read must not be silently dropped.
+    def test_supervisor_read_is_absent_from_every_list(self):
+        # The popover and the ticks are scoped to the same recipient set. A
+        # supervisor read showing under "Read by" while the tick above it said
+        # "Delivered" was the contradiction this pins shut.
         client_sup = APIClient(); client_sup.force_authenticate(self.supervisor)
         client_sup.post(self._read_url(self.welcome))
         resp = self.client_mentor.get(self._status_url(self.welcome))
-        self.assertEqual(self._names(resp.data["read_by"]), ["Sue Perv"])
-        self.assertNotIn("Sue Perv", self._names(resp.data["pending"]))
+        everyone = resp.data["read_by"] + resp.data["delivered_by"] + resp.data["pending"]
+        self.assertNotIn("Sue Perv", [row["name"] for row in everyone])
+
+    def test_pending_is_withheld_from_everyone_but_the_sender(self):
+        # For a non-sender, `pending` on an old message is a roster of who has
+        # never been online — exactly what has_logged_in withholds from peers.
+        resp = self.client_a.get(self._status_url(self.welcome))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["pending"], [])
+
+    def test_pending_is_visible_to_an_admin(self):
+        admin = get_user_model().objects.create_user(
+            email="admin-receipts@test.com", password="pw", first_name="Ad", last_name="Min"
+        )
+        AdminScope.objects.create(user=admin)
+        client_admin = APIClient(); client_admin.force_authenticate(admin)
+        resp = client_admin.get(self._status_url(self.welcome))
+        self.assertEqual(self._names(resp.data["pending"]), ["Ann Ng", "Bo Tan", "Ivy Ted"])
+
+    def test_deleted_message_does_not_name_its_readers(self):
+        # Moderated messages blank their text everywhere; the receipts must not
+        # keep naming who read what was removed.
+        self.client_a.post(self._read_url(self.welcome))
+        self.welcome.deleted_at = timezone.now()
+        self.welcome.save(update_fields=["deleted_at"])
+
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_by_ids"], [])
+        self.assertEqual(row["read_count"], 0)
 
     def test_supervisor_read_does_not_count_toward_the_ticks(self):
         # The bug this guards: read_count counted every status row while
-        # recipient_count excluded supervisors, so one supervisor opening the
+        # the recipient set excluded supervisors, so one supervisor opening the
         # board could push a message to "read by everyone" while students who
         # never received it were still listed as pending.
         client_sup = APIClient(); client_sup.force_authenticate(self.supervisor)
@@ -539,7 +568,8 @@ class MessageStatusEndpointTests(TestCase):
         self.assertEqual(row["read_count"], 1)
         self.assertNotIn(self.supervisor.id, row["delivered_to_ids"])
         # Numerator and denominator must describe the same population.
-        self.assertLess(row["read_count"], resp.data["recipient_count"])
+        self.assertNotIn(self.supervisor.id, resp.data["recipient_ids"])
+        self.assertLess(row["read_count"], len(resp.data["recipient_ids"]) - 1)
 
     def test_blocked_account_read_does_not_count_toward_the_ticks(self):
         # Same failure mode via a suspended member rather than a supervisor.
@@ -598,13 +628,16 @@ class MessageStatusEndpointTests(TestCase):
         self.assertEqual(row["read_by_ids"], [])
         self.assertEqual(row["delivered_to_ids"], [])
 
-    def test_recipient_count_excludes_self_supervisor_and_blocked(self):
-        # Mentor's view: 2 students + the invited student. Not the supervisor,
-        # not the suspended account, not the mentor themselves.
+    def test_recipient_ids_exclude_supervisor_and_blocked(self):
+        # 2 students + the invited student + the mentor. Not the supervisor,
+        # not the suspended account. The caller removes themselves client-side.
         resp = self.client_mentor.get(self._list_url())
-        self.assertEqual(resp.data["recipient_count"], 3)
+        self.assertEqual(
+            sorted(resp.data["recipient_ids"]),
+            sorted([self.mentor.id, self.student_a.id, self.student_b.id, self.invited.id]),
+        )
 
-    def test_recipient_count_is_per_caller(self):
+    def test_recipient_set_is_relative_to_the_caller(self):
         # Same size for both callers, so assert the actual membership rather
         # than a count that can't tell "excludes me" from "excludes anyone".
         recipients_for_mentor = set(
@@ -623,11 +656,15 @@ class MessageStatusEndpointTests(TestCase):
             recipients_for_student,
             {self.mentor.id, self.student_b.id, self.invited.id},
         )
-        self.assertEqual(self.client_a.get(self._list_url()).data["recipient_count"], 3)
+        # The wire payload is not caller-relative — every member sees the same set.
+        self.assertEqual(
+            sorted(self.client_a.get(self._list_url()).data["recipient_ids"]),
+            sorted([self.mentor.id, self.student_a.id, self.student_b.id, self.invited.id]),
+        )
 
-    def test_recipient_count_drops_a_departed_member(self):
+    def test_recipient_ids_drop_a_departed_member(self):
         membership = GroupMembership.objects.get(user=self.student_b, group=self.group)
         membership.left_at = timezone.now()
         membership.save(update_fields=["left_at"])
         resp = self.client_mentor.get(self._list_url())
-        self.assertEqual(resp.data["recipient_count"], 2)
+        self.assertNotIn(self.student_b.id, resp.data["recipient_ids"])
