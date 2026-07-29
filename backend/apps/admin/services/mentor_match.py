@@ -381,6 +381,7 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             country_name=F('user__country__country_name'),
+            last_login=F('user__last_login'),
         )
     )
 
@@ -393,6 +394,8 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         students_by_group[group_id].append({
             'user_id': row['user_id'],
             'name': f"{row['first_name']} {row['last_name']}".strip(),
+            # Boolean, never the timestamp: admins need "have they started?".
+            'hasLoggedIn': row['last_login'] is not None,
         })
         countries_by_group.setdefault(group_id, []).append(row['country_name'])
 
@@ -408,6 +411,7 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             'students': [
                 {
                     'name': s['name'],
+                    'hasLoggedIn': s['hasLoggedIn'],
                     'interests': interests_by_user.get(s['user_id'], []),
                 }
                 for s in group_students
@@ -466,9 +470,10 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             country_name=F('user__country__country_name'),
+            last_login=F('user__last_login'),
         )
     )
-    
+
     # Student interests per group
     member_interest_rows = (
         GroupMembership.objects
@@ -500,6 +505,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             students_by_group[group_id] = []
         students_by_group[group_id].append({
             'name': f"{row['first_name']} {row['last_name']}".strip(),
+            'hasLoggedIn': row['last_login'] is not None,
             'interests': interests_by_user.get(row['user_id'], []),
         })
         countries_by_group.setdefault(group_id, []).append(row['country_name'])

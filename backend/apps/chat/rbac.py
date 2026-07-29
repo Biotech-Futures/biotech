@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.apps import apps
+from django.contrib.auth import get_user_model
 from apps.common.rbac import (
     group_participant_qs,
     is_admin,
@@ -36,6 +37,29 @@ def can_access_chat_group(user, group) -> bool:
         return True
 
     return group_participant_qs(user, target_group.id).exists()
+
+
+def chat_recipients_qs(group_id, *, exclude_user_id=None):
+    """Members of ``group_id`` a message is actually addressed to.
+
+    Same predicate the unread digest uses (``services/digest.py``):
+    supervisors observe rather than participate, and login-blocked
+    accounts can never open the board. Counting either makes "read by
+    everyone" unreachable. ``invited``/``pending`` users DO count — they
+    are ``is_active=False`` but can still sign in.
+    """
+    GroupMembership = apps.get_model("groups", "GroupMembership")
+    User = get_user_model()
+    queryset = (
+        GroupMembership.objects
+        .filter(group_id=group_id, left_at__isnull=True)
+        .exclude(membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR)
+        .exclude(user__account_status__in=User.INACTIVE_LOGIN_STATUSES)
+        .select_related("user")
+    )
+    if exclude_user_id is not None:
+        queryset = queryset.exclude(user_id=exclude_user_id)
+    return queryset
 
 
 def can_manage_chat_message(user, message) -> bool:

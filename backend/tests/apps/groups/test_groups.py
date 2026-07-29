@@ -450,3 +450,33 @@ class GroupMemberApiTests(TestCase):
         self.client.logout()
         response = self.client.get(self.by_group_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # ---- has_logged_in is staff-only ----
+
+    def test_has_logged_in_hidden_from_a_plain_member(self):
+        # A student must not be able to enumerate which classmates never signed in.
+        self.client.force_authenticate(user=self.normal_user)
+        response = self.client.get(self.by_group_url)
+        self.assertTrue(all(m["has_logged_in"] is None for m in response.data))
+
+    def test_has_logged_in_visible_to_admin(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.by_group_url)
+        self.assertTrue(all(m["has_logged_in"] is False for m in response.data))
+
+    def test_has_logged_in_visible_to_group_mentor(self):
+        mentor = get_user_model().objects.create_user(
+            email="mentor-roster@test.com", password="pw"
+        )
+        GroupMembership.objects.create(
+            user=mentor,
+            group=self.group,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        mentor.last_login = timezone.now()
+        mentor.save(update_fields=["last_login"])
+
+        self.client.force_authenticate(user=mentor)
+        rows = {m["user"]: m["has_logged_in"] for m in self.client.get(self.by_group_url).data}
+        self.assertIs(rows[mentor.id], True)
+        self.assertIs(rows[self.normal_user.id], False)

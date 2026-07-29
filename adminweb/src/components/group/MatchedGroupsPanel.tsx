@@ -39,6 +39,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   RefreshCwIcon,
+  UserXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
@@ -369,9 +370,23 @@ export function MatchedGroupsPanel() {
                             </p>
                             {group.students.length > 0 ? (
                               <div className="space-y-1.5">
-                                {group.students.map((s) => (
-                                  <div key={s.name} className="rounded border bg-background px-3 py-1.5">
-                                    <p className="text-xs font-medium">{s.name}</p>
+                                {group.students.map((s, i) => (
+                                  // Name isn't unique — two same-named students would
+                                  // swap their "never signed in" badge on reconcile.
+                                  <div key={`${s.name}-${i}`} className="rounded border bg-background px-3 py-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-xs font-medium">{s.name}</p>
+                                      {!s.hasLoggedIn && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1 py-0 gap-0.5 text-muted-foreground"
+                                          title="This student has never signed in"
+                                        >
+                                          <UserXIcon className="size-2.5" />
+                                          Never signed in
+                                        </Badge>
+                                      )}
+                                    </div>
                                     {s.interests.length > 0 && (
                                       <div className="mt-0.5 flex flex-wrap gap-1">
                                         {s.interests.map((i) => (

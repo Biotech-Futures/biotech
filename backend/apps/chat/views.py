@@ -22,7 +22,7 @@ from .management.permissions import (
     HasParentalConsentToPost,
     IsGroupMemberOrAdmin,
 )
-from .rbac import can_access_chat_group
+from .rbac import can_access_chat_group, chat_recipients_qs
 from .models import (
     MessageAttachment,
     MessageMention,
@@ -192,6 +192,11 @@ def serialize_message_for_broadcast(message, context=None):
     data["attachments"] = public.get("attachments", [])
     data["preview"] = public.get("preview")
     return data
+
+
+def _display_name(user, user_id) -> str:
+    # Never return "" — a blank row in the receipt popover reads as a broken UI.
+    return (user.get_full_name().strip() if user else "") or f"User {user_id}"
 
 
 def apply_mentions(message) -> list[int]:
@@ -391,18 +396,15 @@ class MessageViewSet(viewsets.ModelViewSet):
                     "reactions",
                     queryset=MessageReaction.objects.select_related("user").order_by("id"),
                 ),
+                # Backs read_by_ids/delivered_to_ids without an N+1.
+                Prefetch(
+                    "statuses",
+                    queryset=MessageStatus.objects.only(
+                        "id", "message_id", "user_id", "read_at", "delivered_at"
+                    ),
+                ),
             )
             .annotate(
-                _read_count=Count(
-                    "statuses",
-                    filter=Q(statuses__read_at__isnull=False),
-                    distinct=True,
-                ),
-                _delivered_count=Count(
-                    "statuses",
-                    filter=Q(statuses__delivered_at__isnull=False),
-                    distinct=True,
-                ),
                 _is_read_by_me=Exists(
                     MessageStatus.objects.filter(
                         message=OuterRef("pk"),
@@ -441,6 +443,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             "attachments" not in cache
             or "resources" not in cache
             or "reactions" not in cache
+            or "statuses" not in cache
         ):
             try:
                 message = self._message_queryset().get(pk=message.pk)
@@ -458,6 +461,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             "attachments" not in cache
             or "resources" not in cache
             or "reactions" not in cache
+            or "statuses" not in cache
         ):
             user_id = getattr(getattr(self, "request", None), "user", None)
             user_id = getattr(user_id, "id", None)
@@ -471,18 +475,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                             "reactions",
                             queryset=MessageReaction.objects.select_related("user").order_by("id"),
                         ),
+                        Prefetch(
+                            "statuses",
+                            queryset=MessageStatus.objects.only(
+                                "id", "message_id", "user_id", "read_at", "delivered_at"
+                            ),
+                        ),
                     )
                     .annotate(
-                        _read_count=Count(
-                            "statuses",
-                            filter=Q(statuses__read_at__isnull=False),
-                            distinct=True,
-                        ),
-                        _delivered_count=Count(
-                            "statuses",
-                            filter=Q(statuses__delivered_at__isnull=False),
-                            distinct=True,
-                        ),
                         _is_read_by_me=Exists(
                             MessageStatus.objects.filter(
                                 message=OuterRef("pk"),
@@ -589,7 +589,17 @@ class MessageViewSet(viewsets.ModelViewSet):
         next_before = items[-1].id if len(items) == limit else None
 
         return Response(
-            {"items": data, "next_after": next_after, "next_before": next_before},
+            {
+                "items": data,
+                "next_after": next_after,
+                "next_before": next_before,
+                # Denominator for the caller's own read ticks. Sent as a count
+                # rather than per-member flags so "who counts as a recipient"
+                # has exactly one definition, and no account status leaks.
+                "recipient_count": chat_recipients_qs(
+                    gid, exclude_user_id=request.user.id
+                ).count(),
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -934,10 +944,14 @@ class MessageViewSet(viewsets.ModelViewSet):
     def message_status(self, request, *args, **kwargs):
         """Return the per-user delivery + read state for one message.
 
-        Powers the FE's "Read by N" popover. Excludes the sender from both
-        lists (the sender has no ``MessageStatus`` row of their own). Names
-        come from ``Users.get_full_name()`` so the FE renders the same
+        Powers the FE's "Read by N" popover. Excludes the sender from all
+        three lists (the sender has no ``MessageStatus`` row of their own).
+        Names come from ``Users.get_full_name()`` so the FE renders the same
         attribution string used elsewhere in chat.
+
+        ``pending`` names the recipients with no row at all. Without it the
+        FE cannot tell "nobody has opened this yet" apart from a failed
+        lookup, and rendered the latter.
         """
         message = self.get_object()
         statuses = (
@@ -950,9 +964,11 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         read_by = []
         delivered_by = []
+        accounted_ids = set()
         for s in statuses:
             user = s.user
-            name = user.get_full_name() if user else f"User {s.user_id}"
+            name = _display_name(user, s.user_id)
+            accounted_ids.add(s.user_id)
             if s.read_at is not None:
                 read_by.append({"id": s.user_id, "name": name, "read_at": s.read_at})
             elif s.delivered_at is not None:
@@ -960,8 +976,16 @@ class MessageViewSet(viewsets.ModelViewSet):
                     {"id": s.user_id, "name": name, "delivered_at": s.delivered_at}
                 )
 
+        pending = [
+            {"id": m.user_id, "name": _display_name(m.user, m.user_id)}
+            for m in chat_recipients_qs(
+                message.group_id, exclude_user_id=message.sender_user_id
+            ).order_by("user__first_name", "user__last_name", "user_id")
+            if m.user_id not in accounted_ids
+        ]
+
         return Response(
-            {"read_by": read_by, "delivered_by": delivered_by},
+            {"read_by": read_by, "delivered_by": delivered_by, "pending": pending},
             status=status.HTTP_200_OK,
         )
 

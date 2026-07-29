@@ -18,6 +18,7 @@ from .models import (
     Messages,
     MessageType,
 )
+from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
 from .utils import sanitize_text
 
@@ -61,6 +62,48 @@ def aggregate_reactions(message):
             }
         )
     return bucket
+
+
+class MessageReceiptFieldsMixin:
+    """``read_by_ids`` / ``delivered_to_ids`` and the counts derived from them.
+
+    Both counts are ``len()`` of the matching id list rather than a separate
+    DB aggregate, and both lists are intersected with the group's *recipients*
+    — the same set behind ``recipient_count``. A supervisor or admin reading
+    the board would otherwise push the count to the "everyone has read it"
+    threshold while students who never opened it sat in ``pending``.
+    """
+
+    def _recipient_ids(self, obj):
+        cache = getattr(self, "_recipient_ids_by_group", None)
+        if cache is None:
+            cache = self._recipient_ids_by_group = {}
+        if obj.group_id not in cache:
+            cache[obj.group_id] = set(
+                chat_recipients_qs(obj.group_id).values_list("user_id", flat=True)
+            )
+        return cache[obj.group_id]
+
+    def _status_user_ids(self, obj, field: str):
+        # Walks the prefetched ``statuses`` — see the message querysets.
+        allowed = self._recipient_ids(obj)
+        return sorted(
+            s.user_id
+            for s in obj.statuses.all()
+            if getattr(s, field) is not None and s.user_id in allowed
+        )
+
+    def get_read_by_ids(self, obj):
+        return self._status_user_ids(obj, "read_at")
+
+    def get_delivered_to_ids(self, obj):
+        return self._status_user_ids(obj, "delivered_at")
+
+    def get_read_count(self, obj):
+        return len(self.get_read_by_ids(obj))
+
+    def get_delivered_count(self, obj):
+        return len(self.get_delivered_to_ids(obj))
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
@@ -248,7 +291,7 @@ class ReplyToIdField(serializers.PrimaryKeyRelatedField):
         )
 
 
-class MessageSerializer(serializers.ModelSerializer):
+class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     resources = MessageResourceSerializer(many=True, required=False)
     attachments = MessageAttachmentSerializer(many=True, read_only=True)
     sender_name = serializers.CharField(
@@ -259,8 +302,13 @@ class MessageSerializer(serializers.ModelSerializer):
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
     reactions = serializers.SerializerMethodField()
-    read_count = serializers.IntegerField(source="_read_count", read_only=True, default=0)
-    delivered_count = serializers.IntegerField(source="_delivered_count", read_only=True, default=0)
+    # Counts are derived from the id lists so the two can never disagree —
+    # see MessageReceiptFieldsMixin. Without the ids the FE cannot tell a
+    # repeated read cursor from a new reader, and inflates its own count.
+    read_count = serializers.SerializerMethodField()
+    delivered_count = serializers.SerializerMethodField()
+    read_by_ids = serializers.SerializerMethodField()
+    delivered_to_ids = serializers.SerializerMethodField()
     is_read_by_me = serializers.BooleanField(source="_is_read_by_me", read_only=True, default=False)
     is_delivered_to_me = serializers.BooleanField(source="_is_delivered_to_me", read_only=True, default=False)
 
@@ -297,6 +345,8 @@ class MessageSerializer(serializers.ModelSerializer):
             "reactions",
             "read_count",
             "delivered_count",
+            "read_by_ids",
+            "delivered_to_ids",
             "is_read_by_me",
             "is_delivered_to_me",
             "reply_to",
@@ -346,7 +396,7 @@ class MessageSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class MessagePublicSerializer(serializers.ModelSerializer):
+class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     resources = MessageResourcePublicSerializer(many=True, read_only=True)
     attachments = MessageAttachmentSerializer(many=True, read_only=True)
     sender_name = serializers.CharField(
@@ -362,8 +412,13 @@ class MessagePublicSerializer(serializers.ModelSerializer):
     attachments = serializers.SerializerMethodField()
     resources = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
-    read_count = serializers.IntegerField(source="_read_count", read_only=True, default=0)
-    delivered_count = serializers.IntegerField(source="_delivered_count", read_only=True, default=0)
+    # Counts are derived from the id lists so the two can never disagree —
+    # see MessageReceiptFieldsMixin. Without the ids the FE cannot tell a
+    # repeated read cursor from a new reader, and inflates its own count.
+    read_count = serializers.SerializerMethodField()
+    delivered_count = serializers.SerializerMethodField()
+    read_by_ids = serializers.SerializerMethodField()
+    delivered_to_ids = serializers.SerializerMethodField()
     is_read_by_me = serializers.BooleanField(source="_is_read_by_me", read_only=True, default=False)
     is_delivered_to_me = serializers.BooleanField(source="_is_delivered_to_me", read_only=True, default=False)
     # Embedded parent context for quoted replies. Same flat shape as
@@ -395,6 +450,8 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "reactions",
             "read_count",
             "delivered_count",
+            "read_by_ids",
+            "delivered_to_ids",
             "is_read_by_me",
             "is_delivered_to_me",
             "reply_to",

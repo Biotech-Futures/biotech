@@ -98,7 +98,8 @@ describe('magic-link error copy', () => {
 
     const submit = wrapper!.find('button.primary-button')
     expect(submit.attributes('disabled')).toBeDefined()
-    expect(submit.text()).toContain('300s')
+    // formatWait renders m:ss, not raw seconds.
+    expect(submit.text()).toContain('5:00')
     expect(submit.text()).toContain(en.resendIn)
   })
 
