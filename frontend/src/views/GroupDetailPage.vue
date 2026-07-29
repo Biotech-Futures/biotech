@@ -81,6 +81,10 @@
               <div v-if="groupMetaItems.length" class="gd-meta-row">
                 <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
               </div>
+              <p v-if="neverLoggedInNotice" class="gd-onboarding-notice">
+                <i class="fas fa-circle-info"></i>
+                {{ neverLoggedInNotice }}
+              </p>
             </div>
           </div>
           <div class="gd-head-actions">
@@ -1503,12 +1507,12 @@
                       </div>
                       <template v-else>
                         <div
-                          v-if="messageReceiptCache.get(message.id)?.readBy?.length"
+                          v-if="activeReceipts.readBy.length"
                           class="message-receipt-popover-section"
                         >
                           <strong>Read by</strong>
                           <div
-                            v-for="reader in messageReceiptCache.get(message.id).readBy"
+                            v-for="reader in activeReceipts.readBy"
                             :key="`r-${message.id}-${reader.id}`"
                             class="message-receipt-popover-row"
                           >
@@ -1518,12 +1522,12 @@
                           </div>
                         </div>
                         <div
-                          v-if="messageReceiptCache.get(message.id)?.deliveredBy?.length"
+                          v-if="activeReceipts.deliveredBy.length"
                           class="message-receipt-popover-section"
                         >
                           <strong>Delivered to</strong>
                           <div
-                            v-for="reader in messageReceiptCache.get(message.id).deliveredBy"
+                            v-for="reader in activeReceipts.deliveredBy"
                             :key="`d-${message.id}-${reader.id}`"
                             class="message-receipt-popover-row"
                           >
@@ -1533,13 +1537,28 @@
                           </div>
                         </div>
                         <div
+                          v-if="activeReceipts.pending.length"
+                          class="message-receipt-popover-section"
+                        >
+                          <strong>Not yet delivered</strong>
+                          <div
+                            v-for="member in activeReceipts.pending"
+                            :key="`p-${message.id}-${member.id}`"
+                            class="message-receipt-popover-row is-pending"
+                          >
+                            <i class="fas fa-clock"></i>
+                            <span class="receipt-name">{{ member.name }}</span>
+                          </div>
+                        </div>
+                        <div
                           v-if="
-                            !messageReceiptCache.get(message.id)?.readBy?.length
-                            && !messageReceiptCache.get(message.id)?.deliveredBy?.length
+                            !activeReceipts.readBy.length
+                            && !activeReceipts.deliveredBy.length
+                            && !activeReceipts.pending.length
                           "
                           class="message-receipt-popover-status"
                         >
-                          Receipt details unavailable. {{ message.readCount }} read, {{ message.deliveredCount }} delivered.
+                          No one has received this yet.
                         </div>
                       </template>
                     </div>
@@ -1721,6 +1740,11 @@ import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import {
+  applyCursorToMessage,
+  getReceiptAriaLabel as receiptAriaLabel,
+  getReceiptState as receiptState,
+} from '@/utils/receipts'
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import {
   bulkToggleTasks,
@@ -1971,9 +1995,22 @@ const messageSearchResults = ref([])
 const messageSearchNextBefore = ref(null)
 const showSearchFilters = ref(false)
 const messageSearchFilters = ref({ type: '', from: '', to: '' })
-const messageReceiptCache = ref(new Map())
+// Only ever holds the currently-open popover's payload. Deliberately not a
+// per-message cache: receipts change from under us via WS cursors, and a
+// cached empty result outlived the reads that contradicted it.
+const activeReceipts = ref({ readBy: [], deliveredBy: [], pending: [] })
+// The recipient set the server filters read_by_ids against, straight from the
+// messages list response. Ids rather than a count so live cursors can be
+// tested for membership — see applyCursorToMessage.
+const chatRecipientIds = ref(new Set())
+const setChatRecipientIds = (raw) => {
+  chatRecipientIds.value = new Set(
+    (Array.isArray(raw) ? raw : []).map(Number).filter(Number.isFinite),
+  )
+}
 const openReceiptPopoverId = ref(null)
 const isLoadingReceipts = ref(false)
+const receiptRequestId = ref(0)
 const receiptError = ref('')
 // Anchor coordinates for the read-receipt popover. We render it via
 // ``<Teleport to="body">`` so the scrollable chat container's ``overflow``
@@ -2009,6 +2046,9 @@ let chatSocket = null
 let hasConnectedChatSocket = false
 let recentMessageSyncTimer = null
 let isSyncingRecentMessages = false
+// Set when the server refuses this group outright (membership revoked, group
+// gone). Without it the 2.5s tick retries a guaranteed 403 forever.
+let isRecentMessageSyncBlocked = false
 let typingStopTimer = null
 let manageWindowTimer = null
 let searchHighlightTimer = null
@@ -2083,6 +2123,28 @@ const groupSubtitle = computed(() => {
   const memberLabel = memberCount === 1 ? '1 member' : `${memberCount} members`
   const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
   return `${memberLabel} - Group since ${createdLabel}`
+})
+
+const myGroupRole = computed(() => {
+  const me = Number(auth.user?.id || 0)
+  const mine = groupMemberships.value.find((item) => Number(item.userId) === me)
+  return String(mine?.role || '').toLowerCase()
+})
+
+const neverLoggedInNotice = computed(() => {
+  // Mentors/supervisors only — students shouldn't see a roll-call of their peers.
+  // Silence in a group otherwise reads as a broken app rather than an empty one.
+  if (myGroupRole.value !== 'mentor' && myGroupRole.value !== 'supervisor') return ''
+  const students = groupMemberships.value.filter(
+    (item) => String(item.role || '').toLowerCase() === 'student',
+  )
+  // Only count members the backend actually reported on — see the tri-state
+  // in normalizeMembership.
+  const known = students.filter((item) => item.hasLoggedIn !== null)
+  const missing = known.filter((item) => !item.hasLoggedIn).length
+  if (!known.length || !missing) return ''
+  const verb = missing === 1 ? "hasn't" : "haven't"
+  return `${missing} of ${known.length} students ${verb} logged in yet.`
 })
 
 const groupMetaItems = computed(() => {
@@ -2249,6 +2311,9 @@ const normalizeMembership = (item) => ({
   role: item?.membership_role || '',
   joinedAt: item?.joined_at || '',
   leftAt: item?.left_at || '',
+  // Tri-state: null means the caller isn't staff, or the backend predates the
+  // field. Defaulting to false would tell a mentor everyone is missing.
+  hasLoggedIn: (item?.has_logged_in ?? item?.hasLoggedIn) ?? null,
 })
 
 const getCurrentUserMentionName = () => {
@@ -3146,8 +3211,10 @@ const normalizeMessage = (item) => {
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
     isReadByMe: Boolean(raw?.is_read_by_me || raw?.isReadByMe),
     isDeliveredToMe: Boolean(raw?.is_delivered_to_me || raw?.isDeliveredToMe),
-    readBy: Array.isArray(raw?.read_by) ? raw.read_by : [],
-    deliveredTo: Array.isArray(raw?.delivered_to) ? raw.delivered_to : [],
+    // Ids, not just counts — the WS cursor handlers dedupe against these, and
+    // an empty list made them treat every re-report as a brand new reader.
+    readBy: Array.isArray(raw?.read_by_ids) ? raw.read_by_ids.map(Number) : [],
+    deliveredTo: Array.isArray(raw?.delivered_to_ids) ? raw.delivered_to_ids.map(Number) : [],
     isLocalOnly: Boolean(raw?.isLocalOnly),
   }
 }
@@ -3177,50 +3244,37 @@ const getAttachmentHref = (attachment) => {
   return url
 }
 
-const getFilenameFromDisposition = (disposition) => {
-  if (!disposition) return ''
-  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
-  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ''))
-
-  const plainMatch = disposition.match(/filename="?([^";]+)"?/i)
-  return plainMatch?.[1] ? plainMatch[1].trim() : ''
-}
-
-const triggerBrowserDownload = (blob, filename) => {
-  const objectUrl = URL.createObjectURL(blob)
+const triggerBrowserDownload = (url, filename) => {
   const link = document.createElement('a')
-  link.href = objectUrl
+  link.href = url
+  // Ignored for the cross-origin signed URL, but that URL already carries
+  // Content-Disposition; this covers the same-origin local-storage case.
   link.download = filename || 'attachment'
   document.body.appendChild(link)
   link.click()
   link.remove()
-  URL.revokeObjectURL(objectUrl)
+}
+
+// Ask the backend for a signed URL rather than streaming the bytes through it.
+// Errors stay same-origin JSON, so they surface in the UI as before.
+const resolveAttachmentDownload = async (attachment) => {
+  const baseUrl = getAttachmentHref(attachment)
+  if (!baseUrl || baseUrl === '#') return null
+  const separator = baseUrl.includes('?') ? '&' : '?'
+  const data = await requestJson(`${baseUrl}${separator}mode=url`)
+  const url = data?.download_url
+  if (!url) throw new Error('Attachment could not be downloaded.')
+  return { url, filename: data?.filename || getAttachmentLabel(attachment) }
 }
 
 const downloadAttachment = async (attachment) => {
-  const url = getAttachmentHref(attachment)
-  if (!url || url === '#') return
-
   chatError.value = ''
-
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-    })
-
-    if (!response.ok) {
-      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
-    }
-
-    const blob = await response.blob()
-    const filename =
-      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
-      getAttachmentLabel(attachment)
-    triggerBrowserDownload(blob, filename)
+    const resolved = await resolveAttachmentDownload(attachment)
+    if (!resolved) return
+    triggerBrowserDownload(resolved.url, resolved.filename)
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Attachment could not be downloaded.'
-    window.open(url, '_blank', 'noopener')
   }
 }
 
@@ -3345,23 +3399,9 @@ const openAttachmentAction = async (attachment, mode) => {
       closeAttachmentChoice()
       return
     }
-    // Download path — fetch as blob so the filename comes from
-    // Content-Disposition and the browser definitely saves regardless of the
-    // file type (PDFs would otherwise open inline in some browsers even with
-    // Content-Disposition: attachment when navigated to directly).
-    // ``proxy=1`` forces the backend to stream the file directly instead of
-    // issuing a redirect to external storage (e.g. Azure Blob). A cross-origin
-    // redirect from fetch() is blocked by CORS and produces "Load failed".
-    const sep = baseUrl.includes('?') ? '&' : '?'
-    const response = await fetch(`${baseUrl}${sep}proxy=1`, { method: 'GET', credentials: 'include' })
-    if (!response.ok) {
-      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
-    }
-    const blob = await response.blob()
-    const filename =
-      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
-      getAttachmentLabel(attachment)
-    triggerBrowserDownload(blob, filename)
+    const resolved = await resolveAttachmentDownload(attachment)
+    if (!resolved) return
+    triggerBrowserDownload(resolved.url, resolved.filename)
     closeAttachmentChoice()
   } catch (error) {
     attachmentChoiceStatus.value = error instanceof Error
@@ -4423,29 +4463,17 @@ const applyReadCursor = (readerId, upToId) => {
 
   const currentUserId = Number(auth.user?.id || 0)
   messages.value = messages.value.map((message) => {
-    const messageId = Number(message.id)
-    if (
-      !Number.isFinite(messageId) ||
-      messageId > numericUpToId ||
-      Number(message.senderId || 0) === numericReaderId
-    ) {
-      return message
-    }
-
-    const readBy = Array.from(new Set([...(message.readBy || []), numericReaderId]))
-    const readCount =
-      readBy.length > (message.readBy || []).length
-        ? Number(message.readCount || 0) + 1
-        : Number(message.readCount || 0)
-
-    return {
-      ...message,
-      readBy,
-      readCount,
-      deliveredCount: Math.max(Number(message.deliveredCount || 0), readCount),
-      isReadByMe: numericReaderId === currentUserId ? true : message.isReadByMe,
-      isDeliveredToMe: numericReaderId === currentUserId ? true : message.isDeliveredToMe,
-    }
+    const next = applyCursorToMessage(message, {
+      userId: numericReaderId,
+      upToId: numericUpToId,
+      field: 'read',
+      recipientIds: chatRecipientIds.value,
+      currentUserId,
+    })
+    if (numericReaderId !== currentUserId) return next
+    // My own cursor still flips my per-message flags even when it changes no
+    // count (I may not be a recipient of this message, e.g. it is my own).
+    return { ...next, isReadByMe: true, isDeliveredToMe: true }
   })
 }
 
@@ -4456,28 +4484,14 @@ const applyDeliveredCursor = (userId, upToId) => {
 
   const currentUserId = Number(auth.user?.id || 0)
   messages.value = messages.value.map((message) => {
-    const messageId = Number(message.id)
-    if (
-      !Number.isFinite(messageId) ||
-      messageId > numericUpToId ||
-      Number(message.senderId || 0) === numericUserId
-    ) {
-      return message
-    }
-
-    const deliveredTo = Array.from(new Set([...(message.deliveredTo || []), numericUserId]))
-    const deliveredCount =
-      deliveredTo.length > (message.deliveredTo || []).length
-        ? Number(message.deliveredCount || 0) + 1
-        : Number(message.deliveredCount || 0)
-
-    return {
-      ...message,
-      deliveredTo,
-      deliveredCount: Math.max(deliveredCount, Number(message.readCount || 0)),
-      isDeliveredToMe:
-        numericUserId === currentUserId ? true : message.isDeliveredToMe,
-    }
+    const next = applyCursorToMessage(message, {
+      userId: numericUserId,
+      upToId: numericUpToId,
+      field: 'delivered',
+      recipientIds: chatRecipientIds.value,
+      currentUserId,
+    })
+    return numericUserId === currentUserId ? { ...next, isDeliveredToMe: true } : next
   })
 }
 
@@ -4865,7 +4879,7 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
-    void syncRecentMessages()
+    void syncRecentMessages({ force: true })
     // No catch-up fetch on first open — loadMessages already pulled the
     // freshest batch. Only resync on reconnect, where messages may have
     // arrived while the socket was down.
@@ -4917,6 +4931,9 @@ const loadMessages = async () => {
 
   isLoadingMessages.value = true
   chatError.value = ''
+  // Drop the previous group's denominator before we have this one's, or a
+  // failed load leaves the ticks measuring against the wrong roster.
+  setChatRecipientIds(null)
 
   try {
     const data = await requestJson(
@@ -4937,6 +4954,7 @@ const loadMessages = async () => {
     setMissedMessageAnchor(messages.value)
     nextMessagesAfter.value = data?.next_after || null
     nextMessagesBefore.value = nextBefore
+    setChatRecipientIds(data?.recipient_ids)
   } catch (error) {
     if (!isCurrentBackendGroupId(backendGroupId)) return
     chatError.value =
@@ -5030,9 +5048,15 @@ const loadNewerMessages = async () => {
   }
 }
 
-const syncRecentMessages = async () => {
+// ``force`` is for one-shot catch-ups (socket open, tab refocus) that must run
+// even when the periodic tick below would skip.
+const syncRecentMessages = async ({ force = false } = {}) => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId || isSyncingRecentMessages || !messages.value.length) return
+  if (isRecentMessageSyncBlocked) return
+  // The socket already delivers these messages; polling alongside it doubled
+  // chat traffic for no gain. Hidden tabs don't need either.
+  if (!force && (wsConnectionState.value === 'connected' || document.hidden)) return
 
   isSyncingRecentMessages = true
   try {
@@ -5040,6 +5064,9 @@ const syncRecentMessages = async () => {
       buildChatMessageCollectionUrl(backendGroupId, '?limit=100'),
     )
     if (!isCurrentBackendGroupId(backendGroupId)) return
+
+    // Membership changes mid-session otherwise leave a stale denominator.
+    setChatRecipientIds(data?.recipient_ids)
 
     const currentIds = new Set(messages.value.map((message) => String(message.id)))
     const currentNumericIds = messages.value
@@ -5060,6 +5087,12 @@ const syncRecentMessages = async () => {
     })
     nextMessagesAfter.value = data?.next_after || nextMessagesAfter.value
   } catch (error) {
+    // 401/403/404 won't fix themselves on the next tick — stop rather than
+    // retry forever. Transient 5xx/network keep polling.
+    if (error?.status === 401 || error?.status === 403 || error?.status === 404) {
+      isRecentMessageSyncBlocked = true
+      stopRecentMessageSync()
+    }
     console.error('Failed to sync recent chat messages:', error)
   } finally {
     isSyncingRecentMessages = false
@@ -5068,6 +5101,7 @@ const syncRecentMessages = async () => {
 
 const startRecentMessageSync = () => {
   stopRecentMessageSync()
+  if (isRecentMessageSyncBlocked) return
   recentMessageSyncTimer = window.setInterval(() => {
     void syncRecentMessages()
   }, 2500)
@@ -5077,6 +5111,13 @@ const stopRecentMessageSync = () => {
   if (!recentMessageSyncTimer) return
   window.clearInterval(recentMessageSyncTimer)
   recentMessageSyncTimer = null
+}
+
+// Coming back to a hidden tab, catch up immediately instead of waiting out the
+// tick the visibility guard above skipped.
+const onVisibilityChangeForMessageSync = () => {
+  if (document.hidden) return
+  void syncRecentMessages({ force: true })
 }
 
 const toggleMessageSearch = async () => {
@@ -5417,41 +5458,25 @@ const closeReceiptPopover = () => {
   openReceiptPopoverId.value = null
   receiptError.value = ''
   receiptPopoverAnchor.value = null
+  activeReceipts.value = { readBy: [], deliveredBy: [], pending: [] }
+  // Abandon any in-flight fetch, or its spinner outlives the popover and the
+  // next open renders "Loading…" forever.
+  receiptRequestId.value += 1
+  isLoadingReceipts.value = false
 }
 
 const getOtherRecipientCount = () => {
-  // Recipients = active group members minus the sender (current user).
-  const memberships = Array.isArray(groupMemberships.value) ? groupMemberships.value : []
+  // Server-supplied denominator: active members minus supervisors (who observe
+  // rather than participate) and login-blocked accounts, defined once in
+  // ``chat_recipients_qs``, minus me. Same set the numerator is filtered to.
+  const ids = chatRecipientIds.value
   const me = Number(auth.user?.id || 0)
-  const total = memberships.filter((m) => {
-    const uid = Number(m?.user_id ?? m?.user ?? m?.userId ?? 0)
-    return uid && uid !== me
-  }).length
-  return total
+  return ids.size - (ids.has(me) ? 1 : 0)
 }
 
-const getReceiptState = (message) => {
-  // Tick semantics requested by the team:
-  //   single grey  — delivered (no one has read yet)
-  //   double grey  — SOME but not ALL recipients have read
-  //   double blue  — ALL recipients have read
-  if (!message) return 'delivered'
-  const reads = Number(message.readCount) || 0
-  const recipients = getOtherRecipientCount()
-  if (recipients > 0 && reads >= recipients) return 'read'   // all-seen
-  if (reads > 0) return 'partial'                              // some-seen
-  return 'delivered'                                           // none-read yet
-}
+const getReceiptState = (message) => receiptState(message, getOtherRecipientCount())
 
-const getReceiptAriaLabel = (message) => {
-  const state = getReceiptState(message)
-  const r = Number(message.readCount) || 0
-  const recipients = getOtherRecipientCount()
-  if (state === 'read') return `Read by everyone (${r})`
-  if (state === 'partial') return `Read by ${r} of ${recipients || r}`
-  const d = Number(message.deliveredCount) || 0
-  return d > 0 ? `Delivered to ${d}` : 'Delivered'
-}
+const getReceiptAriaLabel = (message) => receiptAriaLabel(message, getOtherRecipientCount())
 
 const formatRelativeTime = (iso) => {
   if (!iso) return ''
@@ -5496,25 +5521,31 @@ const openMessageReceipts = async (messageId, event) => {
   } else {
     receiptPopoverAnchor.value = null
   }
-  if (messageReceiptCache.value.has(messageId)) return
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
     receiptError.value = 'Live discussion needs a backend numeric group id.'
     return
   }
+  activeReceipts.value = { readBy: [], deliveredBy: [], pending: [] }
+  // Sequence token, not just an id check: close-then-reopen the SAME message
+  // would otherwise let the first response settle the second request's popover.
+  const requestId = ++receiptRequestId.value
   isLoadingReceipts.value = true
   try {
     const data = await requestJson(buildChatMessageStatusUrl(backendGroupId, messageId))
-    messageReceiptCache.value.set(messageId, {
+    if (receiptRequestId.value !== requestId) return
+    activeReceipts.value = {
       readBy: Array.isArray(data?.read_by) ? data.read_by : [],
       deliveredBy: Array.isArray(data?.delivered_by) ? data.delivered_by : [],
-    })
+      pending: Array.isArray(data?.pending) ? data.pending : [],
+    }
   } catch (error) {
+    if (receiptRequestId.value !== requestId) return
     receiptError.value = error instanceof Error
       ? error.message
       : 'Read receipts are unavailable right now.'
   } finally {
-    isLoadingReceipts.value = false
+    if (receiptRequestId.value === requestId) isLoadingReceipts.value = false
   }
 }
 
@@ -5738,6 +5769,7 @@ const reloadGroupDetail = async () => {
 
   isLoadingGroupDetail.value = true
   disconnectChatSocket()
+  isRecentMessageSyncBlocked = false
   hasConnectedChatSocket = false
   tasks.value = []
   messages.value = []
@@ -5906,6 +5938,7 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
   document.addEventListener('mousedown', onDocumentClickForTaskFilters)
   document.addEventListener('keydown', onDocumentKeydownForTaskFilters)
+  document.addEventListener('visibilitychange', onVisibilityChangeForMessageSync)
 
   await ensureAuthUser()
 
@@ -5929,6 +5962,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   disconnectChatSocket()
   stopRecentMessageSync()
+  document.removeEventListener('visibilitychange', onVisibilityChangeForMessageSync)
   clearTimeout(typingStopTimer)
   clearTimeout(taskFilterReloadTimer)
   clearTimeout(searchHighlightTimer)
@@ -5990,6 +6024,14 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.65);
+}
+.gd-onboarding-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0;
+  color: #6c757d;
+  font-size: 0.78rem;
 }
 .gd-head-actions {
   display: flex;
@@ -8707,6 +8749,14 @@ onBeforeUnmount(() => {
 .message-receipt-popover-row .receipt-meta {
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+.message-receipt-popover-row.is-pending {
+  color: var(--text-muted);
+}
+
+.message-receipt-popover-row.is-pending .receipt-name {
+  font-weight: 500;
 }
 
 .message-receipt-popover-status {

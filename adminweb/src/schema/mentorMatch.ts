@@ -4,6 +4,9 @@ import { z } from "zod";
 
 export const groupStudentSchema = z.object({
   name: z.string(),
+  // Whether they have ever signed in. Mentors read silence in a group as a
+  // broken app; this says whether the student has even arrived yet.
+  hasLoggedIn: z.boolean().default(false),
   interests: z.array(z.string()),
 });
 

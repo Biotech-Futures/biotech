@@ -3,9 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.chat.models import MessageStatus, Messages
+from apps.chat.rbac import chat_recipients_qs
 from apps.chat.views import mark_delivered_cursor
 from apps.groups.models import GroupMembership, Groups
 from apps.users.models import AdminScope
@@ -410,3 +412,259 @@ class MarkDeliveredCursorUnitTests(TestCase):
         count = mark_delivered_cursor(self.receiver, other_group.id, msg.id)
         self.assertEqual(count, 0)
         self.assertEqual(MessageStatus.objects.filter(user=self.receiver, message=msg).count(), 0)
+
+
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+class MessageStatusEndpointTests(TestCase):
+    """The ``/status`` action behind the sender's read-receipt popover.
+
+    A mentor saw "Receipt details unavailable" on a message no student had
+    opened: two empty lists were indistinguishable from a failed lookup.
+    ``pending`` closes that gap, so these tests pin the empty case as hard
+    as the populated one.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+        self.mentor = User.objects.create_user(
+            email="mentor@test.com", password="pw", first_name="Kai", last_name="Lee"
+        )
+        self.student_a = User.objects.create_user(
+            email="sa@test.com", password="pw", first_name="Ann", last_name="Ng"
+        )
+        self.student_b = User.objects.create_user(
+            email="sb@test.com", password="pw", first_name="Bo", last_name="Tan"
+        )
+        self.supervisor = User.objects.create_user(
+            email="sup@test.com", password="pw", first_name="Sue", last_name="Perv"
+        )
+        self.suspended = User.objects.create_user(
+            email="susp@test.com", password="pw", first_name="Sus", last_name="Pended"
+        )
+        self.suspended.account_status = User.AccountStatus.SUSPENDED
+        self.suspended.save(update_fields=["account_status"])
+        # invited: is_active=False but can still sign in, so still a recipient.
+        self.invited = User.objects.create_user(
+            email="inv@test.com", password="pw", first_name="Ivy", last_name="Ted"
+        )
+        self.invited.account_status = User.AccountStatus.INVITED
+        self.invited.is_active = False
+        self.invited.save(update_fields=["account_status", "is_active"])
+        self.outsider = User.objects.create_user(
+            email="out2@test.com", password="pw", first_name="Out", last_name="Sider"
+        )
+
+        self.group = Groups.objects.create(group_name="G-mentor")
+        R = GroupMembership.MembershipRoleChoices
+        GroupMembership.objects.create(user=self.mentor, group=self.group, membership_role=R.MENTOR)
+        GroupMembership.objects.create(user=self.student_a, group=self.group, membership_role=R.STUDENT)
+        GroupMembership.objects.create(user=self.student_b, group=self.group, membership_role=R.STUDENT)
+        GroupMembership.objects.create(user=self.supervisor, group=self.group, membership_role=R.SUPERVISOR)
+        GroupMembership.objects.create(user=self.suspended, group=self.group, membership_role=R.STUDENT)
+        GroupMembership.objects.create(user=self.invited, group=self.group, membership_role=R.STUDENT)
+
+        self.welcome = Messages.objects.create(
+            group=self.group, sender_user=self.mentor, message_text="welcome!"
+        )
+
+        self.client_mentor = APIClient(); self.client_mentor.force_authenticate(self.mentor)
+        self.client_a = APIClient(); self.client_a.force_authenticate(self.student_a)
+        self.client_outsider = APIClient(); self.client_outsider.force_authenticate(self.outsider)
+
+    def _status_url(self, message):
+        return reverse(
+            "group-messages-message-status",
+            kwargs={"group_pk": self.group.id, "pk": message.id},
+        )
+
+    def _read_url(self, message):
+        return reverse(
+            "group-messages-read",
+            kwargs={"group_pk": self.group.id, "pk": message.id},
+        )
+
+    def _names(self, rows):
+        return sorted(row["name"] for row in rows)
+
+    def test_nobody_opened_yet_returns_pending_not_empty_everything(self):
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["read_by"], [])
+        self.assertEqual(resp.data["delivered_by"], [])
+        # Students + the invited student. Never the supervisor, the suspended
+        # account, or the mentor who sent it.
+        self.assertEqual(self._names(resp.data["pending"]), ["Ann Ng", "Bo Tan", "Ivy Ted"])
+
+    def test_sender_absent_from_every_list(self):
+        self.client_a.post(self._read_url(self.welcome))
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        everyone = (
+            resp.data["read_by"] + resp.data["delivered_by"] + resp.data["pending"]
+        )
+        self.assertNotIn(self.mentor.id, [row["id"] for row in everyone])
+
+    def test_pending_shrinks_as_receipts_land(self):
+        self.client_a.post(self._read_url(self.welcome))
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        self.assertEqual(self._names(resp.data["read_by"]), ["Ann Ng"])
+        self.assertEqual(self._names(resp.data["pending"]), ["Bo Tan", "Ivy Ted"])
+
+    def test_delivered_only_member_is_not_pending(self):
+        mark_delivered_cursor(self.student_b, self.group.id, self.welcome.id)
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        self.assertEqual(self._names(resp.data["delivered_by"]), ["Bo Tan"])
+        self.assertNotIn("Bo Tan", self._names(resp.data["pending"]))
+
+    def test_supervisor_read_is_absent_from_every_list(self):
+        # The popover and the ticks are scoped to the same recipient set. A
+        # supervisor read showing under "Read by" while the tick above it said
+        # "Delivered" was the contradiction this pins shut.
+        client_sup = APIClient(); client_sup.force_authenticate(self.supervisor)
+        client_sup.post(self._read_url(self.welcome))
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        everyone = resp.data["read_by"] + resp.data["delivered_by"] + resp.data["pending"]
+        self.assertNotIn("Sue Perv", [row["name"] for row in everyone])
+
+    def test_pending_is_withheld_from_everyone_but_the_sender(self):
+        # For a non-sender, `pending` on an old message is a roster of who has
+        # never been online — exactly what has_logged_in withholds from peers.
+        resp = self.client_a.get(self._status_url(self.welcome))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["pending"], [])
+
+    def test_pending_is_visible_to_an_admin(self):
+        admin = get_user_model().objects.create_user(
+            email="admin-receipts@test.com", password="pw", first_name="Ad", last_name="Min"
+        )
+        AdminScope.objects.create(user=admin)
+        client_admin = APIClient(); client_admin.force_authenticate(admin)
+        resp = client_admin.get(self._status_url(self.welcome))
+        self.assertEqual(self._names(resp.data["pending"]), ["Ann Ng", "Bo Tan", "Ivy Ted"])
+
+    def test_deleted_message_does_not_name_its_readers(self):
+        # Moderated messages blank their text everywhere; the receipts must not
+        # keep naming who read what was removed.
+        self.client_a.post(self._read_url(self.welcome))
+        self.welcome.deleted_at = timezone.now()
+        self.welcome.save(update_fields=["deleted_at"])
+
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_by_ids"], [])
+        self.assertEqual(row["read_count"], 0)
+
+    def test_supervisor_read_does_not_count_toward_the_ticks(self):
+        # The bug this guards: read_count counted every status row while
+        # the recipient set excluded supervisors, so one supervisor opening the
+        # board could push a message to "read by everyone" while students who
+        # never received it were still listed as pending.
+        client_sup = APIClient(); client_sup.force_authenticate(self.supervisor)
+        client_sup.post(self._read_url(self.welcome))
+        self.client_a.post(self._read_url(self.welcome))
+
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_by_ids"], [self.student_a.id])
+        self.assertEqual(row["read_count"], 1)
+        self.assertNotIn(self.supervisor.id, row["delivered_to_ids"])
+        # Numerator and denominator must describe the same population.
+        self.assertNotIn(self.supervisor.id, resp.data["recipient_ids"])
+        self.assertLess(row["read_count"], len(resp.data["recipient_ids"]) - 1)
+
+    def test_blocked_account_read_does_not_count_toward_the_ticks(self):
+        # Same failure mode via a suspended member rather than a supervisor.
+        MessageStatus.objects.create(
+            message=self.welcome,
+            user=self.suspended,
+            status=MessageStatus.StatusChoices.READ,
+            delivered_at=timezone.now(),
+            read_at=timezone.now(),
+        )
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_count"], 0)
+        self.assertEqual(row["read_by_ids"], [])
+
+    def test_left_member_is_not_pending(self):
+        membership = GroupMembership.objects.get(user=self.student_b, group=self.group)
+        membership.left_at = timezone.now()
+        membership.save(update_fields=["left_at"])
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        self.assertEqual(self._names(resp.data["pending"]), ["Ann Ng", "Ivy Ted"])
+
+    def test_non_member_cannot_read_receipts(self):
+        resp = self.client_outsider.get(self._status_url(self.welcome))
+        self.assertIn(resp.status_code, (403, 404))
+
+    def test_pending_carries_no_email(self):
+        # get_full_name only; emails stay admin-only elsewhere in the roster API.
+        resp = self.client_mentor.get(self._status_url(self.welcome))
+        serialized = str(resp.data)
+        self.assertNotIn("@test.com", serialized)
+
+    # ---- reader ids + recipient denominator ----
+
+    def _list_url(self):
+        return reverse("group-messages-list", kwargs={"group_pk": self.group.id})
+
+    def test_list_exposes_reader_ids_matching_counts(self):
+        self.client_a.post(self._read_url(self.welcome))
+        mark_delivered_cursor(self.student_b, self.group.id, self.welcome.id)
+
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_by_ids"], [self.student_a.id])
+        self.assertEqual(
+            sorted(row["delivered_to_ids"]),
+            sorted([self.student_a.id, self.student_b.id]),
+        )
+        # The ids must agree with the counts the ticks are drawn from.
+        self.assertEqual(len(row["read_by_ids"]), row["read_count"])
+        self.assertEqual(len(row["delivered_to_ids"]), row["delivered_count"])
+
+    def test_list_reader_ids_empty_when_nobody_opened(self):
+        resp = self.client_mentor.get(self._list_url())
+        row = next(m for m in resp.data["items"] if m["id"] == self.welcome.id)
+        self.assertEqual(row["read_by_ids"], [])
+        self.assertEqual(row["delivered_to_ids"], [])
+
+    def test_recipient_ids_exclude_supervisor_and_blocked(self):
+        # 2 students + the invited student + the mentor. Not the supervisor,
+        # not the suspended account. The caller removes themselves client-side.
+        resp = self.client_mentor.get(self._list_url())
+        self.assertEqual(
+            sorted(resp.data["recipient_ids"]),
+            sorted([self.mentor.id, self.student_a.id, self.student_b.id, self.invited.id]),
+        )
+
+    def test_recipient_set_is_relative_to_the_caller(self):
+        # Same size for both callers, so assert the actual membership rather
+        # than a count that can't tell "excludes me" from "excludes anyone".
+        recipients_for_mentor = set(
+            chat_recipients_qs(self.group.id, exclude_user_id=self.mentor.id)
+            .values_list("user_id", flat=True)
+        )
+        recipients_for_student = set(
+            chat_recipients_qs(self.group.id, exclude_user_id=self.student_a.id)
+            .values_list("user_id", flat=True)
+        )
+        self.assertEqual(
+            recipients_for_mentor,
+            {self.student_a.id, self.student_b.id, self.invited.id},
+        )
+        self.assertEqual(
+            recipients_for_student,
+            {self.mentor.id, self.student_b.id, self.invited.id},
+        )
+        # The wire payload is not caller-relative — every member sees the same set.
+        self.assertEqual(
+            sorted(self.client_a.get(self._list_url()).data["recipient_ids"]),
+            sorted([self.mentor.id, self.student_a.id, self.student_b.id, self.invited.id]),
+        )
+
+    def test_recipient_ids_drop_a_departed_member(self):
+        membership = GroupMembership.objects.get(user=self.student_b, group=self.group)
+        membership.left_at = timezone.now()
+        membership.save(update_fields=["left_at"])
+        resp = self.client_mentor.get(self._list_url())
+        self.assertNotIn(self.student_b.id, resp.data["recipient_ids"])

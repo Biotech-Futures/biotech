@@ -4,7 +4,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers, status, viewsets
@@ -22,7 +22,7 @@ from .management.permissions import (
     HasParentalConsentToPost,
     IsGroupMemberOrAdmin,
 )
-from .rbac import can_access_chat_group
+from .rbac import can_access_chat_group, chat_recipients_qs
 from .models import (
     MessageAttachment,
     MessageMention,
@@ -46,6 +46,10 @@ from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
 from apps.common.rbac import is_admin
+
+# Handoff URLs are followed within a second of being minted, so they don't need
+# the hour-long default that cached image URLs rely on.
+ATTACHMENT_URL_EXPIRY_SECONDS = 120
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -192,6 +196,11 @@ def serialize_message_for_broadcast(message, context=None):
     data["attachments"] = public.get("attachments", [])
     data["preview"] = public.get("preview")
     return data
+
+
+def _display_name(user, user_id) -> str:
+    # Never return "" — a blank row in the receipt popover reads as a broken UI.
+    return (user.get_full_name().strip() if user else "") or f"User {user_id}"
 
 
 def apply_mentions(message) -> list[int]:
@@ -391,18 +400,15 @@ class MessageViewSet(viewsets.ModelViewSet):
                     "reactions",
                     queryset=MessageReaction.objects.select_related("user").order_by("id"),
                 ),
+                # Backs read_by_ids/delivered_to_ids without an N+1.
+                Prefetch(
+                    "statuses",
+                    queryset=MessageStatus.objects.only(
+                        "id", "message_id", "user_id", "read_at", "delivered_at"
+                    ),
+                ),
             )
             .annotate(
-                _read_count=Count(
-                    "statuses",
-                    filter=Q(statuses__read_at__isnull=False),
-                    distinct=True,
-                ),
-                _delivered_count=Count(
-                    "statuses",
-                    filter=Q(statuses__delivered_at__isnull=False),
-                    distinct=True,
-                ),
                 _is_read_by_me=Exists(
                     MessageStatus.objects.filter(
                         message=OuterRef("pk"),
@@ -441,6 +447,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             "attachments" not in cache
             or "resources" not in cache
             or "reactions" not in cache
+            or "statuses" not in cache
         ):
             try:
                 message = self._message_queryset().get(pk=message.pk)
@@ -458,6 +465,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             "attachments" not in cache
             or "resources" not in cache
             or "reactions" not in cache
+            or "statuses" not in cache
         ):
             user_id = getattr(getattr(self, "request", None), "user", None)
             user_id = getattr(user_id, "id", None)
@@ -471,18 +479,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                             "reactions",
                             queryset=MessageReaction.objects.select_related("user").order_by("id"),
                         ),
+                        Prefetch(
+                            "statuses",
+                            queryset=MessageStatus.objects.only(
+                                "id", "message_id", "user_id", "read_at", "delivered_at"
+                            ),
+                        ),
                     )
                     .annotate(
-                        _read_count=Count(
-                            "statuses",
-                            filter=Q(statuses__read_at__isnull=False),
-                            distinct=True,
-                        ),
-                        _delivered_count=Count(
-                            "statuses",
-                            filter=Q(statuses__delivered_at__isnull=False),
-                            distinct=True,
-                        ),
                         _is_read_by_me=Exists(
                             MessageStatus.objects.filter(
                                 message=OuterRef("pk"),
@@ -589,7 +593,20 @@ class MessageViewSet(viewsets.ModelViewSet):
         next_before = items[-1].id if len(items) == limit else None
 
         return Response(
-            {"items": data, "next_after": next_after, "next_before": next_before},
+            {
+                "items": data,
+                "next_after": next_after,
+                "next_before": next_before,
+                # The exact set `read_by_ids` is filtered against, so the client
+                # can apply live read cursors against the same population the
+                # counts came from. A count alone was not enough: the client
+                # could not tell whether an incoming reader belonged to it, and
+                # a supervisor opening the board pushed the ticks to "everyone".
+                # Not caller-relative — the caller removes themselves.
+                "recipient_ids": sorted(
+                    chat_recipients_qs(gid).values_list("user_id", flat=True)
+                ),
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -934,15 +951,29 @@ class MessageViewSet(viewsets.ModelViewSet):
     def message_status(self, request, *args, **kwargs):
         """Return the per-user delivery + read state for one message.
 
-        Powers the FE's "Read by N" popover. Excludes the sender from both
-        lists (the sender has no ``MessageStatus`` row of their own). Names
-        come from ``Users.get_full_name()`` so the FE renders the same
+        Powers the FE's "Read by N" popover. Excludes the sender from all
+        three lists (the sender has no ``MessageStatus`` row of their own).
+        Names come from ``Users.get_full_name()`` so the FE renders the same
         attribution string used elsewhere in chat.
+
+        ``pending`` names the recipients with no row at all. Without it the
+        FE cannot tell "nobody has opened this yet" apart from a failed
+        lookup, and rendered the latter. It goes only to the message's own
+        sender (and admins): to anyone else it is a roster of which
+        classmates have not been online, which ``has_logged_in`` on the
+        group roster deliberately withholds.
+
+        All three lists are scoped to ``chat_recipients_qs`` — the same set
+        behind ``read_by_ids`` — so the popover can never contradict the
+        ticks drawn above it.
         """
         message = self.get_object()
+        recipient_ids = set(
+            chat_recipients_qs(message.group_id).values_list("user_id", flat=True)
+        )
         statuses = (
             MessageStatus.objects
-            .filter(message_id=message.id)
+            .filter(message_id=message.id, user_id__in=recipient_ids)
             .exclude(user_id=message.sender_user_id)
             .select_related("user")
             .order_by("-read_at", "-delivered_at", "id")
@@ -950,9 +981,11 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         read_by = []
         delivered_by = []
+        accounted_ids = set()
         for s in statuses:
             user = s.user
-            name = user.get_full_name() if user else f"User {s.user_id}"
+            name = _display_name(user, s.user_id)
+            accounted_ids.add(s.user_id)
             if s.read_at is not None:
                 read_by.append({"id": s.user_id, "name": name, "read_at": s.read_at})
             elif s.delivered_at is not None:
@@ -960,8 +993,19 @@ class MessageViewSet(viewsets.ModelViewSet):
                     {"id": s.user_id, "name": name, "delivered_at": s.delivered_at}
                 )
 
+        may_see_pending = (
+            message.sender_user_id == request.user.id or is_admin(request.user)
+        )
+        pending = [
+            {"id": m.user_id, "name": _display_name(m.user, m.user_id)}
+            for m in chat_recipients_qs(
+                message.group_id, exclude_user_id=message.sender_user_id
+            ).order_by("user__first_name", "user__last_name", "user_id")
+            if m.user_id not in accounted_ids
+        ] if may_see_pending else []
+
         return Response(
-            {"read_by": read_by, "delivered_by": delivered_by},
+            {"read_by": read_by, "delivered_by": delivered_by, "pending": pending},
             status=status.HTTP_200_OK,
         )
 
@@ -985,21 +1029,42 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
-        if not CHAT_FILE_SERVICE.exists(attachment.storage_key):
-            return Response(
-                {"detail": "The attachment file is no longer available in storage."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
         # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
         # ``inline`` so the browser previews the file in a tab (PDF viewer,
         # image, etc.) instead of forcing a save. Without the flag the default
         # download semantics stand — keeps existing callers that only want
         # the save flow unchanged.
         inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
-        proxy = (request.query_params.get("proxy") or "").lower() in {"1", "true", "yes"}
+
+        # ``?mode=url`` hands the client a signed URL instead of streaming bytes
+        # through the app server. The browser can't fetch() a cross-origin
+        # redirect, so proxying used to be the only way to drive a save — but the
+        # signed URL already carries Content-Disposition, so a plain navigation
+        # downloads with the right filename and Azure serves the bytes.
+        if (request.query_params.get("mode") or "").lower() == "url":
+            download_url = CHAT_FILE_SERVICE.resolve_url(
+                attachment.storage_key,
+                filename=attachment.attachment_filename,
+                content_type=attachment.attachment_mime_type,
+                as_attachment=not inline,
+                expire=ATTACHMENT_URL_EXPIRY_SECONDS,
+            )
+            if not download_url:
+                return Response(
+                    {"detail": "The attachment could not be opened for download."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return Response(
+                {
+                    "download_url": download_url,
+                    "filename": attachment.attachment_filename,
+                    "mime_type": attachment.attachment_mime_type,
+                },
+                status=status.HTTP_200_OK,
+            )
+
         return serve_managed_file(
-            resolve_url=(lambda *args, **kwargs: None) if proxy else CHAT_FILE_SERVICE.resolve_url,
+            resolve_url=CHAT_FILE_SERVICE.resolve_url,
             open_file=CHAT_FILE_SERVICE.open,
             storage_key=attachment.storage_key,
             filename=attachment.attachment_filename,

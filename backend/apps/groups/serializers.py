@@ -11,12 +11,50 @@ class CountrySerializer(serializers.ModelSerializer):
 
 class GroupMembershipSerializer(serializers.ModelSerializer):
   user_name = serializers.SerializerMethodField()
+  has_logged_in = serializers.SerializerMethodField()
 
   class Meta:
     model = GroupMembership
-    fields = ['id', 'group', 'user', 'user_name', 'membership_role', 'joined_at', 'left_at']
-    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at']
+    fields = [
+      'id', 'group', 'user', 'user_name', 'membership_role',
+      'joined_at', 'left_at', 'has_logged_in',
+    ]
+    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in']
     validators = []
+
+  def get_has_logged_in(self, obj) -> bool | None:
+    # A boolean, never the raw last_login: staff need "have they started?",
+    # not a behavioural log of a minor. `None` for callers who aren't staff —
+    # a student must not be able to enumerate which classmates never signed in.
+    if not self._caller_is_staff_for(obj.group_id):
+      return None
+    user = obj.user
+    return bool(user and user.last_login)
+
+  def _caller_is_staff_for(self, group_id) -> bool:
+    request = self.context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+      return False
+    # Both lookups are cached in the request-scoped context: is_admin() is an
+    # uncached AdminScope query, and this runs once per row of the roster.
+    if "_caller_is_admin" not in self.context:
+      from apps.common.rbac import is_admin
+      self.context["_caller_is_admin"] = is_admin(user)
+    if self.context["_caller_is_admin"]:
+      return True
+    cache = self.context.setdefault("_staff_groups", {})
+    if group_id not in cache:
+      cache[group_id] = GroupMembership.objects.filter(
+        group_id=group_id,
+        user=user,
+        left_at__isnull=True,
+        membership_role__in=[
+          GroupMembership.MembershipRoleChoices.MENTOR,
+          GroupMembership.MembershipRoleChoices.SUPERVISOR,
+        ],
+      ).exists()
+    return cache[group_id]
 
   def get_user_name(self, obj) -> str | None:
     user = obj.user
