@@ -546,14 +546,22 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit daily by
-# .github/workflows/unread-digest.yml. Same fail-loud contract as
-# RSVP_REMINDER_TOKEN: empty value => 503, so a misconfigured deploy can't
-# silently expose an unauthenticated trigger. MIN_INTERVAL is set a little under
-# 24h so a daily cron whose fire time drifts a few minutes never skips a day.
+# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit every 15
+# minutes by .github/workflows/unread-digest.yml so the first notification is
+# fast. Same fail-loud contract as RSVP_REMINDER_TOKEN: empty value => 503, so
+# a misconfigured deploy can't silently expose an unauthenticated trigger.
+# MIN_INTERVAL 24h is what caps it at one email per user per day and anchors
+# repeat nudges to the time of the user's first notification — anything
+# shorter under a 15-min cron re-fires the moment the gate expires, walking
+# sends earlier every day (20h => -4h/day, reaching 1-5am within a week).
 UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
 UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
-    "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=20, cast=int
+    "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=24, cast=int
+)
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
+# on a background thread. Sync dispatch (tests) runs it inline instead.
+UNREAD_DIGEST_DISPATCH_SYNC = config(
+    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
 )
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to

@@ -1171,16 +1171,21 @@ class MentionViewSet(viewsets.GenericViewSet):
 
 
 class UnreadDigestTriggerView(APIView):
-    """Cron-trigger endpoint for the daily unread-messages email digest.
+    """Cron-trigger endpoint for the unread-messages email digest.
 
-    Called once a day by ``.github/workflows/unread-digest.yml`` (no in-process
-    scheduler / Celery worker). Auth is a shared-secret header, not a user
-    session — there is no human caller. Mirrors ``RsvpReminderTriggerView``:
+    Called every 15 minutes by ``.github/workflows/unread-digest.yml`` (no
+    in-process scheduler / Celery worker); per-user throttling lives in the
+    service, not here. Auth is a shared-secret header, not a user session —
+    there is no human caller. Mirrors ``RsvpReminderTriggerView``:
 
     * ``UNREAD_DIGEST_TOKEN`` must be set; if blank the endpoint returns 503 so a
       misconfigured deploy fails loud instead of silently exposing an
       unauthenticated trigger.
     * The header value is compared with ``hmac.compare_digest`` (constant time).
+
+    Responds 202 immediately; the run itself happens on a background thread
+    (it can exceed Azure's ~230s gateway cap) and logs its counts as
+    ``unread_digest.completed``.
     """
 
     authentication_classes = []
@@ -1188,7 +1193,7 @@ class UnreadDigestTriggerView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        from .services.digest import send_unread_message_digests
+        from .services.digest import dispatch_unread_digest
 
         expected = getattr(settings, "UNREAD_DIGEST_TOKEN", "") or ""
         if not expected:
@@ -1203,13 +1208,8 @@ class UnreadDigestTriggerView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        considered, sent, failed = send_unread_message_digests()
         return Response(
-            {
-                "users_considered": considered,
-                "emails_sent": sent,
-                "emails_failed": failed,
-            },
-            status=status.HTTP_200_OK,
+            {"status": dispatch_unread_digest()},
+            status=status.HTTP_202_ACCEPTED,
         )
 

@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.chat.models import ChatDigestState, MessageStatus, Messages
+from apps.chat.services import digest as digest_service
 from apps.chat.services.digest import send_unread_message_digests
 from apps.groups.models import GroupMembership, Groups
 
@@ -31,7 +33,8 @@ DIGEST_SETTINGS = dict(
     CONNECT_FROM_ADDRESS="connect@biotechfutures.org",
     CONNECT_DEFAULT_FROM_EMAIL="BIOTech Connect <connect@biotechfutures.org>",
     UNREAD_DIGEST_TOKEN="secret-token",
-    UNREAD_DIGEST_MIN_INTERVAL_HOURS=20,
+    UNREAD_DIGEST_MIN_INTERVAL_HOURS=24,
+    UNREAD_DIGEST_DISPATCH_SYNC=True,
     FRONTEND_BASE_URL="https://mentoring.biotechfutures.org",
 )
 
@@ -230,6 +233,17 @@ class UnreadDigestServiceTests(TestCase):
         state = ChatDigestState.objects.get(user=self.bob)
         self.assertEqual(state.last_notified_message_id, m2.id)
 
+    def test_20h_later_still_blocked_by_24h_interval(self):
+        # The old 20h gate under a 15-min cron walked sends 4h earlier per day.
+        self._msg(self.alice)
+        send_unread_message_digests()
+        ChatDigestState.objects.filter(user=self.bob).update(
+            last_notified_at=timezone.now() - timedelta(hours=21)
+        )
+        self._msg(self.alice)  # genuinely new, but inside the 24h window
+        _, sent, _ = send_unread_message_digests()
+        self.assertEqual(sent, 0)
+
     def test_read_clears_new_message(self):
         m1 = self._msg(self.alice)
         send_unread_message_digests()          # hwm = m1.id
@@ -241,6 +255,36 @@ class UnreadDigestServiceTests(TestCase):
         )
         _, sent, _ = send_unread_message_digests()
         self.assertEqual(sent, 0)
+
+    # -- prefilter / high-water-mark advance -----------------------------
+
+    def test_all_read_scan_advances_mark_without_consuming_cadence(self):
+        m1 = self._msg(self.alice)
+        MessageStatus.objects.create(
+            message=m1, user=self.bob, status=READ,
+            delivered_at=timezone.now(), read_at=timezone.now(),
+        )
+        _, sent, _ = send_unread_message_digests()
+        self.assertEqual(sent, 0)
+        state = ChatDigestState.objects.get(user=self.bob)
+        self.assertEqual(state.last_notified_message_id, m1.id)
+        self.assertIsNone(state.last_notified_at)  # cadence untouched
+        # A genuinely new message must email immediately, not wait 24h.
+        self._msg(self.alice)
+        _, sent, _ = send_unread_message_digests()
+        self.assertEqual(sent, 1)
+        self.assertEqual(self._recipients(), ["bob@t.com"])
+
+    def test_prefilter_skips_users_with_nothing_new(self):
+        self._msg(self.alice)
+        send_unread_message_digests()  # bob emailed; alice's mark advanced
+        self._age_out(self.bob)
+        with patch.object(
+            digest_service, "_compute_unread", wraps=digest_service._compute_unread
+        ) as spy:
+            _, sent, _ = send_unread_message_digests()
+        self.assertEqual(sent, 0)
+        spy.assert_not_called()  # zero per-user queries on a quiet run
 
     # -- dry run ---------------------------------------------------------
 
@@ -267,8 +311,76 @@ class UnreadDigestTriggerViewTests(TestCase):
         resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="wrong")
         self.assertEqual(resp.status_code, 401)
 
-    def test_200_on_valid_token(self):
+    def test_202_on_valid_token(self):
         resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn("emails_sent", resp.data)
-        self.assertIn("users_considered", resp.data)
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.data["status"], "started")
+
+    def test_valid_trigger_sends_digest(self):
+        # End-to-end through the view (sync dispatch): unread message -> email.
+        alice = User.objects.create_user(
+            email="alice@t.com", password="pw", first_name="Alice", last_name="A"
+        )
+        bob = User.objects.create_user(
+            email="bob@t.com", password="pw", first_name="Bob", last_name="B"
+        )
+        group = Groups.objects.create(group_name="BTF1")
+        GroupMembership.objects.create(
+            user=alice, group=group, membership_role=Role.MENTOR
+        )
+        GroupMembership.objects.create(
+            user=bob, group=group, membership_role=Role.STUDENT
+        )
+        Messages.objects.create(group=group, sender_user=alice, message_text="hi")
+
+        resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual([box.to[0] for box in mail.outbox], ["bob@t.com"])
+
+    def test_202_already_running_when_lock_held(self):
+        # Hold the dispatch lock so the async path reports the in-flight run
+        # without spawning a second thread.
+        self.assertTrue(digest_service._dispatch_lock.acquire(blocking=False))
+        try:
+            with override_settings(UNREAD_DIGEST_DISPATCH_SYNC=False):
+                resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
+        finally:
+            digest_service._dispatch_lock.release()
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.data["status"], "already_running")
+
+
+class UnreadDigestDispatchTests(TestCase):
+    """Lock hygiene on the real thread path, which every other class bypasses
+    via UNREAD_DIGEST_DISPATCH_SYNC. The digest itself is stubbed: what's
+    under test is that the lock frees again whatever the run does."""
+
+    def _dispatch_and_await(self, digest_stub):
+        ran = threading.Event()
+
+        def tracked():
+            try:
+                return digest_stub()
+            finally:
+                ran.set()
+
+        with override_settings(UNREAD_DIGEST_DISPATCH_SYNC=False), patch.object(
+            digest_service, "send_unread_message_digests", side_effect=tracked
+        ):
+            self.assertEqual(digest_service.dispatch_unread_digest(), "started")
+            self.assertTrue(ran.wait(5), "digest thread never ran")
+        # Release happens just after the stub returns; poll-acquire to sync.
+        self.assertTrue(
+            digest_service._dispatch_lock.acquire(timeout=5),
+            "dispatch lock leaked",
+        )
+        digest_service._dispatch_lock.release()
+
+    def test_lock_released_after_successful_run(self):
+        self._dispatch_and_await(lambda: (0, 0, 0))
+
+    def test_lock_released_after_crashed_run(self):
+        def boom():
+            raise RuntimeError("boom")
+
+        self._dispatch_and_await(boom)
