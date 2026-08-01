@@ -19,7 +19,7 @@ import {
   PaperclipIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 function formatMessageTime(value: string) {
@@ -27,6 +27,70 @@ function formatMessageTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+// Text-node linkification (no HTML injection) — mirrors the user app's
+// utils/linkify.ts: http(s) or bare www. URLs, trailing punctuation excluded,
+// with ')' re-claimed when it closes a '(' inside the URL (wiki-style links).
+const URL_PATTERN = /https?:\/\/[^\s<>"']+|(?<![\w@.])www\.[^\s<>"']+/gi;
+const TRAILING_PUNCTUATION = /[.,!?;:)\]'"]+$/;
+
+const countChar = (haystack: string, needle: string) =>
+  haystack.split(needle).length - 1;
+
+function trimTrailing(raw: string) {
+  let cleaned = raw.replace(TRAILING_PUNCTUATION, "");
+  while (
+    raw[cleaned.length] === ")" &&
+    countChar(cleaned, "(") > countChar(cleaned, ")")
+  ) {
+    cleaned += ")";
+  }
+  return cleaned;
+}
+
+function toHref(candidate: string): string | null {
+  if (/^https?:\/\/\S{3,}$/i.test(candidate)) return candidate;
+  if (/^www\.\S{2,}$/i.test(candidate)) return `https://${candidate}`;
+  return null;
+}
+
+function renderTextWithLinks(text: string) {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  URL_PATTERN.lastIndex = 0;
+  let match = URL_PATTERN.exec(text);
+
+  while (match) {
+    const cleaned = trimTrailing(match[0]);
+    const href = toHref(cleaned);
+    if (match.index > cursor) {
+      nodes.push(text.slice(cursor, match.index));
+    }
+    if (href) {
+      nodes.push(
+        <a
+          key={`${match.index}-${cleaned}`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:opacity-80"
+        >
+          {cleaned}
+        </a>,
+      );
+    } else {
+      nodes.push(cleaned);
+    }
+    cursor = match.index + cleaned.length;
+    URL_PATTERN.lastIndex = cursor;
+    match = URL_PATTERN.exec(text);
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return nodes;
 }
 
 interface GroupMessagesDialogProps {
@@ -191,13 +255,13 @@ export function GroupMessagesDialog({
                   ))}
                   {message.text && (
                     <p className="w-full whitespace-pre-wrap break-words text-sm leading-relaxed">
-                      {message.text}
+                      {renderTextWithLinks(message.text)}
                     </p>
                   )}
                 </div>
               ) : (
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                  {message.text}
+                  {message.text ? renderTextWithLinks(message.text) : message.text}
                 </p>
               )}
               {message.edited_at && (

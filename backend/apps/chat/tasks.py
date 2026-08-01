@@ -185,8 +185,12 @@ def _persist_and_broadcast(
             },
         )
         group_id = message.group_id
+        # The Redis cache stores only the OG triple (keyed by url); the wire
+        # payload adds ``url`` so the FE card links out — same shape as
+        # MessagePreview.to_payload().
+        wire_payload = {**payload, "url": url}
         transaction.on_commit(
-            lambda: _broadcast_preview(group_id, message_id, payload)
+            lambda: _broadcast_preview(group_id, message_id, wire_payload)
         )
 
 
