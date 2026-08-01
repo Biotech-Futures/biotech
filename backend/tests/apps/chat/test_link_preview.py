@@ -375,6 +375,7 @@ class FetchOGDataWorkerTests(TestCase):
                 "title": "Hello OG",
                 "desc": "A short description.",
                 "img": "https://example.com/static/cover.png",
+                "url": url,
             },
         )
 

@@ -1266,6 +1266,14 @@
                       <span v-if="segment.type === 'mention'" class="mention-token">{{
                         segment.text
                       }}</span>
+                      <a
+                        v-else-if="segment.type === 'link'"
+                        class="message-link"
+                        :href="segment.href"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click.stop
+                      >{{ segment.text }}</a>
                       <span v-else>{{ segment.text }}</span>
                     </template>
                   </div>
@@ -1425,7 +1433,16 @@
                     </span>
                   </div>
 
-                  <div v-if="message.preview" class="message-preview">
+                  <!-- Anchor without href (no resolvable URL) degrades to an
+                       inert card, so no v-if juggling between tag types. -->
+                  <a
+                    v-if="message.preview"
+                    class="message-preview"
+                    :href="getPreviewHref(message)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click.stop
+                  >
                     <img
                       v-if="message.preview.img"
                       :src="message.preview.img"
@@ -1437,7 +1454,7 @@
                     />
                     <strong v-if="message.preview.title">{{ message.preview.title }}</strong>
                     <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
-                  </div>
+                  </a>
 
                   <!-- Reaction chips strip — always at bottom-left of bubble.
                        The smile add-button now lives in the header (next to time)
@@ -1740,6 +1757,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
 import {
   applyCursorToMessage,
   getReceiptAriaLabel as receiptAriaLabel,
@@ -3528,8 +3546,19 @@ const getMessageTextSegments = (text) => {
     segments.push({ type: 'text', text: source.slice(cursor) })
   }
 
-  return segments.length ? segments : [{ type: 'text', text: source }]
+  const resolved = segments.length ? segments : [{ type: 'text', text: source }]
+  // Second pass: URLs inside plain-text runs become 'link' segments. Templates
+  // that can't nest anchors (search results, reply previews) fall through to
+  // their plain-span branch for these.
+  return resolved.flatMap((segment) =>
+    segment.type === 'text' ? splitTextIntoLinkSegments(segment.text) : [segment],
+  )
 }
+
+// Preview cards link to the unfurled URL; older payloads without ``url``
+// fall back to the first URL in the message body (what the preview was
+// generated from).
+const getPreviewHref = (message) => message?.preview?.url || firstLinkHref(message?.text)
 
 const getMessageSearchSummary = (message) => {
   if (message?.attachments?.length) return getAttachmentLabel(message.attachments[0])
@@ -4331,7 +4360,9 @@ const insertMention = (member) => {
   const prefix = newMessage.value.slice(0, mentionStartIndex.value)
   const suffix = newMessage.value.slice(cursor)
   const spacer = suffix.startsWith(' ') || !suffix ? '' : ' '
-  newMessage.value = `${prefix}${visible} ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
+  // Collapse doubled-up spaces around the inserted token, but never touch
+  // newlines — Shift+Enter line breaks must survive mention insertion.
+  newMessage.value = `${prefix}${visible} ${spacer}${suffix}`.replace(/[^\S\n]{2,}/g, ' ')
   mentionStartIndex.value = -1
   mentionQuery.value = ''
   activeMentionSuggestionIndex.value = 0
@@ -8465,6 +8496,21 @@ onBeforeUnmount(() => {
   color: #fff !important;
 }
 
+/* Preserve typed line breaks (Shift+Enter) — HTML collapses them otherwise. */
+.message-text {
+  white-space: pre-wrap;
+}
+
+.message-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-link:hover {
+  opacity: 0.85;
+}
+
 .message-text--deleted {
   color: var(--text-secondary);
   font-style: italic;
@@ -8521,6 +8567,11 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--surface-base) 86%, transparent);
   color: var(--text-primary);
   max-width: 360px;
+  text-decoration: none;
+}
+
+.message-preview[href]:hover {
+  border-color: var(--dark-green);
 }
 
 .message-preview img {

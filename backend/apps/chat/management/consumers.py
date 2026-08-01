@@ -34,7 +34,7 @@ Event taxonomy:
   message.reaction_updated     flat:   reactions: {...}
   message.read_updated         flat:   reader_id, up_to_id
   message.delivered_updated    flat:   user_id, up_to_id
-  message.preview_ready        flat:   preview: {title, desc, img}
+  message.preview_ready        flat:   preview: {title, desc, img, url}
   user.typing                  flat:   user_id, user_name, typing
   mention.created              flat:   sender_user_id, preview (text snippet)
 

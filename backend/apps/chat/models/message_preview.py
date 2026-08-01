@@ -41,14 +41,15 @@ class MessagePreview(models.Model):
     def to_payload(self) -> dict[str, str]:
         """Wire shape for the websocket ``message.preview_ready`` event.
 
-        The contract is fixed by the spec — three keys, all strings — so the
-        front end can render with no null checks. Empty strings represent
-        "missing" rather than ``null``.
+        Fixed contract — four keys, all strings — so the front end can render
+        with no null checks. Empty strings represent "missing" rather than
+        ``null``. ``url`` makes the FE preview card clickable.
         """
         return {
             "title": self.title or "",
             "desc": self.description or "",
             "img": self.image_url or "",
+            "url": self.url or "",
         }
 
     def __str__(self) -> str:
