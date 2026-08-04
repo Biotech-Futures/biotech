@@ -1,19 +1,29 @@
-name: Daily unread-messages digest
+name: Unread-messages digest
 
-# Hits the HMAC-protected digest dispatcher once a day. The endpoint itself
-# throttles per user (ChatDigestState), so at most one email per user per day.
+# Hits the HMAC-protected digest dispatcher every 15 minutes so the FIRST
+# email lands within ~15 min of a message going unread. The endpoint throttles
+# per user (ChatDigestState high-water mark + 8h cadence + overnight quiet
+# hours in Sydney time), so this schedule only bounds first-notification
+# latency — a couple of daytime emails per user per day at most.
 #
 # Required configuration:
 #   secret  UNREAD_DIGEST_TOKEN         must match backend env of same name
 #   var     RSVP_REMINDER_BACKEND_URL   shared backend base URL, e.g.
 #                                        https://biotechbe.azurewebsites.net
 #
-# 07:17 UTC is early evening in Australia (AEST/AEDT) — a good nudge to check
-# before the next day. Off-peak minute (17) avoids GitHub's top-of-hour spike.
+# Off-peak minutes (7,22,37,52) dodge GitHub's top-of-hour scheduler spike,
+# which delays :00/:15/:30/:45 crons the most. Scheduled runs can still lag a
+# few minutes under load — "within 15 min" is best-effort, not guaranteed.
 on:
   schedule:
-    - cron: "17 7 * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+
+# The endpoint dedups overlapping triggers server-side; this just stops GH
+# runs piling up if the API is slow.
+concurrency:
+  group: unread-digest
+  cancel-in-progress: false
 
 jobs:
   dispatch:
@@ -35,8 +45,12 @@ jobs:
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
-          # auth or server failures instead of silently succeeding.
-          curl -fsS -X POST \
+          # auth or server failures instead of silently succeeding. The endpoint
+          # 202s immediately and runs the digest on a background thread (the
+          # full run used to blow Azure's ~230s gateway cap -> 504), so a slow
+          # response now means something is actually wrong: fail fast at 60s.
+          # Sent/failed counts are in the backend logs (unread_digest.completed).
+          curl -fsS --max-time 60 -X POST \
             -H "X-Digest-Token: ${DIGEST_TOKEN}" \
             -H "Content-Type: application/json" \
             "${BACKEND_URL%/}/api/v1/chat/admin/send-unread-digest/"

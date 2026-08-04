@@ -546,14 +546,30 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit daily by
-# .github/workflows/unread-digest.yml. Same fail-loud contract as
-# RSVP_REMINDER_TOKEN: empty value => 503, so a misconfigured deploy can't
-# silently expose an unauthenticated trigger. MIN_INTERVAL is set a little under
-# 24h so a daily cron whose fire time drifts a few minutes never skips a day.
+# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit every 15
+# minutes by .github/workflows/unread-digest.yml so the first notification is
+# fast. Same fail-loud contract as RSVP_REMINDER_TOKEN: empty value => 503, so
+# a misconfigured deploy can't silently expose an unauthenticated trigger.
+# MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
+# hold all sends overnight and re-anchor them to daytime. The quiet block is
+# what makes a sub-24h interval safe — without it, delivery times walk
+# around the clock into the small hours (20h => -4h/day).
 UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
 UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
-    "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=20, cast=int
+    "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=8, cast=int
+)
+UNREAD_DIGEST_QUIET_START_HOUR = config(
+    "UNREAD_DIGEST_QUIET_START_HOUR", default=22, cast=int
+)
+UNREAD_DIGEST_QUIET_END_HOUR = config(
+    "UNREAD_DIGEST_QUIET_END_HOUR", default=7, cast=int
+)
+UNREAD_DIGEST_QUIET_TZ = config("UNREAD_DIGEST_QUIET_TZ", default="Australia/Sydney")
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
+# on a background thread. Sync dispatch (tests) runs it inline instead.
+UNREAD_DIGEST_DISPATCH_SYNC = config(
+    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
 )
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to

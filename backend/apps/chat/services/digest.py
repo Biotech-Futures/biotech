@@ -1,10 +1,12 @@
-"""Daily "you have unread chat messages" email digest.
+""""You have unread chat messages" email digest.
 
 Sent from the dedicated ``connect@`` mailbox (not the default transactional
-account) so it lives under its own send quota. Driven by an external daily cron
-hitting an HMAC-guarded trigger, mirroring the RSVP-reminder pattern
+account) so it lives under its own send quota. Driven by an external 15-minute
+cron hitting an HMAC-guarded trigger, mirroring the RSVP-reminder pattern
 (``apps.events.services.send_due_rsvp_reminders``) — there is no in-process
-scheduler in this project.
+scheduler in this project. The tight cron only bounds how fast the FIRST
+notification lands; the per-user cadence and quiet hours below cap volume at
+a couple of daytime emails, never overnight.
 
 Unread is derived from the lazily-created ``MessageStatus`` rows: a message with
 NO ``read`` status row for a user is unread. Re-notification is throttled per
@@ -14,11 +16,14 @@ genuinely newer ones arrive.
 """
 
 import logging
+import threading
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.db import connection as db_connection
 from django.db.models import Count, Max, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -34,7 +39,27 @@ _READ = MessageStatus.StatusChoices.READ
 
 
 def _min_interval() -> timedelta:
-    return timedelta(hours=int(getattr(settings, "UNREAD_DIGEST_MIN_INTERVAL_HOURS", 20)))
+    return timedelta(hours=int(getattr(settings, "UNREAD_DIGEST_MIN_INTERVAL_HOURS", 8)))
+
+
+def _in_quiet_hours(now) -> bool:
+    """True when sends are held (start == end disables the window).
+
+    Evaluated in UNREAD_DIGEST_QUIET_TZ, not server UTC — "no emails
+    overnight" is a statement about the recipient's clock. The overnight
+    block also re-anchors sends to daytime, which is what lets the
+    min-interval sit below 24h without delivery times drifting around
+    the clock.
+    """
+    start = int(getattr(settings, "UNREAD_DIGEST_QUIET_START_HOUR", 22))
+    end = int(getattr(settings, "UNREAD_DIGEST_QUIET_END_HOUR", 7))
+    if start == end:
+        return False
+    tz = getattr(settings, "UNREAD_DIGEST_QUIET_TZ", "Australia/Sydney")
+    hour = now.astimezone(ZoneInfo(tz)).hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end  # window wraps midnight
 
 
 def _platform_url() -> str:
@@ -146,6 +171,35 @@ def _compute_unread(candidate):
     return total, per_group, new_hwm
 
 
+def _group_max_ids():
+    """Prefilter — one aggregate query: newest live message id per group.
+
+    A candidate whose every group is at-or-below their high-water mark cannot
+    have new unread, so pass 2 is skipped for them entirely. Essential under
+    the 15-minute cron: on most runs, most users have nothing new.
+    """
+    return {
+        r["group_id"]: r["max_id"]
+        for r in Messages.objects.filter(deleted_at__isnull=True)
+        .values("group_id")
+        .annotate(max_id=Max("id"))
+    }
+
+
+def _advance_hwm(user_id, scan_max) -> None:
+    # A verified-all-read scan advances the mark so the prefilter skips this
+    # user until a genuinely newer message. Monotonic guard + no touch of
+    # last_notified_at: must neither regress a concurrent claim nor consume
+    # the user's send cadence.
+    _state, created = ChatDigestState.objects.get_or_create(
+        user_id=user_id, defaults={"last_notified_message_id": scan_max}
+    )
+    if not created:
+        ChatDigestState.objects.filter(
+            user_id=user_id, last_notified_message_id__lt=scan_max
+        ).update(last_notified_message_id=scan_max)
+
+
 def _claim_user(user_id, new_hwm, cutoff, now) -> bool:
     """Atomic per-user claim. Returns True iff this run won the send slot.
 
@@ -200,13 +254,25 @@ def send_unread_message_digests(*, dry_run=False):
     reports who would be emailed without claiming state or sending anything.
     """
     now = timezone.now()
+    if not dry_run and _in_quiet_hours(now):
+        logger.info("unread_digest.quiet_hours_skip")
+        return 0, 0, 0
     cutoff = now - _min_interval()
 
+    group_max = _group_max_ids()
     pending = []
     for candidate in _collect_candidates(now):
+        scan_max = max(
+            (group_max.get(gid, 0) for gid, _name, _joined in candidate["groups"]),
+            default=0,
+        )
+        if scan_max <= candidate["hwm"]:
+            continue  # nothing new in any group since the last look — skip pass 2
         summary = _compute_unread(candidate)
         if summary is not None:
             pending.append((candidate, summary))
+        elif not dry_run:
+            _advance_hwm(candidate["user_id"], scan_max)
 
     considered = len(pending)
 
@@ -269,3 +335,49 @@ def send_unread_message_digests(*, dry_run=False):
             logger.exception("unread_digest.connection_close_failed")
 
     return considered, sent, failed
+
+
+_dispatch_lock = threading.Lock()
+
+
+def _run_digest_in_thread() -> None:
+    try:
+        considered, sent, failed = send_unread_message_digests()
+        logger.info(
+            "unread_digest.completed considered=%s sent=%s failed=%s",
+            considered, sent, failed,
+        )
+    except Exception:
+        logger.exception("unread_digest.worker_crashed")
+    finally:
+        _dispatch_lock.release()
+        try:
+            db_connection.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+def dispatch_unread_digest() -> str:
+    """Fire-and-forget the digest run so the trigger request returns instantly.
+
+    The full run (one unread query per candidate + one SMTP round trip per
+    email) outgrew Azure's ~230s gateway cap, 504-ing the cron while the work
+    completed anyway. Mirrors ``apps.chat.tasks.dispatch_og``; the lock is
+    per-process only — double-send across workers is already prevented by the
+    ``ChatDigestState`` claim. Returns ``"started"`` or ``"already_running"``.
+    """
+    if getattr(settings, "UNREAD_DIGEST_DISPATCH_SYNC", False):
+        send_unread_message_digests()
+        return "started"
+
+    if not _dispatch_lock.acquire(blocking=False):
+        logger.info("unread_digest.already_running")
+        return "already_running"
+    try:
+        threading.Thread(
+            target=_run_digest_in_thread, name="unread-digest", daemon=True
+        ).start()
+    except Exception:
+        _dispatch_lock.release()
+        raise
+    return "started"

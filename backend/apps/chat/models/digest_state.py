@@ -3,14 +3,15 @@ from django.db import models
 
 
 class ChatDigestState(models.Model):
-    """Per-user throttle state for the daily "unread messages" email digest.
+    """Per-user throttle state for the "unread messages" email digest.
 
-    Sparse: a row exists only once a user has been notified at least once, so
-    it stays tiny. ``last_notified_message_id`` is a high-water mark — the max
-    unread ``Messages.id`` at the moment of the last send. The digest only
+    Sparse: a row appears once a user has been notified — or once a scan
+    verified them all-read (see ``_advance_hwm``) — so it stays tiny.
+    ``last_notified_message_id`` is a high-water mark: the max ``Messages.id``
+    already accounted for, by email or by verified read. The digest only
     re-notifies a user when they have an unread message with ``id`` above this
-    mark (i.e. genuinely new content), which is what stops a daily reminder
-    from repeating forever while they simply haven't opened the app yet.
+    mark (i.e. genuinely new content), which is what stops the reminder from
+    repeating forever while they simply haven't opened the app yet.
     """
 
     user = models.OneToOneField(
