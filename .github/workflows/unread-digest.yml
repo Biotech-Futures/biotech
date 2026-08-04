@@ -2,9 +2,9 @@ name: Unread-messages digest
 
 # Hits the HMAC-protected digest dispatcher every 15 minutes so the FIRST
 # email lands within ~15 min of a message going unread. The endpoint throttles
-# per user (ChatDigestState high-water mark + 24h cadence), so this schedule
-# only bounds first-notification latency — still at most one email per user
-# per day.
+# per user (ChatDigestState high-water mark + 8h cadence + overnight quiet
+# hours in Sydney time), so this schedule only bounds first-notification
+# latency — a couple of daytime emails per user per day at most.
 #
 # Required configuration:
 #   secret  UNREAD_DIGEST_TOKEN         must match backend env of same name

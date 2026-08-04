@@ -5,7 +5,8 @@ account) so it lives under its own send quota. Driven by an external 15-minute
 cron hitting an HMAC-guarded trigger, mirroring the RSVP-reminder pattern
 (``apps.events.services.send_due_rsvp_reminders``) — there is no in-process
 scheduler in this project. The tight cron only bounds how fast the FIRST
-notification lands; the per-user cadence below keeps it to one email a day.
+notification lands; the per-user cadence and quiet hours below cap volume at
+a couple of daytime emails, never overnight.
 
 Unread is derived from the lazily-created ``MessageStatus`` rows: a message with
 NO ``read`` status row for a user is unread. Re-notification is throttled per
@@ -17,6 +18,7 @@ genuinely newer ones arrive.
 import logging
 import threading
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -37,7 +39,27 @@ _READ = MessageStatus.StatusChoices.READ
 
 
 def _min_interval() -> timedelta:
-    return timedelta(hours=int(getattr(settings, "UNREAD_DIGEST_MIN_INTERVAL_HOURS", 20)))
+    return timedelta(hours=int(getattr(settings, "UNREAD_DIGEST_MIN_INTERVAL_HOURS", 8)))
+
+
+def _in_quiet_hours(now) -> bool:
+    """True when sends are held (start == end disables the window).
+
+    Evaluated in UNREAD_DIGEST_QUIET_TZ, not server UTC — "no emails
+    overnight" is a statement about the recipient's clock. The overnight
+    block also re-anchors sends to daytime, which is what lets the
+    min-interval sit below 24h without delivery times drifting around
+    the clock.
+    """
+    start = int(getattr(settings, "UNREAD_DIGEST_QUIET_START_HOUR", 22))
+    end = int(getattr(settings, "UNREAD_DIGEST_QUIET_END_HOUR", 7))
+    if start == end:
+        return False
+    tz = getattr(settings, "UNREAD_DIGEST_QUIET_TZ", "Australia/Sydney")
+    hour = now.astimezone(ZoneInfo(tz)).hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end  # window wraps midnight
 
 
 def _platform_url() -> str:
@@ -232,6 +254,9 @@ def send_unread_message_digests(*, dry_run=False):
     reports who would be emailed without claiming state or sending anything.
     """
     now = timezone.now()
+    if not dry_run and _in_quiet_hours(now):
+        logger.info("unread_digest.quiet_hours_skip")
+        return 0, 0, 0
     cutoff = now - _min_interval()
 
     group_max = _group_max_ids()
