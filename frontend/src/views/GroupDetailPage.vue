@@ -1282,7 +1282,7 @@
                       ref="editingMessageInputRef"
                       v-model="editingMessageText"
                       class="chat-input-field"
-                      rows="2"
+                      rows="1"
                       @keydown="handleEditKeydown($event, message)"
                     ></textarea>
                     <div class="message-edit-actions">
@@ -1684,7 +1684,7 @@
                   v-model="newMessage"
                   class="chat-input-field"
                   placeholder="Type your message..."
-                  rows="2"
+                  rows="1"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
                   @focus="onComposerFocus"
@@ -1764,6 +1764,7 @@ import {
   getReceiptState as receiptState,
 } from '@/utils/receipts'
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
+import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -4298,6 +4299,21 @@ const scheduleTypingStop = () => {
   }, 2600)
 }
 
+const resolveEditInput = () =>
+  (Array.isArray(editingMessageInputRef.value)
+    ? editingMessageInputRef.value[0]
+    : editingMessageInputRef.value)
+
+useAutoGrowTextarea(() => composer.value, newMessage, () => {
+  // Growing the composer shrinks the message list, so a reader sitting at the
+  // latest message would watch it slide under the box. Re-pin them.
+  if (!isChatAwayFromBottom.value) void scrollMessagesToBottom()
+})
+const { resize: resizeEditBox } = useAutoGrowTextarea(resolveEditInput, editingMessageText, () => {
+  // Typing grows the form downward inside the scroller; keep Save/Cancel visible.
+  resolveEditInput()?.closest('.message-edit-form')?.scrollIntoView({ block: 'nearest' })
+})
+
 const handleComposerInput = () => {
   updateMentionQuery()
 
@@ -4646,10 +4662,10 @@ const startMessageEdit = (message) => {
   editingMessageText.value = message.text || ''
   nextTick(() => {
     composer.value?.blur()
-    const editInput = Array.isArray(editingMessageInputRef.value)
-      ? editingMessageInputRef.value[0]
-      : editingMessageInputRef.value
-    editInput?.focus()
+    // Re-opening the same message leaves the text unchanged, so the watcher
+    // stays quiet -- size the box here as well.
+    resizeEditBox()
+    resolveEditInput()?.focus()
   })
 }
 
@@ -8333,6 +8349,8 @@ onBeforeUnmount(() => {
 
 .chat-input-group {
   position: relative;
+  /* Keep the send/attach row pinned to the bottom as the composer grows. */
+  align-items: flex-end;
 }
 
 .mention-suggestions {
@@ -9284,10 +9302,10 @@ onBeforeUnmount(() => {
 }
 
 .chat-input-field {
-  /* textarea-specific tweaks for a rounder, friendlier composer */
-  height: 2.65rem;
+  /* textarea-specific tweaks for a rounder, friendlier composer.
+     Height is driven by autoGrowTextarea(); these only bound it. */
   min-height: 2.65rem;
-  max-height: 6.8rem;
+  max-height: 9.5rem;
   padding-top: 0.55rem;
   padding-bottom: 0.55rem;
   line-height: 1.35rem;
@@ -10215,6 +10233,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  /* On phones the keyboard already owns half the screen -- cap the composer
+     lower so a long draft can't squeeze the conversation out of view. */
+  .chat-input-field {
+    max-height: 6.8rem;
+  }
+
   .gd-head {
     align-items: flex-start;
     flex-direction: column;
