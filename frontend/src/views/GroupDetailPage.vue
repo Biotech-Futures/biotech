@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
       <span class="sr-only">Loading group details...</span>
@@ -7206,11 +7206,13 @@ onBeforeUnmount(() => {
   padding: 1rem;
   background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(2px);
+  overflow-y: auto;
 }
 
 .task-dialog {
   width: min(100%, 560px);
   max-height: calc(100vh - 2rem);
+  margin: auto;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -7221,6 +7223,7 @@ onBeforeUnmount(() => {
 }
 
 .task-dialog-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7273,6 +7276,8 @@ onBeforeUnmount(() => {
 }
 
 .task-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.95rem;
@@ -7417,6 +7422,7 @@ onBeforeUnmount(() => {
 .task-segmented-option--status.is-active.task-state--blocked     { background: #fdecec; color: #8c1f1f; }
 
 .task-dialog-footer {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
