@@ -38,6 +38,8 @@ const mentorDetailSchema = z.object({
   remainingCapacity: z.number(),
   interests: z.array(z.string()),
   lastMessageAt: z.string().nullable(),
+  hasLoggedIn: z.boolean().optional(),
+  lastLogin: z.string().nullable().optional(),
   availability: z.array(availabilitySchema),
   certificates: z.array(certificateSchema),
 });

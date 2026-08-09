@@ -56,6 +56,8 @@ export type UserAccount = {
   supervisorName: string | null;
   supervisorEmail: string | null;
   supervisees: { name: string; email: string }[];
+  hasLoggedIn?: boolean;
+  lastLogin?: string | null;
 };
 
 export type ServerUser = Omit<UserAccount, "source">;
@@ -125,6 +127,8 @@ export type StudentUser = {
   groupId: number | null;
   groupName: string | null;
   interests: string[];
+  hasLoggedIn?: boolean;
+  lastLogin?: string | null;
 };
 
 export type StudentPaginatedResponse = {

@@ -387,6 +387,7 @@ function MentorPage() {
                     onSortChange={setSortState}
                   />
                 </TableHead>
+                <TableHead>Logged In</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -497,6 +498,30 @@ function MentorPage() {
                         </Button>
                       </div>
                     </TableCell>
+                    <TableCell className="text-sm">
+                      {mentor.hasLoggedIn ? (
+                        <div className="flex flex-col">
+                          <Badge
+                            variant="outline"
+                            className="w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          >
+                            Yes
+                          </Badge>
+                          {mentor.lastLogin && (
+                            <span
+                              className="mt-0.5 text-[11px] text-muted-foreground"
+                              title={new Date(mentor.lastLogin).toLocaleString()}
+                            >
+                              {new Date(mentor.lastLogin).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge variant="secondary" className="w-fit text-muted-foreground">
+                          No
+                        </Badge>
+                      )}
+                    </TableCell>
                   </TableRow>,
 
                   isExpanded && (
@@ -504,7 +529,7 @@ function MentorPage() {
                       key={`detail-${mentor.mentorId}`}
                       className="hover:bg-transparent"
                     >
-                      <TableCell colSpan={8} className="p-0">
+                      <TableCell colSpan={9} className="p-0">
                         <div className="border-t bg-muted/20 px-6 py-4 space-y-4">
                           {/* Basic Info */}
                           <div>
@@ -537,6 +562,16 @@ function MentorPage() {
                                   Max Groups:
                                 </span>
                                 <span>{mentor.maxGroupCount}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground">
+                                  Logged In:
+                                </span>
+                                <span>
+                                  {mentor.hasLoggedIn
+                                    ? `Yes ${mentor.lastLogin ? `(${new Date(mentor.lastLogin).toLocaleString()})` : ""}`
+                                    : "No (Never logged in)"}
+                                </span>
                               </div>
                             </div>
                           </div>
