@@ -2191,12 +2191,7 @@ const groupMetaItems = computed(() => {
 
 const visibleGroupMembers = computed(() =>
   groupMemberships.value
-    .filter((item) => {
-      if (item.leftAt) return false
-      return !String(item.role || '')
-        .toLowerCase()
-        .includes('supervisor')
-    })
+    .filter((item) => !item.leftAt)
     .map((item) => ({
       key: `${item.id || item.userId}`,
       id: item.userId,
@@ -2207,8 +2202,9 @@ const visibleGroupMembers = computed(() =>
     .sort((a, b) => {
       const roleRank = (role) => {
         if (role.includes('mentor')) return 0
-        if (role.includes('student')) return 1
-        return 2
+        if (role.includes('supervisor')) return 1
+        if (role.includes('student')) return 2
+        return 3
       }
       return roleRank(a.role) - roleRank(b.role) || a.name.localeCompare(b.name)
     }),
