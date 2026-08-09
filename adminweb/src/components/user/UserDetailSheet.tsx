@@ -56,6 +56,27 @@ export function UserDetailSheet({
                   </Badge>
                 ),
               },
+              {
+                label: "Has Logged In",
+                value: (
+                  <Badge
+                    variant={user.hasLoggedIn ? "outline" : "secondary"}
+                    className={
+                      user.hasLoggedIn
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {user.hasLoggedIn ? "Yes" : "No"}
+                  </Badge>
+                ),
+              },
+              {
+                label: "Last Login",
+                value: user.lastLogin
+                  ? new Date(user.lastLogin).toLocaleString()
+                  : "Never",
+              },
             ]}
           />
 

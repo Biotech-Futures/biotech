@@ -1297,3 +1297,27 @@ class InternationalGeographyImportTests(TestCase):
         data = fetch_user_by_id(user.id)
         self.assertEqual(data["country"], {"id": user.country_id, "countryName": "Zedonia"})
         self.assertIsNone(data["state"])
+
+    def test_query_users_includes_has_logged_in_and_last_login(self):
+        logged_in_user = User.objects.create_user(
+            email="loggedin@example.com",
+            first_name="Logged",
+            last_name="In",
+            password="testpass",
+            last_login=timezone.now(),
+        )
+        never_user = User.objects.create_user(
+            email="never@example.com",
+            first_name="Never",
+            last_name="LoggedIn",
+            password="testpass",
+        )
+        result = query_users(search="example.com")
+        items = {item["email"]: item for item in result["data"]["items"]}
+
+        self.assertTrue(items["loggedin@example.com"]["hasLoggedIn"])
+        self.assertIsNotNone(items["loggedin@example.com"]["lastLogin"])
+
+        self.assertFalse(items["never@example.com"]["hasLoggedIn"])
+        self.assertIsNone(items["never@example.com"]["lastLogin"])
+

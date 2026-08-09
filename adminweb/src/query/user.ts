@@ -144,6 +144,8 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
             mentorReason?: string | null;
             mentorMaxGroupCount?: number | null;
             yearLevel?: number | null;
+            hasLoggedIn?: boolean | null;
+            lastLogin?: string | null;
           }>;
           total?: number;
           page?: number;
@@ -443,6 +445,8 @@ export function normalizeServerUser(
     supervisorName: (user as any).supervisorName ?? null,
     supervisorEmail: (user as any).supervisorEmail ?? null,
     supervisees: Array.isArray((user as any).supervisees) ? (user as any).supervisees : [],
+    hasLoggedIn: Boolean((user as any).hasLoggedIn ?? (user as any).lastLogin != null),
+    lastLogin: (user as any).lastLogin ?? null,
   };
 }
 

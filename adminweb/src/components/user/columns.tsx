@@ -88,4 +88,37 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
       );
     },
   },
+  {
+    id: "hasLoggedIn",
+    accessorFn: (row) => (row.hasLoggedIn ? 1 : 0),
+    header: "Logged In",
+    cell: ({ row }) => {
+      const { hasLoggedIn, lastLogin } = row.original;
+      if (hasLoggedIn) {
+        return (
+          <div className="flex flex-col">
+            <Badge
+              variant="outline"
+              className="w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            >
+              Yes
+            </Badge>
+            {lastLogin && (
+              <span
+                className="mt-0.5 text-[11px] text-muted-foreground"
+                title={new Date(lastLogin).toLocaleString()}
+              >
+                {new Date(lastLogin).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+        );
+      }
+      return (
+        <Badge variant="secondary" className="w-fit text-muted-foreground">
+          No
+        </Badge>
+      );
+    },
+  },
 ];

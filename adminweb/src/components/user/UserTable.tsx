@@ -30,7 +30,7 @@ export type UserSortKey =
   | "state"
   | "status";
 
-const COLUMN_COUNT = 8;
+const COLUMN_COUNT = 9;
 
 export interface UserTableSelection {
   /** Explicitly checked row ids (used when selectAllMatching is false). */
@@ -186,6 +186,7 @@ export function UserTable({
               <TableHead>Country</TableHead>
               <TableHead>State</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Logged In</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -279,6 +280,30 @@ export function UserTable({
                     <Badge variant={user.active ? "default" : "secondary"}>
                       {user.active ? "Active" : "Inactive"}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {user.hasLoggedIn ? (
+                      <div className="flex flex-col">
+                        <Badge
+                          variant="outline"
+                          className="w-fit border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        >
+                          Yes
+                        </Badge>
+                        {user.lastLogin && (
+                          <span
+                            className="mt-0.5 text-[11px] text-muted-foreground"
+                            title={new Date(user.lastLogin).toLocaleString()}
+                          >
+                            {new Date(user.lastLogin).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <Badge variant="secondary" className="w-fit text-muted-foreground">
+                        No
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-2">
