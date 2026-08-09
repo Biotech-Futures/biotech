@@ -554,6 +554,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         # Padded key, not the raw column: unpadded auto-names sort "BTF10" before "BTF9".
         "group": ["group_name_key", "first_name", "last_name", "id"],
         "createdAt": ["date_joined", "id"],
+        "lastLogin": ["last_login", "first_name", "last_name", "id"],
+        "hasLoggedIn": ["last_login", "first_name", "last_name", "id"],
     }
     order_by = sort_map.get(sort_by, sort_map["createdAt"])
 
