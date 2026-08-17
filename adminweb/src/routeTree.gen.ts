@@ -27,14 +27,19 @@ import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
 import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route'
 import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
+import { Route as AuthGradingRouteRouteImport } from './routes/_auth/grading/route'
 import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
 import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthGradingIndexRouteImport } from './routes/_auth/grading/index'
 import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
 import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
 import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
 import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
 import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
 import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
+import { Route as AuthGradingGroupsGroupIdRouteImport } from './routes/_auth/grading/groups/$groupId'
+import { Route as AuthGradingComponentsCodeRouteImport } from './routes/_auth/grading/components/$code'
+import { Route as AuthGradingComponentsCodeGroupIdRouteImport } from './routes/_auth/grading/components/$code_.$groupId'
 
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
@@ -125,6 +130,11 @@ const AuthGroupsRouteRoute = AuthGroupsRouteRouteImport.update({
   path: '/groups',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthGradingRouteRoute = AuthGradingRouteRouteImport.update({
+  id: '/grading',
+  path: '/grading',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 const AuthPeopleIndexRoute = AuthPeopleIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -134,6 +144,11 @@ const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AuthGroupsRouteRoute,
+} as any)
+const AuthGradingIndexRoute = AuthGradingIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthGradingRouteRoute,
 } as any)
 const AuthPeopleSupervisorsRoute = AuthPeopleSupervisorsRouteImport.update({
   id: '/supervisors',
@@ -167,12 +182,31 @@ const AuthGroupsMatchedGroupsRoute = AuthGroupsMatchedGroupsRouteImport.update({
   path: '/matched-groups',
   getParentRoute: () => AuthGroupsRouteRoute,
 } as any)
+const AuthGradingGroupsGroupIdRoute =
+  AuthGradingGroupsGroupIdRouteImport.update({
+    id: '/groups/$groupId',
+    path: '/groups/$groupId',
+    getParentRoute: () => AuthGradingRouteRoute,
+  } as any)
+const AuthGradingComponentsCodeRoute =
+  AuthGradingComponentsCodeRouteImport.update({
+    id: '/components/$code',
+    path: '/components/$code',
+    getParentRoute: () => AuthGradingRouteRoute,
+  } as any)
+const AuthGradingComponentsCodeGroupIdRoute =
+  AuthGradingComponentsCodeGroupIdRouteImport.update({
+    id: '/components/$code_/$groupId',
+    path: '/components/$code/$groupId',
+    getParentRoute: () => AuthGradingRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
+  '/grading': typeof AuthGradingRouteRouteWithChildren
   '/groups': typeof AuthGroupsRouteRouteWithChildren
   '/people': typeof AuthPeopleRouteRouteWithChildren
   '/announcement': typeof AuthAnnouncementRoute
@@ -192,8 +226,12 @@ export interface FileRoutesByFullPath {
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/grading/': typeof AuthGradingIndexRoute
   '/groups/': typeof AuthGroupsIndexRoute
   '/people/': typeof AuthPeopleIndexRoute
+  '/grading/components/$code': typeof AuthGradingComponentsCodeRoute
+  '/grading/groups/$groupId': typeof AuthGradingGroupsGroupIdRoute
+  '/grading/components/$code/$groupId': typeof AuthGradingComponentsCodeGroupIdRoute
 }
 export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
@@ -217,8 +255,12 @@ export interface FileRoutesByTo {
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/grading': typeof AuthGradingIndexRoute
   '/groups': typeof AuthGroupsIndexRoute
   '/people': typeof AuthPeopleIndexRoute
+  '/grading/components/$code': typeof AuthGradingComponentsCodeRoute
+  '/grading/groups/$groupId': typeof AuthGradingGroupsGroupIdRoute
+  '/grading/components/$code/$groupId': typeof AuthGradingComponentsCodeGroupIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -226,6 +268,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
+  '/_auth/grading': typeof AuthGradingRouteRouteWithChildren
   '/_auth/groups': typeof AuthGroupsRouteRouteWithChildren
   '/_auth/people': typeof AuthPeopleRouteRouteWithChildren
   '/_auth/announcement': typeof AuthAnnouncementRoute
@@ -246,8 +289,12 @@ export interface FileRoutesById {
   '/_auth/people/mentors': typeof AuthPeopleMentorsRoute
   '/_auth/people/students': typeof AuthPeopleStudentsRoute
   '/_auth/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/_auth/grading/': typeof AuthGradingIndexRoute
   '/_auth/groups/': typeof AuthGroupsIndexRoute
   '/_auth/people/': typeof AuthPeopleIndexRoute
+  '/_auth/grading/components/$code': typeof AuthGradingComponentsCodeRoute
+  '/_auth/grading/groups/$groupId': typeof AuthGradingGroupsGroupIdRoute
+  '/_auth/grading/components/$code_/$groupId': typeof AuthGradingComponentsCodeGroupIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -256,6 +303,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup-password'
     | '/signin'
+    | '/grading'
     | '/groups'
     | '/people'
     | '/announcement'
@@ -275,8 +323,12 @@ export interface FileRouteTypes {
     | '/people/mentors'
     | '/people/students'
     | '/people/supervisors'
+    | '/grading/'
     | '/groups/'
     | '/people/'
+    | '/grading/components/$code'
+    | '/grading/groups/$groupId'
+    | '/grading/components/$code/$groupId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/reset-password'
@@ -300,14 +352,19 @@ export interface FileRouteTypes {
     | '/people/mentors'
     | '/people/students'
     | '/people/supervisors'
+    | '/grading'
     | '/groups'
     | '/people'
+    | '/grading/components/$code'
+    | '/grading/groups/$groupId'
+    | '/grading/components/$code/$groupId'
   id:
     | '__root__'
     | '/_auth'
     | '/reset-password'
     | '/setup-password'
     | '/signin'
+    | '/_auth/grading'
     | '/_auth/groups'
     | '/_auth/people'
     | '/_auth/announcement'
@@ -328,8 +385,12 @@ export interface FileRouteTypes {
     | '/_auth/people/mentors'
     | '/_auth/people/students'
     | '/_auth/people/supervisors'
+    | '/_auth/grading/'
     | '/_auth/groups/'
     | '/_auth/people/'
+    | '/_auth/grading/components/$code'
+    | '/_auth/grading/groups/$groupId'
+    | '/_auth/grading/components/$code_/$groupId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -468,6 +529,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsRouteRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/grading': {
+      id: '/_auth/grading'
+      path: '/grading'
+      fullPath: '/grading'
+      preLoaderRoute: typeof AuthGradingRouteRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/_auth/people/': {
       id: '/_auth/people/'
       path: '/'
@@ -481,6 +549,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/groups/'
       preLoaderRoute: typeof AuthGroupsIndexRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/grading/': {
+      id: '/_auth/grading/'
+      path: '/'
+      fullPath: '/grading/'
+      preLoaderRoute: typeof AuthGradingIndexRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
     }
     '/_auth/people/supervisors': {
       id: '/_auth/people/supervisors'
@@ -524,8 +599,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsMatchedGroupsRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
     }
+    '/_auth/grading/groups/$groupId': {
+      id: '/_auth/grading/groups/$groupId'
+      path: '/groups/$groupId'
+      fullPath: '/grading/groups/$groupId'
+      preLoaderRoute: typeof AuthGradingGroupsGroupIdRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/components/$code': {
+      id: '/_auth/grading/components/$code'
+      path: '/components/$code'
+      fullPath: '/grading/components/$code'
+      preLoaderRoute: typeof AuthGradingComponentsCodeRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/components/$code_/$groupId': {
+      id: '/_auth/grading/components/$code_/$groupId'
+      path: '/components/$code/$groupId'
+      fullPath: '/grading/components/$code/$groupId'
+      preLoaderRoute: typeof AuthGradingComponentsCodeGroupIdRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
   }
 }
+
+interface AuthGradingRouteRouteChildren {
+  AuthGradingIndexRoute: typeof AuthGradingIndexRoute
+  AuthGradingComponentsCodeRoute: typeof AuthGradingComponentsCodeRoute
+  AuthGradingGroupsGroupIdRoute: typeof AuthGradingGroupsGroupIdRoute
+  AuthGradingComponentsCodeGroupIdRoute: typeof AuthGradingComponentsCodeGroupIdRoute
+}
+
+const AuthGradingRouteRouteChildren: AuthGradingRouteRouteChildren = {
+  AuthGradingIndexRoute: AuthGradingIndexRoute,
+  AuthGradingComponentsCodeRoute: AuthGradingComponentsCodeRoute,
+  AuthGradingGroupsGroupIdRoute: AuthGradingGroupsGroupIdRoute,
+  AuthGradingComponentsCodeGroupIdRoute: AuthGradingComponentsCodeGroupIdRoute,
+}
+
+const AuthGradingRouteRouteWithChildren =
+  AuthGradingRouteRoute._addFileChildren(AuthGradingRouteRouteChildren)
 
 interface AuthGroupsRouteRouteChildren {
   AuthGroupsMatchedGroupsRoute: typeof AuthGroupsMatchedGroupsRoute
@@ -564,6 +677,7 @@ const AuthPeopleRouteRouteWithChildren = AuthPeopleRouteRoute._addFileChildren(
 )
 
 interface AuthRouteRouteChildren {
+  AuthGradingRouteRoute: typeof AuthGradingRouteRouteWithChildren
   AuthGroupsRouteRoute: typeof AuthGroupsRouteRouteWithChildren
   AuthPeopleRouteRoute: typeof AuthPeopleRouteRouteWithChildren
   AuthAnnouncementRoute: typeof AuthAnnouncementRoute
@@ -580,6 +694,7 @@ interface AuthRouteRouteChildren {
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthGradingRouteRoute: AuthGradingRouteRouteWithChildren,
   AuthGroupsRouteRoute: AuthGroupsRouteRouteWithChildren,
   AuthPeopleRouteRoute: AuthPeopleRouteRouteWithChildren,
   AuthAnnouncementRoute: AuthAnnouncementRoute,

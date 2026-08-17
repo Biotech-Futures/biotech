@@ -550,7 +550,7 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # link previews / unread digests / auth emails: bulk-zip jobs normally run on
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
-GRADING_ENABLED = config("GRADING_ENABLED", default="false", cast=env_bool)
+GRADING_ENABLED = config("GRADING_ENABLED", default="true", cast=env_bool)
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
 
 # Gate student participation (chat posting) on recorded parental join-permission.

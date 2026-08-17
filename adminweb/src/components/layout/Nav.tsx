@@ -20,7 +20,11 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
+  ClipboardCheckIcon,
 } from "lucide-react";
+
+// Mirrors backend GRADING_ENABLED (defaults on in code; env can flip off).
+const GRADING_ENABLED = import.meta.env.VITE_GRADING_ENABLED !== "false";
 
 type NavItem = {
   title: string;
@@ -75,6 +79,14 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Tasks", url: "/task", icon: <CheckSquareIcon /> },
     ],
   },
+  ...(GRADING_ENABLED
+    ? [{
+        label: "Grading",
+        items: [
+          { title: "Grading", url: "/grading", icon: <ClipboardCheckIcon />, exact: true },
+        ],
+      }]
+    : []),
 ];
 
 export function NavMain() {
