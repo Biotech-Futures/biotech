@@ -1,3 +1,5 @@
+import io
+import zipfile
 from decimal import Decimal
 
 from django.test import TestCase, override_settings
@@ -6,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.groups.models.groups import Groups
-from apps.grading.models import Grade, Rubric, RubricCriterion
+from apps.grading.models import Grade, GradingJob, Rubric, RubricCriterion
 from apps.submissions.models import Submission, SubmissionComponent
 from apps.users.models import User
 
@@ -20,6 +22,9 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:grade-bulk"), "/api/v1/grading/grades/bulk/")
         self.assertEqual(reverse("grading:grade-detail", kwargs={"pk": 1}), "/api/v1/grading/grades/1/")
         self.assertEqual(reverse("grading:component-list", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/")
+        self.assertEqual(reverse("grading:group-download", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/download/")
+        self.assertEqual(reverse("grading:component-download", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/download/")
+        self.assertEqual(reverse("grading:job-detail", kwargs={"pk": 1}), "/api/v1/grading/jobs/1/")
 
 
 class _GradingFixture(TestCase):
@@ -214,3 +219,105 @@ class GradeUpdateViewTests(_GradingFixture):
         url = reverse("grading:grade-detail", kwargs={"pk": self.grade.pk})
         resp = self.client.patch(url, {"mark": "6.50"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_ENABLED=True)
+class GroupDownloadViewTests(_GradingFixture):
+    """Sync per-group zip. Bounded selection, streamed straight to the client."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_zip_contains_submission_text_and_link(self):
+        # Add a link submission alongside the SAQ text submission from the fixture.
+        Submission.objects.filter(group=self.group, component=self.poster).delete()
+        Submission.objects.create(
+            group=self.group, component=self.poster, link="https://example.com/prototype",
+        )
+
+        url = reverse("grading:group-download", kwargs={"group_id": self.group.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp["Content-Type"], "application/zip")
+        self.assertIn("attachment;", resp["Content-Disposition"])
+
+        zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        names = set(zf.namelist())
+        # Group folder + component subfolders with the right pseudo-files.
+        self.assertIn("BTF-TEST-1/SAQ/text.txt", names)
+        self.assertIn("BTF-TEST-1/POSTER/link.txt", names)
+        self.assertEqual(zf.read("BTF-TEST-1/SAQ/text.txt").decode(), "Some student answers.")
+        self.assertEqual(zf.read("BTF-TEST-1/POSTER/link.txt").decode().strip(), "https://example.com/prototype")
+
+    def test_component_filter(self):
+        url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
+        self.assertTrue(all(n.startswith("BTF-TEST-1/SAQ/") for n in names), names)
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        resp = self.client.get(reverse("grading:group-download", kwargs={"group_id": self.group.id}))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_ENABLED=True, GRADING_JOB_DISPATCH_SYNC=True)
+class ComponentDownloadViewTests(_GradingFixture):
+    """Async per-component export. DISPATCH_SYNC runs inline so the job row is
+    already ``done`` (or ``failed``) by the time the 202 returns."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_zip_job_runs_inline_and_produces_url(self):
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "zip"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        job_id = resp.json()["job_id"]
+        job = GradingJob.objects.get(pk=job_id)
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertTrue(job.result_url)
+
+    def test_xlsx_only_for_saq(self):
+        url = reverse("grading:component-download", kwargs={"code": "POSTER"})
+        resp = self.client.post(url, {"format": "xlsx"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bad_format_rejected(self):
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "docx"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "zip"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_ENABLED=True, GRADING_JOB_DISPATCH_SYNC=True)
+class GradingJobDetailViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_poll_shape(self):
+        job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_DONE,
+            params={"kind": "component_zip", "component_code": "SAQ"},
+            result_url="grading/jobs/1/SAQ-bundle.zip",  # opaque storage key now
+            created_by=self.staff,
+        )
+        resp = self.client.get(reverse("grading:job-detail", kwargs={"pk": job.pk}))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json()
+        self.assertEqual(data["status"], "done")
+        self.assertTrue(data["download_url"].endswith(f"/api/v1/grading/jobs/{job.pk}/download/"))
+
+    def test_unknown_job_404(self):
+        resp = self.client.get(reverse("grading:job-detail", kwargs={"pk": 999_999}))
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)

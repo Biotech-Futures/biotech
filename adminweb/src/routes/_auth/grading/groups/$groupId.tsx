@@ -5,10 +5,13 @@ import { cn } from "@/lib/utils";
 import { RubricForm } from "@/components/grading/RubricForm";
 import { SubmissionPreview } from "@/components/grading/SubmissionPreview";
 import {
+  useDownloadGroupZip,
   useQueryGroupMarking,
   useSaveGradesBulk,
 } from "@/query/grading";
 import type { GroupMarkingComponentBlock } from "@/type/grading";
+import { DownloadIcon } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/grading/groups/$groupId")({
   component: GroupMarkingPage,
@@ -19,6 +22,7 @@ function GroupMarkingPage() {
   const gid = Number(groupId);
   const query = useQueryGroupMarking(gid);
   const save = useSaveGradesBulk();
+  const download = useDownloadGroupZip();
 
   const components = query.data?.components ?? [];
   const [activeCode, setActiveCode] = useState<string | undefined>(undefined);
@@ -47,9 +51,27 @@ function GroupMarkingPage() {
         <h2 className="text-xl font-semibold">
           {groupName} <span className="text-muted-foreground text-sm">#{gid}</span>
         </h2>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/grading">Back</Link>
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={download.isPending}
+            onClick={() =>
+              download.mutate(
+                { groupId: gid },
+                {
+                  onError: (e: unknown) => toast.error(`Download failed: ${(e as Error).message}`),
+                },
+              )
+            }
+          >
+            <DownloadIcon className="size-4" />
+            {download.isPending ? "Preparing…" : "Download all"}
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/grading">Back</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-1 border-b">

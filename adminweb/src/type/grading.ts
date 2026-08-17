@@ -80,3 +80,21 @@ export interface ComponentListPayload {
   criteria_total: number;
   rows: ComponentRow[];
 }
+
+// GradingJob polling payload — the async download dialog watches until
+// status becomes "done" (then triggers a browser download of result_url) or
+// "failed" (surfaces `error`).
+export type GradingJobStatus = "pending" | "running" | "done" | "failed";
+
+export interface GradingJobDetail {
+  id: number;
+  kind: string;
+  status: GradingJobStatus;
+  // Django-served proxy URL; the API resolves this once the job is `done`.
+  // Frontend never sees the underlying storage URL (Azure or local) — that
+  // keeps the client insensitive to the backend's storage backend.
+  download_url: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}

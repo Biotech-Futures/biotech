@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -8,8 +9,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useQueryComponentRows } from "@/query/grading";
-import { CheckCircle2Icon, CircleDashedIcon } from "lucide-react";
+import {
+  useJobStatus,
+  useQueryComponentRows,
+  useStartComponentDownload,
+} from "@/query/grading";
+import { CheckCircle2Icon, CircleDashedIcon, DownloadIcon } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/grading/components/$code")({
   component: ComponentMarkingTablePage,
@@ -18,6 +24,44 @@ export const Route = createFileRoute("/_auth/grading/components/$code")({
 function ComponentMarkingTablePage() {
   const { code } = Route.useParams();
   const q = useQueryComponentRows(code);
+  const startDownload = useStartComponentDownload();
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [toastId, setToastId] = useState<string | number | null>(null);
+  const jobQ = useJobStatus(jobId);
+
+  // Watch the polled job: on done, dismiss the loading toast, redirect the
+  // browser to the signed result URL so the file downloads. On failure,
+  // surface the error. Either way, clear jobId so the next click starts a
+  // fresh job.
+  useEffect(() => {
+    const s = jobQ.data?.status;
+    if (s !== "done" && s !== "failed") return;
+    if (toastId != null) toast.dismiss(toastId);
+    if (s === "done" && jobQ.data?.download_url) {
+      toast.success("Download ready");
+      window.location.href = jobQ.data.download_url;
+    } else {
+      toast.error(`Download failed: ${jobQ.data?.error ?? "unknown"}`);
+    }
+    setJobId(null);
+    setToastId(null);
+  }, [jobQ.data, toastId]);
+
+  const kickOffDownload = (format: "zip" | "xlsx") => {
+    const id = toast.loading(`Preparing ${format.toUpperCase()}…`);
+    setToastId(id);
+    startDownload.mutate(
+      { code, format },
+      {
+        onSuccess: (newJobId) => setJobId(newJobId),
+        onError: (e: unknown) => {
+          toast.dismiss(id);
+          setToastId(null);
+          toast.error(`Download failed: ${(e as Error).message}`);
+        },
+      },
+    );
+  };
 
   if (q.isPending) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -34,10 +78,32 @@ function ComponentMarkingTablePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <h2 className="text-xl font-semibold">{component.name}</h2>
-        <div className="text-sm text-muted-foreground">
-          {submittedCount}/{rows.length} submitted · {fullyMarkedCount}/{submittedCount} fully marked
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-muted-foreground">
+            {submittedCount}/{rows.length} submitted · {fullyMarkedCount}/{submittedCount} fully marked
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={jobId != null || startDownload.isPending}
+            onClick={() => kickOffDownload("zip")}
+          >
+            <DownloadIcon className="size-4" />
+            Zip
+          </Button>
+          {component.code === "SAQ" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={jobId != null || startDownload.isPending}
+              onClick={() => kickOffDownload("xlsx")}
+            >
+              <DownloadIcon className="size-4" />
+              XLSX
+            </Button>
+          ) : null}
         </div>
       </div>
 

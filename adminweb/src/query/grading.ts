@@ -4,6 +4,7 @@ import type {
   ComponentListPayload,
   Grade,
   GradeBulkItem,
+  GradingJobDetail,
   GroupMarkingPayload,
 } from "@/type/grading";
 
@@ -60,6 +61,74 @@ export function useSaveGradesBulk() {
       void qc.invalidateQueries({ queryKey: [QUERY_KEY, "component"] });
     },
   });
+}
+
+// GET /api/v1/grading/groups/{id}/download/ — sync zip fetch, then trigger a
+// browser download from the resulting blob. Axios (via apiFetch) sends the
+// session cookie; a plain <a href> wouldn't when the API is on a different
+// origin than the SPA dev server.
+export function useDownloadGroupZip() {
+  return useMutation({
+    mutationFn: async ({ groupId, component }: { groupId: number; component?: string }) => {
+      const res = await apiFetch.get(`/grading/groups/${groupId}/download/`, {
+        params: component ? { component } : undefined,
+        responseType: "blob",
+      });
+      const disp = (res.headers["content-disposition"] ?? "") as string;
+      const match = /filename="?([^";]+)"?/.exec(disp);
+      const filename = match?.[1] ?? `group-${groupId}.zip`;
+      triggerBlobDownload(new Blob([res.data], { type: "application/zip" }), filename);
+    },
+  });
+}
+
+// POST /api/v1/grading/components/{code}/download/ — kicks off a GradingJob,
+// returns { job_id }. Caller polls useJobStatus(job_id) to know when to fetch.
+export function useStartComponentDownload() {
+  return useMutation({
+    mutationFn: async ({
+      code,
+      format,
+      groupIds,
+    }: {
+      code: string;
+      format: "zip" | "xlsx";
+      groupIds?: number[];
+    }) => {
+      const res = await apiFetch.post<{ job_id: number }>(
+        `/grading/components/${code}/download/`,
+        { format, group_ids: groupIds ?? null },
+      );
+      return res.data.job_id;
+    },
+  });
+}
+
+// GET /api/v1/grading/jobs/{id}/ — polls every 2s while pending/running.
+export function useJobStatus(jobId: number | null) {
+  return useQuery({
+    queryKey: [QUERY_KEY, "job", jobId],
+    queryFn: async () => {
+      const res = await apiFetch.get<GradingJobDetail>(`/grading/jobs/${jobId}/`);
+      return res.data;
+    },
+    enabled: jobId != null,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "done" || s === "failed" ? false : 2000;
+    },
+  });
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // PATCH /api/v1/grading/grades/{id}/ — inline edit for a single grade.
