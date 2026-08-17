@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    BulkUploadMarksView,
     ComponentDownloadView,
     ComponentMarkingListView,
     GradeBulkView,
@@ -22,6 +23,8 @@ urlpatterns = [
     path("components/<str:code>/", ComponentMarkingListView.as_view(), name="component-list"),
     # Async bulk export for a single component — returns 202 + job id.
     path("components/<str:code>/download/", ComponentDownloadView.as_view(), name="component-download"),
+    # Bulk mark upload (xlsx/csv). dry_run=true previews the diff.
+    path("components/<str:code>/bulk-upload/", BulkUploadMarksView.as_view(), name="component-bulk-upload"),
     # Job polling endpoint for the async download dialog.
     path("jobs/<int:pk>/", GradingJobDetailView.as_view(), name="job-detail"),
     # Stream the finished artefact back through Django (avoids exposing the

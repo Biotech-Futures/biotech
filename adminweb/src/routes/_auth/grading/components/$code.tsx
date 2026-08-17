@@ -16,6 +16,7 @@ import {
 } from "@/query/grading";
 import { CheckCircle2Icon, CircleDashedIcon, DownloadIcon } from "lucide-react";
 import { toast } from "sonner";
+import { BulkUploadDialog } from "@/components/grading/BulkUploadDialog";
 
 export const Route = createFileRoute("/_auth/grading/components/$code")({
   component: ComponentMarkingTablePage,
@@ -104,6 +105,7 @@ function ComponentMarkingTablePage() {
               XLSX
             </Button>
           ) : null}
+          <BulkUploadDialog code={code} />
         </div>
       </div>
 

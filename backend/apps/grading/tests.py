@@ -2,8 +2,10 @@ import io
 import zipfile
 from decimal import Decimal
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -25,6 +27,7 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:group-download", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/download/")
         self.assertEqual(reverse("grading:component-download", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/download/")
         self.assertEqual(reverse("grading:job-detail", kwargs={"pk": 1}), "/api/v1/grading/jobs/1/")
+        self.assertEqual(reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/bulk-upload/")
 
 
 class _GradingFixture(TestCase):
@@ -321,3 +324,106 @@ class GradingJobDetailViewTests(_GradingFixture):
     def test_unknown_job_404(self):
         resp = self.client.get(reverse("grading:job-detail", kwargs={"pk": 999_999}))
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(GRADING_ENABLED=True)
+class BulkUploadMarksViewTests(_GradingFixture):
+    """XLSX/CSV round-trip: parse → dry-run diff → commit."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.url = reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"})
+
+    def _make_csv(self, rows):
+        header = "group_id,criterion_id,mark,comment\n"
+        body = "\n".join(",".join(str(x) for x in r) for r in rows)
+        return SimpleUploadedFile(
+            "marks.csv", (header + body + "\n").encode("utf-8"), content_type="text/csv",
+        )
+
+    def _make_xlsx(self, rows):
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["group_id", "criterion_id", "mark", "comment"])
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return SimpleUploadedFile(
+            "marks.xlsx", buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_missing_file_400(self):
+        resp = self.client.post(self.url, {})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        resp = self.client.post(self.url, {"file": self._make_csv([(self.group.id, self.saq_c1.id, 8, "ok")])})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_dry_run_csv_returns_diff_no_writes(self):
+        resp = self.client.post(
+            self.url,
+            {"file": self._make_csv([
+                (self.group.id, self.saq_c1.id, "8.00", "Great"),
+            ]), "dry_run": "true"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["summary"], {"creates": 1, "updates": 0, "unchanged": 0, "errors": 0})
+        self.assertEqual(Grade.objects.count(), 0)
+
+    def test_dry_run_xlsx_categorises_create_update_unchanged(self):
+        # Seed one existing grade to force an "update" and one that matches to force "unchanged".
+        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("5"), comment="old")
+        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.50"), comment="same")
+
+        upload = self._make_xlsx([
+            (self.group.id, self.saq_c1.id, "7.00", "revised"),  # update (mark + comment changed)
+            (self.group.id, self.saq_c2.id, "4.50", "same"),      # unchanged
+        ])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        s = resp.json()["summary"]
+        self.assertEqual(s, {"creates": 0, "updates": 1, "unchanged": 1, "errors": 0})
+
+    def test_row_errors_reported(self):
+        upload = self._make_csv([
+            (self.group.id, self.saq_c1.id, "abc", ""),                  # non-numeric mark
+            (self.group.id, self.saq_c1.id, "99", ""),                   # over max_mark
+            (self.group.id, self.poster_c1.id, "5", ""),                 # wrong-component criterion
+            (999_999, self.saq_c1.id, "5", ""),                          # group with no SAQ submission
+            (self.group.id, self.saq_c1.id, "5", ""),                    # duplicate pair (second occurrence)
+        ])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        errors = resp.json()["errors"]
+        self.assertGreaterEqual(len(errors), 4)
+        # Sanity: each error carries a 1-indexed row number matching the input.
+        for e in errors:
+            self.assertIn("row", e)
+            self.assertIn("message", e)
+
+    def test_commit_rejected_when_errors_exist(self):
+        upload = self._make_csv([(self.group.id, self.saq_c1.id, "abc", "")])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Grade.objects.count(), 0)
+
+    def test_commit_persists_and_stamps_grader(self):
+        upload = self._make_csv([
+            (self.group.id, self.saq_c1.id, "9.00", "excellent"),
+            (self.group.id, self.saq_c2.id, "3.50", "adequate"),
+        ])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        payload = resp.json()
+        self.assertTrue(payload["applied"])
+        self.assertEqual(payload["written"], 2)
+        self.assertEqual(Grade.objects.count(), 2)
+        g = Grade.objects.get(submission=self.saq_submission, criterion=self.saq_c1)
+        self.assertEqual(g.mark, Decimal("9.00"))
+        self.assertEqual(g.graded_by_id, self.staff.id)

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/myFetch";
 import type {
+  BulkUploadResponse,
   ComponentListPayload,
   Grade,
   GradeBulkItem,
@@ -116,6 +117,41 @@ export function useJobStatus(jobId: number | null) {
     refetchInterval: (q) => {
       const s = q.state.data?.status;
       return s === "done" || s === "failed" ? false : 2000;
+    },
+  });
+}
+
+// POST /api/v1/grading/components/<code>/bulk-upload/ — multipart with a
+// spreadsheet file. Same mutation for preview and apply; caller flips
+// `dryRun` to switch modes. Backend re-parses on apply so the diff we
+// commit reflects current DB state (not just what was previewed).
+export function useBulkUploadMarks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      code,
+      file,
+      dryRun,
+    }: {
+      code: string;
+      file: File;
+      dryRun: boolean;
+    }): Promise<BulkUploadResponse> => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("dry_run", dryRun ? "true" : "false");
+      const res = await apiFetch.post<BulkUploadResponse>(
+        `/grading/components/${code}/bulk-upload/`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return res.data;
+    },
+    onSuccess: (data, vars) => {
+      if (data.applied) {
+        void qc.invalidateQueries({ queryKey: [QUERY_KEY, "component", vars.code] });
+        void qc.invalidateQueries({ queryKey: [QUERY_KEY, "group"] });
+      }
     },
   });
 }

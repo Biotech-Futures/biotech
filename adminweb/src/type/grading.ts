@@ -98,3 +98,39 @@ export interface GradingJobDetail {
   created_at: string;
   finished_at: string | null;
 }
+
+// Response from POST /api/v1/grading/components/<code>/bulk-upload/
+// (dry-run and commit share the shape; commit adds `applied: true` + `written`).
+export interface BulkUploadRowEntry {
+  row: number;
+  group_id: number;
+  criterion_id: number;
+  submission_id: number;
+  mark: string | null;
+  comment: string;
+  grade_id?: number;
+  old_mark?: string | null;
+  old_comment?: string;
+}
+
+export interface BulkUploadError {
+  row: number;
+  message: string;
+}
+
+export interface BulkUploadSummary {
+  creates: number;
+  updates: number;
+  unchanged: number;
+  errors: number;
+}
+
+export interface BulkUploadResponse {
+  creates: BulkUploadRowEntry[];
+  updates: BulkUploadRowEntry[];
+  unchanged: BulkUploadRowEntry[];
+  errors: BulkUploadError[];
+  summary: BulkUploadSummary;
+  applied?: boolean;
+  written?: number;
+}

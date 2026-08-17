@@ -7,8 +7,10 @@ from .download import (
 )
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupMarkingView
+from .upload import BulkUploadMarksView
 
 __all__ = [
+    "BulkUploadMarksView",
     "ComponentDownloadView",
     "ComponentMarkingListView",
     "GradeBulkView",
