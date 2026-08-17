@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClipboardListIcon, SettingsIcon, UnlockIcon, UsersIcon } from "lucide-react";
+import { ClipboardListIcon, SettingsIcon, StarIcon, UnlockIcon, UsersIcon } from "lucide-react";
 
 export const Route = createFileRoute("/_auth/grading/")({
   component: GradingIndex,
@@ -88,6 +88,19 @@ function GradingIndex() {
         </p>
         <Button asChild variant="outline" className="w-full justify-start">
           <Link to="/grading/release">Open release page</Link>
+        </Button>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <StarIcon className="size-5" />
+          <h3 className="font-semibold">Finalists</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Flag groups that advance to the symposium. Optional notification email.
+        </p>
+        <Button asChild variant="outline" className="w-full justify-start">
+          <Link to="/grading/finalists">Open finalists</Link>
         </Button>
       </section>
 

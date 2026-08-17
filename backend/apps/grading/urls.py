@@ -4,6 +4,8 @@ from .views import (
     BulkUploadMarksView,
     ComponentDownloadView,
     ComponentMarkingListView,
+    FinalistListView,
+    FinalistToggleView,
     GradeBulkView,
     GradeUpdateView,
     GradingJobDetailView,
@@ -54,4 +56,8 @@ urlpatterns = [
     # Supervisor-facing (gated on release + student.supervisor FK).
     path("supervisor/students/grades/", SupervisorGradesView.as_view(), name="supervisor-grades"),
     path("supervisor/download/", SupervisorDownloadView.as_view(), name="supervisor-download"),
+
+    # M8 — finalist flagging + optional notification.
+    path("finalists/", FinalistListView.as_view(), name="finalist-list"),
+    path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
 ]

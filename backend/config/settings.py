@@ -552,6 +552,12 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # execute inline so assertions can observe the job row and result URL.
 GRADING_ENABLED = config("GRADING_ENABLED", default="true", cast=env_bool)
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# Fires the "you're a finalist" email to every group member. Off by default
+# so local dev / staging don't accidentally spam real students; flip on per
+# environment via env var once the announcement copy is signed off.
+GRADING_FINALIST_EMAIL_ENABLED = config(
+    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
+)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

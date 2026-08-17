@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.grading.models import Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
+from apps.grading.models import FinalistFlag, Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
 from apps.submissions.models import Submission, SubmissionComponent
 from apps.users.models import User
 
@@ -37,6 +37,8 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:me-certificate"), "/api/v1/grading/me/certificate/")
         self.assertEqual(reverse("grading:supervisor-grades"), "/api/v1/grading/supervisor/students/grades/")
         self.assertEqual(reverse("grading:supervisor-download"), "/api/v1/grading/supervisor/download/")
+        self.assertEqual(reverse("grading:finalist-list"), "/api/v1/grading/finalists/")
+        self.assertEqual(reverse("grading:finalist-toggle", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/finalist/")
 
 
 class _GradingFixture(TestCase):
@@ -540,3 +542,62 @@ class StudentReadViewsTests(_GradingFixture):
         r = self.client.get(reverse("grading:me-certificate"))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
+
+
+@override_settings(GRADING_ENABLED=True)
+class FinalistToggleTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("grading:finalist-toggle", kwargs={"group_id": self.group.id})
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.post(self.url, {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_upsert_idempotent(self):
+        self.client.force_authenticate(self.staff)
+        r1 = self.client.post(self.url, {}, format="json")
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED, r1.content)
+        r2 = self.client.post(self.url, {}, format="json")
+        self.assertEqual(r2.status_code, status.HTTP_200_OK)
+        self.assertEqual(FinalistFlag.objects.filter(group=self.group).count(), 1)
+
+    def test_delete_idempotent(self):
+        self.client.force_authenticate(self.staff)
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        r1 = self.client.delete(self.url)
+        self.assertEqual(r1.status_code, status.HTTP_204_NO_CONTENT)
+        r2 = self.client.delete(self.url)  # already gone
+        self.assertEqual(r2.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FinalistFlag.objects.filter(group=self.group).exists())
+
+    def test_list_returns_flagged_groups(self):
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(reverse("grading:finalist-list"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rows = r.json()["finalists"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["group_id"], self.group.id)
+
+    @override_settings(GRADING_FINALIST_EMAIL_ENABLED=True)
+    def test_notify_flag_marks_notified_when_recipients_exist(self):
+        from django.core import mail
+        # Fixture staff user is is_staff=True; add as a member so they get the mail.
+        GroupMembership.objects.create(
+            group=self.group, user=self.staff,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(self.url, {"notify": True}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.content)
+        self.assertTrue(r.json()["notified"])
+        self.assertGreaterEqual(len(mail.outbox), 1)
+
+    def test_notify_off_by_default(self):
+        # Env flag OFF → notify=true is honoured as a request but the helper is a no-op.
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(self.url, {"notify": True}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(r.json()["notified"])

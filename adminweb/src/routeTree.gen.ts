@@ -39,6 +39,7 @@ import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/gro
 import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
 import { Route as AuthGradingSettingsRouteImport } from './routes/_auth/grading/settings'
 import { Route as AuthGradingReleaseRouteImport } from './routes/_auth/grading/release'
+import { Route as AuthGradingFinalistsRouteImport } from './routes/_auth/grading/finalists'
 import { Route as AuthGradingGroupsGroupIdRouteImport } from './routes/_auth/grading/groups/$groupId'
 import { Route as AuthGradingComponentsCodeRouteImport } from './routes/_auth/grading/components/$code'
 import { Route as AuthGradingComponentsCodeGroupIdRouteImport } from './routes/_auth/grading/components/$code_.$groupId'
@@ -194,6 +195,11 @@ const AuthGradingReleaseRoute = AuthGradingReleaseRouteImport.update({
   path: '/release',
   getParentRoute: () => AuthGradingRouteRoute,
 } as any)
+const AuthGradingFinalistsRoute = AuthGradingFinalistsRouteImport.update({
+  id: '/finalists',
+  path: '/finalists',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
 const AuthGradingGroupsGroupIdRoute =
   AuthGradingGroupsGroupIdRouteImport.update({
     id: '/groups/$groupId',
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/grading/finalists': typeof AuthGradingFinalistsRoute
   '/grading/release': typeof AuthGradingReleaseRoute
   '/grading/settings': typeof AuthGradingSettingsRoute
   '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
@@ -263,6 +270,7 @@ export interface FileRoutesByTo {
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
+  '/grading/finalists': typeof AuthGradingFinalistsRoute
   '/grading/release': typeof AuthGradingReleaseRoute
   '/grading/settings': typeof AuthGradingSettingsRoute
   '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
@@ -299,6 +307,7 @@ export interface FileRoutesById {
   '/_auth/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
+  '/_auth/grading/finalists': typeof AuthGradingFinalistsRoute
   '/_auth/grading/release': typeof AuthGradingReleaseRoute
   '/_auth/grading/settings': typeof AuthGradingSettingsRoute
   '/_auth/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
@@ -335,6 +344,7 @@ export interface FileRouteTypes {
     | '/task'
     | '/user'
     | '/auth/callback'
+    | '/grading/finalists'
     | '/grading/release'
     | '/grading/settings'
     | '/groups/matched-groups'
@@ -366,6 +376,7 @@ export interface FileRouteTypes {
     | '/user'
     | '/auth/callback'
     | '/'
+    | '/grading/finalists'
     | '/grading/release'
     | '/grading/settings'
     | '/groups/matched-groups'
@@ -401,6 +412,7 @@ export interface FileRouteTypes {
     | '/_auth/user'
     | '/auth/callback'
     | '/_auth/'
+    | '/_auth/grading/finalists'
     | '/_auth/grading/release'
     | '/_auth/grading/settings'
     | '/_auth/groups/matched-groups'
@@ -637,6 +649,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGradingReleaseRouteImport
       parentRoute: typeof AuthGradingRouteRoute
     }
+    '/_auth/grading/finalists': {
+      id: '/_auth/grading/finalists'
+      path: '/finalists'
+      fullPath: '/grading/finalists'
+      preLoaderRoute: typeof AuthGradingFinalistsRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
     '/_auth/grading/groups/$groupId': {
       id: '/_auth/grading/groups/$groupId'
       path: '/groups/$groupId'
@@ -662,6 +681,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthGradingRouteRouteChildren {
+  AuthGradingFinalistsRoute: typeof AuthGradingFinalistsRoute
   AuthGradingReleaseRoute: typeof AuthGradingReleaseRoute
   AuthGradingSettingsRoute: typeof AuthGradingSettingsRoute
   AuthGradingIndexRoute: typeof AuthGradingIndexRoute
@@ -671,6 +691,7 @@ interface AuthGradingRouteRouteChildren {
 }
 
 const AuthGradingRouteRouteChildren: AuthGradingRouteRouteChildren = {
+  AuthGradingFinalistsRoute: AuthGradingFinalistsRoute,
   AuthGradingReleaseRoute: AuthGradingReleaseRoute,
   AuthGradingSettingsRoute: AuthGradingSettingsRoute,
   AuthGradingIndexRoute: AuthGradingIndexRoute,

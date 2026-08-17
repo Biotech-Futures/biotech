@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/myFetch";
 import type {
   BulkUploadResponse,
   ComponentListPayload,
+  FinalistListResponse,
   Grade,
   GradeBulkItem,
   GradingJobDetail,
@@ -206,6 +207,41 @@ export function useUpdateGradingSettings() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [QUERY_KEY, "settings"] });
+    },
+  });
+}
+
+// Finalist flag CRUD. Toggle is per-group; list is the current set.
+export function useFinalists() {
+  return useQuery({
+    queryKey: [QUERY_KEY, "finalists"],
+    queryFn: async () => {
+      const res = await apiFetch.get<FinalistListResponse>("/grading/finalists/");
+      return res.data;
+    },
+  });
+}
+
+export function useToggleFinalist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      groupId,
+      flagged,
+      notify,
+    }: {
+      groupId: number;
+      flagged: boolean;
+      notify?: boolean;
+    }) => {
+      if (flagged) {
+        await apiFetch.post(`/grading/groups/${groupId}/finalist/`, { notify: !!notify });
+      } else {
+        await apiFetch.delete(`/grading/groups/${groupId}/finalist/`);
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [QUERY_KEY, "finalists"] });
     },
   });
 }

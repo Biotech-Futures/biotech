@@ -141,6 +141,18 @@ export interface MarksReleaseDetail {
   released_by: string | null;
 }
 
+// GET /api/v1/grading/finalists/ + POST/DELETE per-group.
+export interface FinalistRow {
+  group_id: number;
+  group_name: string;
+  flagged_at: string;
+  notified: boolean;
+}
+
+export interface FinalistListResponse {
+  finalists: FinalistRow[];
+}
+
 // GET/PATCH /api/v1/grading/settings/
 export interface GradingSettingsDetail {
   director_1_name: string;
