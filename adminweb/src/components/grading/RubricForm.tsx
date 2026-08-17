@@ -113,6 +113,7 @@ export function RubricForm({
                 placeholder="Mark"
                 value={state[c.id]?.mark ?? ""}
                 onChange={(e) => handleChange(c.id, { mark: e.target.value })}
+                className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               />
               <Textarea
                 placeholder="Comment (optional)"

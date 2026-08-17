@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { StarIcon, MailIcon, MailCheckIcon } from "lucide-react";
+import { StarIcon, MailIcon, MailCheckIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -63,15 +63,18 @@ function FinalistsPage() {
         <p className="text-sm text-muted-foreground">
           Look up group IDs from the group marking page or the Django admin.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            type="number"
-            min={1}
-            placeholder="Group ID"
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            className="w-40"
-          />
+        <div className="flex flex-wrap items-center gap-8">
+          <div className="relative w-40">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-[calc(50%+2px)] size-4 text-muted-foreground" />
+            <Input
+              type="number"
+              min={1}
+              placeholder="Group ID"
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              className="pl-8 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+          </div>
           <label className="text-sm flex items-center gap-1">
             <input
               type="checkbox"
@@ -152,11 +155,6 @@ function FinalistsPage() {
         )}
       </section>
 
-      <div>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/grading">Back</Link>
-        </Button>
-      </div>
     </div>
   );
 }

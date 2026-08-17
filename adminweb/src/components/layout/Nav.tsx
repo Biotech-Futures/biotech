@@ -20,7 +20,10 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
-  ClipboardCheckIcon,
+  ClipboardListIcon,
+  UnlockIcon,
+  StarIcon,
+  SettingsIcon,
 } from "lucide-react";
 
 // Mirrors backend GRADING_ENABLED (defaults on in code; env can flip off).
@@ -83,7 +86,11 @@ const NAV_SECTIONS: NavSection[] = [
     ? [{
         label: "Grading",
         items: [
-          { title: "Grading", url: "/grading", icon: <ClipboardCheckIcon />, exact: true },
+          { title: "Mark by Component", url: "/grading/by-component", icon: <ClipboardListIcon /> },
+          { title: "Mark by Group", url: "/grading/by-group", icon: <UsersIcon /> },
+          { title: "Certificate Setup", url: "/grading/settings", icon: <SettingsIcon /> },
+          { title: "Release Marks", url: "/grading/release", icon: <UnlockIcon /> },
+          { title: "Finalists", url: "/grading/finalists", icon: <StarIcon /> },
         ],
       }]
     : []),

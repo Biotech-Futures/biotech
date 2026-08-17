@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AlertTriangleIcon, CheckCircle2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -63,9 +63,6 @@ function ReleasePage() {
           onClick={() => flip(false)}
         >
           Unrelease
-        </Button>
-        <Button asChild variant="ghost">
-          <Link to="/grading">Back</Link>
         </Button>
       </div>
     </div>

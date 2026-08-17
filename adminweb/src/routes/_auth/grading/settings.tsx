@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -92,12 +92,9 @@ function SettingsPage() {
         </Field>
       </Section>
 
-      <div className="flex gap-2">
+      <div>
         <Button onClick={onSave} disabled={upd.isPending}>
           {upd.isPending ? "Saving…" : "Save"}
-        </Button>
-        <Button asChild variant="ghost">
-          <Link to="/grading">Back</Link>
         </Button>
       </div>
     </div>
