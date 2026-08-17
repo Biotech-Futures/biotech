@@ -7,6 +7,10 @@ from .download import (
 )
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupMarkingView
+from .release import MarksReleaseView
+from .settings import GradingSettingsView
+from .student import MyCertificateView, MyGradesView, MySummaryView
+from .supervisor import SupervisorDownloadView, SupervisorGradesView
 from .upload import BulkUploadMarksView
 
 __all__ = [
@@ -17,6 +21,13 @@ __all__ = [
     "GradeUpdateView",
     "GradingJobDetailView",
     "GradingJobDownloadView",
+    "GradingSettingsView",
     "GroupDownloadView",
     "GroupMarkingView",
+    "MarksReleaseView",
+    "MyCertificateView",
+    "MyGradesView",
+    "MySummaryView",
+    "SupervisorDownloadView",
+    "SupervisorGradesView",
 ]

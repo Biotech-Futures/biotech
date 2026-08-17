@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClipboardListIcon, UsersIcon } from "lucide-react";
+import { ClipboardListIcon, SettingsIcon, UnlockIcon, UsersIcon } from "lucide-react";
 
 export const Route = createFileRoute("/_auth/grading/")({
   component: GradingIndex,
@@ -76,6 +76,32 @@ function GradingIndex() {
           />
           <Button type="submit">Open</Button>
         </form>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <UnlockIcon className="size-5" />
+          <h3 className="font-semibold">Release</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Flip the switch that lets students and supervisors see their marks.
+        </p>
+        <Button asChild variant="outline" className="w-full justify-start">
+          <Link to="/grading/release">Open release page</Link>
+        </Button>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <SettingsIcon className="size-5" />
+          <h3 className="font-semibold">Settings</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Director names, signatures, and docx templates for summaries + certificates.
+        </p>
+        <Button asChild variant="outline" className="w-full justify-start">
+          <Link to="/grading/settings">Open settings</Link>
+        </Button>
       </section>
     </div>
   );

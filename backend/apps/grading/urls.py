@@ -8,8 +8,15 @@ from .views import (
     GradeUpdateView,
     GradingJobDetailView,
     GradingJobDownloadView,
+    GradingSettingsView,
     GroupDownloadView,
     GroupMarkingView,
+    MarksReleaseView,
+    MyCertificateView,
+    MyGradesView,
+    MySummaryView,
+    SupervisorDownloadView,
+    SupervisorGradesView,
 )
 
 app_name = "grading"
@@ -34,4 +41,17 @@ urlpatterns = [
     path("grades/bulk/", GradeBulkView.as_view(), name="grade-bulk"),
     # PATCH a single grade — used by inline edits and quick amendments.
     path("grades/<int:pk>/", GradeUpdateView.as_view(), name="grade-detail"),
+
+    # M6 — release toggle + configurable director/template settings.
+    path("release/", MarksReleaseView.as_view(), name="release"),
+    path("settings/", GradingSettingsView.as_view(), name="settings"),
+
+    # Student-facing read views (gated on MarksRelease.released_at).
+    path("me/grades/", MyGradesView.as_view(), name="me-grades"),
+    path("me/summary/", MySummaryView.as_view(), name="me-summary"),
+    path("me/certificate/", MyCertificateView.as_view(), name="me-certificate"),
+
+    # Supervisor-facing (gated on release + student.supervisor FK).
+    path("supervisor/students/grades/", SupervisorGradesView.as_view(), name="supervisor-grades"),
+    path("supervisor/download/", SupervisorDownloadView.as_view(), name="supervisor-download"),
 ]

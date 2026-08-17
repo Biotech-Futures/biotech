@@ -37,6 +37,8 @@ import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/men
 import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
 import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
 import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
+import { Route as AuthGradingSettingsRouteImport } from './routes/_auth/grading/settings'
+import { Route as AuthGradingReleaseRouteImport } from './routes/_auth/grading/release'
 import { Route as AuthGradingGroupsGroupIdRouteImport } from './routes/_auth/grading/groups/$groupId'
 import { Route as AuthGradingComponentsCodeRouteImport } from './routes/_auth/grading/components/$code'
 import { Route as AuthGradingComponentsCodeGroupIdRouteImport } from './routes/_auth/grading/components/$code_.$groupId'
@@ -182,6 +184,16 @@ const AuthGroupsMatchedGroupsRoute = AuthGroupsMatchedGroupsRouteImport.update({
   path: '/matched-groups',
   getParentRoute: () => AuthGroupsRouteRoute,
 } as any)
+const AuthGradingSettingsRoute = AuthGradingSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
+const AuthGradingReleaseRoute = AuthGradingReleaseRouteImport.update({
+  id: '/release',
+  path: '/release',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
 const AuthGradingGroupsGroupIdRoute =
   AuthGradingGroupsGroupIdRouteImport.update({
     id: '/groups/$groupId',
@@ -220,6 +232,8 @@ export interface FileRoutesByFullPath {
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/grading/release': typeof AuthGradingReleaseRoute
+  '/grading/settings': typeof AuthGradingSettingsRoute
   '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
@@ -249,6 +263,8 @@ export interface FileRoutesByTo {
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
+  '/grading/release': typeof AuthGradingReleaseRoute
+  '/grading/settings': typeof AuthGradingSettingsRoute
   '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
@@ -283,6 +299,8 @@ export interface FileRoutesById {
   '/_auth/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
+  '/_auth/grading/release': typeof AuthGradingReleaseRoute
+  '/_auth/grading/settings': typeof AuthGradingSettingsRoute
   '/_auth/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/_auth/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/_auth/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
@@ -317,6 +335,8 @@ export interface FileRouteTypes {
     | '/task'
     | '/user'
     | '/auth/callback'
+    | '/grading/release'
+    | '/grading/settings'
     | '/groups/matched-groups'
     | '/groups/mentor-matching'
     | '/groups/student-matching'
@@ -346,6 +366,8 @@ export interface FileRouteTypes {
     | '/user'
     | '/auth/callback'
     | '/'
+    | '/grading/release'
+    | '/grading/settings'
     | '/groups/matched-groups'
     | '/groups/mentor-matching'
     | '/groups/student-matching'
@@ -379,6 +401,8 @@ export interface FileRouteTypes {
     | '/_auth/user'
     | '/auth/callback'
     | '/_auth/'
+    | '/_auth/grading/release'
+    | '/_auth/grading/settings'
     | '/_auth/groups/matched-groups'
     | '/_auth/groups/mentor-matching'
     | '/_auth/groups/student-matching'
@@ -599,6 +623,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsMatchedGroupsRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
     }
+    '/_auth/grading/settings': {
+      id: '/_auth/grading/settings'
+      path: '/settings'
+      fullPath: '/grading/settings'
+      preLoaderRoute: typeof AuthGradingSettingsRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/release': {
+      id: '/_auth/grading/release'
+      path: '/release'
+      fullPath: '/grading/release'
+      preLoaderRoute: typeof AuthGradingReleaseRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
     '/_auth/grading/groups/$groupId': {
       id: '/_auth/grading/groups/$groupId'
       path: '/groups/$groupId'
@@ -624,6 +662,8 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthGradingRouteRouteChildren {
+  AuthGradingReleaseRoute: typeof AuthGradingReleaseRoute
+  AuthGradingSettingsRoute: typeof AuthGradingSettingsRoute
   AuthGradingIndexRoute: typeof AuthGradingIndexRoute
   AuthGradingComponentsCodeRoute: typeof AuthGradingComponentsCodeRoute
   AuthGradingGroupsGroupIdRoute: typeof AuthGradingGroupsGroupIdRoute
@@ -631,6 +671,8 @@ interface AuthGradingRouteRouteChildren {
 }
 
 const AuthGradingRouteRouteChildren: AuthGradingRouteRouteChildren = {
+  AuthGradingReleaseRoute: AuthGradingReleaseRoute,
+  AuthGradingSettingsRoute: AuthGradingSettingsRoute,
   AuthGradingIndexRoute: AuthGradingIndexRoute,
   AuthGradingComponentsCodeRoute: AuthGradingComponentsCodeRoute,
   AuthGradingGroupsGroupIdRoute: AuthGradingGroupsGroupIdRoute,

@@ -6,7 +6,9 @@ import type {
   Grade,
   GradeBulkItem,
   GradingJobDetail,
+  GradingSettingsDetail,
   GroupMarkingPayload,
+  MarksReleaseDetail,
 } from "@/type/grading";
 
 const QUERY_KEY = "grading";
@@ -152,6 +154,58 @@ export function useBulkUploadMarks() {
         void qc.invalidateQueries({ queryKey: [QUERY_KEY, "component", vars.code] });
         void qc.invalidateQueries({ queryKey: [QUERY_KEY, "group"] });
       }
+    },
+  });
+}
+
+// GET /api/v1/grading/release/ — current release status.
+export function useMarksRelease() {
+  return useQuery({
+    queryKey: [QUERY_KEY, "release"],
+    queryFn: async () => {
+      const res = await apiFetch.get<MarksReleaseDetail>("/grading/release/");
+      return res.data;
+    },
+  });
+}
+
+// POST /api/v1/grading/release/ — flip release on (or off with release=false).
+export function useToggleRelease() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ release }: { release: boolean }) => {
+      const res = await apiFetch.post<MarksReleaseDetail>("/grading/release/", { release });
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [QUERY_KEY, "release"] });
+    },
+  });
+}
+
+// GET/PATCH /api/v1/grading/settings/ — director names + template uploads.
+export function useGradingSettings() {
+  return useQuery({
+    queryKey: [QUERY_KEY, "settings"],
+    queryFn: async () => {
+      const res = await apiFetch.get<GradingSettingsDetail>("/grading/settings/");
+      return res.data;
+    },
+  });
+}
+
+export function useUpdateGradingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: Partial<GradingSettingsDetail> | FormData) => {
+      const isFormData = patch instanceof FormData;
+      const res = await apiFetch.patch<GradingSettingsDetail>("/grading/settings/", patch, {
+        headers: isFormData ? { "Content-Type": "multipart/form-data" } : undefined,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [QUERY_KEY, "settings"] });
     },
   });
 }

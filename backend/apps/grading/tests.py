@@ -5,12 +5,14 @@ from decimal import Decimal
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.grading.models import Grade, GradingJob, Rubric, RubricCriterion
+from apps.grading.models import Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
 from apps.submissions.models import Submission, SubmissionComponent
 from apps.users.models import User
 
@@ -28,6 +30,13 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:component-download", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/download/")
         self.assertEqual(reverse("grading:job-detail", kwargs={"pk": 1}), "/api/v1/grading/jobs/1/")
         self.assertEqual(reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/bulk-upload/")
+        self.assertEqual(reverse("grading:release"), "/api/v1/grading/release/")
+        self.assertEqual(reverse("grading:settings"), "/api/v1/grading/settings/")
+        self.assertEqual(reverse("grading:me-grades"), "/api/v1/grading/me/grades/")
+        self.assertEqual(reverse("grading:me-summary"), "/api/v1/grading/me/summary/")
+        self.assertEqual(reverse("grading:me-certificate"), "/api/v1/grading/me/certificate/")
+        self.assertEqual(reverse("grading:supervisor-grades"), "/api/v1/grading/supervisor/students/grades/")
+        self.assertEqual(reverse("grading:supervisor-download"), "/api/v1/grading/supervisor/download/")
 
 
 class _GradingFixture(TestCase):
@@ -427,3 +436,107 @@ class BulkUploadMarksViewTests(_GradingFixture):
         g = Grade.objects.get(submission=self.saq_submission, criterion=self.saq_c1)
         self.assertEqual(g.mark, Decimal("9.00"))
         self.assertEqual(g.graded_by_id, self.staff.id)
+
+
+@override_settings(GRADING_ENABLED=True)
+class MarksReleaseViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        resp = self.client.get(reverse("grading:release"))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_flip_on_then_off(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(reverse("grading:release"), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(r.json()["released_at"])
+
+        r = self.client.post(reverse("grading:release"), {"release": "false"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNone(r.json()["released_at"])
+
+
+@override_settings(GRADING_ENABLED=True)
+class GradingSettingsViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_get_and_patch_director_names(self):
+        r = self.client.patch(
+            reverse("grading:settings"),
+            {"director_1_name": "Alice A", "director_2_name": "Bob B"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["director_1_name"], "Alice A")
+
+        r2 = self.client.get(reverse("grading:settings"))
+        self.assertEqual(r2.json()["director_2_name"], "Bob B")
+
+
+@override_settings(GRADING_ENABLED=True)
+class StudentReadViewsTests(_GradingFixture):
+    """Release gate: pre-release → 403; post-release → own group only."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.student_user = User.objects.create_user(
+            email="stud@example.com", first_name="Sam", last_name="Student",
+            password="pw12345!", is_staff=False,
+        )
+        # Join the fixture group as a student.
+        GroupMembership.objects.create(
+            group=cls.group, user=cls.student_user,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        # Seed one released grade so the docx render has real numbers.
+        Grade.objects.create(
+            submission=cls.saq_submission, criterion=cls.saq_c1,
+            mark=Decimal("8.00"), comment="Great",
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        MarksRelease.load()  # ensure row exists; released_at stays None by default
+
+    def _release_now(self):
+        rel = MarksRelease.load()
+        rel.released_at = timezone.now()
+        rel.released_by = self.staff
+        rel.save()
+
+    def test_pre_release_denied(self):
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-grades"))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_post_release_returns_own_grades(self):
+        self._release_now()
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-grades"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        data = r.json()
+        self.assertEqual(data["group"]["id"], self.group.id)
+        saq = next(c for c in data["components"] if c["code"] == "SAQ")
+        self.assertEqual(saq["criteria"][0]["mark"], "8.00")
+
+    def test_summary_docx_streams(self):
+        self._release_now()
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-summary"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("wordprocessingml", r["Content-Type"])
+        # docx = zip file; magic bytes PK\x03\x04
+        self.assertTrue(r.content[:4] == b"PK\x03\x04")
+
+    def test_certificate_docx_streams(self):
+        self._release_now()
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-certificate"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertTrue(r.content[:4] == b"PK\x03\x04")

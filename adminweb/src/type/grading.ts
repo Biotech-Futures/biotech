@@ -134,3 +134,20 @@ export interface BulkUploadResponse {
   applied?: boolean;
   written?: number;
 }
+
+// GET/POST /api/v1/grading/release/
+export interface MarksReleaseDetail {
+  released_at: string | null;
+  released_by: string | null;
+}
+
+// GET/PATCH /api/v1/grading/settings/
+export interface GradingSettingsDetail {
+  director_1_name: string;
+  director_1_signature: string | null;
+  director_2_name: string;
+  director_2_signature: string | null;
+  marks_summary_template: string | null;
+  certificate_template: string | null;
+  component_weights: Record<string, number>;
+}
