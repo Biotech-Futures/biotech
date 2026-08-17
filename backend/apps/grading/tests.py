@@ -39,6 +39,7 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:supervisor-download"), "/api/v1/grading/supervisor/download/")
         self.assertEqual(reverse("grading:finalist-list"), "/api/v1/grading/finalists/")
         self.assertEqual(reverse("grading:finalist-toggle", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/finalist/")
+        self.assertEqual(reverse("grading:component-analytics", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/analytics/")
 
 
 class _GradingFixture(TestCase):
@@ -601,3 +602,59 @@ class FinalistToggleTests(_GradingFixture):
         r = self.client.post(self.url, {"notify": True}, format="json")
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertFalse(r.json()["notified"])
+
+
+@override_settings(GRADING_ENABLED=True)
+class ComponentAnalyticsTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("grading:component-analytics", kwargs={"code": "SAQ"})
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unknown_component_returns_404(self):
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(
+            self.client.get(reverse("grading:component-analytics", kwargs={"code": "MISSING"})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_aggregates_match_hand_computation(self):
+        # Second group without a submission — should count as pending / unmarked.
+        Groups.objects.create(group_name="BTF-TEST-2")
+
+        # Fully mark fixture group's SAQ submission across both criteria.
+        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("8.00"))
+        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.00"))
+
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(self.url + "?year=2026")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        data = r.json()
+
+        self.assertEqual(data["component"]["code"], "SAQ")
+        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["criteria_total"], 2)
+        self.assertEqual(data["groups_total"], 2)
+        self.assertEqual(data["submissions"], {"submitted": 1, "pending": 1})
+        self.assertEqual(data["grading"], {"fully_marked": 1, "partially_marked": 0, "unmarked": 0})
+        self.assertEqual(data["marks"]["count"], 1)
+        self.assertEqual(data["marks"]["mean"], 12.0)
+        self.assertEqual(data["marks"]["min"], 12.0)
+        self.assertEqual(data["marks"]["max"], 12.0)
+
+        rankings = data["rankings"]
+        self.assertEqual(len(rankings), 1)
+        self.assertEqual(rankings[0]["group_name"], "BTF-TEST-1")
+        self.assertEqual(rankings[0]["total"], 12.0)
+
+    def test_no_grades_yields_null_stats(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        marks = r.json()["marks"]
+        self.assertEqual(marks["count"], 0)
+        self.assertIsNone(marks["mean"])
+        self.assertEqual(marks["histogram"], [])

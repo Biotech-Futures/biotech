@@ -1,3 +1,4 @@
+from .analytics import ComponentAnalyticsView
 from .component import ComponentMarkingListView
 from .download import (
     ComponentDownloadView,
@@ -16,6 +17,7 @@ from .upload import BulkUploadMarksView
 
 __all__ = [
     "BulkUploadMarksView",
+    "ComponentAnalyticsView",
     "ComponentDownloadView",
     "ComponentMarkingListView",
     "FinalistListView",

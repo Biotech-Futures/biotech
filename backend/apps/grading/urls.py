@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     BulkUploadMarksView,
+    ComponentAnalyticsView,
     ComponentDownloadView,
     ComponentMarkingListView,
     FinalistListView,
@@ -60,4 +61,7 @@ urlpatterns = [
     # M8 — finalist flagging + optional notification.
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
+
+    # M9 — read-only analytics for Team 4's dashboards.
+    path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),
 ]
