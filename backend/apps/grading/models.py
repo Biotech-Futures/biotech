@@ -1,0 +1,206 @@
+from django.conf import settings
+from django.db import models
+
+
+class Rubric(models.Model):
+    component = models.ForeignKey(
+        "submissions.SubmissionComponent",
+        on_delete=models.PROTECT,
+        related_name="rubrics",
+    )
+    year = models.PositiveIntegerField()
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "rubric"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["component", "year"],
+                name="unique_rubric_per_component_year",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["component", "year"]),
+            models.Index(fields=["active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.component.code} {self.year}"
+
+
+class RubricCriterion(models.Model):
+    rubric = models.ForeignKey(Rubric, on_delete=models.CASCADE, related_name="criteria")
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    max_mark = models.DecimalField(max_digits=6, decimal_places=2)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "rubric_criterion"
+        ordering = ["order", "id"]
+        indexes = [
+            models.Index(fields=["rubric", "order"]),
+        ]
+
+    def __str__(self):
+        return f"{self.rubric} — {self.name}"
+
+
+class Grade(models.Model):
+    submission = models.ForeignKey(
+        "submissions.Submission",
+        on_delete=models.CASCADE,
+        related_name="grades",
+    )
+    criterion = models.ForeignKey(RubricCriterion, on_delete=models.PROTECT, related_name="grades")
+    mark = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    comment = models.TextField(blank=True)
+    graded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="grades",
+    )
+    graded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "grade"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["submission", "criterion"],
+                name="unique_grade_per_submission_criterion",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["submission", "criterion"]),
+            models.Index(fields=["graded_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.submission} — {self.criterion.name}: {self.mark}"
+
+
+class FinalistFlag(models.Model):
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_flag",
+    )
+    flagged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_flags",
+    )
+    flagged_at = models.DateTimeField(auto_now_add=True)
+    notified = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "finalist_flag"
+        indexes = [
+            models.Index(fields=["notified"]),
+        ]
+
+    def __str__(self):
+        return f"Finalist: {self.group}"
+
+
+class SingletonModel(models.Model):
+    """Constrain a table to a single row (pk=1) — used for global settings."""
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        pass
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class MarksRelease(SingletonModel):
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marks_releases",
+    )
+
+    class Meta:
+        db_table = "marks_release"
+
+    def __str__(self):
+        return f"MarksRelease(released_at={self.released_at})"
+
+
+class GradingSettings(SingletonModel):
+    director_1_name = models.CharField(max_length=255, blank=True)
+    director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    director_2_name = models.CharField(max_length=255, blank=True)
+    director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    marks_summary_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
+    certificate_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
+    # Component code (e.g. "POSTER") -> weight (0..1). Sum should be 1.0 when set.
+    component_weights = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "grading_settings"
+
+    def __str__(self):
+        return "GradingSettings"
+
+
+class GradingJob(models.Model):
+    KIND_BULK_ZIP = "bulk_zip"
+    KIND_MARKS_RELEASE = "marks_release"
+    KIND_CHOICES = [
+        (KIND_BULK_ZIP, "Bulk zip"),
+        (KIND_MARKS_RELEASE, "Marks release"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    params = models.JSONField(default=dict, blank=True)
+    result_url = models.URLField(max_length=1024, blank=True)
+    error = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="grading_jobs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "grading_job"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["kind", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.kind}#{self.pk} [{self.status}]"
