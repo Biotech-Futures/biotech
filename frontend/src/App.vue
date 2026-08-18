@@ -77,6 +77,17 @@
 
             <li class="sidebar-item">
               <RouterLink
+                to="/submission"
+                class="sidebar-link"
+                :class="{ active: route.path.includes('/submission') }"
+              >
+                <i class="fas fa-file-arrow-up sidebar-icon"></i>
+                <span>Submission</span>
+              </RouterLink>
+            </li>
+
+            <li class="sidebar-item">
+              <RouterLink
                 to="/events"
                 class="sidebar-link"
                 :class="{ active: route.path.startsWith('/events') }"

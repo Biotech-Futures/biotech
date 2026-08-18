@@ -83,6 +83,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
+  // Deliberately NOT nested under /groups. Submission is its own section that
+  // references a team, rather than a sub-page of one — which also keeps the
+  // Groups sidebar item from highlighting here, since it matches on '/groups'
+  // appearing anywhere in the path.
+  { path: '/submission', name: 'submission', component: () => import('@/views/SubmissionLandingPage.vue') },
+  { path: '/submission/:id', name: 'group-submission', component: () => import('@/views/GroupSubmissionPage.vue') },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
