@@ -15,7 +15,13 @@ SECRET_KEY = "dev-only-not-for-production"
 DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
-# Database configuration is safely inherited from settings.py mapping to .env
+# Database configuration is safely inherited from settings.py mapping to .env,
+# except for TLS: settings.py pins ``sslmode=require`` because Azure Postgres
+# mandates it, but the local docker-compose.dev.yml container serves plain TCP
+# and rejects the handshake with "server does not support SSL". Note that
+# ``DB_SSLMODE`` in .env is *not* consulted by settings.py, so the override has
+# to happen here rather than in the environment.
+DATABASES["default"]["OPTIONS"]["sslmode"] = os.environ.get("DB_SSLMODE", "disable")
 
 # Use local file storage instead of Azure Blob
 USE_AZURE_BLOB_STORAGE = False
