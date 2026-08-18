@@ -13,7 +13,12 @@ from rest_framework.test import APIClient
 
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.submissions.models import Deadline, GroupExtension, Submission
+from apps.submissions.models import (
+    Deadline,
+    GroupExtension,
+    Submission,
+    SubmissionQuestion,
+)
 from apps.submissions.services import deadline_for_group
 from apps.users.models import User
 
@@ -112,6 +117,15 @@ class SubmissionApiTests(TestCase):
         client.force_authenticate(user=user)
         return client
 
+    def _answer_everything(self):
+        """Fill every required question, so submit is testing what it claims."""
+        submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.answers = {
+            question.key: "An answer."
+            for question in SubmissionQuestion.active().filter(is_required=True)
+        }
+        submission.save(update_fields=["answers"])
+
     def _attach_poster(self):
         """Satisfy the "a poster is required to submit" rule.
 
@@ -193,10 +207,22 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
 
+    def test_submitting_with_a_required_question_blank_is_refused(self):
+        client = self._client_for(self.student)
+        self._attach_poster()
+        # q1 answered, the other required questions left blank.
+        client.put(self.detail_url, {"answers": {"q1": "Only this one"}}, format="json")
+
+        response = client.post(self.submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.data.get("missing"))
+        self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
+
     def test_student_submits(self):
         client = self._client_for(self.student)
-        client.put(self.detail_url, {"answers": {"q1": "Done"}}, format="json")
         self._attach_poster()
+        self._answer_everything()
         response = client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(response.status_code, 200)
@@ -208,13 +234,47 @@ class SubmissionApiTests(TestCase):
     def test_resubmitting_updates_the_same_row(self):
         client = self._client_for(self.student)
         self._attach_poster()
+        self._answer_everything()
 
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
-        client.put(self.detail_url, {"answers": {"q1": "Revised"}}, format="json")
+        answers = {q.key: "Revised" for q in SubmissionQuestion.active()}
+        client.put(self.detail_url, {"answers": answers}, format="json")
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
 
         self.assertEqual(Submission.objects.filter(group=self.group).count(), 1)
-        self.assertEqual(Submission.objects.get(group=self.group).answers, {"q1": "Revised"})
+        self.assertEqual(Submission.objects.get(group=self.group).answers, answers)
+
+    # ---------------------------------------------------------------- questions
+    def test_questions_are_returned_in_order(self):
+        response = self._client_for(self.student).get(self.detail_url)
+
+        keys = [question["key"] for question in response.data["questions"]]
+        self.assertEqual(keys, ["q1", "q2", "q3", "q4"])
+
+    def test_retired_questions_are_hidden(self):
+        SubmissionQuestion.objects.filter(key="q4").update(is_active=False)
+
+        response = self._client_for(self.student).get(self.detail_url)
+
+        keys = [question["key"] for question in response.data["questions"]]
+        self.assertEqual(keys, ["q1", "q2", "q3"])
+
+    def test_unknown_answer_key_is_rejected(self):
+        response = self._client_for(self.student).put(
+            self.detail_url, {"answers": {"nope": "x"}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Submission.objects.filter(group=self.group).exists())
+
+    def test_answer_longer_than_the_limit_is_rejected(self):
+        SubmissionQuestion.objects.filter(key="q1").update(max_length=10)
+
+        response = self._client_for(self.student).put(
+            self.detail_url, {"answers": {"q1": "x" * 11}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     # ---------------------------------------------------------------- closing
     def test_writes_refused_after_deadline(self):

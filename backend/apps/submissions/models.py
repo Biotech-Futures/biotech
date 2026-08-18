@@ -17,6 +17,48 @@ from django.db import models
 from django.utils import timezone
 
 
+class SubmissionQuestion(models.Model):
+    """One short-answer question on the entry form.
+
+    Questions live here rather than in the frontend so they can be reworded,
+    reordered or retired without a code change, and — just as importantly — so
+    the server knows what each stored answer *means*. Exporting answers to a
+    spreadsheet needs column headings, and a bare ``{"q1": ...}`` blob cannot
+    supply them.
+    """
+
+    # Stable identifier that stored answers are keyed by. Kept separate from
+    # ``prompt`` so the wording can be rewritten freely — fixing a typo must
+    # never orphan answers students have already written.
+    key = models.CharField(max_length=32, unique=True)
+    prompt = models.TextField()
+    help_text = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_required = models.BooleanField(default=False)
+    # Blank means no limit.
+    max_length = models.PositiveIntegerField(null=True, blank=True)
+    # Retired rather than deleted: deleting would strand the matching answers
+    # in the JSON with nothing left to label them.
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "submission_question"
+        verbose_name = "Submission question"
+        # ``order`` is not unique — swapping two questions around would
+        # otherwise need a temporary value to dodge the constraint. ``id``
+        # breaks ties so the sequence is still stable.
+        ordering = ["order", "id"]
+        indexes = [models.Index(fields=["is_active", "order"])]
+
+    def __str__(self):
+        return f"{self.key}: {self.prompt[:60]}"
+
+    @classmethod
+    def active(cls):
+        return cls.objects.filter(is_active=True)
+
+
 class Deadline(models.Model):
     """The closing time that applies to every team by default.
 

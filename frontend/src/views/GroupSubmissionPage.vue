@@ -39,18 +39,32 @@
         {{ message }}
       </p>
 
-      <!-- Short-answer questions -->
+      <!-- Short-answer questions. Defined in the database, so this list is
+           whatever the server sent rather than anything hardcoded here. -->
       <section class="card">
         <div class="card-header"><h2 class="card-title">Questions</h2></div>
-        <div v-for="question in QUESTIONS" :key="question.key" class="submission-field">
-          <label class="submission-label" :for="question.key">{{ question.label }}</label>
+
+        <p v-if="!questions.length" class="submission-muted">
+          No questions have been set up yet.
+        </p>
+
+        <div v-for="question in questions" :key="question.key" class="submission-field">
+          <label class="submission-label" :for="question.key">
+            {{ question.prompt }}
+            <span v-if="question.is_required" class="submission-required">required</span>
+          </label>
+          <p v-if="question.help_text" class="submission-muted">{{ question.help_text }}</p>
           <textarea
             :id="question.key"
             v-model="answers[question.key]"
             class="form-control submission-textarea"
             rows="4"
+            :maxlength="question.max_length ?? undefined"
             :disabled="!isOpen"
           ></textarea>
+          <p v-if="question.max_length" class="submission-muted">
+            {{ (answers[question.key] || '').length }} / {{ question.max_length }} characters
+          </p>
         </div>
       </section>
 
@@ -145,16 +159,6 @@ import {
   type SubmissionWriteResult
 } from '@/utils/submissionsAPI'
 
-// Placeholder wording until the client sends their current Qualtrics form.
-// Answers are stored keyed by these ids, so swapping the questions later is a
-// change to this list alone — no database migration.
-const QUESTIONS = [
-  { key: 'q1', label: 'What problem does your project address?' },
-  { key: 'q2', label: 'Describe your approach and methodology.' },
-  { key: 'q3', label: 'What are your key findings or results?' },
-  { key: 'q4', label: 'What impact could your project have?' }
-] as const
-
 const SLOTS: { key: SubmissionSlot; label: string; hint: string; accept: string; required: boolean }[] = [
   {
     key: 'poster',
@@ -185,6 +189,7 @@ const isError = ref(false)
 
 const fileInputs: Partial<Record<SubmissionSlot, HTMLInputElement>> = {}
 
+const questions = computed(() => detail.value?.questions ?? [])
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isBusy = computed(() => isSaving.value || isSubmitting.value || Boolean(busySlot.value))
 
@@ -259,7 +264,7 @@ function applyResult(result: SubmissionWriteResult) {
 /** Copy server state into the editable fields. */
 function syncFromDetail() {
   const submission = detail.value?.submission
-  QUESTIONS.forEach((question) => {
+  questions.value.forEach((question) => {
     answers[question.key] = submission?.answers?.[question.key] ?? ''
   })
   prototypeUrl.value = submission?.prototype_url ?? ''
@@ -310,7 +315,15 @@ async function onSubmit() {
     applyResult(await submitEntry(groupId.value))
     setMessage('Submitted. You can keep revising until the deadline.')
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    const apiError = apiErrorFromUnknown(error)
+    // The backend names the unanswered questions, so repeat them here rather
+    // than leaving the student to hunt for which box is blank.
+    const missing = apiError.body?.missing
+    if (Array.isArray(missing) && missing.length) {
+      setMessage(`${apiError.message} Still needed: ${missing.join(' · ')}`, true)
+    } else {
+      setMessage(apiError.message, true)
+    }
   } finally {
     isSubmitting.value = false
   }

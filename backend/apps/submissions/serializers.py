@@ -1,6 +1,15 @@
 from rest_framework import serializers
 
-from .models import Submission
+from .models import Submission, SubmissionQuestion
+
+
+class SubmissionQuestionSerializer(serializers.ModelSerializer):
+    """The question set the entry form should render."""
+
+    class Meta:
+        model = SubmissionQuestion
+        fields = ["key", "prompt", "help_text", "is_required", "max_length"]
+        read_only_fields = fields
 
 
 class SubmissionSerializer(serializers.ModelSerializer):
@@ -40,3 +49,45 @@ class SubmissionDraftSerializer(serializers.Serializer):
         required=False,
     )
     prototype_url = serializers.URLField(required=False, allow_blank=True)
+
+    def validate_answers(self, value):
+        """Reject unknown keys and over-long answers.
+
+        Unknown keys are refused rather than ignored: silently dropping them
+        would let a client believe an answer had been saved when it had not.
+        Retired questions are treated as unknown for writing, while their
+        existing answers stay readable.
+        """
+        questions = {q.key: q for q in SubmissionQuestion.active()}
+
+        unknown = sorted(set(value) - set(questions))
+        if unknown:
+            raise serializers.ValidationError(
+                f"Unknown question{'s' if len(unknown) > 1 else ''}: {', '.join(unknown)}."
+            )
+
+        too_long = []
+        for key, answer in value.items():
+            limit = questions[key].max_length
+            if limit and len(answer) > limit:
+                too_long.append(f"{key} (max {limit} characters)")
+        if too_long:
+            raise serializers.ValidationError(
+                f"Answer too long for {', '.join(too_long)}."
+            )
+
+        return value
+
+
+def missing_required_answers(submission) -> list[str]:
+    """Prompts of the required questions this entry has left blank.
+
+    Checked at submit time rather than on every draft save, so a team can
+    stop half-way and come back without being nagged.
+    """
+    answers = submission.answers or {}
+    return [
+        question.prompt
+        for question in SubmissionQuestion.active().filter(is_required=True)
+        if not str(answers.get(question.key, "")).strip()
+    ]

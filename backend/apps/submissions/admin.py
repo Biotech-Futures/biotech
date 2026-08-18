@@ -1,6 +1,19 @@
 from django.contrib import admin
 
-from .models import Deadline, GroupExtension, Submission
+from .models import Deadline, GroupExtension, Submission, SubmissionQuestion
+
+
+@admin.register(SubmissionQuestion)
+class SubmissionQuestionAdmin(admin.ModelAdmin):
+    list_display = ("order", "key", "prompt", "is_required", "is_active")
+    list_editable = ("order", "is_required", "is_active")
+    list_display_links = ("key",)
+
+    def get_readonly_fields(self, request, obj=None):
+        # The key is what stored answers are filed under, so it is fixed once
+        # the question exists — changing it would orphan every answer already
+        # written against it. New questions can still choose their own.
+        return ("key",) if obj else ()
 
 
 @admin.register(Deadline)

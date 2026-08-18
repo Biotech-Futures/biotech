@@ -15,12 +15,18 @@ from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
     PosterRequired,
+    RequiredAnswersMissing,
     StudentRoleRequired,
     SubmissionsClosed,
     SubmissionsNotConfigured,
 )
-from .models import Submission
-from .serializers import SubmissionDraftSerializer, SubmissionSerializer
+from .models import Submission, SubmissionQuestion
+from .serializers import (
+    SubmissionDraftSerializer,
+    SubmissionQuestionSerializer,
+    SubmissionSerializer,
+    missing_required_answers,
+)
 from .services import deadline_for_group
 from .storage import SUBMISSION_FILE_SERVICE
 from .uploads import SLOTS, validate_submission_file
@@ -87,6 +93,11 @@ class GroupSubmissionView(APIView):
         return Response({
             "group": {"id": group.id, "name": group.group_name},
             "deadline": _deadline_payload(group.id),
+            # The form renders whatever is returned here, so rewording or
+            # reordering a question is an admin edit rather than a deploy.
+            "questions": SubmissionQuestionSerializer(
+                SubmissionQuestion.active(), many=True
+            ).data,
             # None means the team has not started yet — the page renders an
             # empty form rather than treating it as an error.
             "submission": (
@@ -227,6 +238,12 @@ class GroupSubmissionSubmitView(APIView):
         # in the browser so it cannot be clicked past.
         if not submission.poster:
             raise PosterRequired()
+
+        # Required questions are enforced only at this point, so a team can
+        # save a half-finished draft and come back to it.
+        missing = missing_required_answers(submission)
+        if missing:
+            raise RequiredAnswersMissing(missing)
 
         submission.submitted_at = timezone.now()
         submission.submitted_by = request.user

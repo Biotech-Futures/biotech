@@ -14,7 +14,7 @@ from django.utils import timezone
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.submissions.models import Deadline, Submission
+from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.storage import SUBMISSION_FILE_SERVICE
 from apps.users.models import User
 from rest_framework.test import APIClient
@@ -176,8 +176,17 @@ class SubmissionFileTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
 
+    def _answer_everything(self):
+        submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.answers = {
+            question.key: "An answer."
+            for question in SubmissionQuestion.active().filter(is_required=True)
+        }
+        submission.save(update_fields=["answers"])
+
     def test_can_submit_once_a_poster_is_attached(self):
         self._upload("poster", _pdf_upload())
+        self._answer_everything()
         response = self.client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(response.status_code, 200)

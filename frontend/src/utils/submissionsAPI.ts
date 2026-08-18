@@ -32,9 +32,19 @@ export interface SubmissionRecord {
   updated_at: string
 }
 
+/** A question the form should render. Defined in the database, not here. */
+export interface SubmissionQuestion {
+  key: string
+  prompt: string
+  help_text: string
+  is_required: boolean
+  max_length: number | null
+}
+
 export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
+  questions: SubmissionQuestion[]
   /** null until the team saves something for the first time. */
   submission: SubmissionRecord | null
 }

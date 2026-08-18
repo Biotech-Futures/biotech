@@ -34,6 +34,18 @@ class PosterRequired(APIException):
     default_code = "poster_required"
 
 
+class RequiredAnswersMissing(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Some required questions have not been answered."
+    default_code = "required_answers_missing"
+
+    def __init__(self, prompts):
+        super().__init__()
+        # Naming the questions lets the page point at them rather than making
+        # the student hunt for which one is blank.
+        self.extra = {"missing": list(prompts)}
+
+
 class NoFileUploaded(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "No file was included in the request."
