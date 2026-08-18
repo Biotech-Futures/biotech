@@ -6,6 +6,7 @@ part of.
 """
 from datetime import timedelta
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -250,6 +251,16 @@ class SubmissionApiTests(TestCase):
 
         keys = [question["key"] for question in response.data["questions"]]
         self.assertEqual(keys, ["q1", "q2", "q3", "q4"])
+
+    def test_upload_limit_is_published(self):
+        # The page states the limit and refuses oversized files before
+        # uploading, so it has to come from the server rather than a hardcoded
+        # copy that could drift out of step with the setting.
+        response = self._client_for(self.student).get(self.detail_url)
+
+        self.assertEqual(
+            response.data["max_file_size"], settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE
+        )
 
     def test_retired_questions_are_hidden(self):
         SubmissionQuestion.objects.filter(key="q4").update(is_active=False)

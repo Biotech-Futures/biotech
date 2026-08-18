@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -98,6 +99,11 @@ class GroupSubmissionView(APIView):
             "questions": SubmissionQuestionSerializer(
                 SubmissionQuestion.active(), many=True
             ).data,
+            # Published so the page can state the limit and refuse an oversized
+            # file before uploading it. Hardcoding the number in the frontend
+            # would give two places to change and an eventual mismatch; the
+            # server still enforces it either way.
+            "max_file_size": settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE,
             # None means the team has not started yet — the page renders an
             # empty form rather than treating it as an error.
             "submission": (

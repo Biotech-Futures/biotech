@@ -78,7 +78,7 @@
               {{ slot.label }}
               <span v-if="slot.required" class="submission-required">required</span>
             </div>
-            <p class="submission-muted">{{ slot.hint }}</p>
+            <p class="submission-muted">{{ slot.hint }} · up to {{ maxFileSizeLabel }}</p>
 
             <p v-if="storedFile(slot.key)" class="submission-file">
               <a :href="downloadUrl(slot.key)" target="_blank" rel="noopener noreferrer">
@@ -171,6 +171,10 @@ const SLOTS: { key: SubmissionSlot; label: string; hint: string; accept: string;
   { key: 'prototype', label: 'Prototype', hint: 'Any file type. Optional.', accept: '', required: false }
 ]
 
+// Fallback only for the moment between the page mounting and the first
+// response arriving; the server's value replaces it as soon as it loads.
+const FALLBACK_MAX_FILE_SIZE = 50 * 1024 * 1024
+
 const route = useRoute()
 const groupId = computed(() => String(route.params.id ?? ''))
 
@@ -190,6 +194,8 @@ const isError = ref(false)
 const fileInputs: Partial<Record<SubmissionSlot, HTMLInputElement>> = {}
 
 const questions = computed(() => detail.value?.questions ?? [])
+const maxFileSize = computed(() => detail.value?.max_file_size ?? FALLBACK_MAX_FILE_SIZE)
+const maxFileSizeLabel = computed(() => formatSize(maxFileSize.value))
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isBusy = computed(() => isSaving.value || isSubmitting.value || Boolean(busySlot.value))
 
@@ -230,7 +236,11 @@ function formatDate(value: string) {
 
 function formatSize(bytes: number | null | undefined) {
   if (!bytes && bytes !== 0) return 'unknown size'
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024 * 1024) {
+    const mb = bytes / (1024 * 1024)
+    // Drop the decimal on round figures so the stated limit reads "50 MB".
+    return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
+  }
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} bytes`
 }
@@ -333,6 +343,19 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+
+  // Refuse before uploading. The server enforces this too — checking here only
+  // saves the student watching a doomed upload crawl to completion.
+  if (file.size > maxFileSize.value) {
+    const label = SLOTS.find((s) => s.key === slot)?.label ?? slot
+    setMessage(
+      `${label} is ${formatSize(file.size)}. The limit is ${maxFileSizeLabel.value} — ` +
+        'try exporting it at a lower resolution.',
+      true
+    )
+    input.value = ''
+    return
+  }
 
   busySlot.value = slot
   setMessage('')

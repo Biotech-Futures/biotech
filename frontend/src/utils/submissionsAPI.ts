@@ -45,6 +45,8 @@ export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
   questions: SubmissionQuestion[]
+  /** Upload ceiling in bytes, set by the server. */
+  max_file_size: number
   /** null until the team saves something for the first time. */
   submission: SubmissionRecord | null
 }
