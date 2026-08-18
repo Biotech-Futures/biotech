@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
+    'apps.submissions',
     'apps.services',
     'matching',
     'drf_spectacular',
@@ -67,6 +68,10 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
+# Competition entries live in their own container rather than alongside the
+# general resource library, so student submissions are not mixed in with
+# program-wide material.
+AZURE_SUBMISSION_CONTAINER = config("AZURE_SUBMISSION_CONTAINER", default="submissions")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -92,6 +97,13 @@ RESOURCE_INLINE_HTML_MAX_BYTES = config(
 CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     "CHAT_ATTACHMENT_MAX_UPLOAD_SIZE",
     default=10 * 1024 * 1024,
+    cast=int,
+)
+# Higher than the resource limit: competition posters are commonly A0 and
+# image-heavy, and a rejected upload on deadline day is expensive for a team.
+SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
+    default=50 * 1024 * 1024,
     cast=int,
 )
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(

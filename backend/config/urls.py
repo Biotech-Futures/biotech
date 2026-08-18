@@ -76,6 +76,9 @@ _api_v1_patterns = [
     path("events/", include(event_canonical_urlpatterns)),
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
+    # Submissions is v1-only: it has no legacy unprefixed callers to support,
+    # so it is deliberately left out of _DUAL_MOUNTS.
+    path("submissions/", include("apps.submissions.urls")),
     path("", include("apps.users.urls")),
 ]
 
