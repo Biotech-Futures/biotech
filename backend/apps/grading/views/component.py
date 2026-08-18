@@ -25,7 +25,9 @@ class ComponentMarkingListView(APIView):
           "rows": [
             {"group_id", "group_name",
              "submission_id" | null, "submitted_at" | null, "is_late",
-             "criteria_graded": <int>}
+             "criteria_graded": <int>,
+             "last_grader_name": <str> | null,
+             "grader_names": [<str>, ...]}
           ]
         }
 
@@ -57,6 +59,11 @@ class ComponentMarkingListView(APIView):
         # with a null mark exists when a comment was left but the rubric row
         # wasn't scored yet — treat that as "in progress", not "graded".
         graded_counts = {}
+        # Grader attribution: latest-first walk over scored grades gives us both
+        # the most-recent grader (first hit per submission) and the deduped list
+        # (insertion order = latest-first) in a single pass.
+        last_grader = {}
+        graders_by_sub = {}
         submission_ids = [s["id"] for s in submissions.values()]
         if submission_ids:
             counts = (
@@ -66,16 +73,42 @@ class ComponentMarkingListView(APIView):
             )
             graded_counts = {row["submission_id"]: row["cnt"] for row in counts}
 
+            grader_rows = (
+                Grade.objects.filter(
+                    submission_id__in=submission_ids,
+                    mark__isnull=False,
+                    graded_by__isnull=False,
+                )
+                .order_by("submission_id", "-graded_at")
+                .values(
+                    "submission_id",
+                    "graded_by__first_name",
+                    "graded_by__last_name",
+                )
+            )
+            for row in grader_rows:
+                name = f'{row["graded_by__first_name"]} {row["graded_by__last_name"]}'.strip()
+                if not name:
+                    continue
+                sid = row["submission_id"]
+                last_grader.setdefault(sid, name)
+                names = graders_by_sub.setdefault(sid, [])
+                if name not in names:
+                    names.append(name)
+
         rows = []
         for g in groups:
             submission = submissions.get(g["id"])
+            sid = submission["id"] if submission else None
             rows.append({
                 "group_id": g["id"],
                 "group_name": g["group_name"],
-                "submission_id": submission["id"] if submission else None,
+                "submission_id": sid,
                 "submitted_at": submission["submitted_at"] if submission else None,
                 "is_late": submission["is_late"] if submission else False,
-                "criteria_graded": graded_counts.get(submission["id"], 0) if submission else 0,
+                "criteria_graded": graded_counts.get(sid, 0) if sid else 0,
+                "last_grader_name": last_grader.get(sid) if sid else None,
+                "grader_names": graders_by_sub.get(sid, []) if sid else [],
             })
 
         return Response({

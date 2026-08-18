@@ -10,11 +10,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  SortableTableHead,
+  useSortableRows,
+} from "@/components/ui/sortable-table";
+import {
   useJobStatus,
   useQueryComponentRows,
   useStartComponentDownload,
 } from "@/query/grading";
-import { CheckCircle2Icon, CircleDashedIcon, DownloadIcon } from "lucide-react";
+import { CheckCircle2Icon, CircleDashedIcon, DownloadIcon, UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import { BulkUploadDialog } from "@/components/grading/BulkUploadDialog";
 
@@ -64,6 +73,29 @@ function ComponentMarkingTablePage() {
     );
   };
 
+  const rows = q.data?.rows ?? [];
+  const criteria_total = q.data?.criteria_total ?? 0;
+
+  const { sortState, setSortState, sortedRows } = useSortableRows(
+    rows,
+    { key: "time" as const, direction: "desc" as const },
+    (r, key) => {
+      if (key === "id") return r.group_id;
+      if (key === "time") return r.submitted_at;
+      if (key === "progress") return r.submission_id != null ? r.criteria_graded : null;
+      return null;
+    },
+  );
+
+  // Sorting by progress: keep unsubmitted rows pinned at the bottom regardless
+  // of direction, so admins never mistake "0/N" for a legitimate low score.
+  const displayRows = sortState.key === "progress"
+    ? [
+        ...sortedRows.filter((r) => r.submission_id != null),
+        ...sortedRows.filter((r) => r.submission_id == null),
+      ]
+    : sortedRows;
+
   if (q.isPending) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -71,7 +103,7 @@ function ComponentMarkingTablePage() {
     return <p className="text-destructive">Failed to load component "{code}".</p>;
   }
 
-  const { component, rows, criteria_total } = q.data;
+  const { component } = q.data;
   const submittedCount = rows.filter((r) => r.submission_id != null).length;
   const fullyMarkedCount = rows.filter(
     (r) => r.submission_id != null && criteria_total > 0 && r.criteria_graded >= criteria_total,
@@ -79,8 +111,8 @@ function ComponentMarkingTablePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-4 flex-wrap">
-        <h2 className="text-xl font-semibold">{component.name}</h2>
+      <h2 className="text-xl font-semibold">{component.name}</h2>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <div className="text-sm text-muted-foreground">
             {submittedCount}/{rows.length} submitted · {fullyMarkedCount}/{submittedCount} fully marked
@@ -105,30 +137,54 @@ function ComponentMarkingTablePage() {
               XLSX
             </Button>
           ) : null}
-          <BulkUploadDialog code={code} />
         </div>
+        <BulkUploadDialog code={code} />
       </div>
 
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>
+                <SortableTableHead
+                  label="ID"
+                  sortKey="id"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
               <TableHead>Group</TableHead>
               <TableHead>Submitted</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Time"
+                  sortKey="time"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
               <TableHead>Late</TableHead>
-              <TableHead>Progress</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Progress"
+                  sortKey="progress"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>Marker</TableHead>
               <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 ? (
+            {displayRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   No groups.
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r) => {
+              displayRows.map((r) => {
                 const submitted = r.submission_id != null;
                 const progressLabel = criteria_total > 0
                   ? `${r.criteria_graded}/${criteria_total}`
@@ -136,36 +192,69 @@ function ComponentMarkingTablePage() {
                 const done = submitted && criteria_total > 0 && r.criteria_graded >= criteria_total;
                 return (
                   <TableRow key={r.group_id}>
+                    <TableCell>{r.group_id}</TableCell>
                     <TableCell className="font-medium">{r.group_name}</TableCell>
                     <TableCell>
-                      {submitted ? (
-                        <span title={r.submitted_at ?? ""}>
-                          {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}
-                        </span>
+                      {submitted && r.submitted_at ? (
+                        new Date(r.submitted_at).toLocaleDateString()
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {submitted && r.submitted_at ? (
+                        new Date(r.submitted_at).toLocaleTimeString()
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell>{r.is_late ? "Yes" : "—"}</TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center gap-1 text-sm">
-                        {done ? (
-                          <CheckCircle2Icon className="size-4 text-emerald-600" />
-                        ) : (
-                          <CircleDashedIcon className="size-4 text-muted-foreground" />
-                        )}
-                        {progressLabel}
-                      </span>
+                      {submitted ? (
+                        <span className="inline-flex items-center gap-1 text-sm">
+                          {done ? (
+                            <CheckCircle2Icon className="size-4 text-emerald-600" />
+                          ) : (
+                            <CircleDashedIcon className="size-4 text-muted-foreground" />
+                          )}
+                          {progressLabel}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {r.last_grader_name ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1">
+                              {r.last_grader_name}
+                              {r.grader_names.length > 1 ? (
+                                <UsersIcon className="size-3.5 text-muted-foreground" />
+                              ) : null}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Marked by: {r.grader_names.join(", ")}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button asChild variant="outline" size="sm" disabled={!submitted}>
-                        <Link
-                          to="/grading/components/$code/$groupId"
-                          params={{ code, groupId: String(r.group_id) }}
-                        >
-                          {submitted ? "Open" : "No submission"}
-                        </Link>
-                      </Button>
+                      {submitted ? (
+                        <Button asChild variant="outline" size="sm">
+                          <Link
+                            to="/grading/components/$code/$groupId"
+                            params={{ code, groupId: String(r.group_id) }}
+                          >
+                            Open
+                          </Link>
+                        </Button>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No submission</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

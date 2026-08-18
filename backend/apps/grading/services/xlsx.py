@@ -3,11 +3,13 @@
 Client explicitly said spreadsheet is easier than PDF for SAQ marking off-
 platform, so this is the primary text-export path. Shape:
 
-    | group_id | group_name | submitted_at | is_late | text |
+    | group_id | group_name | submitted_date | submitted_time | is_late | text
+    | criterion_1_id | criterion_1_mark | criterion_1_comment
+    | criterion_2_id | criterion_2_mark | criterion_2_comment | ...
 
-One row per group; SAQ text goes in a single wrapped cell. If SAQ questions
-are later split into multiple fields (spec allows for it), extend by adding
-one column per question — this shape stays the base.
+One row per group; SAQ text goes in a single wrapped cell. Per-criterion
+triplets (id + existing mark + existing comment) are appended so the sheet
+doubles as a fillable marking template.
 """
 from __future__ import annotations
 
@@ -19,43 +21,70 @@ from openpyxl.styles import Alignment, Font
 
 from apps.submissions.models import Submission
 
+from ..models import Grade, RubricCriterion
 
-HEADERS = ["group_id", "group_name", "submitted_at", "is_late", "text"]
+
+BASE_HEADERS = ["group_id", "group_name", "submitted_date", "submitted_time", "is_late", "text"]
 
 
-def build_saq_xlsx(submissions: Iterable[Submission]) -> bytes:
+def build_saq_xlsx(
+    submissions: Iterable[Submission],
+    criteria: Iterable[RubricCriterion] = (),
+    grades_by_pair: dict[tuple[int, int], Grade] | None = None,
+) -> bytes:
     """Return XLSX bytes for the given SAQ submissions.
 
-    Caller passes an already-filtered iterable — the service doesn't reach
-    back into the ORM. Keeps it easy to test and easy to reuse for slices
-    (e.g. one group's SAQ, or a subset of groups) without leaking filtering
-    logic into the export layer.
+    ``criteria`` is the ordered list of rubric criteria for the component;
+    each becomes a (criterion_N_id, criterion_N_mark, criterion_N_comment)
+    triplet appended to the row. ``grades_by_pair`` maps ``(submission_id,
+    criterion_id) -> Grade`` for pre-filling existing marks/comments. Both
+    are pushed from the caller so the export layer stays ORM-free.
     """
+    criteria_list = list(criteria)
+    grades_by_pair = grades_by_pair or {}
+
     wb = Workbook()
     ws = wb.active
     ws.title = "SAQ"
 
-    ws.append(HEADERS)
+    headers = list(BASE_HEADERS)
+    for i, _ in enumerate(criteria_list, start=1):
+        headers.extend([f"criterion_{i}_id", f"criterion_{i}_mark", f"criterion_{i}_comment"])
+
+    ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
     for submission in submissions:
-        ws.append([
+        submitted_at = submission.submitted_at
+        submitted_date = submitted_at.date().isoformat() if submitted_at else ""
+        submitted_time = submitted_at.time().isoformat(timespec="seconds") if submitted_at else ""
+        row = [
             submission.group_id,
             submission.group.group_name,
-            submission.submitted_at.isoformat() if submission.submitted_at else "",
+            submitted_date,
+            submitted_time,
             "yes" if submission.is_late else "",
             submission.text or "",
-        ])
+        ]
+        for criterion in criteria_list:
+            existing = grades_by_pair.get((submission.id, criterion.id))
+            row.extend([
+                criterion.id,
+                float(existing.mark) if existing and existing.mark is not None else None,
+                existing.comment if existing else "",
+            ])
+        ws.append(row)
 
     # Wrap the text column so long SAQ answers don't just spill off-screen.
-    for row in ws.iter_rows(min_row=2, min_col=5, max_col=5):
+    for row in ws.iter_rows(min_row=2, min_col=6, max_col=6):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
     ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["E"].width = 80
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 12
+    ws.column_dimensions["F"].width = 80
 
     buffer = io.BytesIO()
     wb.save(buffer)

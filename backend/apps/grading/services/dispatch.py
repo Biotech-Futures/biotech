@@ -36,7 +36,7 @@ from apps.groups.models.group_members import GroupMembership
 from apps.submissions.models import Submission, SubmissionComponent
 from apps.users.models import StudentProfile
 
-from ..models import GradingJob
+from ..models import Grade, GradingJob, RubricCriterion
 from .docx import (
     certificate_context,
     marks_summary_context,
@@ -86,7 +86,19 @@ def _run_job(job_id: int) -> None:
             payload = build_submissions_zip(submissions)
             filename = f"{component.code}-bundle.zip"
         elif kind == "component_xlsx":
-            payload = build_saq_xlsx(submissions)
+            criteria = list(
+                RubricCriterion.objects
+                .filter(rubric__component__code=component_code, rubric__active=True)
+                .order_by("order", "id")
+            )
+            grades_by_pair = {
+                (g.submission_id, g.criterion_id): g
+                for g in Grade.objects.filter(
+                    submission_id__in=[s.id for s in submissions],
+                    criterion__rubric__component__code=component_code,
+                )
+            }
+            payload = build_saq_xlsx(submissions, criteria, grades_by_pair)
             filename = f"{component.code}-saq.xlsx"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))

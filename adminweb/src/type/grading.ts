@@ -72,6 +72,8 @@ export interface ComponentRow {
   submitted_at: string | null;
   is_late: boolean;
   criteria_graded: number;
+  last_grader_name: string | null;
+  grader_names: string[];
 }
 
 export interface ComponentListPayload {

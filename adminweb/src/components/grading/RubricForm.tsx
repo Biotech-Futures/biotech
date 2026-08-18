@@ -51,12 +51,7 @@ export function RubricForm({
   }, [initial]);
 
   if (!submission) {
-    return (
-      <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-        No submission for this component yet. Marks can't be entered until the
-        group uploads.
-      </div>
-    );
+    return null;
   }
 
   if (criteria.length === 0) {

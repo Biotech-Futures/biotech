@@ -42,6 +42,11 @@ function ComponentMarkingDetailPage() {
     return { prevId: back?.group_id ?? null, nextId: fwd?.group_id ?? null };
   }, [rowsQ.data, gid]);
 
+  const currentRow = useMemo(
+    () => rowsQ.data?.rows.find((r) => r.group_id === gid) ?? null,
+    [rowsQ.data, gid],
+  );
+
   if (groupQ.isPending) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -100,7 +105,12 @@ function ComponentMarkingDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <SubmissionPreview submission={block.submission} component={block.component} />
+        <SubmissionPreview
+          submission={block.submission}
+          component={block.component}
+          lastGraderName={currentRow?.last_grader_name}
+          graderNames={currentRow?.grader_names}
+        />
         <RubricForm
           submission={block.submission}
           criteria={block.criteria}

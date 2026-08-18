@@ -1,6 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { RubricForm } from "@/components/grading/RubricForm";
 import { SubmissionPreview } from "@/components/grading/SubmissionPreview";
@@ -10,7 +11,7 @@ import {
   useSaveGradesBulk,
 } from "@/query/grading";
 import type { GroupMarkingComponentBlock } from "@/type/grading";
-import { DownloadIcon } from "lucide-react";
+import { DownloadIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/grading/groups/$groupId")({
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/_auth/grading/groups/$groupId")({
 function GroupMarkingPage() {
   const { groupId } = Route.useParams();
   const gid = Number(groupId);
+  const navigate = useNavigate();
   const query = useQueryGroupMarking(gid);
   const save = useSaveGradesBulk();
   const download = useDownloadGroupZip();
@@ -29,6 +31,7 @@ function GroupMarkingPage() {
   const effectiveCode = activeCode ?? components[0]?.component.code;
   const activeBlock = components.find((b) => b.component.code === effectiveCode);
   const groupName = query.data?.group.group_name;
+  const [jumpId, setJumpId] = useState("");
 
   if (query.isPending) {
     return <p className="text-sm text-muted-foreground">Loading marking payload…</p>;
@@ -47,11 +50,39 @@ function GroupMarkingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
+      <p className="text-sm text-muted-foreground">Enter the group's ID.</p>
+      <form
+        className="flex gap-2 max-w-xl mb-10"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(jumpId);
+          if (!Number.isFinite(n) || n <= 0 || n === gid) return;
+          setJumpId("");
+          void navigate({
+            to: "/grading/groups/$groupId",
+            params: { groupId: String(n) },
+          });
+        }}
+      >
+        <div className="relative flex-1">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-[calc(50%+2px)] size-4 text-muted-foreground" />
+          <Input
+            type="number"
+            min={1}
+            placeholder="Group ID"
+            value={jumpId}
+            onChange={(e) => setJumpId(e.target.value)}
+            className="pl-8 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+        </div>
+        <Button type="submit">Open</Button>
+      </form>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-semibold">
           {groupName} <span className="text-muted-foreground text-sm">#{gid}</span>
         </h2>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
