@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -30,7 +29,7 @@ from .serializers import (
 )
 from .services import deadline_for_group
 from .storage import SUBMISSION_FILE_SERVICE
-from .uploads import SLOTS, validate_submission_file
+from .uploads import PDF_SLOTS, SLOTS, max_sizes, validate_submission_file
 
 
 def _get_group(group_id: int) -> Groups:
@@ -99,11 +98,11 @@ class GroupSubmissionView(APIView):
             "questions": SubmissionQuestionSerializer(
                 SubmissionQuestion.active(), many=True
             ).data,
-            # Published so the page can state the limit and refuse an oversized
-            # file before uploading it. Hardcoding the number in the frontend
-            # would give two places to change and an eventual mismatch; the
-            # server still enforces it either way.
-            "max_file_size": settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE,
+            # Published so the page can state each limit and refuse an
+            # oversized file before uploading it. Hardcoding the numbers in the
+            # frontend would give two places to change and an eventual
+            # mismatch; the server still enforces them either way.
+            "max_file_sizes": max_sizes(),
             # None means the team has not started yet — the page renders an
             # empty form rather than treating it as an error.
             "submission": (
@@ -206,28 +205,48 @@ class GroupSubmissionFileView(APIView):
         })
 
 
+def _serve_slot(request, group_id: int, slot: str, *, as_attachment: bool):
+    group = _get_group(group_id)
+    _require_can_view(request.user, group.id)
+
+    submission = Submission.objects.filter(group=group).first()
+    stored = (getattr(submission, slot) or {}) if submission else {}
+    if not stored.get("storage_key"):
+        raise FileNotUploadedYet()
+
+    return serve_managed_file(
+        resolve_url=SUBMISSION_FILE_SERVICE.resolve_url,
+        open_file=SUBMISSION_FILE_SERVICE.open,
+        storage_key=stored["storage_key"],
+        filename=stored.get("name") or f"{slot}",
+        mime_type=stored.get("mime"),
+        size=stored.get("size"),
+        as_attachment=as_attachment,
+    )
+
+
 class GroupSubmissionFileDownloadView(APIView):
     """Download one attachment. Readable by anyone who may read the entry."""
 
     def get(self, request, group_id: int, slot: str):
-        slot = _valid_slot(slot)
-        group = _get_group(group_id)
-        _require_can_view(request.user, group.id)
+        return _serve_slot(request, group_id, _valid_slot(slot), as_attachment=True)
 
-        submission = Submission.objects.filter(group=group).first()
-        stored = (getattr(submission, slot) or {}) if submission else {}
-        if not stored.get("storage_key"):
-            raise FileNotUploadedYet()
 
-        return serve_managed_file(
-            resolve_url=SUBMISSION_FILE_SERVICE.resolve_url,
-            open_file=SUBMISSION_FILE_SERVICE.open,
-            storage_key=stored["storage_key"],
-            filename=stored.get("name") or f"{slot}",
-            mime_type=stored.get("mime"),
-            size=stored.get("size"),
-            as_attachment=True,
-        )
+class GroupSubmissionFilePreviewView(APIView):
+    """Display an attachment in the browser rather than downloading it.
+
+    Restricted to the PDF slots. Those files have been checked byte-for-byte at
+    upload, so rendering them inline is safe; the prototype slot accepts any
+    type, and displaying arbitrary uploaded content inline is how an HTML or
+    SVG file ends up executing scripts in the viewer's session. Enforcing that
+    by which slots this endpoint accepts — rather than a flag on the download
+    endpoint — keeps the boundary a property of the URL.
+    """
+
+    def get(self, request, group_id: int, slot: str):
+        if slot not in PDF_SLOTS:
+            raise Http404(f"'{slot}' cannot be previewed in the browser.")
+        return _serve_slot(request, group_id, slot, as_attachment=False)
 
 
 class GroupSubmissionSubmitView(APIView):

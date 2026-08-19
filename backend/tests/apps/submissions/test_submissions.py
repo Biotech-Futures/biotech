@@ -252,15 +252,18 @@ class SubmissionApiTests(TestCase):
         keys = [question["key"] for question in response.data["questions"]]
         self.assertEqual(keys, ["q1", "q2", "q3", "q4"])
 
-    def test_upload_limit_is_published(self):
-        # The page states the limit and refuses oversized files before
-        # uploading, so it has to come from the server rather than a hardcoded
-        # copy that could drift out of step with the setting.
+    def test_upload_limits_are_published_per_slot(self):
+        # The page states each limit and refuses oversized files before
+        # uploading, so they have to come from the server rather than hardcoded
+        # copies that could drift out of step with the settings.
         response = self._client_for(self.student).get(self.detail_url)
+        limits = response.data["max_file_sizes"]
 
-        self.assertEqual(
-            response.data["max_file_size"], settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE
-        )
+        self.assertEqual(limits["poster"], settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE)
+        self.assertEqual(limits["report"], settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE)
+        self.assertEqual(limits["prototype"], settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE)
+        # The whole point of splitting them: a prototype may be far larger.
+        self.assertGreater(limits["prototype"], limits["poster"])
 
     def test_retired_questions_are_hidden(self):
         SubmissionQuestion.objects.filter(key="q4").update(is_active=False)

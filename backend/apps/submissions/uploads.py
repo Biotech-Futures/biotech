@@ -63,6 +63,22 @@ def _looks_like_pdf(uploaded_file) -> bool:
     return bool(head) and _PDF_MAGIC in head
 
 
+def max_size_for(slot: str) -> int:
+    """Upload ceiling for one slot.
+
+    The PDF slots are held to a tighter limit than the prototype, which may
+    legitimately be an archive, a CAD model or a video.
+    """
+    if slot in PDF_SLOTS:
+        return settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE
+    return settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE
+
+
+def max_sizes() -> dict:
+    """Per-slot ceilings, published so the page can state and pre-check them."""
+    return {slot: max_size_for(slot) for slot in SLOTS}
+
+
 def validate_submission_file(uploaded_file, slot: str):
     """Validate one upload against the rules for its slot.
 
@@ -73,7 +89,7 @@ def validate_submission_file(uploaded_file, slot: str):
         raise serializers.ValidationError(f"Unknown attachment slot '{slot}'.")
 
     label = SLOT_LABELS[slot]
-    max_size = settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE
+    max_size = max_size_for(slot)
 
     if slot in PDF_SLOTS:
         validate_uploaded_file(

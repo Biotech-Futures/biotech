@@ -99,11 +99,18 @@ CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     default=10 * 1024 * 1024,
     cast=int,
 )
-# Higher than the resource limit: competition posters are commonly A0 and
-# image-heavy, and a rejected upload on deadline day is expensive for a team.
+# Prototypes can be archives, CAD files or video, so they keep the generous
+# ceiling. Posters and reports are held to a much smaller one; note that A0
+# posters with photographs routinely export well above this, so the PDF limit
+# is worth confirming against what the programme actually accepts today.
 SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
     "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
     default=50 * 1024 * 1024,
+    cast=int,
+)
+SUBMISSION_PDF_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_PDF_MAX_UPLOAD_SIZE",
+    default=5 * 1024 * 1024,
     cast=int,
 )
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(

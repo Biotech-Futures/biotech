@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     GroupSubmissionFileDownloadView,
+    GroupSubmissionFilePreviewView,
     GroupSubmissionFileView,
     GroupSubmissionSubmitView,
     GroupSubmissionView,
@@ -31,5 +32,12 @@ urlpatterns = [
         "groups/<int:group_id>/files/<str:slot>/download/",
         GroupSubmissionFileDownloadView.as_view(),
         name="group-submission-file-download",
+    ),
+    # Poster and report only — see GroupSubmissionFilePreviewView for why the
+    # prototype slot is deliberately excluded.
+    path(
+        "groups/<int:group_id>/files/<str:slot>/preview/",
+        GroupSubmissionFilePreviewView.as_view(),
+        name="group-submission-file-preview",
     ),
 ]

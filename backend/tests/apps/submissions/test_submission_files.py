@@ -6,6 +6,7 @@ file behind, and nothing can be attached after the deadline.
 """
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -118,6 +119,22 @@ class SubmissionFileTests(TestCase):
         )
         self.assertEqual(self._upload("prototype", upload).status_code, 400)
 
+    def test_pdf_slots_use_the_tighter_limit(self):
+        # A file between the two ceilings: allowed as a prototype, refused as a
+        # poster. Guards the split so the PDF limit cannot silently widen.
+        oversized_pdf = b"%PDF-1.7\n" + b"0" * (
+            settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE + 1024
+        )
+        self.assertLess(len(oversized_pdf), settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE)
+
+        poster = SimpleUploadedFile("big.pdf", oversized_pdf, content_type="application/pdf")
+        self.assertEqual(self._upload("poster", poster).status_code, 400)
+
+        prototype = SimpleUploadedFile(
+            "big.zip", oversized_pdf, content_type="application/zip"
+        )
+        self.assertEqual(self._upload("prototype", prototype).status_code, 200)
+
     def test_unknown_slot_is_404(self):
         url = reverse(
             "group-submission-file", kwargs={"group_id": self.group.id, "slot": "nonsense"}
@@ -168,6 +185,52 @@ class SubmissionFileTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"%PDF-", b"".join(response.streaming_content))
+
+    # ------------------------------------------------------------- previewing
+    def _preview_url(self, slot):
+        return reverse(
+            "group-submission-file-preview",
+            kwargs={"group_id": self.group.id, "slot": slot},
+        )
+
+    def test_poster_can_be_previewed_inline(self):
+        self._upload("poster", _pdf_upload())
+
+        response = self.client.get(self._preview_url("poster"))
+
+        self.assertEqual(response.status_code, 200)
+        # "inline" is what makes the browser display it rather than download it.
+        self.assertIn("inline", response.headers.get("Content-Disposition", ""))
+
+    def test_download_still_forces_a_download(self):
+        self._upload("poster", _pdf_upload())
+        url = reverse(
+            "group-submission-file-download",
+            kwargs={"group_id": self.group.id, "slot": "poster"},
+        )
+
+        response = self.client.get(url)
+
+        self.assertIn("attachment", response.headers.get("Content-Disposition", ""))
+
+    def test_prototype_cannot_be_previewed(self):
+        # The prototype slot takes arbitrary file types, so rendering it inline
+        # would let an HTML or SVG upload run scripts in the viewer's session.
+        upload = SimpleUploadedFile(
+            "page.html", b"<script>alert(1)</script>", content_type="text/html"
+        )
+        self._upload("prototype", upload)
+
+        self.assertEqual(self.client.get(self._preview_url("prototype")).status_code, 404)
+        # It is still downloadable, just never displayed in the page.
+        download = reverse(
+            "group-submission-file-download",
+            kwargs={"group_id": self.group.id, "slot": "prototype"},
+        )
+        self.assertEqual(self.client.get(download).status_code, 200)
+
+    def test_previewing_an_empty_slot_is_404(self):
+        self.assertEqual(self.client.get(self._preview_url("report")).status_code, 404)
 
     # -------------------------------------------------------------- submitting
     def test_cannot_submit_without_a_poster(self):
