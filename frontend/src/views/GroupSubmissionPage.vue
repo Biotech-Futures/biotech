@@ -18,7 +18,7 @@
 
     <template v-else-if="detail">
       <header class="submission-header">
-        <h1 class="submission-heading">Submission — {{ detail.group.name }}</h1>
+        <h1 class="submission-heading">Submission</h1>
         <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
       </header>
 
@@ -65,10 +65,10 @@
         </button>
       </nav>
 
-      <!-- Placeholder guidance until the programme team supplies real wording. -->
-      <div class="card submission-instructions">
+      <!-- Guidance comes from the database, so admins can reword it. -->
+      <div v-if="activeInstructions" class="card submission-instructions">
         <h2 class="card-title">{{ activeTabConfig.label }}</h2>
-        <p>{{ activeTabConfig.instructions }}</p>
+        <p>{{ activeInstructions }}</p>
       </div>
 
       <!-- 1. Short-answer questions. Defined in the database, so this list is
@@ -98,9 +98,6 @@
             :class="{ 'is-near-limit': (charactersLeft(question.key, question.max_length) ?? 99) < 100 }"
           >
             {{ (answers[question.key] || '').length }} / {{ question.max_length }}
-            <span class="submission-muted">
-              · {{ charactersLeft(question.key, question.max_length) }} left
-            </span>
           </p>
         </div>
       </section>
@@ -224,6 +221,11 @@
       <!-- Available from every tab: the server validates the whole entry, so
            there is no reason to force a student through the steps in order. -->
       <div v-if="isOpen" class="submission-actions">
+        <!-- Auto-save is invisible by design, so it needs to say so somewhere;
+             without this the student cannot tell whether their work is safe. -->
+        <span class="submission-savestate" :class="{ 'is-error': saveState === 'error' }">
+          {{ saveStateLabel }}
+        </span>
         <button class="btn btn-outline" type="button" :disabled="isBusy" @click="onSaveDraft">
           {{ isSaving ? 'Saving…' : 'Save draft' }}
         </button>
@@ -256,33 +258,18 @@ import {
 
 type TabKey = 'questions' | 'poster' | 'extras'
 
-// Placeholder wording. Real guidance should come from the programme team, and
-// is a good candidate for moving into the database the way questions were.
-const TABS: { key: TabKey; label: string; instructions: string }[] = [
-  {
-    key: 'questions',
-    label: 'Questions',
-    instructions:
-      'Answer each question in your own words. Nothing is sent anywhere until you press ' +
-      'Submit, and you can keep editing right up to the deadline. Remember to press Save ' +
-      'draft before closing this page.'
-  },
-  {
-    key: 'poster',
-    label: 'Poster',
-    instructions:
-      'Upload your poster as a single PDF. It appears below once uploaded, so you can check ' +
-      'the right file arrived and that it exported correctly. A poster is required before you ' +
-      'can submit.'
-  },
-  {
-    key: 'extras',
-    label: 'Additional materials',
-    instructions:
-      'Both of these are optional. Attach a scientific report as a PDF if you have written ' +
-      'one, and a prototype as a file or a link — whichever suits your project better.'
-  }
+// Section names only. The guidance text itself lives in the database so the
+// programme team can reword it without a code change — see the `instructions`
+// field on the API response.
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'questions', label: 'Questions' },
+  { key: 'poster', label: 'Poster' },
+  { key: 'extras', label: 'Additional materials' }
 ]
+
+// How long to wait after typing stops before saving. Long enough not to fire
+// mid-word, short enough that a closed laptop rarely costs anything.
+const AUTOSAVE_DELAY_MS = 2000
 
 const EXTRA_SLOTS: { key: SubmissionSlot; label: string; hint: string; accept: string }[] = [
   { key: 'report', label: 'Scientific report', hint: 'PDF only. Optional.', accept: 'application/pdf' },
@@ -320,6 +307,13 @@ const isPreviewLoading = ref(false)
 const message = ref('')
 const isError = ref(false)
 
+// Auto-save state. `savedSnapshot` is what the server last accepted, so a
+// change can be detected without saving on every keystroke.
+const saveState = ref<'idle' | 'unsaved' | 'error'>('idle')
+const lastSavedAt = ref<Date | null>(null)
+const savedSnapshot = ref('')
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+
 const fileInputs: Partial<Record<SubmissionSlot, HTMLInputElement>> = {}
 
 const questions = computed(() => detail.value?.questions ?? [])
@@ -335,6 +329,15 @@ function maxSizeLabel(slot: SubmissionSlot) {
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isBusy = computed(() => isSaving.value || isSubmitting.value || Boolean(busySlot.value))
 const activeTabConfig = computed(() => TABS.find((tab) => tab.key === activeTab.value) ?? TABS[0])
+const activeInstructions = computed(() => detail.value?.instructions?.[activeTab.value] ?? '')
+
+const saveStateLabel = computed(() => {
+  if (isSaving.value) return 'Saving…'
+  if (saveState.value === 'error') return 'Could not save'
+  if (saveState.value === 'unsaved') return 'Unsaved changes'
+  if (lastSavedAt.value) return `Saved ${formatTime(lastSavedAt.value)}`
+  return ''
+})
 
 const statusLabel = computed(() => {
   if (!detail.value) return ''
@@ -483,6 +486,10 @@ function syncFromDetail() {
     answers[question.key] = submission?.answers?.[question.key] ?? ''
   })
   prototypeUrl.value = submission?.prototype_url ?? ''
+  // Baseline for change detection: what was just loaded is, by definition,
+  // what the server already has.
+  savedSnapshot.value = currentSnapshot()
+  saveState.value = 'idle'
 }
 
 async function load() {
@@ -499,9 +506,27 @@ async function load() {
   }
 }
 
-async function onSaveDraft() {
+/** Everything auto-save watches, as a comparable string. */
+function currentSnapshot() {
+  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value })
+}
+
+function formatTime(value: Date) {
+  return value.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Persist the draft. Shared by the button and by auto-save.
+ *
+ * `silent` keeps auto-save from posting a confirmation banner every couple of
+ * seconds — the status line beside the buttons already reports it.
+ */
+async function persistDraft({ silent }: { silent: boolean }) {
+  if (isSaving.value) return
+  const snapshot = currentSnapshot()
+
   isSaving.value = true
-  setMessage('')
+  if (!silent) setMessage('')
   try {
     applyResult(
       await saveDraft(groupId.value, {
@@ -509,12 +534,36 @@ async function onSaveDraft() {
         prototype_url: prototypeUrl.value
       })
     )
-    setMessage('Draft saved.')
+    savedSnapshot.value = snapshot
+    lastSavedAt.value = new Date()
+    saveState.value = 'idle'
+    if (!silent) setMessage('Draft saved.')
   } catch (error) {
+    saveState.value = 'error'
+    // Auto-save failures still surface: silently losing work is the exact
+    // problem auto-save exists to prevent.
     setMessage(apiErrorFromUnknown(error).message, true)
   } finally {
     isSaving.value = false
   }
+}
+
+function onSaveDraft() {
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  return persistDraft({ silent: false })
+}
+
+/** Queue a save once typing pauses, if anything actually changed. */
+function scheduleAutosave() {
+  if (!isOpen.value || isSubmitting.value) return
+  if (currentSnapshot() === savedSnapshot.value) return
+
+  saveState.value = 'unsaved'
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null
+    persistDraft({ silent: true })
+  }, AUTOSAVE_DELAY_MS)
 }
 
 async function onSubmit() {
@@ -592,13 +641,32 @@ async function removeFile(slot: SubmissionSlot) {
 }
 
 onMounted(load)
-watch(activeTab, syncPosterPreview)
+
+// Any edit to an answer or the prototype link queues a save.
+watch([answers, prototypeUrl], scheduleAutosave, { deep: true })
+
+watch(activeTab, () => {
+  // Leaving a tab is a natural checkpoint — save now rather than waiting out
+  // the timer, in case the student closes the page from the next tab.
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = null
+    persistDraft({ silent: true })
+  }
+  syncPosterPreview()
+})
+
 watch(groupId, () => {
   clearPreview()
   load()
 })
-// Releases the in-memory file if the student navigates away with a preview open.
-onBeforeUnmount(clearPreview)
+
+onBeforeUnmount(() => {
+  // Releases the in-memory preview file and drops a pending save rather than
+  // letting it fire against a page that no longer exists.
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  clearPreview()
+})
 </script>
 
 <style scoped>
@@ -847,8 +915,20 @@ onBeforeUnmount(clearPreview)
 
 .submission-actions {
   display: flex;
+  align-items: center;
   gap: 0.75rem;
   justify-content: flex-end;
   margin: 1.5rem 0 3rem;
+}
+
+.submission-savestate {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-right: auto;
+}
+
+.submission-savestate.is-error {
+  color: #c0392b;
+  font-weight: 600;
 }
 </style>
