@@ -20,7 +20,7 @@ from .errors import (
     SubmissionsClosed,
     SubmissionsNotConfigured,
 )
-from .models import Submission, SubmissionQuestion
+from .models import Submission, SubmissionInstruction, SubmissionQuestion
 from .serializers import (
     SubmissionDraftSerializer,
     SubmissionQuestionSerializer,
@@ -98,6 +98,12 @@ class GroupSubmissionView(APIView):
             "questions": SubmissionQuestionSerializer(
                 SubmissionQuestion.active(), many=True
             ).data,
+            # Keyed by section so the page can look up guidance for whichever
+            # tab is showing. A missing section simply renders nothing.
+            "instructions": {
+                instruction.section: instruction.body
+                for instruction in SubmissionInstruction.objects.all()
+            },
             # Published so the page can state each limit and refuse an
             # oversized file before uploading it. Hardcoding the numbers in the
             # frontend would give two places to change and an eventual

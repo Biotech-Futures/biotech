@@ -59,6 +59,34 @@ class SubmissionQuestion(models.Model):
         return cls.objects.filter(is_active=True)
 
 
+class SubmissionInstruction(models.Model):
+    """Guidance shown above each section of the entry form.
+
+    Held here rather than in the page so the programme team can reword their
+    own guidance without a code change. The wording is expected to be revised
+    several times before a competition runs, and each revision would otherwise
+    need a developer and a deploy.
+    """
+
+    class Section(models.TextChoices):
+        QUESTIONS = "questions", "Questions"
+        POSTER = "poster", "Poster"
+        EXTRAS = "extras", "Additional materials"
+
+    # One block per section of the form; the section names match the tabs.
+    section = models.CharField(max_length=32, choices=Section.choices, unique=True)
+    body = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "submission_instruction"
+        verbose_name = "Submission instruction"
+        ordering = ["section"]
+
+    def __str__(self):
+        return self.get_section_display()
+
+
 class Deadline(models.Model):
     """The closing time that applies to every team by default.
 

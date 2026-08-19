@@ -1,6 +1,26 @@
 from django.contrib import admin
 
-from .models import Deadline, GroupExtension, Submission, SubmissionQuestion
+from .models import (
+    Deadline,
+    GroupExtension,
+    Submission,
+    SubmissionInstruction,
+    SubmissionQuestion,
+)
+
+
+@admin.register(SubmissionInstruction)
+class SubmissionInstructionAdmin(admin.ModelAdmin):
+    list_display = ("section", "updated_at")
+    # The three sections are fixed by the form's structure, so they are seeded
+    # rather than created by hand and the section itself cannot be changed.
+    readonly_fields = ("section", "updated_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(SubmissionQuestion)

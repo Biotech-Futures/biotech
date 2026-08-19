@@ -18,6 +18,7 @@ from apps.submissions.models import (
     Deadline,
     GroupExtension,
     Submission,
+    SubmissionInstruction,
     SubmissionQuestion,
 )
 from apps.submissions.services import deadline_for_group
@@ -264,6 +265,22 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(limits["prototype"], settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE)
         # The whole point of splitting them: a prototype may be far larger.
         self.assertGreater(limits["prototype"], limits["poster"])
+
+    def test_instructions_are_returned_per_section(self):
+        # Guidance is editable by admins, so the page renders what the server
+        # sends rather than anything built into it.
+        response = self._client_for(self.student).get(self.detail_url)
+        instructions = response.data["instructions"]
+
+        self.assertEqual(set(instructions), {"questions", "poster", "extras"})
+        self.assertTrue(all(body.strip() for body in instructions.values()))
+
+    def test_edited_instructions_are_served(self):
+        SubmissionInstruction.objects.filter(section="poster").update(body="New wording.")
+
+        response = self._client_for(self.student).get(self.detail_url)
+
+        self.assertEqual(response.data["instructions"]["poster"], "New wording.")
 
     def test_retired_questions_are_hidden(self):
         SubmissionQuestion.objects.filter(key="q4").update(is_active=False)

@@ -45,6 +45,8 @@ export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
   questions: SubmissionQuestion[]
+  /** Guidance per form section, editable by admins. */
+  instructions: Record<string, string>
   /** Upload ceiling in bytes per slot, set by the server. PDFs are held to a
    *  tighter limit than the prototype. */
   max_file_sizes: Record<SubmissionSlot, number>
