@@ -45,8 +45,9 @@ export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
   questions: SubmissionQuestion[]
-  /** Upload ceiling in bytes, set by the server. */
-  max_file_size: number
+  /** Upload ceiling in bytes per slot, set by the server. PDFs are held to a
+   *  tighter limit than the prototype. */
+  max_file_sizes: Record<SubmissionSlot, number>
   /** null until the team saves something for the first time. */
   submission: SubmissionRecord | null
 }
@@ -139,4 +140,48 @@ export function removeSubmissionFile(groupId: number | string, slot: SubmissionS
 
 export function submissionFileDownloadUrl(groupId: number | string, slot: SubmissionSlot) {
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/download/`
+}
+
+/** Slots the browser can display inline. The prototype accepts arbitrary file
+ *  types, so it is download-only — see the preview view for the reasoning. */
+export const PREVIEWABLE_SLOTS: SubmissionSlot[] = ['poster', 'report']
+
+export function submissionFilePreviewUrl(groupId: number | string, slot: SubmissionSlot) {
+  return `${API_BASE_URL}${base(groupId)}/files/${slot}/preview/`
+}
+
+/**
+ * Fetch an attachment and return a local object URL for displaying it.
+ *
+ * The backend sets `X-Frame-Options: DENY` across the whole platform, so
+ * pointing a frame straight at the preview endpoint is refused by the browser.
+ * Fetching the bytes and showing them from memory makes the content part of
+ * this page rather than an embedded foreign document, so the framing rule does
+ * not apply — and it carries credentials reliably even when the API is served
+ * from a different domain than the app.
+ *
+ * The caller owns the returned URL and must pass it to `releasePreview` when
+ * finished, or the browser holds the file in memory for the life of the tab.
+ */
+export async function fetchPreviewObjectUrl(
+  groupId: number | string,
+  slot: SubmissionSlot
+): Promise<string> {
+  const response = await fetch(submissionFilePreviewUrl(groupId, slot), {
+    credentials: 'include',
+    // Must stay permissive: the API negotiates content types and has no PDF
+    // renderer registered, so asking specifically for application/pdf is
+    // refused with 406 before the view ever runs.
+    headers: buildSessionHeaders({ headers: { Accept: '*/*' } })
+  })
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
+  return URL.createObjectURL(await response.blob())
+}
+
+export function releasePreview(objectUrl: string | null) {
+  if (objectUrl) URL.revokeObjectURL(objectUrl)
 }
