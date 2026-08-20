@@ -422,6 +422,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
                 f"{response['Content-Disposition']!r}",
             )
 
+
     def test_external_http_resource_download_is_blocked(self):
         resource = Resources.objects.create(
             name="Legacy External Guide",
