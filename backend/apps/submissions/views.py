@@ -37,11 +37,23 @@ def _get_group(group_id: int) -> Groups:
 
 
 def _require_can_view(user, group_id: int) -> None:
-    """Members of the team can read it; so can admins, for oversight."""
+    """Students on the team can read it; so can admins, for oversight.
+
+    Mentors and supervisors are deliberately excluded even though they are
+    group members. The programme treats submissions as none of their business:
+    mentors are volunteers who guide the group's work, and supervisors are a
+    pastoral point of contact. Neither is involved in assessment, so a team's
+    entry is not theirs to read.
+
+    Hiding the tab in the navigation would not achieve this on its own — the
+    page is reachable by URL — so the rule lives here.
+    """
     if is_admin(user):
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
+    if not user_has_role(user, ROLE_STUDENT):
+        raise StudentRoleRequired()
 
 
 def _require_can_edit(user, group_id: int) -> None:

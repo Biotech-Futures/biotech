@@ -75,7 +75,7 @@
               </RouterLink>
             </li>
 
-            <li class="sidebar-item">
+            <li v-if="auth.isStudent" class="sidebar-item">
               <RouterLink
                 to="/submission"
                 class="sidebar-link"
