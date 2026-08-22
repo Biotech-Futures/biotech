@@ -95,6 +95,12 @@ class Deadline(models.Model):
     """
 
     closes_at = models.DateTimeField()
+    # Extra time accepted after closes_at without announcing it. The programme
+    # publishes one date but stays deliberately generous, so that a student in
+    # a timezone well behind the announced one is not cut off partway through
+    # their own deadline day. Students are shown closes_at; the server enforces
+    # closes_at + grace_hours.
+    grace_hours = models.PositiveIntegerField(default=0)
     # Rows are kept rather than deleted so a past round stays on record. Only
     # the active one is consulted when deciding whether submissions are open.
     is_active = models.BooleanField(default=True)
