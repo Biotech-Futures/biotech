@@ -19,13 +19,21 @@
     <template v-else-if="detail">
       <header class="submission-header">
         <h1 class="submission-heading">Submission</h1>
-        <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
       </header>
 
       <!-- Deadline. Shown prominently because it governs everything below. -->
       <div class="card submission-deadline">
         <div>
           <strong>{{ deadlineHeadline }}</strong>
+          <!-- Quiet by default; it only earns emphasis in the last day, when
+               the time left is genuinely the thing a student needs to know. -->
+          <span
+            v-if="timeRemaining"
+            class="submission-remaining"
+            :class="{ 'is-near': isDeadlineNear }"
+          >
+            · {{ timeRemaining }}
+          </span>
           <p v-if="deadlineDetail" class="submission-muted">{{ deadlineDetail }}</p>
         </div>
         <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
@@ -59,9 +67,10 @@
         >
           <span class="submission-step__index">{{ index + 1 }}</span>
           <span class="submission-step__label">{{ tab.label }}</span>
-          <span class="submission-step__state" :class="`is-${stepState(tab.key).tone}`">
-            {{ stepState(tab.key).label }}
-          </span>
+          <!-- States a fact rather than judging completion: text in every box
+               does not mean the answers are finished, so calling a section
+               "Done" would tell a student something we cannot know. -->
+          <span class="submission-step__state">{{ stepSummary(tab.key) }}</span>
         </button>
       </nav>
 
@@ -135,7 +144,7 @@
               :disabled="busySlot === 'poster'"
               @click="pickFile('poster')"
             >
-              {{ busySlot === 'poster' ? 'Uploading…' : storedFile('poster') ? 'Replace' : 'Upload' }}
+              {{ busySlot === 'poster' ? `Uploading… ${uploadPercent}%` : storedFile('poster') ? 'Replace' : 'Upload' }}
             </button>
             <button
               v-if="storedFile('poster')"
@@ -149,98 +158,177 @@
           </div>
         </div>
 
-        <!-- Guarded on the slot as well as the source: hidden tabs stay in the
-             DOM, so without this the poster frame would also load whichever
-             file the report preview had fetched. -->
-        <p v-if="isPosterPreviewOpen && isPreviewLoading" class="submission-muted">Loading preview…</p>
-        <iframe
-          v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
-          class="submission-preview submission-preview--tall"
-          :src="previewSource"
-          title="Poster preview"
-        ></iframe>
-        <p v-else-if="!storedFile('poster')" class="submission-muted submission-preview-empty">
-          Once you upload a poster it will be shown here, so you can check the right file arrived.
-        </p>
+        <!-- Same shape as the resource library's preview panel, so a file looks
+             the same wherever it is viewed in the platform. Guarded on the slot
+             as well as the source: hidden tabs stay in the DOM, so without that
+             this frame would also load whatever the report preview fetched. -->
+        <article class="preview-panel">
+          <div class="preview-header">
+            <h2>Preview</h2>
+            <!-- Always offered: some browsers refuse to display an embedded PDF
+                 at all, and a student must never be left unable to check their
+                 own file. Opens the same endpoint as a normal page load. -->
+            <a
+              v-if="storedFile('poster')"
+              class="btn btn-outline btn-sm"
+              :href="previewUrlFor('poster')"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in new tab
+            </a>
+          </div>
+
+          <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
+            <p>Preparing preview…</p>
+          </div>
+          <iframe
+            v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
+            class="preview-frame"
+            title="Poster preview"
+            :src="previewSource"
+          ></iframe>
+          <div v-else class="preview-empty">
+            <i class="fas fa-file-pdf" aria-hidden="true"></i>
+            <p>Once you upload a poster it appears here, so you can check the right file arrived.</p>
+          </div>
+        </article>
       </section>
 
-      <!-- 3. Optional extras. Intentionally plain. -->
-      <section v-show="activeTab === 'extras'" class="card">
-        <div v-for="slot in EXTRA_SLOTS" :key="slot.key" class="submission-slot">
-          <div class="submission-slot__info">
-            <div class="submission-label">{{ slot.label }}</div>
-            <p class="submission-muted">{{ slot.hint }} · up to {{ maxSizeLabel(slot.key) }}</p>
+      <!-- 3. Optional extras, as two blocks: the report gets the same treatment
+           as the poster since it is also a readable document; the prototype is
+           a plain upload because it can be any file type. -->
+      <div v-show="activeTab === 'extras'">
+        <section class="card">
+          <div class="submission-slot submission-slot--plain">
+            <div class="submission-slot__info">
+              <div class="submission-label">Scientific report</div>
+              <p class="submission-muted">PDF only. Optional · up to {{ maxSizeLabel('report') }}</p>
 
-            <p v-if="storedFile(slot.key)" class="submission-file">
-              <a :href="downloadUrl(slot.key)" target="_blank" rel="noopener noreferrer">
-                {{ storedFile(slot.key)?.name }}
+              <p v-if="storedFile('report')" class="submission-file">
+                <a :href="downloadUrl('report')" target="_blank" rel="noopener noreferrer">
+                  {{ storedFile('report')?.name }}
+                </a>
+                <span class="submission-muted"> ({{ formatSize(storedFile('report')?.size) }})</span>
+              </p>
+              <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
+
+            <div v-if="isOpen" class="submission-slot__actions">
+              <input
+                :ref="(el) => registerInput('report', el)"
+                type="file"
+                class="submission-hidden-input"
+                accept="application/pdf"
+                @change="onFileChosen('report', $event)"
+              />
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'report'"
+                @click="pickFile('report')"
+              >
+                {{ busySlot === 'report' ? `Uploading… ${uploadPercent}%` : storedFile('report') ? 'Replace' : 'Upload' }}
+              </button>
+              <button
+                v-if="storedFile('report')"
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'report'"
+                @click="removeFile('report')"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+
+          <article class="preview-panel">
+            <div class="preview-header">
+              <h2>Preview</h2>
+              <a
+                v-if="storedFile('report')"
+                class="btn btn-outline btn-sm"
+                :href="previewUrlFor('report')"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in new tab
               </a>
-              <span class="submission-muted"> ({{ formatSize(storedFile(slot.key)?.size) }})</span>
-            </p>
-            <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
 
-            <!-- Only the report can be shown inline; the prototype accepts any
-                 file type, so rendering it in the page is not safe. -->
-            <button
-              v-if="slot.key === 'report' && storedFile('report')"
-              class="btn btn-outline btn-sm submission-preview-toggle"
-              type="button"
-              @click="toggleReportPreview"
-            >
-              {{ isReportPreviewOpen ? 'Hide preview' : 'Preview' }}
-            </button>
+            <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
+              <p>Preparing preview…</p>
+            </div>
+            <iframe
+              v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
+              class="preview-frame"
+              title="Scientific report preview"
+              :src="previewSource"
+            ></iframe>
+            <div v-else class="preview-empty">
+              <i class="fas fa-file-pdf" aria-hidden="true"></i>
+              <p>A scientific report is optional. If you upload one it appears here.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="card">
+          <div class="submission-slot submission-slot--plain">
+            <div class="submission-slot__info">
+              <div class="submission-label">Prototype</div>
+              <p class="submission-muted">
+                Any file type. Optional · up to {{ maxSizeLabel('prototype') }}
+              </p>
+
+              <p v-if="storedFile('prototype')" class="submission-file">
+                <a :href="downloadUrl('prototype')" target="_blank" rel="noopener noreferrer">
+                  {{ storedFile('prototype')?.name }}
+                </a>
+                <span class="submission-muted"> ({{ formatSize(storedFile('prototype')?.size) }})</span>
+              </p>
+              <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
+
+            <div v-if="isOpen" class="submission-slot__actions">
+              <input
+                :ref="(el) => registerInput('prototype', el)"
+                type="file"
+                class="submission-hidden-input"
+                @change="onFileChosen('prototype', $event)"
+              />
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'prototype'"
+                @click="pickFile('prototype')"
+              >
+                {{ busySlot === 'prototype' ? `Uploading… ${uploadPercent}%` : storedFile('prototype') ? 'Replace' : 'Upload' }}
+              </button>
+              <button
+                v-if="storedFile('prototype')"
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'prototype'"
+                @click="removeFile('prototype')"
+              >
+                Remove
+              </button>
+            </div>
           </div>
 
-          <div v-if="isOpen" class="submission-slot__actions">
+          <div class="submission-field">
+            <label class="submission-label" for="prototype-url">Prototype link (optional)</label>
             <input
-              :ref="(el) => registerInput(slot.key, el)"
-              type="file"
-              class="submission-hidden-input"
-              :accept="slot.accept"
-              @change="onFileChosen(slot.key, $event)"
+              id="prototype-url"
+              v-model="prototypeUrl"
+              class="form-control"
+              type="url"
+              placeholder="https://…"
+              :disabled="!isOpen"
             />
-            <button
-              class="btn btn-outline btn-sm"
-              type="button"
-              :disabled="busySlot === slot.key"
-              @click="pickFile(slot.key)"
-            >
-              {{ busySlot === slot.key ? 'Uploading…' : storedFile(slot.key) ? 'Replace' : 'Upload' }}
-            </button>
-            <button
-              v-if="storedFile(slot.key)"
-              class="btn btn-outline btn-sm"
-              type="button"
-              :disabled="busySlot === slot.key"
-              @click="removeFile(slot.key)"
-            >
-              Remove
-            </button>
           </div>
-        </div>
-
-        <p v-if="isReportPreviewOpen && isPreviewLoading" class="submission-muted">
-          Loading preview…
-        </p>
-        <iframe
-          v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
-          class="submission-preview"
-          :src="previewSource"
-          title="Scientific report preview"
-        ></iframe>
-
-        <div class="submission-field">
-          <label class="submission-label" for="prototype-url">Prototype link (optional)</label>
-          <input
-            id="prototype-url"
-            v-model="prototypeUrl"
-            class="form-control"
-            type="url"
-            placeholder="https://…"
-            :disabled="!isOpen"
-          />
-        </div>
-      </section>
+        </section>
+      </div>
 
       <!-- Available from every tab: the server validates the whole entry, so
            there is no reason to force a student through the steps in order. -->
@@ -272,6 +360,7 @@ import {
   removeSubmissionFile,
   saveDraft,
   submissionFileDownloadUrl,
+  submissionFilePreviewUrl,
   submitEntry,
   uploadSubmissionFile,
   type StoredFile,
@@ -295,10 +384,8 @@ const TABS: { key: TabKey; label: string }[] = [
 // mid-word, short enough that a closed laptop rarely costs anything.
 const AUTOSAVE_DELAY_MS = 2000
 
-const EXTRA_SLOTS: { key: SubmissionSlot; label: string; hint: string; accept: string }[] = [
-  { key: 'report', label: 'Scientific report', hint: 'PDF only. Optional.', accept: 'application/pdf' },
-  { key: 'prototype', label: 'Prototype', hint: 'Any file type. Optional.', accept: '' }
-]
+// Both optional, and both live on the Additional materials tab.
+const EXTRA_SLOTS: SubmissionSlot[] = ['report', 'prototype']
 
 // Fallback only for the moment between the page mounting and the first
 // response arriving; the server's values replace these as soon as it loads.
@@ -326,6 +413,9 @@ const activeTab = ref<TabKey>('questions')
 const isSaving = ref(false)
 const isSubmitting = ref(false)
 const busySlot = ref<SubmissionSlot | ''>('')
+const uploadPercent = ref(0)
+// Drives the countdown; ticked by an interval so the display stays live.
+const now = ref(Date.now())
 const previewSource = ref('')
 // Which slot the loaded preview belongs to; '' when nothing is showing.
 const previewSlot = ref<SubmissionSlot | ''>('')
@@ -367,21 +457,34 @@ const saveStateLabel = computed(() => {
   return ''
 })
 
-const statusLabel = computed(() => {
-  if (!detail.value) return ''
-  if (detail.value.submission?.is_submitted) return 'Submitted'
-  return isOpen.value ? 'Draft' : 'Not submitted'
-})
-
-const statusClass = computed(() => {
-  if (detail.value?.submission?.is_submitted) return 'status-active'
-  return isOpen.value ? 'status-pending' : 'status-danger'
-})
-
 const deadlineHeadline = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
   if (!closesAt) return 'No deadline has been set yet.'
   return isOpen.value ? `Open until ${formatDate(closesAt)}` : `Closed on ${formatDate(closesAt)}`
+})
+
+/** "3 days left" — urgency a fixed date does not convey on its own. */
+const timeRemaining = computed(() => {
+  const closesAt = detail.value?.deadline.closes_at
+  if (!closesAt || !isOpen.value) return ''
+
+  const msLeft = new Date(closesAt).getTime() - now.value
+  if (msLeft <= 0) return 'Closing now'
+
+  const minutes = Math.floor(msLeft / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (days >= 1) return `${days} day${days === 1 ? '' : 's'} left`
+  if (hours >= 1) return `${hours} hour${hours === 1 ? '' : 's'} left`
+  return `${minutes} minute${minutes === 1 ? '' : 's'} left`
+})
+
+// Under a day to go is when the wording should start to feel different.
+const isDeadlineNear = computed(() => {
+  const closesAt = detail.value?.deadline.closes_at
+  if (!closesAt || !isOpen.value) return false
+  return new Date(closesAt).getTime() - now.value < 24 * 60 * 60 * 1000
 })
 
 const deadlineDetail = computed(() => {
@@ -395,19 +498,25 @@ const deadlineDetail = computed(() => {
 
 const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-/** Short completeness marker per step, so nothing is silently left undone. */
-function stepState(key: TabKey): { label: string; tone: string } {
+/**
+ * A factual note per step — what is present, not whether it is finished.
+ *
+ * The earlier version marked a section "Done" as soon as every box held any
+ * text at all, which claimed far more than it knew. Counting what has been
+ * filled in leaves the judgement to the student.
+ */
+function stepSummary(key: TabKey): string {
   if (key === 'questions') {
-    const required = questions.value.filter((question) => question.is_required)
-    if (!required.length) return { label: '—', tone: 'neutral' }
-    const answered = required.every((question) => (answers[question.key] || '').trim())
-    return answered ? { label: 'Done', tone: 'done' } : { label: 'To do', tone: 'todo' }
+    const total = questions.value.length
+    if (!total) return ''
+    const answered = questions.value.filter((q) => (answers[q.key] || '').trim()).length
+    return `${answered} of ${total} answered`
   }
   if (key === 'poster') {
-    return storedFile('poster') ? { label: 'Done', tone: 'done' } : { label: 'To do', tone: 'todo' }
+    return storedFile('poster') ? 'Attached' : 'Not attached'
   }
-  const attached = EXTRA_SLOTS.filter((slot) => storedFile(slot.key)).length
-  return { label: attached ? `${attached} added` : 'Optional', tone: 'neutral' }
+  const attached = EXTRA_SLOTS.filter((slot) => storedFile(slot)).length
+  return attached ? `${attached} attached` : 'Optional'
 }
 
 function formatDate(value: string) {
@@ -434,6 +543,11 @@ function storedFile(slot: SubmissionSlot): StoredFile | null {
 
 function downloadUrl(slot: SubmissionSlot) {
   return submissionFileDownloadUrl(groupId.value, slot)
+}
+
+/** Direct link to the inline endpoint, for opening in a tab of its own. */
+function previewUrlFor(slot: SubmissionSlot) {
+  return submissionFilePreviewUrl(groupId.value, slot)
 }
 
 function registerInput(slot: SubmissionSlot, el: unknown) {
@@ -513,23 +627,17 @@ async function loadPreview(slot: SubmissionSlot) {
  * misrepresent the entry, so anything not currently valid is dropped.
  */
 async function syncPreviewForTab() {
+  // Each document tab shows its own file; only one is ever loaded at a time,
+  // so switching tabs swaps the preview rather than stacking them.
   if (activeTab.value === 'poster') {
     await loadPreview('poster')
     return
   }
-  // Leaving the poster tab, or a report preview whose file has gone.
-  if (previewSlot.value === 'poster' || (previewSlot.value === 'report' && !storedFile('report'))) {
-    clearPreview()
-  }
-  if (activeTab.value !== 'extras') clearPreview()
-}
-
-function toggleReportPreview() {
-  if (previewSlot.value === 'report') {
-    clearPreview()
+  if (activeTab.value === 'extras') {
+    await loadPreview('report')
     return
   }
-  loadPreview('report')
+  clearPreview()
 }
 
 /** Copy server state into the editable fields. */
@@ -667,14 +775,20 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   busySlot.value = slot
   setMessage('')
   try {
-    applyResult(await uploadSubmissionFile(groupId.value, slot, file))
+    uploadPercent.value = 0
+    applyResult(
+      await uploadSubmissionFile(groupId.value, slot, file, (percent) => {
+        uploadPercent.value = percent
+      })
+    )
     setMessage(`${slot} uploaded.`)
     // Refresh a showing preview so it never displays the file just replaced.
-    if (slot === previewSlot.value || slot === 'poster') await loadPreview(slot)
+    if (slot === 'poster' || slot === 'report') await loadPreview(slot)
   } catch (error) {
     setMessage(apiErrorFromUnknown(error).message, true)
   } finally {
     busySlot.value = ''
+    uploadPercent.value = 0
     // Clear the input so choosing the same file again still fires a change.
     input.value = ''
   }
@@ -697,6 +811,12 @@ async function removeFile(slot: SubmissionSlot) {
 
 onMounted(load)
 
+// One tick a minute is enough for a countdown measured in days and hours, and
+// avoids re-rendering the page every second for no visible change.
+const clockTimer = setInterval(() => {
+  now.value = Date.now()
+}, 60000)
+
 // Any edit to an answer or the prototype link queues a save.
 watch([answers, prototypeUrl], scheduleAutosave, { deep: true })
 
@@ -717,9 +837,10 @@ watch(groupId, () => {
 })
 
 onBeforeUnmount(() => {
-  // Releases the in-memory preview file and drops a pending save rather than
-  // letting it fire against a page that no longer exists.
+  // Releases the in-memory preview file and drops pending timers rather than
+  // letting them fire against a page that no longer exists.
   if (autosaveTimer) clearTimeout(autosaveTimer)
+  clearInterval(clockTimer)
   clearPreview()
 })
 </script>
@@ -752,6 +873,17 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.submission-remaining {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-left: 0.35rem;
+}
+
+.submission-remaining.is-near {
+  color: #b45309;
+  font-weight: 600;
 }
 
 .submission-closed {
@@ -860,24 +992,8 @@ onBeforeUnmount(() => {
 
 .submission-step__state {
   font-size: 0.75rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.submission-step__state.is-done {
-  background: #e6f4ec;
-  color: #0f6b4f;
-}
-
-.submission-step__state.is-todo {
-  background: #fdecea;
-  color: #c0392b;
-}
-
-.submission-step__state.is-neutral {
-  background: #f1f2f4;
   color: #6b7280;
+  white-space: nowrap;
 }
 
 .submission-instructions {
@@ -948,26 +1064,53 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
-.submission-preview {
+/* Mirrors the resource library's preview panel so a file looks the same
+   wherever it is viewed. The panel carries the border and clips the frame,
+   which is why the frame itself has none. */
+.preview-panel {
+  background: var(--white, #ffffff);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow, rgba(0, 0, 0, 0.08));
+  min-height: 560px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.preview-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border-light, #e5e7eb);
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+}
+
+.preview-header h2 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.preview-frame {
+  border: 0;
+  display: block;
+  height: 620px;
   width: 100%;
-  height: 60vh;
-  min-height: 320px;
-  margin-top: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
 }
 
-.submission-preview--tall {
-  height: 72vh;
-}
-
-.submission-preview-empty {
-  padding: 2.5rem 1rem;
+.preview-empty {
+  align-items: center;
+  color: var(--text-muted, #6b7280);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 480px;
+  justify-content: center;
+  padding: 2rem;
   text-align: center;
-  border: 1px dashed #d1d5db;
-  border-radius: 6px;
-  margin-top: 0.75rem;
+}
+
+.preview-empty i {
+  color: var(--dark-green, #0f6b4f);
+  font-size: 2rem;
 }
 
 .submission-actions {
