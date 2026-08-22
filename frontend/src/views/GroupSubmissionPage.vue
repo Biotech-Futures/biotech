@@ -81,7 +81,7 @@
         <div v-for="question in questions" :key="question.key" class="submission-field">
           <label class="submission-label" :for="question.key">
             {{ question.prompt }}
-            <span v-if="question.is_required" class="submission-required">required</span>
+            <span v-if="question.is_required" class="submission-required" title="Required" aria-label="required">*</span>
           </label>
           <p v-if="question.help_text" class="submission-muted">{{ question.help_text }}</p>
           <textarea
@@ -108,7 +108,7 @@
         <div class="submission-slot submission-slot--plain">
           <div class="submission-slot__info">
             <div class="submission-label">
-              Poster <span class="submission-required">required</span>
+              Poster <span class="submission-required" title="Required" aria-label="required">*</span>
             </div>
             <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
 
@@ -149,9 +149,12 @@
           </div>
         </div>
 
-        <p v-if="isPreviewLoading" class="submission-muted">Loading preview…</p>
+        <!-- Guarded on the slot as well as the source: hidden tabs stay in the
+             DOM, so without this the poster frame would also load whichever
+             file the report preview had fetched. -->
+        <p v-if="isPosterPreviewOpen && isPreviewLoading" class="submission-muted">Loading preview…</p>
         <iframe
-          v-else-if="previewSource && storedFile('poster')"
+          v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
           class="submission-preview submission-preview--tall"
           :src="previewSource"
           title="Poster preview"
@@ -175,6 +178,17 @@
               <span class="submission-muted"> ({{ formatSize(storedFile(slot.key)?.size) }})</span>
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
+
+            <!-- Only the report can be shown inline; the prototype accepts any
+                 file type, so rendering it in the page is not safe. -->
+            <button
+              v-if="slot.key === 'report' && storedFile('report')"
+              class="btn btn-outline btn-sm submission-preview-toggle"
+              type="button"
+              @click="toggleReportPreview"
+            >
+              {{ isReportPreviewOpen ? 'Hide preview' : 'Preview' }}
+            </button>
           </div>
 
           <div v-if="isOpen" class="submission-slot__actions">
@@ -204,6 +218,16 @@
             </button>
           </div>
         </div>
+
+        <p v-if="isReportPreviewOpen && isPreviewLoading" class="submission-muted">
+          Loading preview…
+        </p>
+        <iframe
+          v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
+          class="submission-preview"
+          :src="previewSource"
+          title="Scientific report preview"
+        ></iframe>
 
         <div class="submission-field">
           <label class="submission-label" for="prototype-url">Prototype link (optional)</label>
@@ -303,6 +327,8 @@ const isSaving = ref(false)
 const isSubmitting = ref(false)
 const busySlot = ref<SubmissionSlot | ''>('')
 const previewSource = ref('')
+// Which slot the loaded preview belongs to; '' when nothing is showing.
+const previewSlot = ref<SubmissionSlot | ''>('')
 const isPreviewLoading = ref(false)
 const message = ref('')
 const isError = ref(false)
@@ -330,6 +356,8 @@ const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isBusy = computed(() => isSaving.value || isSubmitting.value || Boolean(busySlot.value))
 const activeTabConfig = computed(() => TABS.find((tab) => tab.key === activeTab.value) ?? TABS[0])
 const activeInstructions = computed(() => detail.value?.instructions?.[activeTab.value] ?? '')
+const isReportPreviewOpen = computed(() => previewSlot.value === 'report')
+const isPosterPreviewOpen = computed(() => previewSlot.value === 'poster')
 
 const saveStateLabel = computed(() => {
   if (isSaving.value) return 'Saving…'
@@ -455,28 +483,53 @@ function applyResult(result: SubmissionWriteResult) {
 function clearPreview() {
   releasePreview(previewSource.value)
   previewSource.value = ''
+  previewSlot.value = ''
   isPreviewLoading.value = false
 }
 
-/**
- * Keep the poster preview in step with what is actually attached.
- *
- * Called whenever the tab changes or the poster does, rather than being
- * toggled by hand — the preview is always-on for this slot, and a stale panel
- * showing a replaced or deleted file would misrepresent the entry.
- */
-async function syncPosterPreview() {
+/** Load one slot's file for display. Only ever called for PDF slots. */
+async function loadPreview(slot: SubmissionSlot) {
   clearPreview()
-  if (activeTab.value !== 'poster' || !storedFile('poster')) return
+  if (!storedFile(slot)) return
 
+  previewSlot.value = slot
   isPreviewLoading.value = true
   try {
-    previewSource.value = await fetchPreviewObjectUrl(groupId.value, 'poster')
+    previewSource.value = await fetchPreviewObjectUrl(groupId.value, slot)
   } catch (error) {
     setMessage(apiErrorFromUnknown(error).message, true)
+    previewSlot.value = ''
   } finally {
     isPreviewLoading.value = false
   }
+}
+
+/**
+ * Keep the preview in step with the tab and with what is attached.
+ *
+ * The poster's preview is always-on because that tab exists to display it; the
+ * report's is opened by hand, since it shares its tab with the prototype. In
+ * both cases a stale panel showing a replaced or deleted file would
+ * misrepresent the entry, so anything not currently valid is dropped.
+ */
+async function syncPreviewForTab() {
+  if (activeTab.value === 'poster') {
+    await loadPreview('poster')
+    return
+  }
+  // Leaving the poster tab, or a report preview whose file has gone.
+  if (previewSlot.value === 'poster' || (previewSlot.value === 'report' && !storedFile('report'))) {
+    clearPreview()
+  }
+  if (activeTab.value !== 'extras') clearPreview()
+}
+
+function toggleReportPreview() {
+  if (previewSlot.value === 'report') {
+    clearPreview()
+    return
+  }
+  loadPreview('report')
 }
 
 /** Copy server state into the editable fields. */
@@ -498,7 +551,7 @@ async function load() {
   try {
     detail.value = await fetchSubmission(groupId.value)
     syncFromDetail()
-    await syncPosterPreview()
+    await syncPreviewForTab()
   } catch (error) {
     loadError.value = apiErrorFromUnknown(error).message
   } finally {
@@ -616,7 +669,8 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   try {
     applyResult(await uploadSubmissionFile(groupId.value, slot, file))
     setMessage(`${slot} uploaded.`)
-    if (slot === 'poster') await syncPosterPreview()
+    // Refresh a showing preview so it never displays the file just replaced.
+    if (slot === previewSlot.value || slot === 'poster') await loadPreview(slot)
   } catch (error) {
     setMessage(apiErrorFromUnknown(error).message, true)
   } finally {
@@ -632,7 +686,8 @@ async function removeFile(slot: SubmissionSlot) {
   try {
     applyResult(await removeSubmissionFile(groupId.value, slot))
     setMessage(`${slot} removed.`)
-    if (slot === 'poster') await syncPosterPreview()
+    // Never leave a deleted document on screen.
+    if (slot === previewSlot.value) clearPreview()
   } catch (error) {
     setMessage(apiErrorFromUnknown(error).message, true)
   } finally {
@@ -653,7 +708,7 @@ watch(activeTab, () => {
     autosaveTimer = null
     persistDraft({ silent: true })
   }
-  syncPosterPreview()
+  syncPreviewForTab()
 })
 
 watch(groupId, () => {
@@ -855,11 +910,13 @@ onBeforeUnmount(() => {
   margin: 0.2rem 0;
 }
 
+/* A quiet marker rather than a badge — it appears beside most labels, so
+   anything louder reads as an error state on a form that is merely blank. */
 .submission-required {
   color: #c0392b;
-  font-size: 0.75rem;
   font-weight: 600;
-  margin-left: 0.4rem;
+  margin-left: 0.2rem;
+  cursor: help;
 }
 
 .submission-slot {
