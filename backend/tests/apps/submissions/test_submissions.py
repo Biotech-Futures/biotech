@@ -83,6 +83,49 @@ class DeadlineRuleTests(TestCase):
         self.assertTrue(deadline_for_group(self.group.id).is_open)
         self.assertFalse(deadline_for_group(other.id).is_open)
 
+    def test_grace_period_keeps_submissions_open_past_the_announced_date(self):
+        # The announced date has passed but the buffer has not: still open, and
+        # flagged as being inside the grace window.
+        Deadline.objects.create(
+            closes_at=timezone.now() - timedelta(hours=2), grace_hours=24, is_active=True
+        )
+
+        info = deadline_for_group(self.group.id)
+        self.assertTrue(info.is_open)
+        self.assertTrue(info.is_in_grace)
+
+    def test_submissions_close_once_the_grace_period_ends(self):
+        Deadline.objects.create(
+            closes_at=timezone.now() - timedelta(hours=30), grace_hours=24, is_active=True
+        )
+
+        info = deadline_for_group(self.group.id)
+        self.assertFalse(info.is_open)
+        self.assertFalse(info.is_in_grace)
+
+    def test_students_are_shown_the_announced_date_not_the_buffer(self):
+        # The whole point of the buffer is that it is not published — students
+        # see one date and the server quietly accepts a little longer.
+        closes = timezone.now() + timedelta(days=1)
+        Deadline.objects.create(closes_at=closes, grace_hours=24, is_active=True)
+
+        info = deadline_for_group(self.group.id)
+        self.assertEqual(info.closes_at, closes)
+        self.assertEqual(info.enforced_until, closes + timedelta(hours=24))
+
+    def test_an_extension_gets_no_extra_grace(self):
+        # A granted date is explicit, unlike an announced one, so it applies
+        # exactly as the admin entered it.
+        Deadline.objects.create(
+            closes_at=timezone.now() - timedelta(days=2), grace_hours=24, is_active=True
+        )
+        extended = timezone.now() + timedelta(days=1)
+        GroupExtension.objects.create(group=self.group, extended_until=extended)
+
+        info = deadline_for_group(self.group.id)
+        self.assertEqual(info.closes_at, extended)
+        self.assertEqual(info.enforced_until, extended)
+
     def test_extension_is_applied_exactly_as_entered(self):
         # An extension earlier than the standard deadline shortens the window
         # rather than being quietly corrected upwards. Documents the deliberate
@@ -157,9 +200,13 @@ class SubmissionApiTests(TestCase):
         response = self._client_for(self.outsider).get(self.detail_url)
         self.assertEqual(response.status_code, 403)
 
-    def test_mentor_may_read(self):
+    def test_mentor_may_not_read(self):
+        # Mentors guide the group's work but have no part in assessment, so a
+        # team's entry is not theirs to see — even though they are members.
         response = self._client_for(self.mentor).get(self.detail_url)
-        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "student_role_required")
 
     # ---------------------------------------------------------------- writing
     def test_student_saves_a_draft(self):
