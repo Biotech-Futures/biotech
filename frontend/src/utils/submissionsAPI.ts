@@ -1,4 +1,4 @@
-import { apiErrorFromResponse } from './apiError'
+import { ApiError, apiErrorFromResponse, normalizeApiErrorBody } from './apiError'
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -119,18 +119,76 @@ export function submitEntry(groupId: number | string) {
   })
 }
 
-export function uploadSubmissionFile(
+/**
+ * Upload one attachment, reporting progress as it goes.
+ *
+ * Uses XMLHttpRequest rather than fetch because only XHR exposes upload
+ * progress events. A large poster on a slow connection otherwise shows nothing
+ * at all for a minute, which people read as the page having frozen.
+ */
+export async function uploadSubmissionFile(
   groupId: number | string,
   slot: SubmissionSlot,
-  file: File
-) {
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<SubmissionWriteResult> {
+  const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+  if (!csrfReady) {
+    throw new Error('Could not initialize a secure session. Please refresh and try again.')
+  }
+
   const body = new FormData()
   body.append('file', file)
-  // No Content-Type header: the browser sets it with the multipart boundary,
-  // and overriding it makes the upload unparseable on the server.
-  return requestJson<SubmissionWriteResult>(`${base(groupId)}/files/${slot}/`, {
-    method: 'POST',
-    body
+  // No Content-Type header is set: the browser adds it along with the
+  // multipart boundary, and overriding it makes the upload unparseable.
+  const headers = buildSessionHeaders({
+    includeCSRF: true,
+    isFormData: true,
+    headers: { Accept: 'application/json' }
+  })
+
+  return new Promise<SubmissionWriteResult>((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', `${API_BASE_URL}${base(groupId)}/files/${slot}/`)
+    request.withCredentials = true
+    headers.forEach((value, key) => {
+      if (value) request.setRequestHeader(key, value)
+    })
+
+    request.upload.addEventListener('progress', (event) => {
+      if (!onProgress || !event.lengthComputable) return
+      onProgress(Math.round((event.loaded / event.total) * 100))
+    })
+
+    request.addEventListener('load', () => {
+      let parsed: unknown = null
+      try {
+        parsed = request.responseText ? JSON.parse(request.responseText) : null
+      } catch {
+        parsed = null
+      }
+      if (request.status >= 200 && request.status < 300) {
+        resolve(parsed as SubmissionWriteResult)
+        return
+      }
+      // Same error shape the fetch-based calls produce, so callers can read
+      // `.message` and `.body` without caring which transport was used.
+      reject(
+        new ApiError(
+          normalizeApiErrorBody(
+            parsed,
+            `Upload failed: ${request.status}`,
+            request.getResponseHeader('X-Request-ID') || undefined,
+            request.status
+          ),
+          request.status
+        )
+      )
+    })
+
+    request.addEventListener('error', () => reject(new Error('Network error during upload.')))
+    request.addEventListener('abort', () => reject(new Error('Upload cancelled.')))
+    request.send(body)
   })
 }
 
