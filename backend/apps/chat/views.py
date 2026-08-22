@@ -42,6 +42,7 @@ from .serializers import (
     aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
+from .services.screening import dispatch_message_screening
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
@@ -704,6 +705,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
         apply_mentions(msg)
+        dispatch_message_screening(msg)
         _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
         self._dispatch_link_previews(msg)
 
@@ -740,6 +742,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 message = serializer.save(sender_user=request.user, group_id=gid)
                 apply_mentions(message)
+                dispatch_message_screening(message)
                 # _broadcast itself wraps in transaction.on_commit, so a rollback
                 # of this atomic block discards the WS event automatically.
                 _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
@@ -759,6 +762,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Edits can introduce *new* mentions (existing ones are preserved
         # — see ``apply_mentions``'s contract).
         apply_mentions(instance)
+        dispatch_message_screening(instance)
         # Keep the persisted OG preview in sync with the edited text.
         # update_or_create on the worker side handles URL *changes*, so
         # the only case the dispatcher doesn't cover is "edit removed
@@ -1212,4 +1216,3 @@ class UnreadDigestTriggerView(APIView):
             {"status": dispatch_unread_digest()},
             status=status.HTTP_202_ACCEPTED,
         )
-
