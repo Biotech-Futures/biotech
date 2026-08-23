@@ -488,9 +488,6 @@ const TABS: { key: TabKey; label: string }[] = [
 // mid-word, short enough that a closed laptop rarely costs anything.
 const AUTOSAVE_DELAY_MS = 2000
 
-// Both optional, and both live on the Additional materials tab.
-const EXTRA_SLOTS: SubmissionSlot[] = ['report', 'prototype']
-
 // Fallback only for the moment between the page mounting and the first
 // response arriving; the server's values replace these as soon as it loads.
 const FALLBACK_MAX_FILE_SIZES: Record<SubmissionSlot, number> = {
@@ -567,7 +564,6 @@ function shownFile(slot: SubmissionSlot): StoredFile | null {
   if (!submission) return null
   return isLocked.value ? submission[`submitted_${slot}` as const] : submission[slot]
 }
-const activeTabConfig = computed(() => TABS.find((tab) => tab.key === activeTab.value) ?? TABS[0])
 const stepIndex = computed(() => TABS.findIndex((tab) => tab.key === activeTab.value))
 const isFirstStep = computed(() => stepIndex.value <= 0)
 const isLastStep = computed(() => stepIndex.value >= TABS.length - 1)
@@ -804,17 +800,17 @@ function formatTime(value: Date) {
 }
 
 /**
- * Persist the draft. Shared by the button and by auto-save.
+ * Persist the draft.
  *
- * `silent` keeps auto-save from posting a confirmation banner every couple of
- * seconds — the status line beside the buttons already reports it.
+ * Never announces success: it runs every couple of seconds, and the status
+ * line already reports the outcome. Failures do surface, because silently
+ * losing work is the exact thing auto-save exists to prevent.
  */
-async function persistDraft({ silent }: { silent: boolean }) {
+async function persistDraft() {
   if (isSaving.value) return
   const snapshot = currentSnapshot()
 
   isSaving.value = true
-  if (!silent) setMessage('')
   try {
     applyResult(
       await saveDraft(groupId.value, {
@@ -825,11 +821,8 @@ async function persistDraft({ silent }: { silent: boolean }) {
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
     saveState.value = 'idle'
-    if (!silent) setMessage('Draft saved.')
   } catch (error) {
     saveState.value = 'error'
-    // Auto-save failures still surface: silently losing work is the exact
-    // problem auto-save exists to prevent.
     setMessage(apiErrorFromUnknown(error).message, true)
   } finally {
     isSaving.value = false
@@ -845,7 +838,7 @@ function scheduleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer)
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null
-    persistDraft({ silent: true })
+    persistDraft()
   }, AUTOSAVE_DELAY_MS)
 }
 
@@ -967,7 +960,7 @@ watch(activeTab, () => {
   if (autosaveTimer) {
     clearTimeout(autosaveTimer)
     autosaveTimer = null
-    persistDraft({ silent: true })
+    persistDraft()
   }
   syncPreviewForTab()
 })

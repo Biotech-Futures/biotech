@@ -223,10 +223,8 @@ export function submissionFileDownloadUrl(groupId: number | string, slot: Submis
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/download/`
 }
 
-/** Slots the browser can display inline. The prototype accepts arbitrary file
- *  types, so it is download-only — see the preview view for the reasoning. */
-export const PREVIEWABLE_SLOTS: SubmissionSlot[] = ['poster', 'report']
-
+/** Inline display, for the poster and report only — the prototype accepts
+ *  arbitrary file types and the endpoint refuses to render it. */
 export function submissionFilePreviewUrl(groupId: number | string, slot: SubmissionSlot) {
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/preview/`
 }
