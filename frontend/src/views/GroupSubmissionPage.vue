@@ -450,6 +450,13 @@ import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME } from '@/constants/brand'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
+  countWords,
+  describeQuestionStep,
+  describeTimeRemaining,
+  formatFileSize,
+  isDeadlineNear as deadlineIsNear
+} from '@/utils/submissionFormat'
+import {
   fetchPreviewObjectUrl,
   fetchSubmission,
   releasePreview,
@@ -606,28 +613,14 @@ const deadlineDate = computed(() => {
 })
 
 /** "3 days left" — urgency a fixed date does not convey on its own. */
-const timeRemaining = computed(() => {
-  const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt || !isOpen.value) return ''
-
-  const msLeft = new Date(closesAt).getTime() - now.value
-  if (msLeft <= 0) return 'Closing now'
-
-  const minutes = Math.floor(msLeft / 60000)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-
-  if (days >= 1) return `${days} day${days === 1 ? '' : 's'} left`
-  if (hours >= 1) return `${hours} hour${hours === 1 ? '' : 's'} left`
-  return `${minutes} minute${minutes === 1 ? '' : 's'} left`
-})
+const timeRemaining = computed(() =>
+  isOpen.value ? describeTimeRemaining(detail.value?.deadline.closes_at, now.value) : ''
+)
 
 // Under a day to go is when the wording should start to feel different.
-const isDeadlineNear = computed(() => {
-  const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt || !isOpen.value) return false
-  return new Date(closesAt).getTime() - now.value < 24 * 60 * 60 * 1000
-})
+const isDeadlineNear = computed(
+  () => isOpen.value && deadlineIsNear(detail.value?.deadline.closes_at, now.value)
+)
 
 const deadlineDetail = computed(() => {
   if (!detail.value?.deadline.closes_at) {
@@ -653,10 +646,7 @@ const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
  */
 function stepSummary(key: TabKey): string {
   if (key === 'questions') {
-    const total = questions.value.length
-    if (!total) return 'Required'
-    const answered = questions.value.filter((q) => (answers[q.key] || '').trim()).length
-    return `Required · ${answered} of ${total}`
+    return describeQuestionStep(answers, questions.value.map((q) => q.key))
   }
   // Attachment state is left out here: whether a file is present is obvious
   // the moment you open the step, so repeating it in the strip was noise.
@@ -672,16 +662,7 @@ function formatDate(value: string) {
   })
 }
 
-function formatSize(bytes: number | null | undefined) {
-  if (!bytes && bytes !== 0) return 'unknown size'
-  if (bytes >= 1024 * 1024) {
-    const mb = bytes / (1024 * 1024)
-    // Drop the decimal on round figures so the stated limit reads "50 MB".
-    return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
-  }
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${bytes} bytes`
-}
+const formatSize = formatFileSize
 
 function storedFile(slot: SubmissionSlot): StoredFile | null {
   return shownFile(slot)
@@ -727,13 +708,8 @@ function dismissMessage() {
   message.value = ''
 }
 
-/**
- * Words in an answer, counted the same way the server does — runs of
- * non-whitespace. Any cleverer rule here would disagree with what actually
- * gets accepted on save.
- */
 function wordCount(key: string) {
-  return (answers[key] || '').split(/\s+/).filter(Boolean).length
+  return countWords(answers[key])
 }
 
 function applyResult(result: SubmissionWriteResult) {
