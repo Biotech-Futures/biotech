@@ -1,4 +1,4 @@
-"""Tests for the team submission deadline rule and endpoints.
+﻿"""Tests for the team submission deadline rule and endpoints.
 
 Focused on the places where a bug actually costs something: a team locked out
 early, an entry accepted after closing, or someone reaching a team they are not
@@ -157,6 +157,13 @@ class SubmissionApiTests(TestCase):
         self.detail_url = reverse("group-submission", kwargs={"group_id": self.group.id})
         self.submit_url = reverse("group-submission-submit", kwargs={"group_id": self.group.id})
 
+        # Taken from whatever question set is configured rather than hardcoded,
+        # so replacing the questions does not break every test that saves one.
+        self.question_keys = list(
+            SubmissionQuestion.active().values_list("key", flat=True)
+        )
+        self.first_key = self.question_keys[0]
+
     def _client_for(self, user):
         client = APIClient()
         client.force_authenticate(user=user)
@@ -212,36 +219,36 @@ class SubmissionApiTests(TestCase):
     def test_student_saves_a_draft(self):
         response = self._client_for(self.student).put(
             self.detail_url,
-            {"answers": {"q1": "Our project"}, "prototype_url": "https://example.com/demo"},
+            {"answers": {self.first_key: "Our project"}, "prototype_url": "https://example.com/demo"},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
         submission = Submission.objects.get(group=self.group)
-        self.assertEqual(submission.answers, {"q1": "Our project"})
+        self.assertEqual(submission.answers, {self.first_key: "Our project"})
         self.assertEqual(submission.prototype_url, "https://example.com/demo")
         # Saving a draft must not look like submitting.
         self.assertIsNone(submission.submitted_at)
 
     def test_partial_save_keeps_untouched_fields(self):
         client = self._client_for(self.student)
-        client.put(self.detail_url, {"answers": {"q1": "Kept"}}, format="json")
+        client.put(self.detail_url, {"answers": {self.first_key: "Kept"}}, format="json")
         client.put(
             self.detail_url, {"prototype_url": "https://example.com/x"}, format="json"
         )
 
         submission = Submission.objects.get(group=self.group)
-        self.assertEqual(submission.answers, {"q1": "Kept"})
+        self.assertEqual(submission.answers, {self.first_key: "Kept"})
 
     def test_mentor_may_not_write(self):
         response = self._client_for(self.mentor).put(
-            self.detail_url, {"answers": {"q1": "x"}}, format="json"
+            self.detail_url, {"answers": {self.first_key: "x"}}, format="json"
         )
         self.assertEqual(response.status_code, 403)
 
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(
-            self.detail_url, {"answers": {"q1": "x"}}, format="json"
+            self.detail_url, {"answers": {self.first_key: "x"}}, format="json"
         )
         self.assertEqual(response.status_code, 403)
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
@@ -249,7 +256,7 @@ class SubmissionApiTests(TestCase):
     # ------------------------------------------------------------- submitting
     def test_submitting_without_a_poster_is_refused(self):
         client = self._client_for(self.student)
-        client.put(self.detail_url, {"answers": {"q1": "Done"}}, format="json")
+        client.put(self.detail_url, {"answers": {self.first_key: "Done"}}, format="json")
 
         response = client.post(self.submit_url, {}, format="json")
 
@@ -260,7 +267,7 @@ class SubmissionApiTests(TestCase):
         client = self._client_for(self.student)
         self._attach_poster()
         # q1 answered, the other required questions left blank.
-        client.put(self.detail_url, {"answers": {"q1": "Only this one"}}, format="json")
+        client.put(self.detail_url, {"answers": {self.first_key: "Only this one"}}, format="json")
 
         response = client.post(self.submit_url, {}, format="json")
 
@@ -281,24 +288,29 @@ class SubmissionApiTests(TestCase):
         self.assertFalse(submission.is_late)
 
     def test_resubmitting_updates_the_same_row(self):
+        # Revising is deliberate now: an entry must be reopened before it can be
+        # edited again. The full lifecycle is covered in test_submission_lifecycle.
         client = self._client_for(self.student)
+        reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
         self._attach_poster()
         self._answer_everything()
 
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
+        self.assertEqual(client.post(reopen_url, {}, format="json").status_code, 200)
+
         answers = {q.key: "Revised" for q in SubmissionQuestion.active()}
         client.put(self.detail_url, {"answers": answers}, format="json")
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
 
         self.assertEqual(Submission.objects.filter(group=self.group).count(), 1)
-        self.assertEqual(Submission.objects.get(group=self.group).answers, answers)
+        self.assertEqual(Submission.objects.get(group=self.group).submitted_answers, answers)
 
     # ---------------------------------------------------------------- questions
     def test_questions_are_returned_in_order(self):
         response = self._client_for(self.student).get(self.detail_url)
 
         keys = [question["key"] for question in response.data["questions"]]
-        self.assertEqual(keys, ["q1", "q2", "q3", "q4"])
+        self.assertEqual(keys, self.question_keys)
 
     def test_upload_limits_are_published_per_slot(self):
         # The page states each limit and refuses oversized files before
@@ -315,27 +327,35 @@ class SubmissionApiTests(TestCase):
 
     def test_instructions_are_returned_per_section(self):
         # Guidance is editable by admins, so the page renders what the server
-        # sends rather than anything built into it.
+        # sends rather than anything built into it. Each section carries a
+        # heading and a supporting line, matching the client's own form.
         response = self._client_for(self.student).get(self.detail_url)
         instructions = response.data["instructions"]
 
         self.assertEqual(set(instructions), {"questions", "poster", "extras"})
-        self.assertTrue(all(body.strip() for body in instructions.values()))
+        for section in instructions.values():
+            self.assertTrue(section["heading"].strip())
+            self.assertTrue(section["body"].strip())
 
     def test_edited_instructions_are_served(self):
-        SubmissionInstruction.objects.filter(section="poster").update(body="New wording.")
+        SubmissionInstruction.objects.filter(section="poster").update(
+            heading="Your poster", body="New wording."
+        )
 
         response = self._client_for(self.student).get(self.detail_url)
 
-        self.assertEqual(response.data["instructions"]["poster"], "New wording.")
+        self.assertEqual(
+            response.data["instructions"]["poster"],
+            {"heading": "Your poster", "body": "New wording."},
+        )
 
     def test_retired_questions_are_hidden(self):
-        SubmissionQuestion.objects.filter(key="q4").update(is_active=False)
+        SubmissionQuestion.objects.filter(key=self.question_keys[-1]).update(is_active=False)
 
         response = self._client_for(self.student).get(self.detail_url)
 
         keys = [question["key"] for question in response.data["questions"]]
-        self.assertEqual(keys, ["q1", "q2", "q3"])
+        self.assertEqual(keys, self.question_keys[:-1])
 
     def test_unknown_answer_key_is_rejected(self):
         response = self._client_for(self.student).put(
@@ -345,14 +365,29 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
-    def test_answer_longer_than_the_limit_is_rejected(self):
-        SubmissionQuestion.objects.filter(key="q1").update(max_length=10)
+    def test_answer_over_the_word_limit_is_rejected(self):
+        key = SubmissionQuestion.active().first().key
+        SubmissionQuestion.objects.filter(key=key).update(max_words=5)
+        client = self._client_for(self.student)
+
+        over = client.put(self.detail_url, {"answers": {key: "one two three four five six"}}, format="json")
+        exactly = client.put(self.detail_url, {"answers": {key: "one two three four five"}}, format="json")
+
+        self.assertEqual(over.status_code, 400)
+        # The limit is inclusive — exactly 150 words must be accepted.
+        self.assertEqual(exactly.status_code, 200)
+
+    def test_word_count_ignores_extra_whitespace(self):
+        # Matches the regex the client's Qualtrics form validates with, which
+        # simply splits on runs of whitespace.
+        key = SubmissionQuestion.active().first().key
+        SubmissionQuestion.objects.filter(key=key).update(max_words=3)
 
         response = self._client_for(self.student).put(
-            self.detail_url, {"answers": {"q1": "x" * 11}}, format="json"
+            self.detail_url, {"answers": {key: "  one \n\n two    three  "}}, format="json"
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
 
     # ---------------------------------------------------------------- closing
     def test_writes_refused_after_deadline(self):
@@ -360,7 +395,7 @@ class SubmissionApiTests(TestCase):
         client = self._client_for(self.student)
 
         self.assertEqual(
-            client.put(self.detail_url, {"answers": {"q1": "late"}}, format="json").status_code,
+            client.put(self.detail_url, {"answers": {self.first_key: "late"}}, format="json").status_code,
             403,
         )
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 403)
@@ -379,7 +414,7 @@ class SubmissionApiTests(TestCase):
         )
 
         response = self._client_for(self.student).put(
-            self.detail_url, {"answers": {"q1": "extended"}}, format="json"
+            self.detail_url, {"answers": {self.first_key: "extended"}}, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["deadline"]["is_extended"])
@@ -387,6 +422,6 @@ class SubmissionApiTests(TestCase):
     def test_writes_refused_when_no_deadline_configured(self):
         Deadline.objects.all().delete()
         response = self._client_for(self.student).put(
-            self.detail_url, {"answers": {"q1": "x"}}, format="json"
+            self.detail_url, {"answers": {self.first_key: "x"}}, format="json"
         )
         self.assertEqual(response.status_code, 403)
