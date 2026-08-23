@@ -21,13 +21,25 @@ export interface SubmissionDeadline {
 }
 
 export interface SubmissionRecord {
+  /** The working copy, edited while the entry is in progress. */
   answers: Record<string, string>
   poster: StoredFile | null
   report: StoredFile | null
   prototype: StoredFile | null
   prototype_url: string
+  /** What was actually submitted; unchanged while a revision is in progress. */
+  submitted_answers: Record<string, string> | null
+  submitted_poster: StoredFile | null
+  submitted_report: StoredFile | null
+  submitted_prototype: StoredFile | null
+  submitted_prototype_url: string
   submitted_at: string | null
+  submitted_by_name: string
+  reopened_at: string | null
+  status: 'in_progress' | 'submitted'
   is_submitted: boolean
+  /** Submitted and not reopened — editing is closed. */
+  is_locked: boolean
   is_late: boolean
   updated_at: string
 }
@@ -38,15 +50,16 @@ export interface SubmissionQuestion {
   prompt: string
   help_text: string
   is_required: boolean
-  max_length: number | null
+  /** Word limit, matching the rule the competition publishes. Null = no limit. */
+  max_words: number | null
 }
 
 export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
   questions: SubmissionQuestion[]
-  /** Guidance per form section, editable by admins. */
-  instructions: Record<string, string>
+  /** Section title and supporting line, editable by admins. */
+  instructions: Record<string, { heading: string; body: string }>
   /** Upload ceiling in bytes per slot, set by the server. PDFs are held to a
    *  tighter limit than the prototype. */
   max_file_sizes: Record<SubmissionSlot, number>
@@ -114,6 +127,14 @@ export function saveDraft(groupId: number | string, payload: SaveDraftPayload) {
 
 export function submitEntry(groupId: number | string) {
   return requestJson<SubmissionWriteResult>(`${base(groupId)}/submit/`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+}
+
+/** Reopen a submitted entry for revision, leaving the submitted copy in place. */
+export function reopenEntry(groupId: number | string) {
+  return requestJson<SubmissionWriteResult>(`${base(groupId)}/reopen/`, {
     method: 'POST',
     body: JSON.stringify({})
   })
