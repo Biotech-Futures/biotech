@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -153,15 +154,35 @@ class GroupSubmissionView(APIView):
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
 
-        submission, _ = Submission.objects.get_or_create(group=group)
-        _require_unlocked(submission)
-        # Only touch fields the client actually sent, so a client updating the
-        # link cannot blank out the answers by omitting them.
-        if "answers" in data:
-            submission.answers = data["answers"]
-        if "prototype_url" in data:
-            submission.prototype_url = data["prototype_url"]
-        submission.save()
+        # Locked for the read-modify-write below. Without it two teammates
+        # auto-saving at the same moment both read the stored answers, both
+        # merge into their own copy, and the second save silently discards the
+        # first — the exact failure the merge is meant to prevent.
+        #
+        # SQLite (used by the test settings) has no row locking, so this is a
+        # no-op there; the protection is real on Postgres, which is what runs in
+        # production. The tests below cover the merge semantics, not the lock.
+        with transaction.atomic():
+            submission, _ = (
+                Submission.objects.select_for_update().get_or_create(group=group)
+            )
+            _require_unlocked(submission)
+
+            # Only touch fields the client actually sent, so a client updating
+            # the link cannot blank out the answers by omitting them.
+            if "answers" in data:
+                # Merged, not replaced. A save carries only the answers that
+                # changed, so two people working on different questions no
+                # longer overwrite each other — which is what teams actually do.
+                #
+                # The trade-off: an omitted key means "leave it alone", so
+                # clearing an answer requires sending an explicit empty string
+                # rather than dropping the key. The page does that naturally,
+                # because an emptied textarea is "" rather than absent.
+                submission.answers = {**(submission.answers or {}), **data["answers"]}
+            if "prototype_url" in data:
+                submission.prototype_url = data["prototype_url"]
+            submission.save()
 
         return Response({
             "deadline": _deadline_payload(group.id),

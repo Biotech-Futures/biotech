@@ -510,6 +510,29 @@ const loadError = ref('')
 const answers = reactive<Record<string, string>>({})
 const prototypeUrl = ref('')
 
+/**
+ * The answers the server is known to hold, used to send only what changed.
+ *
+ * A save that carried all six answers asserted the state of all six, so a
+ * teammate saving at the same moment had their work overwritten by whatever
+ * this tab happened to be holding. Sending just the edited question means two
+ * people on different questions never collide. Not reactive: nothing renders
+ * it, it only exists to be diffed against.
+ */
+let savedAnswers: Record<string, string> = {}
+
+/** The answers that differ from what the server holds. */
+function changedAnswers(): Record<string, string> {
+  const changed: Record<string, string> = {}
+  Object.keys(answers).forEach((key) => {
+    // Compared against '' rather than undefined so clearing an answer counts
+    // as a change: the backend merges, so an omitted key means "leave alone"
+    // and a cleared box has to be sent as an explicit empty string.
+    if (answers[key] !== (savedAnswers[key] ?? '')) changed[key] = answers[key]
+  })
+  return changed
+}
+
 const activeTab = ref<TabKey>('questions')
 const isSaving = ref(false)
 const isSubmitting = ref(false)
@@ -773,6 +796,7 @@ function syncFromDetail() {
   // Baseline for change detection: what was just loaded is, by definition,
   // what the server already has.
   savedSnapshot.value = currentSnapshot()
+  savedAnswers = { ...answers }
   saveState.value = 'idle'
 }
 
@@ -810,14 +834,20 @@ async function persistDraft() {
   if (isSaving.value) return
   const snapshot = currentSnapshot()
 
+  const sent = changedAnswers()
+
   isSaving.value = true
   try {
     applyResult(
       await saveDraft(groupId.value, {
-        answers: { ...answers },
+        answers: sent,
         prototype_url: prototypeUrl.value
       })
     )
+    // Only the keys actually accepted move into the baseline. Taking the whole
+    // server response instead would pull a teammate's newer answer into this
+    // tab's baseline for a question the student may be mid-sentence on.
+    Object.assign(savedAnswers, sent)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
     saveState.value = 'idle'
@@ -863,13 +893,16 @@ async function onSubmit() {
   isSubmitting.value = true
   setMessage('')
   try {
-    // Save first so submitting never leaves unsaved edits behind.
+    // Save first so submitting never leaves unsaved edits behind. Sends only
+    // what changed, for the same reason auto-save does.
+    const sent = changedAnswers()
     applyResult(
       await saveDraft(groupId.value, {
-        answers: { ...answers },
+        answers: sent,
         prototype_url: prototypeUrl.value
       })
     )
+    Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
     syncFromDetail()
     setMessage('Submitted. Choose Resubmit if you need to change anything before the deadline.')
