@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { ApiError } from '@/utils/apiError'
 import type { SubmissionDetail, SubmissionRecord } from '@/utils/submissionsAPI'
 
 /**
@@ -339,5 +340,122 @@ describe('loading failure', () => {
 
     expect(wrapper.findAll('textarea')).toHaveLength(0)
     expect(wrapper.text()).toMatch(/try again/i)
+  })
+})
+
+describe('the deadline passing while the page is open', () => {
+  // Both cases below start from an entry that is open and editable — the
+  // student has not been told the deadline passed, because as far as the
+  // last successful fetch knew, it had not.
+  const openDetail = () => buildDetail({ submission: { answers: ANSWERED } })
+
+  it('closes the page when a save is refused as too late, instead of leaving it retrying forever', async () => {
+    await mountPage(openDetail())
+    saveDraft.mockRejectedValue(
+      new ApiError({ error: 'Closed.', code: 'submissions_closed', request_id: 'r1' }, 403),
+    )
+
+    // Any edit queues an auto-save; wait out the debounce for it to fire.
+    await wrapper!.findAll('textarea')[0].setValue('One more word.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    // The one failed save is enough to know writes are refused — the page
+    // does not wait for a second attempt to say so.
+    wrapper!.findAll('textarea').forEach((box) => {
+      expect(box.attributes('disabled')).toBeDefined()
+    })
+    expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+    expect(wrapper!.text()).toMatch(/deadline has passed/i)
+  })
+
+  it('stops auto-save from repeating the same failed request once closed', async () => {
+    await mountPage(openDetail())
+    saveDraft.mockRejectedValue(
+      new ApiError({ error: 'Closed.', code: 'submissions_closed', request_id: 'r1' }, 403),
+    )
+
+    await wrapper!.findAll('textarea')[0].setValue('First edit.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+
+    // The box is now disabled, so this models the field already having been
+    // in the middle of an edit when the refusal landed, not a fresh attempt.
+    saveDraft.mockClear()
+    await wrapper!.vm.$forceUpdate()
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('notices the deadline passing even for a student who is only reading', async () => {
+    // No save ever fires here — nothing is being typed — so the only way the
+    // page can find out is by asking again once the clock reaches closes_at.
+    vi.useFakeTimers()
+    try {
+      const open = buildDetail({ submission: { answers: ANSWERED } })
+      open.deadline.closes_at = new Date(Date.now() + 30_000).toISOString()
+
+      // The initial load resolves before the clock is advanced at all, so
+      // this mock is consumed once and does not affect the later re-check.
+      fetchSubmission.mockResolvedValueOnce(open)
+      const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
+      await router.push('/submission/1')
+      await router.isReady()
+      wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+      await flushPromises()
+      expect(fetchSubmission).toHaveBeenCalledTimes(1)
+
+      // Only now does the server start reporting the deadline as passed — the
+      // re-check has to happen after this point to observe it.
+      fetchSubmission.mockResolvedValue({
+        ...open,
+        deadline: { ...open.deadline, is_open: false }
+      })
+
+      // The countdown ticks once a minute; that tick is what notices the
+      // clock has crossed closes_at and triggers the re-check.
+      await vi.advanceTimersByTimeAsync(60_000)
+      await flushPromises()
+
+      expect(fetchSubmission).toHaveBeenCalledTimes(2)
+      expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+      wrapper!.findAll('textarea').forEach((box) => {
+        expect(box.attributes('disabled')).toBeDefined()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not assume closed just because the announced time passed, since a grace period may still be running', async () => {
+    // The server is always asked rather than the client deciding on its own:
+    // closes_at passing does not mean writes are refused, and the client is
+    // never told how long any grace period is.
+    vi.useFakeTimers()
+    try {
+      const open = buildDetail({ submission: { answers: ANSWERED } })
+      open.deadline.closes_at = new Date(Date.now() + 30_000).toISOString()
+      fetchSubmission.mockResolvedValue(open)
+
+      const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
+      await router.push('/submission/1')
+      await router.isReady()
+      wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+      await flushPromises()
+
+      // The re-check finds the server still accepting writes — a grace
+      // window — because every call keeps returning the same open mock.
+      await vi.advanceTimersByTimeAsync(60_000)
+      await flushPromises()
+
+      expect(fetchSubmission).toHaveBeenCalledTimes(2)
+      wrapper!.findAll('textarea').forEach((box) => {
+        expect(box.attributes('disabled')).toBeUndefined()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

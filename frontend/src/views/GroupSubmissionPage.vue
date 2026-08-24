@@ -736,6 +736,33 @@ function applyResult(result: SubmissionWriteResult) {
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
 }
 
+/**
+ * Turn a failed write into a message, closing the page if that is why it failed.
+ *
+ * Every write path (`persistDraft`, `onSubmit`, `onReopen`, file upload,
+ * file removal) can fail this same way once the deadline passes mid-edit, and
+ * previously none of them acted on it: `isOpen` only ever came from the last
+ * successful fetch, so it stayed stale — the boxes stayed editable and
+ * auto-save kept retrying the same doomed save forever, each attempt showing
+ * the same raw error again.
+ *
+ * The server's refusal is authoritative, so it is trusted directly rather than
+ * triggering a second round-trip to confirm it: flip `isOpen` immediately, which
+ * both disables the form (`isEditable` depends on it) and stops auto-save from
+ * scheduling another attempt (`scheduleAutosave` guards on the same flag).
+ */
+function handleWriteError(error: unknown): string {
+  const apiError = apiErrorFromUnknown(error)
+  if (apiError.code === 'submissions_closed' && detail.value?.deadline.is_open) {
+    detail.value = {
+      ...detail.value,
+      deadline: { ...detail.value.deadline, is_open: false }
+    }
+    return 'The submission deadline has passed while you were editing. Your most recently saved answers are shown below.'
+  }
+  return apiError.message
+}
+
 /** Discard the in-memory copy; without this the browser holds the whole file
  *  for the life of the tab. */
 function clearPreview() {
@@ -853,7 +880,7 @@ async function persistDraft() {
     saveState.value = 'idle'
   } catch (error) {
     saveState.value = 'error'
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     isSaving.value = false
   }
@@ -883,7 +910,7 @@ async function onReopen() {
     await syncPreviewForTab()
     setMessage('Reopened for editing. Submit again to replace your submission.')
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     isReopening.value = false
   }
@@ -914,7 +941,7 @@ async function onSubmit() {
     if (Array.isArray(missing) && missing.length) {
       setMessage(`${apiError.message} Still needed: ${missing.join(' · ')}`, true)
     } else {
-      setMessage(apiError.message, true)
+      setMessage(handleWriteError(error), true)
     }
   } finally {
     isSubmitting.value = false
@@ -953,7 +980,7 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
     // Refresh a showing preview so it never displays the file just replaced.
     if (slot === 'poster' || slot === 'report') await loadPreview(slot)
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     busySlot.value = ''
     uploadPercent.value = 0
@@ -970,7 +997,7 @@ async function removeFile(slot: SubmissionSlot) {
     // Never leave a deleted document on screen.
     if (slot === previewSlot.value) clearPreview()
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     busySlot.value = ''
   }
@@ -983,6 +1010,43 @@ onMounted(load)
 const clockTimer = setInterval(() => {
   now.value = Date.now()
 }, 60000)
+
+/**
+ * Notice the announced deadline passing while the page sits open, rather than
+ * only finding out from a save that later fails.
+ *
+ * A student who is reading rather than typing never triggers a write, so
+ * `handleWriteError` alone would leave the page silently editable past the
+ * deadline until they next changed something. This re-asks the server instead
+ * of assuming closed the moment the clock crosses `closes_at`, because the
+ * announced date and the date actually enforced can differ — a grace period
+ * exists precisely so a student is not cut off the instant the published time
+ * arrives, and the client is never told how long that grace period is.
+ */
+let deadlineRecheckDone = false
+watch(now, async () => {
+  if (deadlineRecheckDone || !isOpen.value) return
+  const closesAt = detail.value?.deadline.closes_at
+  if (!closesAt || now.value < new Date(closesAt).getTime()) return
+
+  deadlineRecheckDone = true
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    if (!detail.value) return
+    detail.value = { ...detail.value, deadline: latest.deadline }
+    if (!latest.deadline.is_open) {
+      // Kept short deliberately: the static banner beneath the status line
+      // (bound to !isOpen, now true) already explains the consequence — this
+      // is only the one-off notice that the moment just happened.
+      setMessage('The submission deadline has just passed.', true)
+    }
+  } catch {
+    // Best-effort: a network hiccup here just means the page keeps showing
+    // the countdown a little past zero. The next write attempt still catches
+    // an authoritative closure through handleWriteError.
+    deadlineRecheckDone = false
+  }
+})
 
 // Any edit to an answer or the prototype link queues a save.
 watch([answers, prototypeUrl], scheduleAutosave, { deep: true })

@@ -351,6 +351,30 @@ class SubmissionApiTests(TestCase):
             {"heading": "Your poster", "body": "New wording."},
         )
 
+    def test_a_write_after_the_deadline_is_refused(self):
+        # deadline_for_group's own is_open logic is covered in DeadlineRuleTests
+        # above; this exercises the actual view, because that is what the
+        # frontend's mid-edit deadline handling depends on: it reads this exact
+        # error code to know a save failed because the deadline passed, not for
+        # some other reason. Nothing previously pinned that this code is what
+        # the endpoint actually returns.
+        Deadline.objects.all().update(closes_at=timezone.now() - timedelta(hours=1))
+
+        response = self._client_for(self.student).put(
+            self.detail_url, {"answers": {self.first_key: "Too late."}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "submissions_closed")
+
+    def test_a_submit_after_the_deadline_is_refused_the_same_way(self):
+        Deadline.objects.all().update(closes_at=timezone.now() - timedelta(hours=1))
+
+        response = self._client_for(self.student).post(self.submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "submissions_closed")
+
     def test_retired_questions_are_hidden(self):
         SubmissionQuestion.objects.filter(key=self.question_keys[-1]).update(is_active=False)
 
