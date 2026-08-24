@@ -20,6 +20,8 @@ from apps.submissions.emails import build_components, recipients_for
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.users.models import User
 
+from .seed_data import install_question_set
+
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
 class SubmissionEmailTests(TestCase):
@@ -57,6 +59,7 @@ class SubmissionEmailTests(TestCase):
             )
             GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
 
+        install_question_set()
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=1), is_active=True)
 
         self.client = APIClient()

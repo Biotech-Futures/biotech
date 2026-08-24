@@ -24,6 +24,8 @@ from apps.submissions.models import (
 from apps.submissions.services import deadline_for_group
 from apps.users.models import User
 
+from .seed_data import install_instructions, install_question_set
+
 
 def _make_user(email, role_name, roles):
     user = User.objects.create_user(
@@ -157,11 +159,11 @@ class SubmissionApiTests(TestCase):
         self.detail_url = reverse("group-submission", kwargs={"group_id": self.group.id})
         self.submit_url = reverse("group-submission-submit", kwargs={"group_id": self.group.id})
 
-        # Taken from whatever question set is configured rather than hardcoded,
-        # so replacing the questions does not break every test that saves one.
-        self.question_keys = list(
-            SubmissionQuestion.active().values_list("key", flat=True)
-        )
+        # Installed rather than read from the database: the real set arrives via
+        # a data migration, and CI disables migrations, so relying on it made
+        # every test in this class fail there while passing locally.
+        self.question_keys = [q.key for q in install_question_set()]
+        install_instructions()
         self.first_key = self.question_keys[0]
 
     def _client_for(self, user):
