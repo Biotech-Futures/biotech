@@ -47,6 +47,7 @@ type Props = {
   onChange?: (html: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  allowAttachments?: boolean;
 };
 
 const HEADING_LEVELS = [1, 2, 3, 4] as const;
@@ -56,6 +57,7 @@ export function RichEditor({
   onChange,
   placeholder,
   readOnly = false,
+  allowAttachments = true,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -439,19 +441,21 @@ export function RichEditor({
                 >
                   <ImageIcon className="size-3.5" /> Image
                 </button>
-                <button
-                  type="button"
-                  title="Attach file to selected text"
-                  disabled={uploadingAttachment}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    openAttachmentPicker();
-                  }}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none"
-                >
-                  <Paperclip className="size-3.5" />{" "}
-                  {uploadingAttachment ? "Uploading" : "File"}
-                </button>
+                {allowAttachments && (
+                  <button
+                    type="button"
+                    title="Attach file to selected text"
+                    disabled={uploadingAttachment}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      openAttachmentPicker();
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Paperclip className="size-3.5" />{" "}
+                    {uploadingAttachment ? "Uploading" : "File"}
+                  </button>
+                )}
                 <button
                   type="button"
                   title="Insert table"
@@ -635,16 +639,18 @@ export function RichEditor({
               e.target.value = "";
             }}
           />
-          <input
-            ref={attachmentInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void handleAttachmentFiles(Array.from(e.target.files ?? []));
-              e.target.value = "";
-            }}
-          />
+          {allowAttachments && (
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void handleAttachmentFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
+          )}
         </>
       ) : null}
     </div>

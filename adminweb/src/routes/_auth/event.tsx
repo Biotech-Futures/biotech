@@ -325,6 +325,7 @@ function EventForm({
               value={field.value ?? ""}
               onChange={field.onChange}
               placeholder="Add event details..."
+              allowAttachments={false}
             />
           )}
         />
