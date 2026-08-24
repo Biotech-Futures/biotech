@@ -521,10 +521,22 @@ const prototypeUrl = ref('')
  */
 let savedAnswers: Record<string, string> = {}
 
-/** The answers that differ from what the server holds. */
+/**
+ * The answers that differ from what the server holds and are short enough to
+ * save.
+ *
+ * An over-limit answer is left out on purpose rather than sent and refused:
+ * the word counter beside the box already turns red the moment it happens, so
+ * sending it too would only add a jarring, redundant server error on top of a
+ * signal the student can already see. It stays out of `savedAnswers` as well,
+ * so trimming it back under the limit is recognised as a fresh change once it
+ * happens, and nothing here is lost — it just is not on the server yet.
+ */
 function changedAnswers(): Record<string, string> {
+  const overLimit = new Set(overLimitQuestions().map((q) => q.key))
   const changed: Record<string, string> = {}
   Object.keys(answers).forEach((key) => {
+    if (overLimit.has(key)) return
     // Compared against '' rather than undefined so clearing an answer counts
     // as a change: the backend merges, so an omitted key means "leave alone"
     // and a cleared box has to be sent as an explicit empty string.
@@ -731,6 +743,23 @@ function wordCount(key: string) {
   return countWords(answers[key])
 }
 
+/** Questions currently written past their own word limit, if any. */
+function overLimitQuestions() {
+  return questions.value.filter((q) => q.max_words && wordCount(q.key) > q.max_words)
+}
+
+/**
+ * Wording kept identical to the server's own validation message, so a student
+ * sees the same sentence whichever side catches it — this client-side check
+ * only means they see it sooner, and by name rather than by database key.
+ */
+function overLimitMessage(list: ReturnType<typeof overLimitQuestions>): string {
+  const parts = list.map(
+    (q) => `"${q.prompt}" (${wordCount(q.key)} words, limit ${q.max_words})`
+  )
+  return `Answer too long for ${parts.join(', ')}.`
+}
+
 function applyResult(result: SubmissionWriteResult) {
   if (!detail.value) return
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
@@ -862,6 +891,7 @@ async function persistDraft() {
   const snapshot = currentSnapshot()
 
   const sent = changedAnswers()
+  const overLimit = overLimitQuestions()
 
   isSaving.value = true
   try {
@@ -877,7 +907,11 @@ async function persistDraft() {
     Object.assign(savedAnswers, sent)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = 'idle'
+    // changedAnswers() left an over-limit answer out of `sent` above, so this
+    // save can succeed while something is still genuinely unsaved. The status
+    // line should say so rather than claim everything is safely stored — the
+    // red counter beside the box explains why.
+    saveState.value = overLimit.length ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
     setMessage(handleWriteError(error), true)
@@ -920,6 +954,18 @@ async function onSubmit() {
   isSubmitting.value = true
   setMessage('')
   try {
+    // Checked before saving, not left for the server: changedAnswers() quietly
+    // excludes an over-limit answer from every save, so without this check
+    // submitting here would silently send the *last saved, still-valid* text
+    // instead of what is currently in the box — correct, but exactly the kind
+    // of surprise ("I edited this, why did the old version go in?") worth
+    // refusing up front instead.
+    const overLimit = overLimitQuestions()
+    if (overLimit.length) {
+      setMessage(overLimitMessage(overLimit), true)
+      return
+    }
+
     // Save first so submitting never leaves unsaved edits behind. Sends only
     // what changed, for the same reason auto-save does.
     const sent = changedAnswers()

@@ -403,6 +403,24 @@ class SubmissionApiTests(TestCase):
         # The limit is inclusive — exactly 150 words must be accepted.
         self.assertEqual(exactly.status_code, 200)
 
+    def test_the_over_limit_message_names_the_question_not_its_key(self):
+        # A student has no reason to know what "solution_purpose" refers to —
+        # the message has to be built from wording they were actually shown.
+        question = SubmissionQuestion.active().first()
+        question.max_words = 5
+        question.save()
+
+        response = self._client_for(self.student).put(
+            self.detail_url,
+            {"answers": {question.key: "one two three four five six"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        body = str(response.data)
+        self.assertIn(question.prompt, body)
+        self.assertNotIn(question.key, body)
+
     def test_word_count_ignores_extra_whitespace(self):
         # Matches the regex the client's Qualtrics form validates with, which
         # simply splits on runs of whitespace.

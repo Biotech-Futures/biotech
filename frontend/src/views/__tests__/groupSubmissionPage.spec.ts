@@ -459,3 +459,66 @@ describe('the deadline passing while the page is open', () => {
     }
   })
 })
+
+describe('an answer over its word limit', () => {
+  const overLimit = Array(200).fill('word').join(' ')
+
+  it('is left out of the save instead of being sent and refused', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const boxes = wrapper!.findAll('textarea')
+
+    await boxes[0].setValue(overLimit)
+    await boxes[1].setValue('Still a valid answer.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    const sent = saveDraft.mock.calls[0][1].answers
+    expect(sent).toEqual({ inspiration: 'Still a valid answer.' })
+  })
+
+  it('leaves the status honestly showing unsaved changes rather than saved', async () => {
+    // A save can succeed for everything else while this one answer is still
+    // only sitting in the browser — the status line must not claim otherwise.
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.findAll('textarea')[0].setValue(overLimit)
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(wrapper!.find('.submission-savestate').text()).toMatch(/unsaved/i)
+  })
+
+  it('refuses to submit rather than silently sending the last saved version', async () => {
+    // changedAnswers() would otherwise send whatever was saved before the
+    // student went over the limit — technically valid, but not what is
+    // currently in the box, which is worse than refusing outright.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await goToLastStep()
+    await wrapper!.findAll('textarea')[0].setValue(overLimit)
+    await flushPromises()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(submitEntry).not.toHaveBeenCalled()
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('names the question by its prompt, not its database key', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await goToLastStep()
+    await wrapper!.findAll('textarea')[0].setValue(overLimit)
+    await flushPromises()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    const message = wrapper!.find('.submission-message').text()
+    expect(message).toContain(QUESTIONS[0].prompt)
+    expect(message).not.toContain(QUESTIONS[0].key)
+  })
+})

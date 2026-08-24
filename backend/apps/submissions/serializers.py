@@ -97,10 +97,14 @@ class SubmissionDraftSerializer(serializers.Serializer):
         # one is capped.
         too_long = []
         for key, answer in value.items():
-            limit = questions[key].max_words
+            question = questions[key]
+            limit = question.max_words
             if limit and SubmissionQuestion.count_words(answer) > limit:
                 words = SubmissionQuestion.count_words(answer)
-                too_long.append(f"{key} ({words} words, limit {limit})")
+                # The question's own wording, not its database key: a student
+                # has no reason to know "solution_purpose" means "What does
+                # your solution do?" — this is meant to be read, not debugged.
+                too_long.append(f'"{question.prompt}" ({words} words, limit {limit})')
         if too_long:
             raise serializers.ValidationError(
                 f"Answer too long for {', '.join(too_long)}."
