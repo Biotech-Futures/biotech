@@ -51,6 +51,26 @@ def active_deadline() -> Deadline | None:
     return Deadline.objects.filter(is_active=True).order_by("-created_at").first()
 
 
+def current_cohort() -> int:
+    """The competition year an entry belongs to.
+
+    Read from the active deadline rather than the clock, and deliberately *not*
+    from a team's own extended date. Both matter:
+
+    * A submission made inside a grace window that crosses New Year still
+      belongs to the year the competition closed in, so the clock is wrong.
+    * A team granted an extension into the following January is still competing
+      in the same cohort as everyone else, so the per-team date is wrong too.
+
+    Falls back to the current year only when no deadline is configured at all,
+    which is a misconfiguration rather than a normal state.
+    """
+    deadline = active_deadline()
+    if deadline is not None:
+        return timezone.localtime(deadline.closes_at).year
+    return timezone.localtime().year
+
+
 def deadline_for_group(group_id: int) -> DeadlineInfo:
     """Resolve the closing time that applies to one team.
 

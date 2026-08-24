@@ -30,7 +30,7 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import deadline_for_group
+from .services import current_cohort, deadline_for_group
 from .storage import SUBMISSION_FILE_SERVICE
 from .uploads import PDF_SLOTS, SLOTS, max_sizes, validate_submission_file
 
@@ -328,6 +328,10 @@ class GroupSubmissionSubmitView(APIView):
         superseded = submission.submitted_storage_keys()
 
         submission.snapshot(request.user)
+        # Stamped at submit rather than at creation: a draft may have been
+        # started before the competition's deadline row was configured, and the
+        # cohort a judging tool filters on has to be the competition's year.
+        submission.cohort = current_cohort()
         # Always False while writes are refused after the deadline. The field
         # is kept because it records the state at the time of submitting, which
         # matters if a grace period is ever introduced.

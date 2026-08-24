@@ -17,6 +17,16 @@ from django.db import models
 from django.utils import timezone
 
 
+def _default_cohort() -> int:
+    """Fallback cohort for a draft row.
+
+    Deliberately a plain year rather than a lookup: this module cannot import
+    ``services`` (which imports these models), and a draft's cohort is
+    overwritten with the authoritative value when the entry is submitted.
+    """
+    return timezone.now().year
+
+
 class SubmissionQuestion(models.Model):
     """One short-answer question on the entry form.
 
@@ -174,11 +184,25 @@ class Submission(models.Model):
 
     # OneToOne rather than ForeignKey so the database itself refuses a second
     # submission for the same team, instead of relying on application code.
+    #
+    # A consequence worth being explicit about: a team can hold exactly one
+    # entry, ever. That is safe because group names come from a single
+    # continuous series (``Groups.create_auto_named``) rather than restarting
+    # each year, so a team re-forming for a later competition is a new group.
     group = models.OneToOneField(
         "groups.Groups",
         on_delete=models.CASCADE,
         related_name="submission",
     )
+
+    # Which competition year this entry belongs to. Stored rather than inferred
+    # from ``submitted_at`` because the two genuinely disagree: a deadline in
+    # September with a grace window, or a granted extension, can put the act of
+    # submitting in a different calendar year from the competition itself.
+    # Indexed because "every entry in this cohort" is the query a judging or
+    # reporting tool runs first. The authoritative value is written at submit
+    # (see services.current_cohort); the default only covers drafts.
+    cohort = models.PositiveIntegerField(default=_default_cohort, db_index=True)
 
     # Short-answer responses, keyed by question id: {"q1": "...", "q2": "..."}.
     # Held as JSON because the real questions are not known yet — they come
