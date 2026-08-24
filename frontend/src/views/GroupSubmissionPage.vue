@@ -48,11 +48,11 @@
            does not warrant a bordered box; only a completed submission carries
            information worth pausing on, so only that case is emphasised. -->
       <div class="status-line" :class="{ 'is-submitted': isLocked }">
-        <i
-          class="status-line__icon"
-          :class="isLocked ? 'fas fa-circle-check' : 'far fa-circle'"
-          aria-hidden="true"
-        ></i>
+        <!-- A pen while editing, a tick once submitted: a hollow grey circle
+             said nothing about what state the entry was in. -->
+        <span class="status-line__icon" aria-hidden="true">
+          <i :class="isLocked ? 'fas fa-check' : 'fas fa-pen'"></i>
+        </span>
         <strong class="status-line__state">{{ isLocked ? 'Submitted' : 'In Progress' }}</strong>
         <span v-if="isLocked && submittedLine" class="status-line__detail">{{ submittedLine }}</span>
         <!-- Reassurance during a revision: the entry they already handed in is
@@ -994,6 +994,16 @@ onBeforeUnmount(() => {
      hardcoded hexes — which is exactly the bug this replaces. */
   --panel-bg: var(--white, #ffffff);
   --panel-border: var(--border-light, #e0e0e0);
+  /* Ground the panels sit on. Deliberately only ~10/255 darker than a white
+     panel: enough for the shadow below to have something to fall on, faint
+     enough that the page never announces itself as a different product from
+     the rest of the platform. Tinted towards the brand green rather than a
+     neutral grey, for the same reason. */
+  --page-bg: #f3f7f4;
+  --panel-edge: rgba(6, 40, 30, 0.07);
+  --panel-shadow:
+    0 1px 2px rgba(6, 40, 30, 0.04),
+    0 8px 20px -8px rgba(6, 40, 30, 0.1);
   --field-bg: var(--white, #ffffff);
   --field-border: #d7dbd9;
   --field-disabled-bg: #f4f5f5;
@@ -1007,7 +1017,10 @@ onBeforeUnmount(() => {
   --ok-border: #bfe3cf;
   --notice-bg: #f4f6f5;
   --banner-bg: #e9f3ee;
-  --banner-border: #cfe4d9;
+  /* Matches --panel-edge in light mode so the banner and the panels below it
+     are edged identically, but stays a separate token because the dark theme
+     needs a green edge here and a neutral one on the panels. */
+  --banner-border: rgba(6, 40, 30, 0.07);
 
   /* Type scale. Applied across the whole page rather than only the questions,
      which is what made everything else read as thin by comparison. Four sizes
@@ -1023,11 +1036,22 @@ onBeforeUnmount(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
   color: var(--body-text);
+  /* Overrides main.css's shared .content-area rule for this page only — the
+     scoped attribute wins on specificity, so no other page is affected. */
+  background-color: var(--page-bg);
 }
 
 /* Dark theme. The platform opts in with <html data-theme="dark">, so the
    overrides hang off that rather than prefers-color-scheme. */
 :root[data-theme='dark'] .content-area {
+  /* Let the app shell paint the dark ground rather than restating its value
+     here, so the page cannot drift out of step if the shell's dark grey
+     changes. A drop shadow needs a lighter surface to darken, so on a dark
+     ground it does nothing but soften the edge — the border carries the
+     separation instead. */
+  --page-bg: transparent;
+  --panel-edge: var(--panel-border);
+  --panel-shadow: none;
   --field-bg: #101817;
   --field-border: #33403c;
   --field-disabled-bg: #131b19;
@@ -1060,6 +1084,9 @@ onBeforeUnmount(() => {
   border: 1px solid var(--banner-border);
   padding: var(--gap-lg) var(--gap-xl);
   border-radius: 12px;
+  /* Same lift as the panels below it: the banner is a surface on the page,
+     not a stripe painted onto it, so it should cast the same shadow. */
+  box-shadow: var(--panel-shadow);
 }
 
 
@@ -1145,28 +1172,37 @@ onBeforeUnmount(() => {
 .status-line {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  margin-bottom: var(--gap-lg);
-  /* Matches the step buttons' left padding so this icon sits on the same
+  /* Matches the step buttons' left padding so the badge sits on the same
      vertical line as the numbered step markers below it. */
-  padding-left: 0.9rem;
+  padding: 0 0.9rem;
+  margin-bottom: var(--gap-lg);
   font-size: var(--text-meta);
   color: var(--muted);
 }
 
+/* Deliberately the same 24px disc as .submission-step__index: the status and
+   the steps then read as one column of markers rather than two unrelated
+   elements that happen to be stacked. */
 .status-line__icon {
-  /* Same box as .submission-step__index, so the two centre on each other
-     rather than merely starting at the same edge. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
-  text-align: center;
-  font-size: 1rem;
-  color: var(--muted);
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  flex-shrink: 0;
 }
 
 .status-line__state {
   font-weight: 700;
+  font-size: var(--text-body);
   color: var(--body-text);
+  letter-spacing: -0.005em;
 }
 
 .status-line__detail::before {
@@ -1177,9 +1213,13 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 
-/* Only a completed submission gets the accent — it is the state a student
-   actually wants confirmed at a glance. */
-.status-line.is-submitted .status-line__icon,
+/* Submitted is the state worth confirming at a glance, so it fills in — the
+   same promotion the active step marker gets. */
+.status-line.is-submitted .status-line__icon {
+  background: var(--accent);
+  color: #fff;
+}
+
 .status-line.is-submitted .status-line__state {
   color: var(--accent);
 }
@@ -1330,8 +1370,12 @@ onBeforeUnmount(() => {
    important than anything else. */
 .panel {
   background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--panel-edge);
   border-radius: 12px;
+  /* Lifts the white panel off the tinted ground. The hairline border is kept
+     as well as the shadow: shadow alone leaves the top edge soft, and the two
+     together are what read as crisp rather than floating. */
+  box-shadow: var(--panel-shadow);
   /* Generous inside padding does more for a long form than any amount of
      styling: it is what stops six stacked answers reading as a wall. */
   padding: var(--gap-xl);
