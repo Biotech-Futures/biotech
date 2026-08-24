@@ -11,6 +11,7 @@ from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
 
+from .emails import send_submission_confirmation
 from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
@@ -335,6 +336,10 @@ class GroupSubmissionSubmitView(APIView):
 
         for key in superseded - submission.submitted_storage_keys():
             SUBMISSION_FILE_SERVICE.delete(key)
+
+        # Sent after the snapshot so the email describes what was actually
+        # recorded. Never raises — a failed send must not fail the submission.
+        send_submission_confirmation(submission)
 
         return Response({
             "deadline": _deadline_payload(group.id),
