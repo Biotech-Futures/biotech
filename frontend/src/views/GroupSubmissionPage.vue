@@ -1352,8 +1352,14 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   font-size: var(--text-meta);
   font-weight: 600;
-  border-left: 4px solid var(--accent);
-  background: #f2f8f5;
+  /* --ok-bg/--ok-border already carry a dark-mode variant (a translucent
+     green wash rather than restating a colour), but sat unused: this banner
+     hardcoded a light-only hex instead, and with no colour of its own it fell
+     back to --body-text — which flips near-white for dark mode, so white text
+     landed on a near-white background and the message read as blank. */
+  border-left: 4px solid var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--accent);
   font-size: 0.9rem;
 }
 
