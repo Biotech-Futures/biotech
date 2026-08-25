@@ -334,7 +334,12 @@ class MeRetrieveView(generics.RetrieveAPIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
-        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+        # Validation above deliberately runs through ``UserSerializer``; the
+        # response deliberately does not. GET and PATCH on this endpoint have
+        # to return the same shape, or a client that PATCHes their timezone
+        # and stores the reply silently loses ``isAdmin``/``isSupport`` from
+        # its cached user and stops showing them the menus they have.
+        return Response(MeSerializer(user).data, status=status.HTTP_200_OK)
     
 class UserRegisterView(APIView):
     """Public student self-registration endpoint.

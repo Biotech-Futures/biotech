@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -109,8 +110,15 @@ class QueueRowTests(AdminTicketAPITestCase):
         lifecycle.add_internal_note(ticket=ticket, actor=self.agent, body="Internal.")
         ticket.refresh_from_db()
 
+        # The internal note moved only the support clock, so the two now
+        # differ — but by microseconds. Comparing at second precision would
+        # make them equal and the assertion would hold either way.
+        self.assertNotEqual(ticket.updated_at, ticket.support_updated_at)
+
         row = self.client.get(QUEUE).json()["data"]["items"][0]
-        self.assertEqual(row["supportUpdatedAt"][:19], ticket.support_updated_at.isoformat()[:19])
+        reported = parse_datetime(row["supportUpdatedAt"])
+        self.assertEqual(reported, ticket.support_updated_at)
+        self.assertNotEqual(reported, ticket.updated_at)
         self.assertNotIn("lastUpdated", row)
 
     def test_a_screening_raised_ticket_is_not_labelled_anonymous(self):
@@ -488,6 +496,18 @@ class MeEndpointTests(AdminTicketAPITestCase):
 
     def test_an_ordinary_user_is_neither(self):
         self.assertEqual(self.flags_for(self.outsider), (False, False))
+
+    def test_patching_my_profile_returns_the_flags_too(self):
+        # GET and PATCH on the same endpoint have to answer with the same
+        # shape. A client that changes its timezone and stores the reply
+        # would otherwise lose both flags and stop showing the queue.
+        self.client.force_login(self.agent)
+        response = self.client.patch(
+            "/api/v1/users/me/", {"timezone": "Australia/Sydney"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("isAdmin", response.json())
+        self.assertTrue(response.json()["isSupport"])
 
     def test_the_user_list_response_did_not_grow_the_two_flags(self):
         self.client.force_login(self.admin)

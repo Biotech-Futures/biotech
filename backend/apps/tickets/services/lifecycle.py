@@ -124,7 +124,17 @@ def create_ticket(*, user, category, subject, body, attachments=None) -> Ticket:
         # After commit, never inside the transaction: if this rolled back
         # with the email already sent, the requester would be holding a
         # receipt for a ticket that does not exist.
-        transaction.on_commit(lambda: emails.send_ticket_submitted(ticket))
+        #
+        # robust=True because these hooks run inside the transaction block's
+        # exit, which is still inside the caller's attachment-cleanup scope.
+        # Without it, an email that fails to render propagates out past the
+        # commit and the cleanup deletes blobs belonging to rows that are
+        # already durable — a committed ticket whose attachment 404s forever.
+        # A receipt that cannot be rendered is also simply not a reason to
+        # fail a submission that already succeeded.
+        transaction.on_commit(
+            lambda: emails.send_ticket_submitted(ticket), robust=True
+        )
     return ticket
 
 
@@ -228,7 +238,7 @@ def add_support_reply(*, ticket, actor, body, attachments=None) -> TicketMessage
         _touch(ticket, user_visible=True)
         # Sent from this one place, not from mark_pending() as well, or
         # "reply and move to pending" would send two emails for one action.
-        transaction.on_commit(lambda: emails.send_ticket_reply(ticket))
+        transaction.on_commit(lambda: emails.send_ticket_reply(ticket), robust=True)
     return message
 
 
@@ -368,25 +378,31 @@ def resolve(*, ticket, actor) -> bool:
     """
     now = timezone.now()
     before_status = ticket.status
-    changed = (
-        Ticket.objects.filter(pk=ticket.pk)
-        .exclude(status=TicketStatus.RESOLVED)
-        .update(
-            status=TicketStatus.RESOLVED,
-            resolved_at=now,
-            updated_at=now,
-            support_updated_at=now,
-        )
-    )
-    if not changed:
-        return False
-
-    ticket.status = TicketStatus.RESOLVED
-    ticket.resolved_at = now
-    ticket.updated_at = now
-    ticket.support_updated_at = now
-
+    # One transaction around the whole thing. The conditional update still
+    # decides who wins — a concurrent caller blocks on the row lock and then
+    # re-evaluates its condition against the committed row, matching nothing
+    # — but now the status, the timeline entry and the audit row land
+    # together. Split across two transactions, a crash in the gap left a
+    # ticket the queue calls resolved with nothing on its timeline saying so.
     with transaction.atomic():
+        changed = (
+            Ticket.objects.filter(pk=ticket.pk)
+            .exclude(status=TicketStatus.RESOLVED)
+            .update(
+                status=TicketStatus.RESOLVED,
+                resolved_at=now,
+                updated_at=now,
+                support_updated_at=now,
+            )
+        )
+        if not changed:
+            return False
+
+        ticket.status = TicketStatus.RESOLVED
+        ticket.resolved_at = now
+        ticket.updated_at = now
+        ticket.support_updated_at = now
+
         _add_message(
             ticket,
             message_type=TicketMessageType.SYSTEM,
@@ -403,7 +419,7 @@ def resolve(*, ticket, actor) -> bool:
         # The one email the client insisted must always go out, so it is also
         # the one whose failure gets written back to the timeline rather than
         # only into the logs.
-        transaction.on_commit(lambda: emails.send_ticket_resolved(ticket))
+        transaction.on_commit(lambda: emails.send_ticket_resolved(ticket), robust=True)
     return True
 
 
