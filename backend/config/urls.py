@@ -70,6 +70,7 @@ def _dual_mount_patterns():
 # at the v1 root keeps ``/api/v1/users/me/`` and friends working.
 _api_v1_patterns = [
     *_dual_mount_patterns(),
+    path("tickets/", include("apps.tickets.urls")),
     # Events keeps ``/events/v1/...`` as a legacy app-local alias. Mount only
     # the canonical patterns here so new clients use ``/api/v1/events/...``
     # without also exposing ``/api/v1/events/v1/...``.
