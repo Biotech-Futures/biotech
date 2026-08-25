@@ -11,6 +11,7 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   ShieldCheckIcon,
+  LifeBuoyIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthContext } from "@/provider/AuthProvider";
@@ -43,6 +44,12 @@ const NAV_SECTIONS = [
       { title: "Resources", url: "/resource", icon: FileTextIcon, desc: "Upload and manage resources" },
       { title: "Announcements", url: "/announcement", icon: MegaphoneIcon, desc: "Publish announcements" },
       { title: "Tasks", url: "/task", icon: CheckSquareIcon, desc: "Assign and track tasks" },
+    ],
+  },
+  {
+    label: "Support",
+    cards: [
+      { title: "Ticket queue", url: "/tickets", icon: LifeBuoyIcon, desc: "Work enquiries from across the platform" },
     ],
   },
 ];

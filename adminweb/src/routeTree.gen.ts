@@ -27,6 +27,7 @@ import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
 import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route'
 import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
+import { Route as AuthTicketsIndexRouteImport } from './routes/_auth/tickets/index'
 import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
 import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
 import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
@@ -125,6 +126,11 @@ const AuthGroupsRouteRoute = AuthGroupsRouteRouteImport.update({
   path: '/groups',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthTicketsIndexRoute = AuthTicketsIndexRouteImport.update({
+  id: '/tickets/',
+  path: '/tickets/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 const AuthPeopleIndexRoute = AuthPeopleIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups/': typeof AuthGroupsIndexRoute
   '/people/': typeof AuthPeopleIndexRoute
+  '/tickets/': typeof AuthTicketsIndexRoute
 }
 export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
@@ -219,6 +226,7 @@ export interface FileRoutesByTo {
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups': typeof AuthGroupsIndexRoute
   '/people': typeof AuthPeopleIndexRoute
+  '/tickets': typeof AuthTicketsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -248,6 +256,7 @@ export interface FileRoutesById {
   '/_auth/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/_auth/groups/': typeof AuthGroupsIndexRoute
   '/_auth/people/': typeof AuthPeopleIndexRoute
+  '/_auth/tickets/': typeof AuthTicketsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -277,6 +286,7 @@ export interface FileRouteTypes {
     | '/people/supervisors'
     | '/groups/'
     | '/people/'
+    | '/tickets/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/reset-password'
@@ -302,6 +312,7 @@ export interface FileRouteTypes {
     | '/people/supervisors'
     | '/groups'
     | '/people'
+    | '/tickets'
   id:
     | '__root__'
     | '/_auth'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/_auth/people/supervisors'
     | '/_auth/groups/'
     | '/_auth/people/'
+    | '/_auth/tickets/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -468,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsRouteRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/tickets/': {
+      id: '/_auth/tickets/'
+      path: '/tickets'
+      fullPath: '/tickets/'
+      preLoaderRoute: typeof AuthTicketsIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/_auth/people/': {
       id: '/_auth/people/'
       path: '/'
@@ -577,6 +596,7 @@ interface AuthRouteRouteChildren {
   AuthTaskRoute: typeof AuthTaskRoute
   AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
+  AuthTicketsIndexRoute: typeof AuthTicketsIndexRoute
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
@@ -593,6 +613,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthTaskRoute: AuthTaskRoute,
   AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
+  AuthTicketsIndexRoute: AuthTicketsIndexRoute,
 }
 
 const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(

@@ -20,7 +20,9 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
+  LifeBuoyIcon,
 } from "lucide-react";
+import { useAuthContext } from "@/provider/AuthProvider";
 
 type NavItem = {
   title: string;
@@ -33,6 +35,8 @@ type NavItem = {
 type NavSection = {
   label: string;
   items: NavItem[];
+  /** Visible to a support agent who is not an admin. Everything else is not. */
+  support?: boolean;
 };
 
 const NAV_SECTIONS: NavSection[] = [
@@ -75,12 +79,33 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Tasks", url: "/task", icon: <CheckSquareIcon /> },
     ],
   },
+  {
+    label: "Support",
+    support: true,
+    items: [
+      { title: "Ticket queue", url: "/tickets", icon: <LifeBuoyIcon /> },
+    ],
+  },
 ];
 
 export function NavMain() {
+  const { user } = useAuthContext();
+  const isAdmin = Boolean(user?.isAdmin);
+  const isSupport = Boolean(user?.isSupport);
+
+  // Every admin can work the queue, so the two flags overlap and one of them
+  // could not tell these cases apart. A support agent who is not an admin
+  // gets the queue and nothing else — and hiding the rest is a courtesy, not
+  // the control: the other endpoints refuse them at the server.
+  const sections = isAdmin
+    ? NAV_SECTIONS
+    : isSupport
+      ? NAV_SECTIONS.filter((section) => section.support)
+      : NAV_SECTIONS;
+
   return (
     <>
-      {NAV_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <SidebarGroup key={section.label}>
           <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
           <SidebarGroupContent className="flex flex-col gap-1">
