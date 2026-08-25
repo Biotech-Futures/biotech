@@ -91,6 +91,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  { path: '/support', name: 'support', component: () => import('@/views/SupportCentrePage.vue') },
+  { path: '/support/tickets/:id(\\d+)', name: 'support-ticket', component: () => import('@/views/TicketDetailPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

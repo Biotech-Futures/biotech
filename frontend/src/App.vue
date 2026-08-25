@@ -108,6 +108,17 @@
               </RouterLink>
             </li>
 
+            <li class="sidebar-item">
+              <RouterLink
+                to="/support"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/support') }"
+              >
+                <i class="fas fa-life-ring sidebar-icon"></i>
+                <span>Support</span>
+              </RouterLink>
+            </li>
+
             <li class="sidebar-item" v-if="auth.isAdmin">
               <RouterLink
                 to="/admin"
