@@ -29,6 +29,7 @@ from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
+    MeSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
 )
@@ -296,7 +297,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
     and is gated on ``is_admin``.
     """
 
-    serializer_class = UserSerializer
+    serializer_class = MeSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
 

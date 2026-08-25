@@ -339,3 +339,34 @@ class AdminOperationsSummarySerializer(serializers.Serializer):
     groups_without_mentor = serializers.IntegerField()
     unassigned_match_recommendations = serializers.IntegerField()
     upcoming_events = serializers.IntegerField()
+
+
+class MeSerializer(UserSerializer):
+    """``/users/me/`` only. UserSerializer stays exactly as it is.
+
+    The two booleans cannot go on UserSerializer itself: it also renders the
+    admin user list, so they would be pushed into every row of that response
+    and each row would run the two extra queries behind is_support().
+
+    Two booleans rather than one, because is_support() is true for admins as
+    well. A single flag cannot tell "an admin, who sees every menu" apart
+    from "a support agent, who sees only the ticket queue".
+    """
+
+    isAdmin = serializers.SerializerMethodField()
+    isSupport = serializers.SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = list(UserSerializer.Meta.fields) + ["isAdmin", "isSupport"]
+
+    def get_isAdmin(self, obj) -> bool:
+        from apps.common.rbac import is_admin
+
+        return is_admin(obj)
+
+    def get_isSupport(self, obj) -> bool:
+        # Imported here rather than at module level to keep the users app from
+        # importing the tickets app at startup.
+        from apps.tickets.permissions import is_support
+
+        return is_support(obj)

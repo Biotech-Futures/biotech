@@ -623,3 +623,13 @@ LINK_PREVIEW_USER_AGENT = config(
 LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
+
+# --- Support tickets ---------------------------------------------------------
+# How long a ticket may sit without a first response before the queue flags it
+# as overdue. Plain wall-clock hours: the platform has no business-day helper
+# and building one is work the client has not asked for. The "typically within
+# 1 business day" line in the submission email is deliberately softer than
+# these numbers and is not derived from them.
+TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
+TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
+TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)
