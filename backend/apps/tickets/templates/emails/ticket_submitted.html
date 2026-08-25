@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: we have your enquiry{% endblock %}
+
+{% block preheader %}We have your enquiry {{ TICKET_NUMBER }}. You do not need to do anything for now.{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ FIRST_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Thanks, we have your enquiry
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                It is open and with our support team. You do not need to do anything for now. We usually reply within one business day.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                If you think of anything else that would help us, reply on the enquiry and it will be added to the conversation.
+              </p>
+
+{% include "emails/_ticket_meta.html" %}
+{% endblock %}
+
+{% block footer_reason %}updates about your enquiries{% endblock %}

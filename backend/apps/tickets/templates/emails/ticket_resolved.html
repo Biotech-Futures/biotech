@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: your enquiry is resolved{% endblock %}
+
+{% block preheader %}Your enquiry {{ TICKET_NUMBER }} has been resolved. Reply on it if you need more help.{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ FIRST_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Your enquiry is resolved
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                We have marked it as resolved, so there is nothing further for you to do.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                If it is not sorted, reply on the enquiry. It will reopen automatically and come back to our team.
+              </p>
+
+{% include "emails/_ticket_meta.html" %}
+{% endblock %}
+
+{% block footer_reason %}updates about your enquiries{% endblock %}

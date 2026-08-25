@@ -24,7 +24,7 @@ from ..models import (
     TicketMessageType,
     TicketStatus,
 )
-from . import system_messages
+from . import emails, system_messages
 from .numbering import allocate_ticket_number
 
 AUDIT_ENTITY_TYPE = "ticket"
@@ -121,9 +121,10 @@ def create_ticket(*, user, category, subject, body, attachments=None) -> Ticket:
             message_type=TicketMessageType.SYSTEM,
             body=system_messages.auto_acknowledgement(getattr(user, "first_name", "")),
         )
-        # W5 wires the E1 confirmation email in here, via
-        # transaction.on_commit so a rollback cannot leave the requester
-        # holding a receipt for a ticket that does not exist.
+        # After commit, never inside the transaction: if this rolled back
+        # with the email already sent, the requester would be holding a
+        # receipt for a ticket that does not exist.
+        transaction.on_commit(lambda: emails.send_ticket_submitted(ticket))
     return ticket
 
 
@@ -224,10 +225,10 @@ def add_support_reply(*, ticket, actor, body, attachments=None) -> TicketMessage
         ).update(first_response_at=now)
         if stamped:
             ticket.first_response_at = now
-        # W5 wires the E2 reply email in here. It is sent from this one place
-        # rather than from mark_pending() as well, or "reply and move to
-        # pending" would send two.
         _touch(ticket, user_visible=True)
+        # Sent from this one place, not from mark_pending() as well, or
+        # "reply and move to pending" would send two emails for one action.
+        transaction.on_commit(lambda: emails.send_ticket_reply(ticket))
     return message
 
 
@@ -399,9 +400,10 @@ def resolve(*, ticket, actor) -> bool:
             before_state={"status": before_status, "resolved_at": None},
             after_state={"status": TicketStatus.RESOLVED, "resolved_at": _iso(now)},
         )
-        # W5 wires the E3 resolution email in here. It is the one email the
-        # client insisted must always go out, so it is also the one whose
-        # failure gets written back to the timeline (DEC-012).
+        # The one email the client insisted must always go out, so it is also
+        # the one whose failure gets written back to the timeline rather than
+        # only into the logs.
+        transaction.on_commit(lambda: emails.send_ticket_resolved(ticket))
     return True
 
 

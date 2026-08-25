@@ -1,0 +1,37 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: an update on your enquiry{% endblock %}
+
+{% block preheader %}There is a new reply on your enquiry {{ TICKET_NUMBER }}.{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ FIRST_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                There is a new reply on your enquiry
+              </h1>
+
+{% if WAITING_ON_REQUESTER %}
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                We have asked you for some more information. The enquiry is waiting on your answer, so nothing further will happen until you reply.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Once you reply, we will pick it straight back up.
+              </p>
+{% else %}
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Our support team has replied. You do not need to do anything unless you want to add something.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                If you do reply, we will continue from there.
+              </p>
+{% endif %}
+
+{% include "emails/_ticket_meta.html" %}
+{% endblock %}
+
+{% block footer_reason %}updates about your enquiries{% endblock %}

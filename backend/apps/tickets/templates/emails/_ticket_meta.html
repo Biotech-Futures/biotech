@@ -1,0 +1,21 @@
+{% comment %}
+Shared block: the ticket's identity and where it stands. Every ticket email
+carries it so the requester never has to open the portal just to find out
+which enquiry an email is about.
+{% endcomment %}
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
+                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {{ STATUS_LABEL }}
+                    </p>
+                    <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55;">
+                      {{ TICKET_SUBJECT }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:18px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.6;">
+                <a href="{{ TICKET_URL }}" style="color:#307054; text-decoration:underline; font-weight:600;">Open this enquiry</a> to see the full conversation.
+              </p>
