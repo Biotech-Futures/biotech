@@ -90,6 +90,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  // TEMP (admin skeleton Part 2): Vuetify smoke test; replaced by the real /admin tree in Part 3.
+  { path: '/admin-ui-test', name: 'admin-ui-test', component: () => import('@/admin/views/UiTestPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 
