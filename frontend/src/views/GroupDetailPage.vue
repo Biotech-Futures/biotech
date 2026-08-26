@@ -291,16 +291,14 @@
                           </option>
                         </select>
                       </label>
-                      <div class="task-filter-row-pair">
-                        <label class="task-filter-row">
-                          <span>Due after</span>
-                          <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
-                        </label>
-                        <label class="task-filter-row">
-                          <span>Due before</span>
-                          <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
-                        </label>
-                      </div>
+                      <label class="task-filter-row">
+                        <span>Due after</span>
+                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Due before</span>
+                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                      </label>
                       <label class="task-filter-row task-filter-row--checkbox">
                         <input
                           v-model="taskFilters.showDeleted"
