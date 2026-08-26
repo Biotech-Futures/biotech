@@ -50,7 +50,7 @@
     </header>
 
     <div class="main-layout" v-if="!isLoginPage">
-      <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
+      <aside v-if="!isAdminSection" class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
             <li class="sidebar-item">
@@ -112,7 +112,7 @@
               <RouterLink
                 to="/admin"
                 class="sidebar-link"
-                :class="{ active: route.path === '/admin' }"
+                :class="{ active: route.path.startsWith('/admin') }"
               >
                 <i class="fas fa-cog sidebar-icon"></i>
                 <span>Admin Panel</span>
@@ -296,6 +296,8 @@ const toggleTheme = () => {
 const isLoginPage = computed(() =>
   ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
+// Admin routes bring their own sidebar (AdminLayout); hide the student one.
+const isAdminSection = computed(() => route.path.startsWith('/admin'))
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )

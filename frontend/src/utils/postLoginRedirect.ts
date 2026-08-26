@@ -36,6 +36,11 @@ export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) =
     return
   }
 
+  if (auth.isAdmin) {
+    await router.replace('/admin')
+    return
+  }
+
   if (shouldPromptForTimezoneMismatch(auth)) {
     await router.replace('/profile')
     return
