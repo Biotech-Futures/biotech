@@ -56,6 +56,7 @@
 
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
+import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
@@ -71,6 +72,14 @@ const resolveGroupsLanding = async () => {
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
   window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
+};
+
+// /admin and everything under it is admin-only; everyone else lands on the
+// dashboard. Auth state is resolved before the router installs (see main.ts),
+// so isAdmin is reliable here.
+const requireAdmin = () => {
+  const auth = useAuthStore();
+  return auth.isAdmin ? true : { path: '/dashboard', replace: true };
 };
 
 const routes: RouteRecordRaw[] = [
@@ -90,8 +99,26 @@ const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
-  // TEMP (admin skeleton Part 2): Vuetify smoke test; replaced by the real /admin tree in Part 3.
-  { path: '/admin-ui-test', name: 'admin-ui-test', component: () => import('@/admin/views/UiTestPage.vue') },
+  {
+    path: '/admin',
+    component: () => import('@/admin/AdminLayout.vue'),
+    beforeEnter: requireAdmin,
+    children: [
+      { path: '', name: 'admin-overview', component: () => import('@/admin/views/OverviewPage.vue') },
+      { path: 'people', name: 'admin-people', component: () => import('@/admin/views/people/UsersPage.vue') },
+      { path: 'people/students', name: 'admin-students', component: () => import('@/admin/views/people/StudentsPage.vue') },
+      { path: 'people/mentors', name: 'admin-mentors', component: () => import('@/admin/views/people/MentorsPage.vue') },
+      { path: 'people/supervisors', name: 'admin-supervisors', component: () => import('@/admin/views/people/SupervisorsPage.vue') },
+      { path: 'groups', name: 'admin-groups', component: () => import('@/admin/views/groups/GroupsPage.vue') },
+      { path: 'groups/student-matching', name: 'admin-student-matching', component: () => import('@/admin/views/groups/StudentMatchingPage.vue') },
+      { path: 'groups/mentor-matching', name: 'admin-mentor-matching', component: () => import('@/admin/views/groups/MentorMatchingPage.vue') },
+      { path: 'groups/matched-groups', name: 'admin-matched-groups', component: () => import('@/admin/views/groups/MatchedGroupsPage.vue') },
+      { path: 'events', name: 'admin-events', component: () => import('@/admin/views/content/EventsPage.vue') },
+      { path: 'resources', name: 'admin-resources', component: () => import('@/admin/views/content/ResourcesPage.vue') },
+      { path: 'announcements', name: 'admin-announcements', component: () => import('@/admin/views/content/AnnouncementsPage.vue') },
+      { path: 'tasks', name: 'admin-tasks', component: () => import('@/admin/views/content/TasksPage.vue') },
+    ],
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 
