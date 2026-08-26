@@ -422,6 +422,26 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
                 f"{response['Content-Disposition']!r}",
             )
 
+    def test_inline_pdf_download_is_frameable(self):
+        # The resource detail page renders PDFs in an <iframe> rather than
+        # opening a new tab. Django's default X-Frame-Options: DENY blocks
+        # that, so the download endpoint is exempt — without this the iframe
+        # shows the browser's "refused to display" placeholder.
+        _, resource = self._create_resource(
+            user=self.global_admin,
+            name="Framed Preview Guide",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(
+            reverse("resource-files-download", kwargs={"pk": resource.id}),
+            {"inline": "1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("X-Frame-Options", response)
+
 
     def test_external_http_resource_download_is_blocked(self):
         resource = Resources.objects.create(
