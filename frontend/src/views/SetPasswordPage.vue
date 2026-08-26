@@ -146,7 +146,7 @@ async function submitPassword() {
       return
     }
 
-    await router.replace('/dashboard')
+    await router.replace(auth.isAdmin ? '/admin' : '/dashboard')
   } catch (error) {
     const apiError = apiErrorFromUnknown(error, 'Could not set your password. Please try again.')
     logApiError('set-initial-password', apiError)
@@ -164,7 +164,7 @@ async function handleLogout() {
 
 onMounted(async () => {
   if (!auth.mustChangePassword) {
-    await router.replace(auth.isAdmin ? '/login' : '/dashboard')
+    await router.replace(auth.isAdmin ? '/admin' : '/dashboard')
     return
   }
 

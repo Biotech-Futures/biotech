@@ -75,7 +75,7 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next('/dashboard')
+    next(auth.isAdmin ? '/admin' : '/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
