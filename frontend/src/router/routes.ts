@@ -42,11 +42,11 @@
  * - Major revisions: 1
  * - Minor revisions: 1
  *
- * Last Modified: 2026-04-01
+ * Last Modified: 2026-08-26
  * Modified By: CS17-1 Frontend Team
  * Modification Notes:
- * - Standardized the file header for the CS17-1 frontend router files
- * - Clarified the route table purpose, path mapping logic, and page coverage
+ * - Removed the /admin -> /dashboard redirect and the dead AdminPage view; the
+ *   /admin route tree is being rebuilt in this portal (admin SPA migration)
  *
  * Notes:
  * - Keep comments in English.
@@ -88,7 +88,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
   { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
-  { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

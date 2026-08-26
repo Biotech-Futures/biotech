@@ -55,3 +55,6 @@ backend/media/
 
 # PR-body workflow artifacts
 PR_BODY_*.md
+
+# Local docker-compose overrides
+docker-compose.local.yml

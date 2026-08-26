@@ -33,11 +33,11 @@
  * - Major revisions: 1
  * - Minor revisions: 1
  *
- * Last Modified: 2026-04-01
+ * Last Modified: 2026-08-26
  * Modified By: CS17-1 Frontend Team
  * Modification Notes:
- * - Standardized the file header for the CS17-1 frontend router files
- * - Clarified the file purpose, route guard logic, and responsibility scope
+ * - Removed the guard that redirected authenticated admins to /login; admins now
+ *   use this portal (admin section migration from the separate admin SPA)
  *
  * Notes:
  * - Keep comments in English.
@@ -75,22 +75,14 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/login' : '/dashboard')
+    next('/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
-    next('/login')
-
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
     next('/login')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
-      return
-    }
-
-    if (auth.isAdmin) {
-      next()
       return
     }
 
