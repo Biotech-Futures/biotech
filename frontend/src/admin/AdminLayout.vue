@@ -10,8 +10,10 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAdminVuetify } from '@/admin/vuetify'
+import { useAdminVueQuery } from '@/admin/vueQuery'
 
 useAdminVuetify()
+useAdminVueQuery()
 
 const route = useRoute()
 
