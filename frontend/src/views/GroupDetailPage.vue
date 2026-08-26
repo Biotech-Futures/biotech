@@ -800,7 +800,7 @@
                         <i class="fas fa-calendar" aria-hidden="true"></i>
                         <span>Due date</span>
                       </label>
-                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="datetime-local" class="task-dialog-input" />
+                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="date" class="task-dialog-input" />
                     </div>
 
                     <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
