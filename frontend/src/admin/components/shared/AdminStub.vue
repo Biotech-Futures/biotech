@@ -2,8 +2,6 @@
 <script setup lang="ts">
 defineProps<{
   title: string
-  /** Which migration wave implements this screen. */
-  wave: string
 }>()
 </script>
 
@@ -13,7 +11,7 @@ defineProps<{
     <v-alert
       type="info"
       variant="tonal"
-      :text="`This screen is being migrated from the admin portal (${wave}).`"
+      text="This screen is being migrated from the admin portal."
     />
   </div>
 </template>

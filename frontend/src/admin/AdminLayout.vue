@@ -140,8 +140,8 @@ const breadcrumbs = computed(() => {
 }
 
 .admin-nav {
-  width: 230px;
-  min-width: 230px;
+  width: 270px;
+  min-width: 270px;
   padding: 1.25rem 0.75rem;
   border-right: 1px solid var(--border-light);
   background-color: var(--surface-elevated);
@@ -163,6 +163,7 @@ const breadcrumbs = computed(() => {
   letter-spacing: 0.08em;
   color: var(--text-muted);
   margin: 0 0 0.35rem 0.65rem;
+  white-space: nowrap;
 }
 
 .admin-nav-link {
@@ -220,6 +221,17 @@ const breadcrumbs = computed(() => {
 
 .admin-hub-tabs {
   border-bottom: 1px solid var(--border-light);
+}
+
+/* The app-wide `* { padding: 0 }` reset strips Vuetify's own tab padding,
+   collapsing the labels into each other — restore it explicitly. */
+.admin-hub-tabs :deep(.v-tab) {
+  padding-inline: 1.1rem;
+}
+
+.admin-hub-tabs :deep(.v-tab:first-child) {
+  margin-left: 0;
+  padding-left: 0.25rem;
 }
 
 .admin-page {

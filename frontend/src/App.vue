@@ -50,7 +50,10 @@
     </header>
 
     <div class="main-layout" v-if="!isLoginPage">
-      <aside v-if="!isAdminSection" class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
+      <!-- The admin section keeps its own collapse state (default collapsed,
+           icons-only) so entering /admin never touches the user's portal
+           preference; AdminLayout provides the full admin nav. -->
+      <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
             <li class="sidebar-item">
@@ -124,13 +127,13 @@
         <button
           type="button"
           class="sidebar-collapse-toggle"
-          :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-          :aria-pressed="isSidebarCollapsed"
-          :title="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-pressed="sidebarCollapsed"
+          :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
           @click="toggleSidebarCollapsed"
         >
           <i
-            :class="isSidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"
+            :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"
             aria-hidden="true"
           ></i>
         </button>
@@ -311,6 +314,12 @@ const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
 const isSidebarCollapsed = ref(false)
+// Separate state for /admin so it defaults to collapsed (icons-only) without
+// touching the user's portal-wide preference.
+const isAdminSidebarCollapsed = ref(true)
+const sidebarCollapsed = computed(() =>
+  isAdminSection.value ? isAdminSidebarCollapsed.value : isSidebarCollapsed.value,
+)
 const programSearchQuery = ref('')
 
 const programSearchTargets = [
@@ -323,7 +332,11 @@ const programSearchTargets = [
 ]
 
 const toggleSidebarCollapsed = () => {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  if (isAdminSection.value) {
+    isAdminSidebarCollapsed.value = !isAdminSidebarCollapsed.value
+  } else {
+    isSidebarCollapsed.value = !isSidebarCollapsed.value
+  }
 }
 
 const toggleUserMenu = () => {

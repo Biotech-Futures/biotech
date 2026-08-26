@@ -3,5 +3,5 @@ import AdminStub from '@/admin/components/shared/AdminStub.vue'
 </script>
 
 <template>
-  <AdminStub title="Announcements" wave="Wave 3 — Content" />
+  <AdminStub title="Announcements" />
 </template>

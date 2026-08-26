@@ -3,5 +3,5 @@ import AdminStub from '@/admin/components/shared/AdminStub.vue'
 </script>
 
 <template>
-  <AdminStub title="Groups" wave="Wave 2 — Groups &amp; Matching" />
+  <AdminStub title="Groups" />
 </template>
