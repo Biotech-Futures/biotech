@@ -293,11 +293,11 @@
                       </label>
                       <label class="task-filter-row">
                         <span>Due after</span>
-                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                        <input v-model="taskFilters.dueDateAfter" type="date" />
                       </label>
                       <label class="task-filter-row">
                         <span>Due before</span>
-                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                        <input v-model="taskFilters.dueDateBefore" type="date" />
                       </label>
                       <label class="task-filter-row task-filter-row--checkbox">
                         <input
@@ -6463,7 +6463,7 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
-.task-filter-row input[type='datetime-local'] {
+.task-filter-row input[type='date'] {
   width: 100%;
   height: 34px;
   padding: 0 0.55rem;
