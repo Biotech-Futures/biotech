@@ -48,6 +48,7 @@ type Props = {
   placeholder?: string;
   readOnly?: boolean;
   allowAttachments?: boolean;
+  allowManualLinks?: boolean;
 };
 
 const HEADING_LEVELS = [1, 2, 3, 4] as const;
@@ -58,6 +59,7 @@ export function RichEditor({
   placeholder,
   readOnly = false,
   allowAttachments = true,
+  allowManualLinks = true,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -370,13 +372,15 @@ export function RichEditor({
                 >
                   <Code className="size-3.5" />
                 </Btn>
-                <Btn
-                  active={editor.isActive("link")}
-                  onClick={promptLink}
-                  title="Insert / edit link"
-                >
-                  <LinkIcon className="size-3.5" />
-                </Btn>
+                {allowManualLinks && (
+                  <Btn
+                    active={editor.isActive("link")}
+                    onClick={promptLink}
+                    title="Insert / edit link"
+                  >
+                    <LinkIcon className="size-3.5" />
+                  </Btn>
+                )}
 
                 <Sep />
 
