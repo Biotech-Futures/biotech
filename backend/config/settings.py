@@ -238,7 +238,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": config("DB_SSLMODE", default="require"),
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -267,7 +267,7 @@ USE_I18N = True
 USE_TZ = True
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
