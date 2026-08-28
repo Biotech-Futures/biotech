@@ -28,6 +28,20 @@ class StudentRoleRequired(APIException):
     default_code = "student_role_required"
 
 
+class SubmissionLocked(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This entry has been submitted. Choose to resubmit before making changes."
+    )
+    default_code = "submission_locked"
+
+
+class NotSubmittedYet(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "This entry has not been submitted, so there is nothing to reopen."
+    default_code = "not_submitted_yet"
+
+
 class PosterRequired(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "A poster must be uploaded before the entry can be submitted."

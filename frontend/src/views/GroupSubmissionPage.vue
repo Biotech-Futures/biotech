@@ -1,37 +1,78 @@
-<template>
+﻿<template>
   <div class="content-area">
-    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
-      <RouterLink :to="{ name: 'group-detail', params: { id: groupId } }" class="submission-back">
-        <span aria-hidden="true">&larr;</span>
-        <span>Back to group</span>
-      </RouterLink>
-    </nav>
-
-    <div v-if="isLoading" class="card">
+    <div v-if="isLoading" class="panel">
       <p>Loading submission…</p>
     </div>
 
-    <div v-else-if="loadError" class="card">
+    <div v-else-if="loadError" class="panel">
       <h2 class="card-title">{{ loadError }}</h2>
       <button class="btn btn-outline btn-sm" type="button" @click="load">Try again</button>
     </div>
 
     <template v-else-if="detail">
-      <header class="submission-header">
-        <h1 class="submission-heading">Submission</h1>
-        <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
-      </header>
-
-      <!-- Deadline. Shown prominently because it governs everything below. -->
-      <div class="card submission-deadline">
-        <div>
-          <strong>{{ deadlineHeadline }}</strong>
-          <p v-if="deadlineDetail" class="submission-muted">{{ deadlineDetail }}</p>
+      <!-- Mirrors the header the client's Qualtrics form injects: the logo,
+           "Submission Portal", and "BIOTech Futures" beneath it. Students
+           moving from the old form should recognise where they are. -->
+      <div class="page-head portal-banner">
+        <div class="portal-brand">
+          <!-- No backdrop needed now the banner is tinted rather than solid:
+               the mark reads directly against it. -->
+          <img class="portal-brand__logo" :src="logo" :alt="BRAND_NAME" />
+          <div>
+            <h1 class="portal-brand__title">Submission Portal</h1>
+            <p class="portal-brand__subtitle">{{ BRAND_NAME }}</p>
+          </div>
         </div>
-        <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
+
+        <!-- Compact by design: a date and a countdown do not need a full-width
+             panel, and the space is better spent on the criteria above. -->
+        <!-- Stacked rather than run together: label, date and countdown on one
+             line made a long string that fought the title for attention. -->
+        <div class="submission-due" :title="deadlineDetail">
+          <span class="submission-due__label">{{ isOpen ? 'Due' : 'Closed' }}</span>
+          <strong class="submission-due__date">{{ deadlineDate }}</strong>
+          <span class="submission-due__foot">
+            <span
+              v-if="timeRemaining"
+              class="submission-remaining"
+              :class="{ 'is-near': isDeadlineNear }"
+            >
+              {{ timeRemaining }}
+            </span>
+            <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
+          </span>
+        </div>
       </div>
 
-      <p v-if="!isOpen" class="card submission-closed">
+      <!-- One line rather than a panel. In progress is the ordinary state and
+           does not warrant a bordered box; only a completed submission carries
+           information worth pausing on, so only that case is emphasised. -->
+      <div class="status-line" :class="{ 'is-submitted': isLocked }">
+        <!-- A pen while editing, a tick once submitted: a hollow grey circle
+             said nothing about what state the entry was in. -->
+        <span class="status-line__icon" aria-hidden="true">
+          <i :class="isLocked ? 'fas fa-check' : 'fas fa-pen'"></i>
+        </span>
+        <strong class="status-line__state">{{ isLocked ? 'Submitted' : 'In Progress' }}</strong>
+        <span v-if="isLocked && submittedLine" class="status-line__detail">{{ submittedLine }}</span>
+        <!-- Reassurance during a revision: the entry they already handed in is
+             still the one that counts until they finish this one. -->
+        <span v-else-if="isRevising" class="status-line__detail">
+          Your previous submission still stands until you submit again.
+        </span>
+
+        <button
+          v-if="isLocked && isOpen"
+          class="btn btn-outline btn-sm status-line__action"
+          type="button"
+          :disabled="isBusy"
+          @click="onReopen"
+        >
+          {{ isReopening ? 'Opening…' : 'Resubmit' }}
+        </button>
+      </div>
+
+      <p v-if="!isOpen" class="submission-closed">
         Submissions are closed, so this entry can no longer be changed. It stays visible here.
       </p>
 
@@ -44,9 +85,9 @@
         </button>
       </div>
 
-      <!-- Step strip. Doubles as navigation and as an at-a-glance answer to
-           "what have I still not done", which a single long page made obvious
-           but separate sections otherwise hide. -->
+      <!-- Progress strip. Steps stay clickable as well as sequential: moving
+           forward suits a first submission, but someone revising one answer
+           should not have to walk through the whole form to reach it. -->
       <nav class="submission-steps" aria-label="Submission sections">
         <button
           v-for="(tab, index) in TABS"
@@ -54,26 +95,29 @@
           type="button"
           class="submission-step"
           :class="{ 'is-active': activeTab === tab.key }"
-          :aria-current="activeTab === tab.key ? 'page' : undefined"
-          @click="activeTab = tab.key"
+          :aria-current="activeTab === tab.key ? 'step' : undefined"
+          @click="goToStep(index)"
         >
           <span class="submission-step__index">{{ index + 1 }}</span>
           <span class="submission-step__label">{{ tab.label }}</span>
-          <span class="submission-step__state" :class="`is-${stepState(tab.key).tone}`">
-            {{ stepState(tab.key).label }}
-          </span>
+          <!-- States a fact rather than judging completion: text in every box
+               does not mean the answers are finished, so calling a section
+               "Done" would tell a student something we cannot know. -->
+          <span class="submission-step__state">{{ stepSummary(tab.key) }}</span>
         </button>
       </nav>
 
-      <!-- Guidance comes from the database, so admins can reword it. -->
-      <div v-if="activeInstructions" class="card submission-instructions">
-        <h2 class="card-title">{{ activeTabConfig.label }}</h2>
-        <p>{{ activeInstructions }}</p>
-      </div>
-
       <!-- 1. Short-answer questions. Defined in the database, so this list is
            whatever the server sent rather than anything hardcoded here. -->
-      <section v-show="activeTab === 'questions'" class="card">
+      <section v-show="activeTab === 'questions'" class="panel">
+        <!-- Section header in the shape the client's Qualtrics form uses: a
+             title with one supporting line beneath. Both come from the
+             database, so admins can reword either. -->
+        <header v-if="sectionHeading || sectionBody" class="section-head">
+          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
+        </header>
+
         <p v-if="!questions.length" class="submission-muted">
           No questions have been set up yet.
         </p>
@@ -81,35 +125,42 @@
         <div v-for="question in questions" :key="question.key" class="submission-field">
           <label class="submission-label" :for="question.key">
             {{ question.prompt }}
-            <span v-if="question.is_required" class="submission-required">required</span>
+            <span v-if="question.is_required" class="submission-required" title="Required" aria-label="required">*</span>
           </label>
           <p v-if="question.help_text" class="submission-muted">{{ question.help_text }}</p>
+          <!-- No maxlength attribute: a word limit cannot be enforced by
+               truncating keystrokes, so the count warns and the server
+               refuses an over-long answer at save time. -->
           <textarea
             :id="question.key"
             v-model="answers[question.key]"
             class="form-control submission-textarea"
             rows="5"
-            :maxlength="question.max_length ?? undefined"
-            :disabled="!isOpen"
+            :disabled="!isEditable"
           ></textarea>
           <p
-            v-if="question.max_length"
+            v-if="question.max_words"
             class="submission-count"
-            :class="{ 'is-near-limit': (charactersLeft(question.key, question.max_length) ?? 99) < 100 }"
+            :class="{ 'is-over-limit': wordCount(question.key) > question.max_words }"
           >
-            {{ (answers[question.key] || '').length }} / {{ question.max_length }}
+            {{ wordCount(question.key) }} / {{ question.max_words }} words
           </p>
         </div>
       </section>
 
       <!-- 2. Poster, with the preview kept open — this tab exists mainly to
            give the document room to be read. -->
-      <section v-show="activeTab === 'poster'" class="card">
+      <section v-show="activeTab === 'poster'" class="panel">
+        <header v-if="sectionHeading || sectionBody" class="section-head">
+          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
+        </header>
+
         <div class="submission-slot submission-slot--plain">
+          <!-- No heading here: this step holds a single item and the section
+               header above already names it. The Additional materials step
+               keeps headings because it holds two. -->
           <div class="submission-slot__info">
-            <div class="submission-label">
-              Poster <span class="submission-required">required</span>
-            </div>
             <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
 
             <p v-if="storedFile('poster')" class="submission-file">
@@ -121,7 +172,7 @@
             <p v-else class="submission-muted">Nothing attached yet.</p>
           </div>
 
-          <div v-if="isOpen" class="submission-slot__actions">
+          <div v-if="isEditable" class="submission-slot__actions">
             <input
               :ref="(el) => registerInput('poster', el)"
               type="file"
@@ -135,7 +186,7 @@
               :disabled="busySlot === 'poster'"
               @click="pickFile('poster')"
             >
-              {{ busySlot === 'poster' ? 'Uploading…' : storedFile('poster') ? 'Replace' : 'Upload' }}
+              {{ busySlot === 'poster' ? `Uploading… ${uploadPercent}%` : storedFile('poster') ? 'Replace' : 'Upload' }}
             </button>
             <button
               v-if="storedFile('poster')"
@@ -149,88 +200,243 @@
           </div>
         </div>
 
-        <p v-if="isPreviewLoading" class="submission-muted">Loading preview…</p>
-        <iframe
-          v-else-if="previewSource && storedFile('poster')"
-          class="submission-preview submission-preview--tall"
-          :src="previewSource"
-          title="Poster preview"
-        ></iframe>
-        <p v-else-if="!storedFile('poster')" class="submission-muted submission-preview-empty">
-          Once you upload a poster it will be shown here, so you can check the right file arrived.
-        </p>
+        <!-- Same shape as the resource library's preview panel, so a file looks
+             the same wherever it is viewed in the platform. Guarded on the slot
+             as well as the source: hidden tabs stay in the DOM, so without that
+             this frame would also load whatever the report preview fetched. -->
+        <article class="preview-panel">
+          <div class="preview-header">
+            <h2>Preview</h2>
+            <!-- Always offered: some browsers refuse to display an embedded PDF
+                 at all, and a student must never be left unable to check their
+                 own file. Opens the same endpoint as a normal page load. -->
+            <a
+              v-if="storedFile('poster')"
+              class="btn btn-outline btn-sm"
+              :href="previewUrlFor('poster')"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in new tab
+            </a>
+          </div>
+
+          <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
+            <p>Preparing preview…</p>
+          </div>
+          <iframe
+            v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
+            class="preview-frame"
+            title="Poster preview"
+            :src="previewSource"
+          ></iframe>
+          <div v-else class="preview-empty">
+            <i class="fas fa-file-pdf" aria-hidden="true"></i>
+            <p>Once you upload a poster it appears here, so you can check the right file arrived.</p>
+          </div>
+        </article>
       </section>
 
-      <!-- 3. Optional extras. Intentionally plain. -->
-      <section v-show="activeTab === 'extras'" class="card">
-        <div v-for="slot in EXTRA_SLOTS" :key="slot.key" class="submission-slot">
-          <div class="submission-slot__info">
-            <div class="submission-label">{{ slot.label }}</div>
-            <p class="submission-muted">{{ slot.hint }} · up to {{ maxSizeLabel(slot.key) }}</p>
+      <!-- 3. Optional extras, as two blocks: the report gets the same treatment
+           as the poster since it is also a readable document; the prototype is
+           a plain upload because it can be any file type. -->
+      <div v-show="activeTab === 'extras'">
+        <section class="panel">
+          <header v-if="sectionHeading || sectionBody" class="section-head">
+          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
+        </header>
 
-            <p v-if="storedFile(slot.key)" class="submission-file">
-              <a :href="downloadUrl(slot.key)" target="_blank" rel="noopener noreferrer">
-                {{ storedFile(slot.key)?.name }}
+          <div class="submission-slot submission-slot--plain">
+            <div class="submission-slot__info">
+              <h2 class="panel__heading">Scientific report</h2>
+              <p class="submission-muted">PDF only · up to {{ maxSizeLabel('report') }}</p>
+
+              <p v-if="storedFile('report')" class="submission-file">
+                <a :href="downloadUrl('report')" target="_blank" rel="noopener noreferrer">
+                  {{ storedFile('report')?.name }}
+                </a>
+                <span class="submission-muted"> ({{ formatSize(storedFile('report')?.size) }})</span>
+              </p>
+              <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
+
+            <div v-if="isEditable" class="submission-slot__actions">
+              <input
+                :ref="(el) => registerInput('report', el)"
+                type="file"
+                class="submission-hidden-input"
+                accept="application/pdf"
+                @change="onFileChosen('report', $event)"
+              />
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'report'"
+                @click="pickFile('report')"
+              >
+                {{ busySlot === 'report' ? `Uploading… ${uploadPercent}%` : storedFile('report') ? 'Replace' : 'Upload' }}
+              </button>
+              <button
+                v-if="storedFile('report')"
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'report'"
+                @click="removeFile('report')"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+
+          <article class="preview-panel">
+            <div class="preview-header">
+              <h2>Preview</h2>
+              <a
+                v-if="storedFile('report')"
+                class="btn btn-outline btn-sm"
+                :href="previewUrlFor('report')"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in new tab
               </a>
-              <span class="submission-muted"> ({{ formatSize(storedFile(slot.key)?.size) }})</span>
-            </p>
-            <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
+
+            <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
+              <p>Preparing preview…</p>
+            </div>
+            <iframe
+              v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
+              class="preview-frame"
+              title="Scientific report preview"
+              :src="previewSource"
+            ></iframe>
+            <div v-else class="preview-empty">
+              <i class="fas fa-file-pdf" aria-hidden="true"></i>
+              <p>A scientific report is optional. If you upload one it appears here.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="submission-slot submission-slot--plain">
+            <div class="submission-slot__info">
+              <h2 class="panel__heading">Prototype</h2>
+              <p class="submission-muted">
+                Any file type · up to {{ maxSizeLabel('prototype') }}
+              </p>
+
+              <p v-if="storedFile('prototype')" class="submission-file">
+                <a :href="downloadUrl('prototype')" target="_blank" rel="noopener noreferrer">
+                  {{ storedFile('prototype')?.name }}
+                </a>
+                <span class="submission-muted"> ({{ formatSize(storedFile('prototype')?.size) }})</span>
+              </p>
+              <p v-else class="submission-muted">Nothing attached yet.</p>
+            </div>
+
+            <div v-if="isEditable" class="submission-slot__actions">
+              <input
+                :ref="(el) => registerInput('prototype', el)"
+                type="file"
+                class="submission-hidden-input"
+                @change="onFileChosen('prototype', $event)"
+              />
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'prototype'"
+                @click="pickFile('prototype')"
+              >
+                {{ busySlot === 'prototype' ? `Uploading… ${uploadPercent}%` : storedFile('prototype') ? 'Replace' : 'Upload' }}
+              </button>
+              <button
+                v-if="storedFile('prototype')"
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="busySlot === 'prototype'"
+                @click="removeFile('prototype')"
+              >
+                Remove
+              </button>
+            </div>
           </div>
 
-          <div v-if="isOpen" class="submission-slot__actions">
+          <div class="submission-field">
+            <label class="field-label" for="prototype-url">Prototype link</label>
             <input
-              :ref="(el) => registerInput(slot.key, el)"
-              type="file"
-              class="submission-hidden-input"
-              :accept="slot.accept"
-              @change="onFileChosen(slot.key, $event)"
+              id="prototype-url"
+              v-model="prototypeUrl"
+              class="form-control"
+              type="url"
+              placeholder="https://…"
+              :disabled="!isEditable"
             />
-            <button
-              class="btn btn-outline btn-sm"
-              type="button"
-              :disabled="busySlot === slot.key"
-              @click="pickFile(slot.key)"
-            >
-              {{ busySlot === slot.key ? 'Uploading…' : storedFile(slot.key) ? 'Replace' : 'Upload' }}
-            </button>
-            <button
-              v-if="storedFile(slot.key)"
-              class="btn btn-outline btn-sm"
-              type="button"
-              :disabled="busySlot === slot.key"
-              @click="removeFile(slot.key)"
-            >
-              Remove
-            </button>
           </div>
-        </div>
-
-        <div class="submission-field">
-          <label class="submission-label" for="prototype-url">Prototype link (optional)</label>
-          <input
-            id="prototype-url"
-            v-model="prototypeUrl"
-            class="form-control"
-            type="url"
-            placeholder="https://…"
-            :disabled="!isOpen"
-          />
-        </div>
-      </section>
+        </section>
+      </div>
 
       <!-- Available from every tab: the server validates the whole entry, so
            there is no reason to force a student through the steps in order. -->
-      <div v-if="isOpen" class="submission-actions">
+      <div class="submission-actions">
+        <!-- An exit rather than a starting point, so it sits after the form
+             instead of above the title. -->
+        <RouterLink
+          :to="{ name: 'group-detail', params: { id: groupId } }"
+          class="submission-back"
+        >
+          <span aria-hidden="true">&larr;</span>
+          <span>Back to group</span>
+        </RouterLink>
+
         <!-- Auto-save is invisible by design, so it needs to say so somewhere;
              without this the student cannot tell whether their work is safe. -->
-        <span class="submission-savestate" :class="{ 'is-error': saveState === 'error' }">
+        <span
+          v-if="isEditable"
+          class="submission-savestate"
+          :class="{ 'is-error': saveState === 'error' }"
+        >
           {{ saveStateLabel }}
         </span>
-        <button class="btn btn-outline" type="button" :disabled="isBusy" @click="onSaveDraft">
-          {{ isSaving ? 'Saving…' : 'Save draft' }}
+        <!-- No Save draft button: auto-save runs two seconds after typing stops
+             and again on every step change, and the status line above reports
+             it. A button that duplicates something already happening only adds
+             a control to the row. -->
+
+        <!-- Step backwards. Hidden on the first step rather than disabled, so
+             the row does not carry a permanently dead control. -->
+        <button
+          v-if="!isFirstStep"
+          class="btn btn-outline"
+          type="button"
+          :disabled="isBusy"
+          @click="goToStep(stepIndex - 1)"
+        >
+          Back
         </button>
-        <button class="btn btn-primary" type="button" :disabled="isBusy" @click="onSubmit">
-          {{ isSubmitting ? 'Submitting…' : detail.submission?.is_submitted ? 'Submit again' : 'Submit' }}
+
+        <!-- Next carries the flow forward; on the last step it becomes Submit,
+             which is where a wizard is expected to end. -->
+        <button
+          v-if="!isLastStep"
+          class="btn btn-primary"
+          type="button"
+          :disabled="isBusy"
+          @click="goToStep(stepIndex + 1)"
+        >
+          Next: {{ TABS[stepIndex + 1].label }}
+        </button>
+        <button
+          v-else-if="isEditable"
+          class="btn btn-primary"
+          type="button"
+          :disabled="isBusy"
+          @click="onSubmit"
+        >
+          <!-- "Submit" only for a team's first submission; anything after that
+               is a fresh attempt replacing the one already on record. -->
+          {{ isSubmitting ? 'Submitting…' : isRevising ? 'New Attempt' : 'Submit' }}
         </button>
       </div>
     </template>
@@ -240,14 +446,25 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import logo from '@/assets/btf-logo.png'
+import { BRAND_NAME } from '@/constants/brand'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import {
+  countWords,
+  describeQuestionStep,
+  describeTimeRemaining,
+  formatFileSize,
+  isDeadlineNear as deadlineIsNear
+} from '@/utils/submissionFormat'
 import {
   fetchPreviewObjectUrl,
   fetchSubmission,
   releasePreview,
   removeSubmissionFile,
+  reopenEntry,
   saveDraft,
   submissionFileDownloadUrl,
+  submissionFilePreviewUrl,
   submitEntry,
   uploadSubmissionFile,
   type StoredFile,
@@ -271,11 +488,6 @@ const TABS: { key: TabKey; label: string }[] = [
 // mid-word, short enough that a closed laptop rarely costs anything.
 const AUTOSAVE_DELAY_MS = 2000
 
-const EXTRA_SLOTS: { key: SubmissionSlot; label: string; hint: string; accept: string }[] = [
-  { key: 'report', label: 'Scientific report', hint: 'PDF only. Optional.', accept: 'application/pdf' },
-  { key: 'prototype', label: 'Prototype', hint: 'Any file type. Optional.', accept: '' }
-]
-
 // Fallback only for the moment between the page mounting and the first
 // response arriving; the server's values replace these as soon as it loads.
 const FALLBACK_MAX_FILE_SIZES: Record<SubmissionSlot, number> = {
@@ -298,11 +510,52 @@ const loadError = ref('')
 const answers = reactive<Record<string, string>>({})
 const prototypeUrl = ref('')
 
+/**
+ * The answers the server is known to hold, used to send only what changed.
+ *
+ * A save that carried all six answers asserted the state of all six, so a
+ * teammate saving at the same moment had their work overwritten by whatever
+ * this tab happened to be holding. Sending just the edited question means two
+ * people on different questions never collide. Not reactive: nothing renders
+ * it, it only exists to be diffed against.
+ */
+let savedAnswers: Record<string, string> = {}
+
+/**
+ * The answers that differ from what the server holds and are short enough to
+ * save.
+ *
+ * An over-limit answer is left out on purpose rather than sent and refused:
+ * the word counter beside the box already turns red the moment it happens, so
+ * sending it too would only add a jarring, redundant server error on top of a
+ * signal the student can already see. It stays out of `savedAnswers` as well,
+ * so trimming it back under the limit is recognised as a fresh change once it
+ * happens, and nothing here is lost — it just is not on the server yet.
+ */
+function changedAnswers(): Record<string, string> {
+  const overLimit = new Set(overLimitQuestions().map((q) => q.key))
+  const changed: Record<string, string> = {}
+  Object.keys(answers).forEach((key) => {
+    if (overLimit.has(key)) return
+    // Compared against '' rather than undefined so clearing an answer counts
+    // as a change: the backend merges, so an omitted key means "leave alone"
+    // and a cleared box has to be sent as an explicit empty string.
+    if (answers[key] !== (savedAnswers[key] ?? '')) changed[key] = answers[key]
+  })
+  return changed
+}
+
 const activeTab = ref<TabKey>('questions')
 const isSaving = ref(false)
 const isSubmitting = ref(false)
+const isReopening = ref(false)
 const busySlot = ref<SubmissionSlot | ''>('')
+const uploadPercent = ref(0)
+// Drives the countdown; ticked by an interval so the display stays live.
+const now = ref(Date.now())
 const previewSource = ref('')
+// Which slot the loaded preview belongs to; '' when nothing is showing.
+const previewSlot = ref<SubmissionSlot | ''>('')
 const isPreviewLoading = ref(false)
 const message = ref('')
 const isError = ref(false)
@@ -327,9 +580,41 @@ function maxSizeLabel(slot: SubmissionSlot) {
   return formatSize(maxSizeFor(slot))
 }
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
-const isBusy = computed(() => isSaving.value || isSubmitting.value || Boolean(busySlot.value))
-const activeTabConfig = computed(() => TABS.find((tab) => tab.key === activeTab.value) ?? TABS[0])
-const activeInstructions = computed(() => detail.value?.instructions?.[activeTab.value] ?? '')
+const isLocked = computed(() => Boolean(detail.value?.submission?.is_locked))
+/** Editing needs both an open deadline and an entry that is not locked. */
+const isEditable = computed(() => isOpen.value && !isLocked.value)
+const isBusy = computed(
+  () => isSaving.value || isSubmitting.value || isReopening.value || Boolean(busySlot.value)
+)
+
+/**
+ * A locked entry shows what was submitted, not the working draft.
+ *
+ * They differ while a revision is under way — that separation is what lets an
+ * abandoned revision leave the submitted entry alone — so the page has to be
+ * explicit about which one it is displaying.
+ */
+function shownFile(slot: SubmissionSlot): StoredFile | null {
+  const submission = detail.value?.submission
+  if (!submission) return null
+  return isLocked.value ? submission[`submitted_${slot}` as const] : submission[slot]
+}
+const stepIndex = computed(() => TABS.findIndex((tab) => tab.key === activeTab.value))
+const isFirstStep = computed(() => stepIndex.value <= 0)
+const isLastStep = computed(() => stepIndex.value >= TABS.length - 1)
+
+/** Move to a step, scrolling back to the top so the new section starts in view. */
+function goToStep(index: number) {
+  const target = TABS[Math.min(Math.max(index, 0), TABS.length - 1)]
+  if (!target || target.key === activeTab.value) return
+  activeTab.value = target.key
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+const activeInstructions = computed(() => detail.value?.instructions?.[activeTab.value])
+const sectionHeading = computed(() => activeInstructions.value?.heading ?? '')
+const sectionBody = computed(() => activeInstructions.value?.body ?? '')
+const isReportPreviewOpen = computed(() => previewSlot.value === 'report')
+const isPosterPreviewOpen = computed(() => previewSlot.value === 'poster')
 
 const saveStateLabel = computed(() => {
   if (isSaving.value) return 'Saving…'
@@ -339,22 +624,34 @@ const saveStateLabel = computed(() => {
   return ''
 })
 
-const statusLabel = computed(() => {
-  if (!detail.value) return ''
-  if (detail.value.submission?.is_submitted) return 'Submitted'
-  return isOpen.value ? 'Draft' : 'Not submitted'
+/** Submitted, but reopened for revision. */
+const isRevising = computed(
+  () => Boolean(detail.value?.submission?.is_submitted) && !isLocked.value
+)
+
+const submittedLine = computed(() => {
+  const submission = detail.value?.submission
+  if (!submission?.submitted_at) return ''
+  const when = formatDate(submission.submitted_at)
+  return submission.submitted_by_name
+    ? `by ${submission.submitted_by_name} on ${when}`
+    : `on ${when}`
 })
 
-const statusClass = computed(() => {
-  if (detail.value?.submission?.is_submitted) return 'status-active'
-  return isOpen.value ? 'status-pending' : 'status-danger'
-})
-
-const deadlineHeadline = computed(() => {
+const deadlineDate = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt) return 'No deadline has been set yet.'
-  return isOpen.value ? `Open until ${formatDate(closesAt)}` : `Closed on ${formatDate(closesAt)}`
+  return closesAt ? formatDate(closesAt) : 'No deadline set'
 })
+
+/** "3 days left" — urgency a fixed date does not convey on its own. */
+const timeRemaining = computed(() =>
+  isOpen.value ? describeTimeRemaining(detail.value?.deadline.closes_at, now.value) : ''
+)
+
+// Under a day to go is when the wording should start to feel different.
+const isDeadlineNear = computed(
+  () => isOpen.value && deadlineIsNear(detail.value?.deadline.closes_at, now.value)
+)
 
 const deadlineDetail = computed(() => {
   if (!detail.value?.deadline.closes_at) {
@@ -367,19 +664,26 @@ const deadlineDetail = computed(() => {
 
 const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-/** Short completeness marker per step, so nothing is silently left undone. */
-function stepState(key: TabKey): { label: string; tone: string } {
+/**
+ * Whether a step is required, and what it currently holds.
+ *
+ * Carries the requirement here rather than in a separate line above the page:
+ * "is this optional?" is a question about a particular section, so the answer
+ * belongs beside it.
+ *
+ * The state half deliberately counts rather than judging. An earlier version
+ * marked a section "Done" once every box held any text at all, which claimed
+ * far more than it could know — a single letter is not a finished answer.
+ */
+function stepSummary(key: TabKey): string {
   if (key === 'questions') {
-    const required = questions.value.filter((question) => question.is_required)
-    if (!required.length) return { label: '—', tone: 'neutral' }
-    const answered = required.every((question) => (answers[question.key] || '').trim())
-    return answered ? { label: 'Done', tone: 'done' } : { label: 'To do', tone: 'todo' }
+    return describeQuestionStep(answers, questions.value.map((q) => q.key))
   }
-  if (key === 'poster') {
-    return storedFile('poster') ? { label: 'Done', tone: 'done' } : { label: 'To do', tone: 'todo' }
-  }
-  const attached = EXTRA_SLOTS.filter((slot) => storedFile(slot.key)).length
-  return { label: attached ? `${attached} added` : 'Optional', tone: 'neutral' }
+  // Attachment state is left out here: whether a file is present is obvious
+  // the moment you open the step, so repeating it in the strip was noise.
+  // The question count stays because progress through six answers is not.
+  if (key === 'poster') return 'Required'
+  return 'Optional'
 }
 
 function formatDate(value: string) {
@@ -389,23 +693,19 @@ function formatDate(value: string) {
   })
 }
 
-function formatSize(bytes: number | null | undefined) {
-  if (!bytes && bytes !== 0) return 'unknown size'
-  if (bytes >= 1024 * 1024) {
-    const mb = bytes / (1024 * 1024)
-    // Drop the decimal on round figures so the stated limit reads "50 MB".
-    return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
-  }
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${bytes} bytes`
-}
+const formatSize = formatFileSize
 
 function storedFile(slot: SubmissionSlot): StoredFile | null {
-  return detail.value?.submission?.[slot] ?? null
+  return shownFile(slot)
 }
 
 function downloadUrl(slot: SubmissionSlot) {
   return submissionFileDownloadUrl(groupId.value, slot)
+}
+
+/** Direct link to the inline endpoint, for opening in a tab of its own. */
+function previewUrlFor(slot: SubmissionSlot) {
+  return submissionFilePreviewUrl(groupId.value, slot)
 }
 
 function registerInput(slot: SubmissionSlot, el: unknown) {
@@ -439,10 +739,25 @@ function dismissMessage() {
   message.value = ''
 }
 
-/** Remaining characters for one question, or null when it has no limit. */
-function charactersLeft(key: string, limit: number | null) {
-  if (!limit) return null
-  return limit - (answers[key] || '').length
+function wordCount(key: string) {
+  return countWords(answers[key])
+}
+
+/** Questions currently written past their own word limit, if any. */
+function overLimitQuestions() {
+  return questions.value.filter((q) => q.max_words && wordCount(q.key) > q.max_words)
+}
+
+/**
+ * Wording kept identical to the server's own validation message, so a student
+ * sees the same sentence whichever side catches it — this client-side check
+ * only means they see it sooner, and by name rather than by database key.
+ */
+function overLimitMessage(list: ReturnType<typeof overLimitQuestions>): string {
+  const parts = list.map(
+    (q) => `"${q.prompt}" (${wordCount(q.key)} words, limit ${q.max_words})`
+  )
+  return `Answer too long for ${parts.join(', ')}.`
 }
 
 function applyResult(result: SubmissionWriteResult) {
@@ -450,45 +765,94 @@ function applyResult(result: SubmissionWriteResult) {
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
 }
 
+/**
+ * Turn a failed write into a message, closing the page if that is why it failed.
+ *
+ * Every write path (`persistDraft`, `onSubmit`, `onReopen`, file upload,
+ * file removal) can fail this same way once the deadline passes mid-edit, and
+ * previously none of them acted on it: `isOpen` only ever came from the last
+ * successful fetch, so it stayed stale — the boxes stayed editable and
+ * auto-save kept retrying the same doomed save forever, each attempt showing
+ * the same raw error again.
+ *
+ * The server's refusal is authoritative, so it is trusted directly rather than
+ * triggering a second round-trip to confirm it: flip `isOpen` immediately, which
+ * both disables the form (`isEditable` depends on it) and stops auto-save from
+ * scheduling another attempt (`scheduleAutosave` guards on the same flag).
+ */
+function handleWriteError(error: unknown): string {
+  const apiError = apiErrorFromUnknown(error)
+  if (apiError.code === 'submissions_closed' && detail.value?.deadline.is_open) {
+    detail.value = {
+      ...detail.value,
+      deadline: { ...detail.value.deadline, is_open: false }
+    }
+    return 'The submission deadline has passed while you were editing. Your most recently saved answers are shown below.'
+  }
+  return apiError.message
+}
+
 /** Discard the in-memory copy; without this the browser holds the whole file
  *  for the life of the tab. */
 function clearPreview() {
   releasePreview(previewSource.value)
   previewSource.value = ''
+  previewSlot.value = ''
   isPreviewLoading.value = false
 }
 
-/**
- * Keep the poster preview in step with what is actually attached.
- *
- * Called whenever the tab changes or the poster does, rather than being
- * toggled by hand — the preview is always-on for this slot, and a stale panel
- * showing a replaced or deleted file would misrepresent the entry.
- */
-async function syncPosterPreview() {
+/** Load one slot's file for display. Only ever called for PDF slots. */
+async function loadPreview(slot: SubmissionSlot) {
   clearPreview()
-  if (activeTab.value !== 'poster' || !storedFile('poster')) return
+  if (!storedFile(slot)) return
 
+  previewSlot.value = slot
   isPreviewLoading.value = true
   try {
-    previewSource.value = await fetchPreviewObjectUrl(groupId.value, 'poster')
+    previewSource.value = await fetchPreviewObjectUrl(groupId.value, slot)
   } catch (error) {
     setMessage(apiErrorFromUnknown(error).message, true)
+    previewSlot.value = ''
   } finally {
     isPreviewLoading.value = false
   }
 }
 
-/** Copy server state into the editable fields. */
+/**
+ * Keep the preview in step with the tab and with what is attached.
+ *
+ * The poster's preview is always-on because that tab exists to display it; the
+ * report's is opened by hand, since it shares its tab with the prototype. In
+ * both cases a stale panel showing a replaced or deleted file would
+ * misrepresent the entry, so anything not currently valid is dropped.
+ */
+async function syncPreviewForTab() {
+  // Each document tab shows its own file; only one is ever loaded at a time,
+  // so switching tabs swaps the preview rather than stacking them.
+  if (activeTab.value === 'poster') {
+    await loadPreview('poster')
+    return
+  }
+  if (activeTab.value === 'extras') {
+    await loadPreview('report')
+    return
+  }
+  clearPreview()
+}
+
+/** Copy server state into the fields, showing whichever copy applies. */
 function syncFromDetail() {
   const submission = detail.value?.submission
+  const source = isLocked.value ? submission?.submitted_answers : submission?.answers
   questions.value.forEach((question) => {
-    answers[question.key] = submission?.answers?.[question.key] ?? ''
+    answers[question.key] = source?.[question.key] ?? ''
   })
-  prototypeUrl.value = submission?.prototype_url ?? ''
+  prototypeUrl.value =
+    (isLocked.value ? submission?.submitted_prototype_url : submission?.prototype_url) ?? ''
   // Baseline for change detection: what was just loaded is, by definition,
   // what the server already has.
   savedSnapshot.value = currentSnapshot()
+  savedAnswers = { ...answers }
   saveState.value = 'idle'
 }
 
@@ -498,7 +862,7 @@ async function load() {
   try {
     detail.value = await fetchSubmission(groupId.value)
     syncFromDetail()
-    await syncPosterPreview()
+    await syncPreviewForTab()
   } catch (error) {
     loadError.value = apiErrorFromUnknown(error).message
   } finally {
@@ -516,41 +880,44 @@ function formatTime(value: Date) {
 }
 
 /**
- * Persist the draft. Shared by the button and by auto-save.
+ * Persist the draft.
  *
- * `silent` keeps auto-save from posting a confirmation banner every couple of
- * seconds — the status line beside the buttons already reports it.
+ * Never announces success: it runs every couple of seconds, and the status
+ * line already reports the outcome. Failures do surface, because silently
+ * losing work is the exact thing auto-save exists to prevent.
  */
-async function persistDraft({ silent }: { silent: boolean }) {
+async function persistDraft() {
   if (isSaving.value) return
   const snapshot = currentSnapshot()
 
+  const sent = changedAnswers()
+  const overLimit = overLimitQuestions()
+
   isSaving.value = true
-  if (!silent) setMessage('')
   try {
     applyResult(
       await saveDraft(groupId.value, {
-        answers: { ...answers },
+        answers: sent,
         prototype_url: prototypeUrl.value
       })
     )
+    // Only the keys actually accepted move into the baseline. Taking the whole
+    // server response instead would pull a teammate's newer answer into this
+    // tab's baseline for a question the student may be mid-sentence on.
+    Object.assign(savedAnswers, sent)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = 'idle'
-    if (!silent) setMessage('Draft saved.')
+    // changedAnswers() left an over-limit answer out of `sent` above, so this
+    // save can succeed while something is still genuinely unsaved. The status
+    // line should say so rather than claim everything is safely stored — the
+    // red counter beside the box explains why.
+    saveState.value = overLimit.length ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
-    // Auto-save failures still surface: silently losing work is the exact
-    // problem auto-save exists to prevent.
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     isSaving.value = false
   }
-}
-
-function onSaveDraft() {
-  if (autosaveTimer) clearTimeout(autosaveTimer)
-  return persistDraft({ silent: false })
 }
 
 /** Queue a save once typing pauses, if anything actually changed. */
@@ -562,23 +929,56 @@ function scheduleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer)
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null
-    persistDraft({ silent: true })
+    persistDraft()
   }, AUTOSAVE_DELAY_MS)
+}
+
+async function onReopen() {
+  isReopening.value = true
+  setMessage('')
+  try {
+    applyResult(await reopenEntry(groupId.value))
+    // The draft may differ from what was submitted, so reload the fields
+    // rather than leaving the submitted copy on screen as if it were editable.
+    syncFromDetail()
+    await syncPreviewForTab()
+    setMessage('Reopened for editing. Submit again to replace your submission.')
+  } catch (error) {
+    setMessage(handleWriteError(error), true)
+  } finally {
+    isReopening.value = false
+  }
 }
 
 async function onSubmit() {
   isSubmitting.value = true
   setMessage('')
   try {
-    // Save first so submitting never leaves unsaved edits behind.
+    // Checked before saving, not left for the server: changedAnswers() quietly
+    // excludes an over-limit answer from every save, so without this check
+    // submitting here would silently send the *last saved, still-valid* text
+    // instead of what is currently in the box — correct, but exactly the kind
+    // of surprise ("I edited this, why did the old version go in?") worth
+    // refusing up front instead.
+    const overLimit = overLimitQuestions()
+    if (overLimit.length) {
+      setMessage(overLimitMessage(overLimit), true)
+      return
+    }
+
+    // Save first so submitting never leaves unsaved edits behind. Sends only
+    // what changed, for the same reason auto-save does.
+    const sent = changedAnswers()
     applyResult(
       await saveDraft(groupId.value, {
-        answers: { ...answers },
+        answers: sent,
         prototype_url: prototypeUrl.value
       })
     )
+    Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
-    setMessage('Submitted. You can keep revising until the deadline.')
+    syncFromDetail()
+    setMessage('Submitted. Choose Resubmit if you need to change anything before the deadline.')
   } catch (error) {
     const apiError = apiErrorFromUnknown(error)
     // The backend names the unanswered questions, so repeat them here rather
@@ -587,7 +987,7 @@ async function onSubmit() {
     if (Array.isArray(missing) && missing.length) {
       setMessage(`${apiError.message} Still needed: ${missing.join(' · ')}`, true)
     } else {
-      setMessage(apiError.message, true)
+      setMessage(handleWriteError(error), true)
     }
   } finally {
     isSubmitting.value = false
@@ -614,13 +1014,22 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   busySlot.value = slot
   setMessage('')
   try {
-    applyResult(await uploadSubmissionFile(groupId.value, slot, file))
-    setMessage(`${slot} uploaded.`)
-    if (slot === 'poster') await syncPosterPreview()
+    uploadPercent.value = 0
+    applyResult(
+      await uploadSubmissionFile(groupId.value, slot, file, (percent) => {
+        uploadPercent.value = percent
+      })
+    )
+    // No confirmation message: whether a file is attached is plainly visible
+    // in the slot itself, so announcing it was only noise. Failures still
+    // surface, since those are not self-evident.
+    // Refresh a showing preview so it never displays the file just replaced.
+    if (slot === 'poster' || slot === 'report') await loadPreview(slot)
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     busySlot.value = ''
+    uploadPercent.value = 0
     // Clear the input so choosing the same file again still fires a change.
     input.value = ''
   }
@@ -631,16 +1040,59 @@ async function removeFile(slot: SubmissionSlot) {
   setMessage('')
   try {
     applyResult(await removeSubmissionFile(groupId.value, slot))
-    setMessage(`${slot} removed.`)
-    if (slot === 'poster') await syncPosterPreview()
+    // Never leave a deleted document on screen.
+    if (slot === previewSlot.value) clearPreview()
   } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
+    setMessage(handleWriteError(error), true)
   } finally {
     busySlot.value = ''
   }
 }
 
 onMounted(load)
+
+// One tick a minute is enough for a countdown measured in days and hours, and
+// avoids re-rendering the page every second for no visible change.
+const clockTimer = setInterval(() => {
+  now.value = Date.now()
+}, 60000)
+
+/**
+ * Notice the announced deadline passing while the page sits open, rather than
+ * only finding out from a save that later fails.
+ *
+ * A student who is reading rather than typing never triggers a write, so
+ * `handleWriteError` alone would leave the page silently editable past the
+ * deadline until they next changed something. This re-asks the server instead
+ * of assuming closed the moment the clock crosses `closes_at`, because the
+ * announced date and the date actually enforced can differ — a grace period
+ * exists precisely so a student is not cut off the instant the published time
+ * arrives, and the client is never told how long that grace period is.
+ */
+let deadlineRecheckDone = false
+watch(now, async () => {
+  if (deadlineRecheckDone || !isOpen.value) return
+  const closesAt = detail.value?.deadline.closes_at
+  if (!closesAt || now.value < new Date(closesAt).getTime()) return
+
+  deadlineRecheckDone = true
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    if (!detail.value) return
+    detail.value = { ...detail.value, deadline: latest.deadline }
+    if (!latest.deadline.is_open) {
+      // Kept short deliberately: the static banner beneath the status line
+      // (bound to !isOpen, now true) already explains the consequence — this
+      // is only the one-off notice that the moment just happened.
+      setMessage('The submission deadline has just passed.', true)
+    }
+  } catch {
+    // Best-effort: a network hiccup here just means the page keeps showing
+    // the countdown a little past zero. The next write attempt still catches
+    // an authoritative closure through handleWriteError.
+    deadlineRecheckDone = false
+  }
+})
 
 // Any edit to an answer or the prototype link queues a save.
 watch([answers, prototypeUrl], scheduleAutosave, { deep: true })
@@ -651,9 +1103,9 @@ watch(activeTab, () => {
   if (autosaveTimer) {
     clearTimeout(autosaveTimer)
     autosaveTimer = null
-    persistDraft({ silent: true })
+    persistDraft()
   }
-  syncPosterPreview()
+  syncPreviewForTab()
 })
 
 watch(groupId, () => {
@@ -662,45 +1114,278 @@ watch(groupId, () => {
 })
 
 onBeforeUnmount(() => {
-  // Releases the in-memory preview file and drops a pending save rather than
-  // letting it fire against a page that no longer exists.
+  // Releases the in-memory preview file and drops pending timers rather than
+  // letting them fire against a page that no longer exists.
   if (autosaveTimer) clearTimeout(autosaveTimer)
+  clearInterval(clockTimer)
   clearPreview()
 })
 </script>
 
 <style scoped>
+/* One spacing scale for the page. The gaps between blocks were previously set
+   case by case, which is most of what made the layout feel unsettled. */
+.content-area {
+  --gap-sm: 0.5rem;
+  --gap-md: 0.85rem;
+  --gap-lg: 1.5rem;
+  --gap-xl: 2.25rem;
+  --gap-2xl: 3rem;
+
+  /* Local tokens. Every colour on this page routes through one of these so
+     the dark theme is a matter of redefining them rather than hunting down
+     hardcoded hexes — which is exactly the bug this replaces. */
+  --panel-bg: var(--white, #ffffff);
+  --panel-border: var(--border-light, #e0e0e0);
+  /* Ground the panels sit on. Deliberately only ~10/255 darker than a white
+     panel: enough for the shadow below to have something to fall on, faint
+     enough that the page never announces itself as a different product from
+     the rest of the platform. Tinted towards the brand green rather than a
+     neutral grey, for the same reason. */
+  --page-bg: #f3f7f4;
+  --panel-edge: rgba(6, 40, 30, 0.07);
+  --panel-shadow:
+    0 1px 2px rgba(6, 40, 30, 0.04),
+    0 8px 20px -8px rgba(6, 40, 30, 0.1);
+  --field-bg: var(--white, #ffffff);
+  --field-border: #d7dbd9;
+  --field-disabled-bg: #f4f5f5;
+  --muted: var(--text-muted, #6c757d);
+  --body-text: var(--charcoal, #174243);
+  --accent: var(--dark-green, #017151);
+  --accent-soft: rgba(1, 114, 81, 0.12);
+  --error: #c0392b;
+  --error-bg: #fdecea;
+  --ok-bg: #f2f9f5;
+  --ok-border: #bfe3cf;
+  --notice-bg: #f4f6f5;
+  --banner-bg: #e9f3ee;
+  /* Matches --panel-edge in light mode so the banner and the panels below it
+     are edged identically, but stays a separate token because the dark theme
+     needs a green edge here and a neutral one on the panels. */
+  --banner-border: rgba(6, 40, 30, 0.07);
+
+  /* Type scale. Applied across the whole page rather than only the questions,
+     which is what made everything else read as thin by comparison. Four sizes
+     and three weights — enough to establish rank, few enough to stay coherent. */
+  --text-heading: 1.15rem;
+  --text-body: 1rem;
+  --text-meta: 0.875rem;
+  --text-micro: 0.78rem;
+
+  /* Set here rather than globally: main.css uses Arial platform-wide, and
+     changing that affects every other team's pages. A system stack renders
+     noticeably sharper than Arial on Windows at no loading cost. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  color: var(--body-text);
+  /* Overrides main.css's shared .content-area rule for this page only — the
+     scoped attribute wins on specificity, so no other page is affected. */
+  background-color: var(--page-bg);
+}
+
+/* Dark theme. The platform opts in with <html data-theme="dark">, so the
+   overrides hang off that rather than prefers-color-scheme. */
+:root[data-theme='dark'] .content-area {
+  /* Let the app shell paint the dark ground rather than restating its value
+     here, so the page cannot drift out of step if the shell's dark grey
+     changes. A drop shadow needs a lighter surface to darken, so on a dark
+     ground it does nothing but soften the edge — the border carries the
+     separation instead. */
+  --page-bg: transparent;
+  --panel-edge: var(--panel-border);
+  --panel-shadow: none;
+  --field-bg: #101817;
+  --field-border: #33403c;
+  --field-disabled-bg: #131b19;
+  --accent-soft: rgba(1, 114, 81, 0.28);
+  --error: #f87171;
+  --error-bg: rgba(248, 113, 113, 0.12);
+  --ok-bg: rgba(1, 114, 81, 0.14);
+  --ok-border: rgba(1, 114, 81, 0.45);
+  --notice-bg: rgba(255, 255, 255, 0.04);
+  --banner-bg: rgba(1, 114, 81, 0.16);
+  --banner-border: rgba(1, 114, 81, 0.35);
+}
+
+/* Matches the Events page header treatment: title, muted subtitle, and the
+   content starting immediately underneath. */
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: var(--gap-lg);
+}
+
+/* Brand banner, echoing the Qualtrics form's header strip — but tinted rather
+   than solid: the platform already has a full-width green bar directly above,
+   and two saturated greens stacked read as heavy. */
+.portal-banner {
+  background: var(--banner-bg);
+  border: 1px solid var(--banner-border);
+  padding: var(--gap-lg) var(--gap-xl);
+  border-radius: 12px;
+  /* Same lift as the panels below it: the banner is a surface on the page,
+     not a stripe painted onto it, so it should cast the same shadow. */
+  box-shadow: var(--panel-shadow);
+}
+
+
+.page-head h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+}
+
+.portal-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+/* Matches the banner proportions of the Qualtrics form, whose theme sets the
+   logo at 58px. The title previously sat at the same weight as section
+   headings, so the page had no clear top level. */
+.portal-brand__logo {
+  height: 62px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
+}
+
+.portal-brand__title {
+  margin: 0;
+  color: var(--body-text);
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+/* Matches the Qualtrics banner, whose .headerSubtitle is 16px italic serif
+   ("Lyon, Georgia, serif"). Lyon is a licensed University of Sydney face and
+   is not ours to ship, so their own Georgia fallback leads instead. */
+.portal-brand__subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--accent);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.05rem;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.submission-due {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  font-size: var(--text-meta);
+  text-align: right;
+}
+
+.submission-due__date {
+  font-size: var(--text-body);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.submission-due__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.submission-due__label {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: var(--text-micro);
+  letter-spacing: 0.04em;
+}
+
 .submission-back {
-  color: var(--primary-green, #0f6b4f);
+  color: var(--accent);
   text-decoration: none;
   font-size: 0.9rem;
+  margin-right: auto;
 }
 
-.submission-header {
+.status-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  margin: 0.5rem 0 1rem;
+  /* Matches the step buttons' left padding so the badge sits on the same
+     vertical line as the numbered step markers below it. */
+  padding: 0 0.9rem;
+  margin-bottom: var(--gap-lg);
+  font-size: var(--text-meta);
+  color: var(--muted);
 }
 
-.submission-heading {
-  font-size: 1.5rem;
+/* Deliberately the same 24px disc as .submission-step__index: the status and
+   the steps then read as one column of markers rather than two unrelated
+   elements that happen to be stacked. */
+.status-line__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.status-line__state {
   font-weight: 700;
-  margin: 0;
+  font-size: var(--text-body);
+  color: var(--body-text);
+  letter-spacing: -0.005em;
 }
 
-.submission-deadline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+.status-line__detail::before {
+  content: '· ';
+}
+
+.status-line__action {
+  margin-left: auto;
+}
+
+/* Submitted is the state worth confirming at a glance, so it fills in — the
+   same promotion the active step marker gets. */
+.status-line.is-submitted .status-line__icon {
+  background: var(--accent);
+  color: #fff;
+}
+
+.status-line.is-submitted .status-line__state {
+  color: var(--accent);
+}
+
+.submission-remaining {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  margin-left: 0.35rem;
+}
+
+.submission-remaining.is-near {
+  color: var(--error);
+  font-weight: 600;
 }
 
 .submission-closed {
-  border-left: 4px solid var(--primary-green, #0f6b4f);
+  padding: 0.75rem 1rem;
+  margin-bottom: var(--gap-lg);
+  border-radius: 8px;
+  border-left: 4px solid var(--accent);
+  background: var(--notice-bg);
+  font-size: var(--text-meta);
+  font-weight: 600;
 }
 
 .submission-message {
@@ -708,18 +1393,26 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.5rem 0.85rem;
-  margin-bottom: 1rem;
-  border-radius: 6px;
-  border-left: 4px solid var(--primary-green, #0f6b4f);
-  background: #f2f8f5;
+  padding: 0.65rem 0.95rem;
+  margin-bottom: var(--gap-lg);
+  border-radius: 8px;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  /* --ok-bg/--ok-border already carry a dark-mode variant (a translucent
+     green wash rather than restating a colour), but sat unused: this banner
+     hardcoded a light-only hex instead, and with no colour of its own it fell
+     back to --body-text — which flips near-white for dark mode, so white text
+     landed on a near-white background and the message read as blank. */
+  border-left: 4px solid var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--accent);
   font-size: 0.9rem;
 }
 
 .submission-message--error {
-  border-left-color: #c0392b;
-  background: #fdecea;
-  color: #c0392b;
+  border-left-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
 }
 
 .submission-message__close {
@@ -738,23 +1431,28 @@ onBeforeUnmount(() => {
 }
 
 .submission-count {
-  font-size: 0.8rem;
-  color: #4b5563;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  color: var(--body-text);
   margin: 0.3rem 0 0;
   font-variant-numeric: tabular-nums;
 }
 
-.submission-count.is-near-limit {
-  color: #b45309;
+.submission-count.is-over-limit {
+  color: var(--error);
   font-weight: 600;
 }
 
 /* Step strip */
+/* Tabs on a shared rule, rather than three separate boxes: an underline marks
+   the active one, which is quieter than a bordered card each and makes the
+   strip read as navigation instead of content. */
 .submission-steps {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap-lg);
   flex-wrap: wrap;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .submission-step {
@@ -763,103 +1461,188 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.6rem;
   padding: 0.7rem 0.9rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fff;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
   cursor: pointer;
   text-align: left;
   font: inherit;
+  color: var(--body-text);
+  margin-bottom: -1px;
 }
 
 .submission-step:hover {
-  border-color: var(--primary-green, #0f6b4f);
+  color: var(--accent);
 }
 
 .submission-step.is-active {
-  border-color: var(--primary-green, #0f6b4f);
-  box-shadow: inset 0 -3px 0 var(--primary-green, #0f6b4f);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .submission-step__index {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: #eef2f1;
+  background: var(--accent-soft);
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
+/* Only the step you are on is highlighted. Marking the ones behind it as well
+   meant the highlighting changed depending on which direction you arrived
+   from — going back un-filled steps you had already visited. */
 .submission-step.is-active .submission-step__index {
-  background: var(--primary-green, #0f6b4f);
+  background: var(--accent);
   color: #fff;
 }
 
 .submission-step__label {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: var(--text-body);
   flex: 1;
 }
 
 .submission-step__state {
-  font-size: 0.75rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
+  font-size: var(--text-micro);
+  color: var(--muted);
   white-space: nowrap;
 }
 
-.submission-step__state.is-done {
-  background: #e6f4ec;
-  color: #0f6b4f;
+
+/* One container rule for the whole page. Previously some blocks were `.card`,
+   some carried a green left border and some neither, so nothing read as more
+   important than anything else. */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+  /* Lifts the white panel off the tinted ground. The hairline border is kept
+     as well as the shadow: shadow alone leaves the top edge soft, and the two
+     together are what read as crisp rather than floating. */
+  box-shadow: var(--panel-shadow);
+  /* Generous inside padding does more for a long form than any amount of
+     styling: it is what stops six stacked answers reading as a wall. */
+  padding: var(--gap-xl);
+  margin-bottom: var(--gap-lg);
 }
 
-.submission-step__state.is-todo {
-  background: #fdecea;
-  color: #c0392b;
+/* Section header, in the shape the Qualtrics form uses: a substantial title
+   with one supporting line under it. This is the page's second-level voice —
+   clearly below the portal title, clearly above a question label. */
+.section-head {
+  margin: 0 0 var(--gap-xl);
+  padding-bottom: var(--gap-md);
+  border-bottom: 1px solid var(--panel-border);
 }
 
-.submission-step__state.is-neutral {
-  background: #f1f2f4;
-  color: #6b7280;
+.section-head__title {
+  margin: 0;
+  font-size: clamp(1.35rem, 1.9vw, 1.65rem);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
-.submission-instructions {
-  border-left: 4px solid var(--primary-green, #0f6b4f);
+.section-head__sub {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: var(--text-body);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 75ch;
 }
 
-.submission-instructions p {
-  margin: 0.4rem 0 0;
-  color: #4b5563;
+.panel__heading {
+  margin: 0 0 0.3rem;
+  font-size: var(--text-heading);
+  font-weight: 700;
+  line-height: 1.3;
 }
 
-.submission-field {
-  margin-bottom: 1.25rem;
+/* Each question is its own block of thought; the space between them is what
+   separates six answers into six tasks rather than one long page. */
+.submission-field + .submission-field {
+  margin-top: var(--gap-2xl);
 }
 
 .submission-label {
   display: block;
+  font-weight: 700;
+  font-size: var(--text-heading);
+  line-height: 1.35;
+  margin-bottom: 0.55rem;
+}
+
+/* A field inside a section, not a section of its own. Question labels use
+   .submission-label at heading size; reusing that here made the prototype link
+   shout louder than the Prototype heading above it. */
+.field-label {
+  display: block;
   font-weight: 600;
+  font-size: var(--text-meta);
+  color: var(--body-text);
   margin-bottom: 0.4rem;
 }
 
-.submission-textarea {
-  width: 100%;
-  resize: vertical;
-}
-
 .submission-muted {
-  color: #6b7280;
-  font-size: 0.85rem;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  line-height: 1.5;
   margin: 0.2rem 0;
 }
 
+/* Both the textareas and the platform's own .form-control inputs: without the
+   background and colour set explicitly they stay white in the dark theme,
+   which is the one combination that is genuinely unreadable. */
+.submission-textarea,
+.content-area .form-control {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: var(--field-bg);
+  color: var(--body-text);
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.55;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.submission-textarea {
+  resize: vertical;
+}
+
+.content-area .form-control::placeholder,
+.submission-textarea::placeholder {
+  color: var(--muted);
+}
+
+/* A visible focus state matters on a form this long — without it there is no
+   indication of which of six boxes has the cursor. */
+.submission-textarea:focus,
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.submission-textarea:disabled {
+  background: var(--field-disabled-bg);
+  color: var(--body-text);
+}
+
+
+/* A quiet marker rather than a badge — it appears beside most labels, so
+   anything louder reads as an error state on a form that is merely blank. */
 .submission-required {
-  color: #c0392b;
-  font-size: 0.75rem;
+  color: var(--error);
   font-weight: 600;
-  margin-left: 0.4rem;
+  margin-left: 0.2rem;
+  cursor: help;
 }
 
 .submission-slot {
@@ -869,7 +1652,7 @@ onBeforeUnmount(() => {
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.9rem 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .submission-slot--plain {
@@ -887,30 +1670,59 @@ onBeforeUnmount(() => {
 }
 
 .submission-file {
-  margin: 0.3rem 0 0;
-  font-size: 0.9rem;
+  margin: 0.35rem 0 0;
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
-.submission-preview {
+/* Mirrors the resource library's preview panel so a file looks the same
+   wherever it is viewed. The panel carries the border and clips the frame,
+   which is why the frame itself has none. */
+.preview-panel {
+  background: var(--panel-bg);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow, rgba(0, 0, 0, 0.08));
+  min-height: 560px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.preview-header {
+  align-items: center;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+}
+
+.preview-header h2 {
+  font-size: var(--text-heading);
+  font-weight: 700;
+  margin: 0;
+}
+
+.preview-frame {
+  border: 0;
+  display: block;
+  height: 620px;
   width: 100%;
-  height: 60vh;
-  min-height: 320px;
-  margin-top: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
 }
 
-.submission-preview--tall {
-  height: 72vh;
-}
-
-.submission-preview-empty {
-  padding: 2.5rem 1rem;
+.preview-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 480px;
+  justify-content: center;
+  padding: 2rem;
   text-align: center;
-  border: 1px dashed #d1d5db;
-  border-radius: 6px;
-  margin-top: 0.75rem;
+}
+
+.preview-empty i {
+  color: var(--accent);
+  font-size: 2rem;
 }
 
 .submission-actions {
@@ -922,13 +1734,12 @@ onBeforeUnmount(() => {
 }
 
 .submission-savestate {
-  font-size: 0.85rem;
-  color: #6b7280;
-  margin-right: auto;
+  font-size: var(--text-meta);
+  color: var(--muted);
 }
 
 .submission-savestate.is-error {
-  color: #c0392b;
+  color: var(--error);
   font-weight: 600;
 }
 </style>

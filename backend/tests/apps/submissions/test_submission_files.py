@@ -18,6 +18,8 @@ from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.storage import SUBMISSION_FILE_SERVICE
 from apps.users.models import User
+
+from .seed_data import install_question_set
 from rest_framework.test import APIClient
 
 
@@ -53,6 +55,7 @@ class SubmissionFileTests(TestCase):
             group=self.group, user=self.student, membership_role="student"
         )
 
+        install_question_set()
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=1), is_active=True)
 
         self.client = APIClient()

@@ -4,6 +4,7 @@ from .views import (
     GroupSubmissionFileDownloadView,
     GroupSubmissionFilePreviewView,
     GroupSubmissionFileView,
+    GroupSubmissionReopenView,
     GroupSubmissionSubmitView,
     GroupSubmissionView,
 )
@@ -21,6 +22,11 @@ urlpatterns = [
         "groups/<int:group_id>/submit/",
         GroupSubmissionSubmitView.as_view(),
         name="group-submission-submit",
+    ),
+    path(
+        "groups/<int:group_id>/reopen/",
+        GroupSubmissionReopenView.as_view(),
+        name="group-submission-reopen",
     ),
     # ``slot`` is one of poster / report / prototype; the view 404s anything else.
     path(

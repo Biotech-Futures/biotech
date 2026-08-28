@@ -1,0 +1,213 @@
+{% comment %}
+Standalone rather than {% extends "emails/base.html" %}.
+
+The shared base paints a solid dark-green header bar, hardcoded rather than
+exposed as a block, and the organisation's own emails have no such bar — logo
+and wordmark sit directly on the card. Matching the house style therefore meant
+either editing the shared base, which restyles seven templates across five
+other apps, or owning the whole shell here. This file takes the second option
+so nothing outside this feature is affected.
+
+The trade-off: if the shared base is later restyled, this template will not
+follow. That is accepted deliberately — email chrome is being unified during
+the integration step, at which point this can be folded back into whatever
+base survives.
+
+Wording follows the copy the client supplied. Component statuses are
+"Submitted" or "Absent" — their preferred term for not-yet-submitted, which is
+not deadline-sensitive. Keep in step with submission_confirmation.txt.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{{ BRAND_NAME }}: Submission received for {{ GROUP_NAME }}</title>
+  <style>
+    body, table, td, a { -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+    table, td { mso-table-lspace:0pt; mso-table-rspace:0pt; }
+    img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }
+    body { margin:0 !important; padding:0 !important; width:100% !important; }
+    a { text-decoration:none; }
+    @media only screen and (max-width: 600px) {
+      .shell    { padding: 12px 8px !important; }
+      .card     { width: 100% !important; }
+      .pad      { padding: 26px 22px !important; }
+      .brand    { font-size: 22px !important; }
+      .logo     { height: 40px !important; max-height: 40px !important; }
+      .headline { font-size: 21px !important; }
+      .cta      { display:block !important; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background:#ffffff; color:#3c3c3c; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+
+  <!-- Inbox preview line; hidden in the body itself. -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
+    We&rsquo;ve received your submission for {{ BRAND_NAME }} {{ YEAR }}. A summary of the components recorded for your team is inside.
+  </div>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff; border-collapse:collapse;">
+    <tr>
+      <td class="shell" align="center" style="padding:24px 12px;">
+
+        <!-- The card is the tinted surface, on a white page: the inverse of the
+             shared base, and what the organisation's own emails do. -->
+        <table role="presentation" class="card" width="600" cellspacing="0" cellpadding="0" border="0" style="width:600px; max-width:600px; background:#f1f1f1; border-collapse:separate;">
+          <tr>
+            <td class="pad" style="padding:38px 44px 34px 44px;">
+
+              <!-- Masthead: logo beside the wordmark, no colour bar. -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td valign="middle" style="padding:0 14px 0 0;">
+                    <img class="logo" src="{{ LOGO_URL }}" alt="" height="52" style="height:52px; max-height:52px; display:block; border:0;">
+                  </td>
+                  <td valign="middle">
+                    <p class="brand" style="margin:0; color:#4a4a4a; font-size:27px; line-height:1.2; font-weight:600; letter-spacing:-0.2px;">
+                      {{ BRAND_NAME }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:34px 0 0 0; color:#7a7a7a; font-size:15px; line-height:1.5;">
+                Hi Group {{ GROUP_NAME }},
+              </p>
+
+              <!-- Two-tone headline, the house pattern: statement in near-black,
+                   the brand name carried in green. -->
+              <h1 class="headline" style="margin:14px 0 0 0; color:#3c3c3c; font-size:25px; line-height:1.32; font-weight:600; letter-spacing:-0.2px;">
+                Thank you for submitting your work for
+                <span style="color:#2f9e63;">{{ BRAND_NAME }}.</span>
+              </h1>
+
+              <p style="margin:16px 0 0 0; color:#5c5c5c; font-size:13.5px; line-height:1.62;">
+                We&rsquo;ve received your submission for {{ BRAND_NAME }} {{ YEAR }}. A summary of the
+                components currently recorded for your team is below. Should you have any questions
+                please don&rsquo;t hesitate to reach out to our team at
+                <a href="mailto:{{ CONTACT_EMAIL }}" style="color:#2f9e63; text-decoration:underline;">{{ CONTACT_EMAIL }}</a>.
+              </p>
+
+              <!-- Required components -->
+              <p style="margin:26px 0 0 0; color:#3c3c3c; font-size:13px; line-height:1.4; font-weight:700; letter-spacing:0.4px; text-transform:uppercase;">
+                Required components
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse; margin-top:6px;">
+                {% for item in REQUIRED_COMPONENTS %}
+                <tr>
+                  <td style="padding:11px 0; border-top:1px solid #dcdcdc;">
+                    <p style="margin:0; color:#3c3c3c; font-size:14px; line-height:1.45; font-weight:600;">
+                      {{ item.label }}
+                    </p>
+                    <p style="margin:3px 0 0 0; font-size:13px; line-height:1.5; color:{% if item.submitted %}#2f9e63{% else %}#c0392b{% endif %};">
+                      Status: <strong>{{ item.status }}</strong>
+                    </p>
+                    {% if item.detail %}
+                    <p style="margin:3px 0 0 0; color:#8a8a8a; font-size:12px; line-height:1.5;">
+                      {{ item.detail }}
+                    </p>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                <tr><td style="border-top:1px solid #dcdcdc; font-size:0; line-height:0;">&nbsp;</td></tr>
+              </table>
+              <p style="margin:8px 0 0 0; color:#8a8a8a; font-size:12px; line-height:1.55;">
+                Both the Poster and SAQs are required for your submission to be considered complete.
+              </p>
+
+              <!-- Optional components -->
+              <p style="margin:24px 0 0 0; color:#3c3c3c; font-size:13px; line-height:1.4; font-weight:700; letter-spacing:0.4px; text-transform:uppercase;">
+                Optional components
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse; margin-top:6px;">
+                {% for item in OPTIONAL_COMPONENTS %}
+                <tr>
+                  <td style="padding:11px 0; border-top:1px solid #dcdcdc;">
+                    <p style="margin:0; color:#3c3c3c; font-size:14px; line-height:1.45; font-weight:600;">
+                      {{ item.label }}
+                    </p>
+                    <p style="margin:3px 0 0 0; font-size:13px; line-height:1.5; color:{% if item.submitted %}#2f9e63{% else %}#8a8a8a{% endif %};">
+                      Status: <strong>{{ item.status }}</strong>
+                    </p>
+                    {% if item.detail %}
+                    <p style="margin:3px 0 0 0; color:#8a8a8a; font-size:12px; line-height:1.5; word-break:break-word;">
+                      {{ item.detail }}
+                    </p>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                <tr><td style="border-top:1px solid #dcdcdc; font-size:0; line-height:0;">&nbsp;</td></tr>
+              </table>
+              <p style="margin:8px 0 0 0; color:#8a8a8a; font-size:12px; line-height:1.55;">
+                The Scientific Report and Prototype are optional and will not affect whether your
+                submission is considered complete.
+              </p>
+
+              {% if INCOMPLETE %}
+              <!-- Only when something required is missing: this warning on a
+                   complete submission would undermine the confirmation. -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fdf0ee; border:1px solid #f0cdc8; border-collapse:separate; margin-top:20px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="margin:0; color:#c0392b; font-size:13.5px; line-height:1.5; font-weight:700;">
+                      Your submission is not yet complete
+                    </p>
+                    <p style="margin:5px 0 0 0; color:#6b5450; font-size:12.5px; line-height:1.55;">
+                      Please review the statuses above carefully. Any required component shown as
+                      Absent must be submitted before the deadline.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              <p style="margin:20px 0 0 0; color:#5c5c5c; font-size:13.5px; line-height:1.62;">
+                You can continue to update or complete your submission up until the deadline on
+                <strong style="color:#3c3c3c;">{{ DEADLINE }}</strong>.
+              </p>
+
+              {% if SUBMISSION_URL %}
+              <!-- Soft-filled outlined button, matching the house call to action. -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="border-collapse:separate; margin:24px auto 4px auto;">
+                <tr>
+                  <td align="center" style="background:#d8f0e2; border:1px solid #a9d9bf; padding:12px 30px;">
+                    <a class="cta" href="{{ SUBMISSION_URL }}" style="color:#23794a; font-size:14px; line-height:1.2; font-weight:600; text-decoration:none; display:inline-block;">
+                      View your submission
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              <p style="margin:24px 0 0 0; color:#5c5c5c; font-size:13.5px; line-height:1.62;">
+                Thank you for the work you and your team have put into the {{ BRAND_NAME }} Challenge.
+                We&rsquo;re looking forward to seeing your ideas!
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#5c5c5c; font-size:13.5px; line-height:1.62;">
+                Kind regards,<br>
+                The {{ BRAND_NAME }} Team
+              </p>
+
+              <hr style="border:0; height:1px; background:#dcdcdc; margin:26px 0 0 0;">
+
+              <p style="margin:14px 0 0 0; color:#9a9a9a; font-size:10.5px; line-height:1.6;">
+                Copyright &copy; {{ YEAR }} {{ BRAND_NAME }}, NSW 2006 Australia. Please add
+                <a href="mailto:{{ SENDER_EMAIL }}" style="color:#2f9e63; text-decoration:underline;">{{ SENDER_EMAIL }}</a>
+                to your address book or senders safe list to make sure you continue to see service
+                notification emails in the future.
+                <a href="https://biotechfutures.org" style="color:#2f9e63; text-decoration:underline;">{{ BRAND_NAME }}</a>
+              </p>
+
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

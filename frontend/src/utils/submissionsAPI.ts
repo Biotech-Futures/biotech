@@ -1,4 +1,4 @@
-import { apiErrorFromResponse } from './apiError'
+import { ApiError, apiErrorFromResponse, normalizeApiErrorBody } from './apiError'
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -21,13 +21,25 @@ export interface SubmissionDeadline {
 }
 
 export interface SubmissionRecord {
+  /** The working copy, edited while the entry is in progress. */
   answers: Record<string, string>
   poster: StoredFile | null
   report: StoredFile | null
   prototype: StoredFile | null
   prototype_url: string
+  /** What was actually submitted; unchanged while a revision is in progress. */
+  submitted_answers: Record<string, string> | null
+  submitted_poster: StoredFile | null
+  submitted_report: StoredFile | null
+  submitted_prototype: StoredFile | null
+  submitted_prototype_url: string
   submitted_at: string | null
+  submitted_by_name: string
+  reopened_at: string | null
+  status: 'in_progress' | 'submitted'
   is_submitted: boolean
+  /** Submitted and not reopened — editing is closed. */
+  is_locked: boolean
   is_late: boolean
   updated_at: string
 }
@@ -38,15 +50,16 @@ export interface SubmissionQuestion {
   prompt: string
   help_text: string
   is_required: boolean
-  max_length: number | null
+  /** Word limit, matching the rule the competition publishes. Null = no limit. */
+  max_words: number | null
 }
 
 export interface SubmissionDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
   questions: SubmissionQuestion[]
-  /** Guidance per form section, editable by admins. */
-  instructions: Record<string, string>
+  /** Section title and supporting line, editable by admins. */
+  instructions: Record<string, { heading: string; body: string }>
   /** Upload ceiling in bytes per slot, set by the server. PDFs are held to a
    *  tighter limit than the prototype. */
   max_file_sizes: Record<SubmissionSlot, number>
@@ -119,18 +132,84 @@ export function submitEntry(groupId: number | string) {
   })
 }
 
-export function uploadSubmissionFile(
+/** Reopen a submitted entry for revision, leaving the submitted copy in place. */
+export function reopenEntry(groupId: number | string) {
+  return requestJson<SubmissionWriteResult>(`${base(groupId)}/reopen/`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+}
+
+/**
+ * Upload one attachment, reporting progress as it goes.
+ *
+ * Uses XMLHttpRequest rather than fetch because only XHR exposes upload
+ * progress events. A large poster on a slow connection otherwise shows nothing
+ * at all for a minute, which people read as the page having frozen.
+ */
+export async function uploadSubmissionFile(
   groupId: number | string,
   slot: SubmissionSlot,
-  file: File
-) {
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<SubmissionWriteResult> {
+  const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+  if (!csrfReady) {
+    throw new Error('Could not initialize a secure session. Please refresh and try again.')
+  }
+
   const body = new FormData()
   body.append('file', file)
-  // No Content-Type header: the browser sets it with the multipart boundary,
-  // and overriding it makes the upload unparseable on the server.
-  return requestJson<SubmissionWriteResult>(`${base(groupId)}/files/${slot}/`, {
-    method: 'POST',
-    body
+  // No Content-Type header is set: the browser adds it along with the
+  // multipart boundary, and overriding it makes the upload unparseable.
+  const headers = buildSessionHeaders({
+    includeCSRF: true,
+    isFormData: true,
+    headers: { Accept: 'application/json' }
+  })
+
+  return new Promise<SubmissionWriteResult>((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', `${API_BASE_URL}${base(groupId)}/files/${slot}/`)
+    request.withCredentials = true
+    headers.forEach((value, key) => {
+      if (value) request.setRequestHeader(key, value)
+    })
+
+    request.upload.addEventListener('progress', (event) => {
+      if (!onProgress || !event.lengthComputable) return
+      onProgress(Math.round((event.loaded / event.total) * 100))
+    })
+
+    request.addEventListener('load', () => {
+      let parsed: unknown = null
+      try {
+        parsed = request.responseText ? JSON.parse(request.responseText) : null
+      } catch {
+        parsed = null
+      }
+      if (request.status >= 200 && request.status < 300) {
+        resolve(parsed as SubmissionWriteResult)
+        return
+      }
+      // Same error shape the fetch-based calls produce, so callers can read
+      // `.message` and `.body` without caring which transport was used.
+      reject(
+        new ApiError(
+          normalizeApiErrorBody(
+            parsed,
+            `Upload failed: ${request.status}`,
+            request.getResponseHeader('X-Request-ID') || undefined,
+            request.status
+          ),
+          request.status
+        )
+      )
+    })
+
+    request.addEventListener('error', () => reject(new Error('Network error during upload.')))
+    request.addEventListener('abort', () => reject(new Error('Upload cancelled.')))
+    request.send(body)
   })
 }
 
@@ -144,10 +223,8 @@ export function submissionFileDownloadUrl(groupId: number | string, slot: Submis
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/download/`
 }
 
-/** Slots the browser can display inline. The prototype accepts arbitrary file
- *  types, so it is download-only — see the preview view for the reasoning. */
-export const PREVIEWABLE_SLOTS: SubmissionSlot[] = ['poster', 'report']
-
+/** Inline display, for the poster and report only — the prototype accepts
+ *  arbitrary file types and the endpoint refuses to render it. */
 export function submissionFilePreviewUrl(groupId: number | string, slot: SubmissionSlot) {
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/preview/`
 }

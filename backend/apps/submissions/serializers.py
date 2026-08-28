@@ -8,14 +8,22 @@ class SubmissionQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SubmissionQuestion
-        fields = ["key", "prompt", "help_text", "is_required", "max_length"]
+        fields = ["key", "prompt", "help_text", "is_required", "max_words"]
         read_only_fields = fields
 
 
 class SubmissionSerializer(serializers.ModelSerializer):
-    """Read shape for a team's current entry."""
+    """Read shape for a team's entry, working copy and submitted copy alike.
+
+    Both are sent: a locked entry displays the submitted copy, while a reopened
+    one shows the draft being edited. Keeping them separate is what lets an
+    abandoned revision leave the submitted version intact.
+    """
 
     is_submitted = serializers.BooleanField(read_only=True)
+    is_locked = serializers.BooleanField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    submitted_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
@@ -25,12 +33,29 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "report",
             "prototype",
             "prototype_url",
+            "submitted_answers",
+            "submitted_poster",
+            "submitted_report",
+            "submitted_prototype",
+            "submitted_prototype_url",
             "submitted_at",
+            "submitted_by_name",
+            "reopened_at",
+            "status",
             "is_submitted",
+            "is_locked",
             "is_late",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_submitted_by_name(self, obj) -> str:
+        """Who submitted, for the "submitted by X on Y" line."""
+        user = obj.submitted_by
+        if user is None:
+            return ""
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        return full_name or user.email
 
 
 class SubmissionDraftSerializer(serializers.Serializer):
@@ -66,11 +91,20 @@ class SubmissionDraftSerializer(serializers.Serializer):
                 f"Unknown question{'s' if len(unknown) > 1 else ''}: {', '.join(unknown)}."
             )
 
+        # Each answer is measured against its own limit. Worth stating because
+        # the client's Qualtrics form gets this wrong: every question there
+        # validates the length of the *first* answer, so in practice only that
+        # one is capped.
         too_long = []
         for key, answer in value.items():
-            limit = questions[key].max_length
-            if limit and len(answer) > limit:
-                too_long.append(f"{key} (max {limit} characters)")
+            question = questions[key]
+            limit = question.max_words
+            if limit and SubmissionQuestion.count_words(answer) > limit:
+                words = SubmissionQuestion.count_words(answer)
+                # The question's own wording, not its database key: a student
+                # has no reason to know "solution_purpose" means "What does
+                # your solution do?" — this is meant to be read, not debugged.
+                too_long.append(f'"{question.prompt}" ({words} words, limit {limit})')
         if too_long:
             raise serializers.ValidationError(
                 f"Answer too long for {', '.join(too_long)}."

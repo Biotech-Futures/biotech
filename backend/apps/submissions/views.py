@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -11,12 +12,15 @@ from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
 
+from .emails import send_submission_confirmation
 from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
+    NotSubmittedYet,
     PosterRequired,
     RequiredAnswersMissing,
     StudentRoleRequired,
+    SubmissionLocked,
     SubmissionsClosed,
     SubmissionsNotConfigured,
 )
@@ -27,7 +31,7 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import deadline_for_group
+from .services import current_cohort, deadline_for_group
 from .storage import SUBMISSION_FILE_SERVICE
 from .uploads import PDF_SLOTS, SLOTS, max_sizes, validate_submission_file
 
@@ -37,11 +41,23 @@ def _get_group(group_id: int) -> Groups:
 
 
 def _require_can_view(user, group_id: int) -> None:
-    """Members of the team can read it; so can admins, for oversight."""
+    """Students on the team can read it; so can admins, for oversight.
+
+    Mentors and supervisors are deliberately excluded even though they are
+    group members. The programme treats submissions as none of their business:
+    mentors are volunteers who guide the group's work, and supervisors are a
+    pastoral point of contact. Neither is involved in assessment, so a team's
+    entry is not theirs to read.
+
+    Hiding the tab in the navigation would not achieve this on its own — the
+    page is reachable by URL — so the rule lives here.
+    """
     if is_admin(user):
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
+    if not user_has_role(user, ROLE_STUDENT):
+        raise StudentRoleRequired()
 
 
 def _require_can_edit(user, group_id: int) -> None:
@@ -57,6 +73,16 @@ def _require_can_edit(user, group_id: int) -> None:
         raise GroupAccessDenied()
     if not user_has_role(user, ROLE_STUDENT):
         raise StudentRoleRequired()
+
+
+def _require_unlocked(submission) -> None:
+    """Refuse edits to an entry that has been submitted.
+
+    Reopening is a deliberate act, so an already-submitted entry cannot drift
+    through stray saves or uploads — a student has to say they are revising it.
+    """
+    if submission is not None and submission.is_locked:
+        raise SubmissionLocked()
 
 
 def _require_open(group_id: int):
@@ -99,9 +125,12 @@ class GroupSubmissionView(APIView):
                 SubmissionQuestion.active(), many=True
             ).data,
             # Keyed by section so the page can look up guidance for whichever
-            # tab is showing. A missing section simply renders nothing.
+            # step is showing. A missing section simply renders nothing.
             "instructions": {
-                instruction.section: instruction.body
+                instruction.section: {
+                    "heading": instruction.heading,
+                    "body": instruction.body,
+                }
                 for instruction in SubmissionInstruction.objects.all()
             },
             # Published so the page can state each limit and refuse an
@@ -125,14 +154,35 @@ class GroupSubmissionView(APIView):
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
 
-        submission, _ = Submission.objects.get_or_create(group=group)
-        # Only touch fields the client actually sent, so a client updating the
-        # link cannot blank out the answers by omitting them.
-        if "answers" in data:
-            submission.answers = data["answers"]
-        if "prototype_url" in data:
-            submission.prototype_url = data["prototype_url"]
-        submission.save()
+        # Locked for the read-modify-write below. Without it two teammates
+        # auto-saving at the same moment both read the stored answers, both
+        # merge into their own copy, and the second save silently discards the
+        # first — the exact failure the merge is meant to prevent.
+        #
+        # SQLite (used by the test settings) has no row locking, so this is a
+        # no-op there; the protection is real on Postgres, which is what runs in
+        # production. The tests below cover the merge semantics, not the lock.
+        with transaction.atomic():
+            submission, _ = (
+                Submission.objects.select_for_update().get_or_create(group=group)
+            )
+            _require_unlocked(submission)
+
+            # Only touch fields the client actually sent, so a client updating
+            # the link cannot blank out the answers by omitting them.
+            if "answers" in data:
+                # Merged, not replaced. A save carries only the answers that
+                # changed, so two people working on different questions no
+                # longer overwrite each other — which is what teams actually do.
+                #
+                # The trade-off: an omitted key means "leave it alone", so
+                # clearing an answer requires sending an explicit empty string
+                # rather than dropping the key. The page does that naturally,
+                # because an emptied textarea is "" rather than absent.
+                submission.answers = {**(submission.answers or {}), **data["answers"]}
+            if "prototype_url" in data:
+                submission.prototype_url = data["prototype_url"]
+            submission.save()
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -165,6 +215,7 @@ class GroupSubmissionFileView(APIView):
         validate_submission_file(uploaded, slot)
 
         submission, _ = Submission.objects.get_or_create(group=group)
+        _require_unlocked(submission)
         previous = getattr(submission, slot) or {}
 
         # stored_file writes the blob first and removes it again if anything
@@ -180,9 +231,15 @@ class GroupSubmissionFileView(APIView):
             submission.save(update_fields=[slot, "updated_at"])
 
         # Only once the new file is safely recorded is the old one discarded —
-        # the reverse order would risk losing both.
+        # the reverse order would risk losing both. A file the submitted copy
+        # still points at is kept regardless: deleting it would destroy part of
+        # what the team actually submitted.
         previous_key = previous.get("storage_key")
-        if previous_key and previous_key != file_data.get("storage_key"):
+        if (
+            previous_key
+            and previous_key != file_data.get("storage_key")
+            and previous_key not in submission.submitted_storage_keys()
+        ):
             SUBMISSION_FILE_SERVICE.delete(previous_key)
 
         return Response({
@@ -197,13 +254,17 @@ class GroupSubmissionFileView(APIView):
         _require_open(group.id)
 
         submission = Submission.objects.filter(group=group).first()
+        _require_unlocked(submission)
         existing = (getattr(submission, slot) or {}) if submission else {}
         if not existing:
             raise FileNotUploadedYet()
 
         setattr(submission, slot, None)
         submission.save(update_fields=[slot, "updated_at"])
-        SUBMISSION_FILE_SERVICE.delete(existing.get("storage_key"))
+        # Kept if the submitted copy still references it — see the upload path.
+        key = existing.get("storage_key")
+        if key and key not in submission.submitted_storage_keys():
+            SUBMISSION_FILE_SERVICE.delete(key)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -256,7 +317,7 @@ class GroupSubmissionFilePreviewView(APIView):
 
 
 class GroupSubmissionSubmitView(APIView):
-    """Mark a team's entry as submitted. Re-submitting simply updates it."""
+    """Complete a submission, taking a copy of what was submitted."""
 
     def post(self, request, group_id: int):
         group = _get_group(group_id)
@@ -264,6 +325,11 @@ class GroupSubmissionSubmitView(APIView):
         _require_open(group.id)
 
         submission, _ = Submission.objects.get_or_create(group=group)
+        if submission.is_locked:
+            # Already submitted and not reopened — resubmitting is an explicit
+            # step, so this is a mistake rather than a no-op.
+            raise SubmissionLocked()
+
         # The poster is the competition's core deliverable, so an entry without
         # one is incomplete rather than merely sparse. Checked here rather than
         # in the browser so it cannot be clicked past.
@@ -276,13 +342,55 @@ class GroupSubmissionSubmitView(APIView):
         if missing:
             raise RequiredAnswersMissing(missing)
 
-        submission.submitted_at = timezone.now()
-        submission.submitted_by = request.user
+        # Files the previous submission relied on but this one does not, taken
+        # before the snapshot is overwritten. They were kept alive through the
+        # revision precisely so that abandoning it lost nothing; now that a new
+        # submission has completed, they are genuinely unused.
+        superseded = submission.submitted_storage_keys()
+
+        submission.snapshot(request.user)
+        # Stamped at submit rather than at creation: a draft may have been
+        # started before the competition's deadline row was configured, and the
+        # cohort a judging tool filters on has to be the competition's year.
+        submission.cohort = current_cohort()
         # Always False while writes are refused after the deadline. The field
         # is kept because it records the state at the time of submitting, which
         # matters if a grace period is ever introduced.
         submission.is_late = False
         submission.save()
+
+        for key in superseded - submission.submitted_storage_keys():
+            SUBMISSION_FILE_SERVICE.delete(key)
+
+        # Sent after the snapshot so the email describes what was actually
+        # recorded. Never raises — a failed send must not fail the submission.
+        send_submission_confirmation(submission)
+
+        return Response({
+            "deadline": _deadline_payload(group.id),
+            "submission": SubmissionSerializer(submission).data,
+        })
+
+
+class GroupSubmissionReopenView(APIView):
+    """Reopen a submitted entry for revision.
+
+    The submitted copy is left exactly as it is: it is replaced only when a new
+    submission completes, so a team that reopens and changes its mind — or runs
+    out of time — still has the entry it submitted.
+    """
+
+    def post(self, request, group_id: int):
+        group = _get_group(group_id)
+        _require_can_edit(request.user, group.id)
+        _require_open(group.id)
+
+        submission = Submission.objects.filter(group=group).first()
+        if submission is None or not submission.is_submitted:
+            raise NotSubmittedYet()
+
+        submission.reopened_at = timezone.now()
+        submission.save(update_fields=["reopened_at", "updated_at"])
 
         return Response({
             "deadline": _deadline_payload(group.id),
