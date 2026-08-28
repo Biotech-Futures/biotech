@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RichEditor } from "@/components/announcement/RichEditor";
 import {
   Select,
   SelectContent,
@@ -337,7 +338,24 @@ function EventForm({
       </EventFormRow>
 
       <EventFormRow label="Description">
-        <Input placeholder="Optional" {...register("description")} />
+        <Controller
+          control={control}
+          name="description"
+          render={({ field }) => (
+            <RichEditor
+              value={field.value ?? ""}
+              onChange={field.onChange}
+              placeholder="Add event details..."
+              allowAttachments={false}
+              allowManualLinks={false}
+            />
+          )}
+        />
+        {errors.description && (
+          <p className="text-sm text-destructive">
+            {errors.description.message}
+          </p>
+        )}
       </EventFormRow>
 
       <EventFormRow label="Image URL">
@@ -1328,7 +1346,11 @@ function EventPage() {
               </p>
             </EventDetailRow>
             <EventDetailRow label="Description">
-              <p>{viewingEvent?.description || "---"}</p>
+              {viewingEvent?.description ? (
+                <RichEditor value={viewingEvent.description} readOnly />
+              ) : (
+                <p>---</p>
+              )}
             </EventDetailRow>
             {viewingEvent?.eventImage && (
               <EventDetailRow label="Image">

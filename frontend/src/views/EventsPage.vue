@@ -226,7 +226,7 @@
           </div>
 
           <p class="event-description">
-            {{ ev.description || defaultShort }}
+            {{ eventDescriptionText(ev.description) }}
           </p>
 
           <div class="event-meta">
@@ -499,9 +499,10 @@
             </span>
           </div>
 
-          <p class="detail-description">
-            {{ selected?.description || defaultLong }}
-          </p>
+          <div
+            class="detail-description detail-description-rich"
+            v-html="eventDescriptionHtml(selected?.description)"
+          ></div>
 
           <div v-if="selected" class="detail-rsvp-panel">
             <div>
@@ -607,6 +608,7 @@ import {
   setEventRsvp
 } from '../utils/eventsAPI'
 import { formatEventDate, formatEventTimeRange } from '../utils/date'
+import { sanitizeRichText } from '../composables/useAnnouncements'
 
 type ViewMode = 'upcoming' | 'mine' | 'past'
 type UserRsvpStatus = 'accepted' | 'tentative' | 'declined'
@@ -650,6 +652,18 @@ const filters = ref({
 const defaultShort = `Join us for this ${BRAND_NAME} session.`
 const defaultLong =
   `This session is part of the ${BRAND_NAME} program. Learn, collaborate, and build your project with mentors and peers.`
+
+const eventDescriptionText = (value?: string | null) => {
+  const source = String(value || '').trim()
+  if (!source) return defaultShort
+
+  const template = document.createElement('template')
+  template.innerHTML = source
+  return (template.content.textContent || '').replace(/\s+/g, ' ').trim() || defaultShort
+}
+
+const eventDescriptionHtml = (value?: string | null) =>
+  sanitizeRichText(String(value || '').trim() || defaultLong)
 const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
   in_person: 'In-person',
   virtual: 'Virtual',
@@ -2085,6 +2099,44 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   color: var(--charcoal);
   line-height: 1.6;
   margin: 1rem 0;
+}
+
+.detail-description-rich :deep(p) {
+  margin: 0.65rem 0;
+}
+
+.detail-description-rich :deep(ul),
+.detail-description-rich :deep(ol) {
+  margin: 0.65rem 0;
+  padding-left: 1.5rem;
+}
+
+.detail-description-rich :deep(a) {
+  color: var(--event-dark-green);
+  text-decoration: underline;
+}
+
+.detail-description-rich :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75rem 0;
+  border-radius: 8px;
+}
+
+.detail-description-rich :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+}
+
+.detail-description-rich :deep(th),
+.detail-description-rich :deep(td) {
+  border: 1px solid var(--border-light);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
 }
 
 .detail-pending-callout,
