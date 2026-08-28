@@ -67,6 +67,7 @@ router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
+  const requiresAdmin = to.meta.requiresAdmin === true
 
   if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
@@ -75,13 +76,19 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/login' : '/dashboard')
+    next('/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
-    next('/login')
+  } else if (requiresAdmin && !auth.isAdmin) {
+    // Admin-only routes are off-limits to non-admins; send members home.
+    next('/dashboard')
+
+  } else if (auth.isAdmin && (to.path === '/groups' || to.path.startsWith('/groups/'))) {
+    // Admins manage groups from /admin/groups; keep them off the member group
+    // pages and send them to the admin dashboard instead.
+    next('/admin')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
@@ -89,12 +96,7 @@ router.beforeEach((to, from, next) => {
       return
     }
 
-    if (auth.isAdmin) {
-      next()
-      return
-    }
-
-    next('/dashboard')
+    next(auth.isAdmin ? '/admin' : '/dashboard')
   } else {
     next()
   }
