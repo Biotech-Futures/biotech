@@ -80,7 +80,7 @@ router.beforeEach((to, from, next) => {
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
-  } else if (to.meta.adminOnly && !auth.isGrader) {
+  } else if (to.meta.adminOnly && !auth.isAdmin) {
     next('/dashboard')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {

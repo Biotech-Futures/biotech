@@ -108,6 +108,17 @@
               </RouterLink>
             </li>
 
+            <li class="sidebar-item" v-if="auth.isAdmin">
+              <RouterLink
+                to="/grading"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/grading') }"
+              >
+                <i class="fas fa-clipboard-check sidebar-icon"></i>
+                <span>Grading</span>
+              </RouterLink>
+            </li>
+
           </ul>
         </nav>
 

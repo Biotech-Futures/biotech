@@ -90,6 +90,24 @@ const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  {
+    // Admin-only grading section. meta.adminOnly is merged into every child
+    // route's meta by Vue Router, so the global guard covers the whole tree.
+    path: '/grading',
+    component: () => import('@/views/grading/GradingPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/grading/by-component' },
+      { path: 'by-component', name: 'grading-by-component', component: () => import('@/views/grading/ByComponentPage.vue') },
+      { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
+      { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
+      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/ComponentGroupMarkingPage.vue') },
+      { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue') },
+      { path: 'release', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
+      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
+      { path: 'settings', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') }
+    ]
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 
