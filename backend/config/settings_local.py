@@ -23,8 +23,19 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 # to happen here rather than in the environment.
 DATABASES["default"]["OPTIONS"]["sslmode"] = os.environ.get("DB_SSLMODE", "disable")
 
-# Use local file storage instead of Azure Blob
-USE_AZURE_BLOB_STORAGE = False
+# Local development is file-backed by default. Set
+# ``USE_AZURE_BLOB_STORAGE=true`` in the ignored backend/.env to exercise the
+# real Azure path. This explicit opt-in prevents a fresh clone from uploading
+# test files to the shared cloud account accidentally.
+USE_AZURE_BLOB_STORAGE = config("USE_AZURE_BLOB_STORAGE", default="false", cast=env_bool)
+if USE_AZURE_BLOB_STORAGE and not (
+    AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
+):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Local Azure Blob Storage requires AZURE_CONNECTION_STRING or both "
+        "AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY."
+    )
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"

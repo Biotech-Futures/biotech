@@ -10,6 +10,7 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.middleware.csrf import get_token
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
@@ -32,6 +33,7 @@ from .serializers import (
     UserRegisterRequestSerializer,
     UserSerializer,
 )
+from .profile_images import save_profile_image
 from apps.common.rbac import is_admin
 from apps.common.pii import email_log_tag
 from config.errors import (
@@ -334,6 +336,21 @@ class MeRetrieveView(generics.RetrieveAPIView):
             serializer.save()
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class ProfileImageUploadView(APIView):
+    """Replace the authenticated user's private profile image."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(request=None, responses={200: UserSerializer})
+    def post(self, request):
+        image = request.FILES.get("image")
+        if image is None:
+            raise serializers.ValidationError({"image": "Select an image to upload."})
+        save_profile_image(user=request.user, uploaded_file=image)
+        return Response(UserSerializer(request.user).data)
     
 class UserRegisterView(APIView):
     """Public student self-registration endpoint.

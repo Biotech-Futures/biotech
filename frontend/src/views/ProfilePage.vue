@@ -239,7 +239,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { buildSessionHeaders } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
@@ -259,7 +259,8 @@ const teamMembers = ref([])
 const teamName = ref('')
 const teamLoading = ref(false)
 const teamError = ref('')
-const avatarUrl = ref(localStorage.getItem('btf-local-profile-avatar') || '/avatars/student-placeholder.png')
+const DEFAULT_PROFILE_AVATAR = '/avatars/student-placeholder.png'
+const avatarUrl = ref(DEFAULT_PROFILE_AVATAR)
 const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
 let statusMessageTimer = null
@@ -359,21 +360,40 @@ const clearStatusMessageTimer = () => {
   statusMessageTimer = null
 }
 
-const selectAvatar = (event) => {
+const selectAvatar = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
     error.value = 'Choose a PNG, JPEG, or WebP image smaller than 5 MB.'
     return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    avatarUrl.value = String(reader.result)
-    localStorage.setItem('btf-local-profile-avatar', avatarUrl.value)
+  error.value = ''
+  statusMessage.value = 'Uploading profile picture…'
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure upload session. Please refresh and try again.')
+    }
+    const form = new FormData()
+    form.append('image', file)
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-image/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true, isFormData: true }),
+      body: form,
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(data?.image?.[0] || data?.detail || 'Your profile picture could not be uploaded.')
+    auth.loginWithUser(data)
+    avatarUrl.value = data.profile_image_url || DEFAULT_PROFILE_AVATAR
+    localStorage.removeItem('btf-local-profile-avatar')
     window.dispatchEvent(new Event('btf-profile-avatar-changed'))
-    statusMessage.value = 'Profile picture saved locally for preview. Azure upload will be connected next.'
+    statusMessage.value = 'Profile picture uploaded successfully.'
+  } catch (uploadError) {
+    error.value = uploadError instanceof Error ? uploadError.message : 'Your profile picture could not be uploaded.'
+    statusMessage.value = ''
+  } finally {
+    event.target.value = ''
   }
-  reader.readAsDataURL(file)
 }
 
 const toggleSupervisorManaged = () => {
@@ -515,6 +535,7 @@ async function loadProfile() {
     if (!auth.user) {
       throw new Error('Your current user profile could not be loaded.')
     }
+    avatarUrl.value = auth.user.profile_image_url || DEFAULT_PROFILE_AVATAR
     supervisorManaged.value = localStorage.getItem(supervisorManagedStorageKey()) === 'true'
   } catch (loadError) {
     error.value = loadError instanceof Error

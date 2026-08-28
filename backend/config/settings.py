@@ -72,6 +72,10 @@ AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
 # general resource library, so student submissions are not mixed in with
 # program-wide material.
 AZURE_SUBMISSION_CONTAINER = config("AZURE_SUBMISSION_CONTAINER", default="submissions")
+# Keep profile photos separate from general media and user submissions.  The
+# container is private; the application returns time-limited URLs when a
+# profile is serialized.
+AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",

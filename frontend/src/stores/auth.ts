@@ -43,6 +43,7 @@ interface User {
     email: string
     relationship_type: string
   }>
+  profile_image_url?: string | null
 }
 
 async function parseResponseJson(response: Response): Promise<any> {

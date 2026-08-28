@@ -71,6 +71,10 @@ class User(AbstractUser):
     invited_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
     timezone = models.CharField(max_length=64, default="UTC", blank=False)
+    # This is a private object key, never a public Azure URL.  URLs are signed
+    # only when serializing the authenticated user's profile.
+    profile_image_key = models.CharField(max_length=512, blank=True, default="")
+    profile_image_content_type = models.CharField(max_length=64, blank=True, default="")
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]

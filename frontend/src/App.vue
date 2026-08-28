@@ -321,7 +321,7 @@ const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
 const DEFAULT_PROFILE_AVATAR = '/avatars/student-placeholder.png'
-const profileAvatarUrl = ref(localStorage.getItem('btf-local-profile-avatar') || DEFAULT_PROFILE_AVATAR)
+const profileAvatarUrl = computed(() => auth.user?.profile_image_url || DEFAULT_PROFILE_AVATAR)
 const isSidebarCollapsed = ref(false)
 const programSearchQuery = ref('')
 
@@ -577,7 +577,6 @@ watch(
 )
 
 onMounted(() => {
-  window.addEventListener('btf-profile-avatar-changed', refreshProfileAvatar)
   try {
     isDark.value = window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark'
   } catch {
@@ -591,12 +590,7 @@ onMounted(() => {
   scheduleSidebarLoad()
 })
 
-const refreshProfileAvatar = () => {
-  profileAvatarUrl.value = localStorage.getItem('btf-local-profile-avatar') || DEFAULT_PROFILE_AVATAR
-}
-
 onBeforeUnmount(() => {
-  window.removeEventListener('btf-profile-avatar-changed', refreshProfileAvatar)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)

@@ -8,7 +8,9 @@ from .models import (
 )
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
+from apps.common.storage import get_profile_image_storage
 from django.db.models import Q
+from django.conf import settings
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
@@ -71,6 +73,7 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_email = serializers.SerializerMethodField()
     supervisor_school_name = serializers.SerializerMethodField()
     supervised_students = serializers.SerializerMethodField()
+    profile_image_url = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -108,6 +111,7 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_email",
             "supervisor_school_name",
             "supervised_students",
+            "profile_image_url",
             "must_change_password",
             "timezone",
         ]
@@ -118,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_email",
             "supervisor_school_name",
             "supervised_students",
+            "profile_image_url",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -332,6 +337,21 @@ class UserSerializer(serializers.ModelSerializer):
                 .order_by("user__last_name", "user__first_name", "user_id")
             )
         ]
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_profile_image_url(self, obj):
+        if not obj.profile_image_key:
+            return None
+        url = get_profile_image_storage().url(
+            obj.profile_image_key,
+            content_type=obj.profile_image_content_type or None,
+        )
+        # FileSystemStorage returns a relative ``/media/...`` URL. The SPA
+        # runs on another local origin (Vite :5173), so make that URL point at
+        # Django rather than accidentally requesting it from the frontend.
+        if url.startswith("/"):
+            return f"{settings.BACKEND_URL}{url}"
+        return url
 
     @extend_schema_field(serializers.BooleanField())
     def get_must_change_password(self, obj) -> bool:
