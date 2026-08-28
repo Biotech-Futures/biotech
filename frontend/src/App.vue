@@ -41,7 +41,8 @@
               type="button"
               aria-label="Open account menu"
             >
-              <span class="user-avatar-text">{{ auth.initials }}</span>
+              <img v-if="profileAvatarUrl" class="user-avatar-image" :src="profileAvatarUrl" alt="" />
+              <span v-else class="user-avatar-text">{{ auth.initials }}</span>
 <!--              <span v-if="hasUserMenuBadge" class="notification-badge"></span>-->
             </button>
           </div>
@@ -210,7 +211,7 @@
       >
         <div class="notification-header">
           <div class="account-summary">
-            <div class="account-avatar">{{ auth.initials }}</div>
+            <div class="account-avatar"><img v-if="profileAvatarUrl" class="account-avatar-image" :src="profileAvatarUrl" alt="" /><span v-else>{{ auth.initials }}</span></div>
 
             <div class="account-copy">
               <h4 class="notification-title">My account</h4>
@@ -319,6 +320,8 @@ const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
+const DEFAULT_PROFILE_AVATAR = '/avatars/student-placeholder.png'
+const profileAvatarUrl = ref(localStorage.getItem('btf-local-profile-avatar') || DEFAULT_PROFILE_AVATAR)
 const isSidebarCollapsed = ref(false)
 const programSearchQuery = ref('')
 
@@ -574,6 +577,7 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('btf-profile-avatar-changed', refreshProfileAvatar)
   try {
     isDark.value = window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark'
   } catch {
@@ -587,7 +591,12 @@ onMounted(() => {
   scheduleSidebarLoad()
 })
 
+const refreshProfileAvatar = () => {
+  profileAvatarUrl.value = localStorage.getItem('btf-local-profile-avatar') || DEFAULT_PROFILE_AVATAR
+}
+
 onBeforeUnmount(() => {
+  window.removeEventListener('btf-profile-avatar-changed', refreshProfileAvatar)
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
@@ -815,6 +824,8 @@ select {
 .user-avatar-text {
   font-size: 0.95rem;
 }
+
+.user-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 
 .notification-badge {
   position: absolute;
@@ -1144,6 +1155,8 @@ select {
   font-weight: 800;
   box-shadow: 0 10px 24px rgba(8, 14, 13, 0.16);
 }
+
+.account-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 
 .account-copy {
   min-width: 0;

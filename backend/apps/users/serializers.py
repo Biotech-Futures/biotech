@@ -70,6 +70,7 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_name = serializers.SerializerMethodField()
     supervisor_email = serializers.SerializerMethodField()
     supervisor_school_name = serializers.SerializerMethodField()
+    supervised_students = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -106,6 +107,7 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_name",
             "supervisor_email",
             "supervisor_school_name",
+            "supervised_students",
             "must_change_password",
             "timezone",
         ]
@@ -115,6 +117,7 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_name",
             "supervisor_email",
             "supervisor_school_name",
+            "supervised_students",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -307,6 +310,28 @@ class UserSerializer(serializers.ModelSerializer):
         # student-side fields above.
         sp = self._supervisor_profile(obj)
         return None if sp is None else sp.school_name
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_supervised_students(self, obj):
+        """Return the supervisor's active student registrations for their profile."""
+        supervisor = self._supervisor_profile(obj)
+        if supervisor is None:
+            return []
+        return [
+            {
+                "id": student.user_id,
+                "first_name": student.user.first_name,
+                "last_name": student.user.last_name,
+                "email": student.user.email,
+                "relationship_type": "student",
+            }
+            for student in (
+                StudentProfile.objects
+                .filter(supervisor=supervisor, user__account_status=User.AccountStatus.ACTIVE)
+                .select_related("user")
+                .order_by("user__last_name", "user__first_name", "user_id")
+            )
+        ]
 
     @extend_schema_field(serializers.BooleanField())
     def get_must_change_password(self, obj) -> bool:

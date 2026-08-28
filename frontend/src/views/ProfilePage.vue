@@ -37,7 +37,11 @@
 
     <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
-        <div class="profile-avatar-large">{{ getInitials(user.name) }}</div>
+        <div class="profile-avatar-wrap">
+          <img class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" />
+          <label class="avatar-change" for="profile-avatar">Change photo</label>
+          <input id="profile-avatar" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
+        </div>
         <h2 class="profile-name">{{ user.name }}</h2>
         <p class="profile-role">{{ capitalise(user.role) }} | {{ user.country }}</p>
       </div>
@@ -114,8 +118,8 @@
           </div>
         </div>
 
-        <div v-if="user.student.hasDetails" class="profile-section">
-          <h3 class="profile-section-title">Student Details</h3>
+        <div v-if="user.student.hasDetails" class="profile-section" :class="{ 'supervisor-managed': hasLinkedSupervisor && supervisorManaged }">
+          <div class="profile-section-heading"><h3 class="profile-section-title">Student Details <span v-if="hasLinkedSupervisor && supervisorManaged" title="Managed by your supervisor" aria-label="Managed by your supervisor">🔒</span></h3><button v-if="hasLinkedSupervisor" class="btn btn-outline preview-toggle" type="button" @click="toggleSupervisorManaged">{{ supervisorManaged ? 'Preview: supervisor-managed' : 'Preview: student-managed' }}</button></div>
           <div class="profile-field">
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.student.schoolName }}</span>
@@ -156,6 +160,36 @@
               <span v-else>{{ user.student.supervisorEmail }}</span>
             </span>
           </div>
+        </div>
+
+        <div v-if="user.student.hasDetails" class="profile-section">
+          <h3 class="profile-section-title">Team members</h3>
+          <p v-if="teamLoading" class="profile-note">Loading your team…</p>
+          <p v-else-if="teamError" class="profile-note">{{ teamError }}</p>
+          <template v-else-if="teamMembers.length">
+            <p class="profile-note">{{ teamName }}</p>
+            <div class="team-table-wrap">
+              <table class="team-table">
+                <thead><tr><th scope="col">Member</th><th scope="col">Role</th></tr></thead>
+                <tbody>
+                  <tr v-for="member in teamMembers" :key="member.id">
+                    <td><span class="member-initial">{{ getInitials(member.name) }}</span>{{ member.name }}</td>
+                    <td><span class="member-role">{{ capitalise(member.role) }}</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <p v-else class="profile-note">You have not been assigned to a team yet.</p>
+        </div>
+
+        <div v-if="user.student.hasDetails" class="profile-section">
+          <h3 class="profile-section-title">Guardian details &amp; permission</h3>
+          <div class="profile-field"><span class="profile-field-label">First Name:</span><span class="profile-field-value">{{ user.student.guardianFirstName }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Last Name:</span><span class="profile-field-value">{{ user.student.guardianLastName }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Email:</span><span class="profile-field-value">{{ user.student.guardianEmail }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Permission:</span><span class="profile-field-value permission-status" :class="{ received: user.student.permissionReceived }">{{ user.student.permissionReceived ? 'Received' : 'Not received — contact support to resend the guardian invitation.' }}</span></div>
+          <p class="profile-note">Some registration details are managed by your supervisor. Contact your supervisor or <a :href="`mailto:${supportEmail}`">support</a> if a locked detail needs updating.</p>
         </div>
 
         <div v-if="user.mentor.hasDetails" class="profile-section">
@@ -220,6 +254,13 @@ const statusMessage = ref('')
 const timezoneSaving = ref(false)
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
+const supervisorManaged = ref(false)
+const teamMembers = ref([])
+const teamName = ref('')
+const teamLoading = ref(false)
+const teamError = ref('')
+const avatarUrl = ref(localStorage.getItem('btf-local-profile-avatar') || '/avatars/student-placeholder.png')
+const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
 let statusMessageTimer = null
 const commonTimeZones = [
@@ -268,6 +309,7 @@ const timeZoneOptions = computed(() => {
 })
 
 const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
+const hasLinkedSupervisor = computed(() => Boolean(user.value?.student?.supervisorEmailAddress))
 
 watch(
   () => auth.timeZone,
@@ -315,6 +357,50 @@ const clearStatusMessageTimer = () => {
   if (!statusMessageTimer) return
   window.clearTimeout(statusMessageTimer)
   statusMessageTimer = null
+}
+
+const selectAvatar = (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    error.value = 'Choose a PNG, JPEG, or WebP image smaller than 5 MB.'
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    avatarUrl.value = String(reader.result)
+    localStorage.setItem('btf-local-profile-avatar', avatarUrl.value)
+    window.dispatchEvent(new Event('btf-profile-avatar-changed'))
+    statusMessage.value = 'Profile picture saved locally for preview. Azure upload will be connected next.'
+  }
+  reader.readAsDataURL(file)
+}
+
+const toggleSupervisorManaged = () => {
+  supervisorManaged.value = !supervisorManaged.value
+  localStorage.setItem(supervisorManagedStorageKey(), String(supervisorManaged.value))
+  statusMessage.value = supervisorManaged.value
+    ? 'Preview mode: registration details are marked as supervisor-managed.'
+    : 'Preview mode: registration details are marked as student-managed.'
+}
+
+const supervisorManagedStorageKey = () => `btf-preview-supervisor-managed:${auth.user?.id || auth.user?.email || 'anonymous'}`
+
+const loadTeamMembers = async () => {
+  teamLoading.value = true
+  teamError.value = ''
+  try {
+    const groupsResponse = await fetch(`${API_BASE_URL}/groups/groups/?page_size=1&mine=true`, { credentials: 'include', headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }) })
+    if (!groupsResponse.ok) throw new Error('Your team could not be loaded.')
+    const groups = (await groupsResponse.json())?.results || []
+    if (!groups[0]?.id) return
+    teamName.value = groups[0].group_name || `Group ${groups[0].id}`
+    const response = await fetch(`${API_BASE_URL}/groups/group-members/by-group/${groups[0].id}/`, { credentials: 'include', headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }) })
+    if (!response.ok) throw new Error('Your team members could not be loaded.')
+    teamMembers.value = (await response.json()).map((member) => ({ id: member.id, name: member.user_name || 'Team member', role: member.membership_role || 'member' }))
+  } catch (loadError) {
+    teamError.value = loadError instanceof Error ? loadError.message : 'Your team members could not be loaded.'
+  } finally { teamLoading.value = false }
 }
 
 const valueOrFallback = (value, fallback = 'Not provided') => {
@@ -377,7 +463,11 @@ const user = computed(() => {
       interests,
       supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
-      supervisorEmailAddress
+      supervisorEmailAddress,
+      guardianFirstName: valueOrFallback(source?.pg_firstname, unsetLabel),
+      guardianLastName: valueOrFallback(source?.pg_lastname, unsetLabel),
+      guardianEmail: valueOrFallback(source?.pg_email, unsetLabel),
+      permissionReceived: Boolean(source?.join_perm)
     },
     mentor: {
       hasDetails: hasMentorDetails,
@@ -425,6 +515,7 @@ async function loadProfile() {
     if (!auth.user) {
       throw new Error('Your current user profile could not be loaded.')
     }
+    supervisorManaged.value = localStorage.getItem(supervisorManagedStorageKey()) === 'true'
   } catch (loadError) {
     error.value = loadError instanceof Error
       ? loadError.message
@@ -436,6 +527,7 @@ async function loadProfile() {
 
 onMounted(() => {
   loadProfile()
+  loadTeamMembers()
 })
 </script>
 
@@ -606,6 +698,25 @@ onMounted(() => {
   color: var(--dark-green);
   overflow-wrap: anywhere;
 }
+
+.profile-avatar-wrap { position: relative; }
+.profile-avatar-large { width: 104px; height: 104px; border: 4px solid rgba(255,255,255,.82); object-fit: cover; }
+.avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
+.permission-status { font-weight: 600; color: #9c401a; }
+.permission-status.received { color: var(--dark-green); }
+.profile-note { margin: 1rem 0 0; color: #5c6670; font-size: .92rem; }
+.profile-note a { color: var(--dark-green); }
+.profile-section-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.preview-toggle { margin:0; font-size:.8rem; }
+.supervisor-managed .profile-field { opacity:.72; }
+.team-table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border-light); border-radius:8px; }
+.team-table { width:100%; border-collapse:collapse; min-width:360px; }
+.team-table th, .team-table td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid var(--border-light); }
+.team-table th { background:var(--accent-green-soft); color:var(--dark-green); font-size:.82rem; letter-spacing:.04em; text-transform:uppercase; }
+.team-table tr:last-child td { border-bottom:0; }
+.team-table td:first-child { display:flex; align-items:center; gap:.6rem; }
+.member-initial { display:inline-grid; place-items:center; width:2rem; height:2rem; border-radius:50%; background:var(--accent-green-soft); color:var(--dark-green); font-weight:700; }
+.member-role { color:#657069; font-size:.88rem; }
 
 @media (max-width: 640px) {
   .status-card {

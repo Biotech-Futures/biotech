@@ -30,7 +30,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 # Use proper email backend, falling back to what's mapped in settings.py (which uses SMTP)
-# EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # conftest.py pins pytest to this module, and the backend above is real SMTP —
 # send inline so a test can never leave a pool thread dialling the relay.
