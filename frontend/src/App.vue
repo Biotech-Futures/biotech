@@ -108,16 +108,6 @@
               </RouterLink>
             </li>
 
-            <li class="sidebar-item" v-if="auth.isAdmin">
-              <RouterLink
-                to="/admin"
-                class="sidebar-link"
-                :class="{ active: route.path === '/admin' }"
-              >
-                <i class="fas fa-cog sidebar-icon"></i>
-                <span>Admin Panel</span>
-              </RouterLink>
-            </li>
           </ul>
         </nav>
 

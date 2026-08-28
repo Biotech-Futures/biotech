@@ -129,6 +129,11 @@ export const useAuthStore = defineStore('auth', {
 
     isAdmin: (state) => resolveNormalizedRole(state.user) === 'admin',
 
+    // Mirrors the backend's IsGrader permission (is_staff), which gates the
+    // grading API. Gate grading UI on this rather than isAdmin so the sidebar
+    // never shows pages the API would 403.
+    isGrader: (state) => state.user?.is_staff === true,
+
     isMentor: (state) => resolveNormalizedRole(state.user) === 'mentor',
 
     isSupervisor: (state) => resolveNormalizedRole(state.user) === 'supervisor',
