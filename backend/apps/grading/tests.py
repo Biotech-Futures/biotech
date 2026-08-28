@@ -14,12 +14,11 @@ from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.grading.models import FinalistFlag, Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
 from apps.submissions.models import Submission, SubmissionComponent
-from apps.users.models import User
+from apps.users.models import AdminScope, User
 
 
-@override_settings(GRADING_ENABLED=True)
 class GradingURLsMountedTests(TestCase):
-    """Sanity: the grading URLs must resolve when the feature flag is on."""
+    """Sanity: the grading URLs must always resolve."""
 
     def test_urls_resolve(self):
         self.assertEqual(reverse("grading:group-marking", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/")
@@ -75,7 +74,6 @@ class _GradingFixture(TestCase):
         )
 
 
-@override_settings(GRADING_ENABLED=True)
 class GroupMarkingViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -88,6 +86,25 @@ class GroupMarkingViewTests(_GradingFixture):
         self.client.force_authenticate(self.non_staff)
         resp = self.client.get(reverse("grading:group-marking", kwargs={"group_id": self.group.id}))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_platform_admin_allowed(self):
+        scoped = User.objects.create_user(
+            email="scoped-admin@example.com", first_name="Sco", last_name="Ped",
+            password="pw12345!", is_staff=False,
+        )
+        AdminScope.objects.create(user=scoped)
+        self.client.force_authenticate(scoped)
+        resp = self.client.get(reverse("grading:group-marking", kwargs={"group_id": self.group.id}))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_non_staff_superuser_allowed(self):
+        superuser = User.objects.create_user(
+            email="super@example.com", first_name="Sue", last_name="Per",
+            password="pw12345!", is_staff=False, is_superuser=True,
+        )
+        self.client.force_authenticate(superuser)
+        resp = self.client.get(reverse("grading:group-marking", kwargs={"group_id": self.group.id}))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_payload_shape(self):
         self.client.force_authenticate(self.staff)
@@ -112,7 +129,6 @@ class GroupMarkingViewTests(_GradingFixture):
         self.assertEqual(report_block["criteria"], [])
 
 
-@override_settings(GRADING_ENABLED=True)
 class GradeBulkViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -152,7 +168,6 @@ class GradeBulkViewTests(_GradingFixture):
         self.assertEqual(Grade.objects.count(), 0)
 
 
-@override_settings(GRADING_ENABLED=True)
 class ComponentMarkingListViewTests(_GradingFixture):
     """Table view for a single component — every group, submitted or not."""
 
@@ -208,7 +223,6 @@ class ComponentMarkingListViewTests(_GradingFixture):
         self.assertEqual(r2["criteria_graded"], 0)
 
 
-@override_settings(GRADING_ENABLED=True)
 class GradeUpdateViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -236,7 +250,6 @@ class GradeUpdateViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
-@override_settings(GRADING_ENABLED=True)
 class GroupDownloadViewTests(_GradingFixture):
     """Sync per-group zip. Bounded selection, streamed straight to the client."""
 
@@ -278,7 +291,7 @@ class GroupDownloadViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
-@override_settings(GRADING_ENABLED=True, GRADING_JOB_DISPATCH_SYNC=True)
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
 class ComponentDownloadViewTests(_GradingFixture):
     """Async per-component export. DISPATCH_SYNC runs inline so the job row is
     already ``done`` (or ``failed``) by the time the 202 returns."""
@@ -313,7 +326,7 @@ class ComponentDownloadViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
-@override_settings(GRADING_ENABLED=True, GRADING_JOB_DISPATCH_SYNC=True)
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
 class GradingJobDetailViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -338,7 +351,6 @@ class GradingJobDetailViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
 
-@override_settings(GRADING_ENABLED=True)
 class BulkUploadMarksViewTests(_GradingFixture):
     """XLSX/CSV round-trip: parse → dry-run diff → commit."""
 
@@ -441,7 +453,6 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(g.graded_by_id, self.staff.id)
 
 
-@override_settings(GRADING_ENABLED=True)
 class MarksReleaseViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -462,7 +473,6 @@ class MarksReleaseViewTests(_GradingFixture):
         self.assertIsNone(r.json()["released_at"])
 
 
-@override_settings(GRADING_ENABLED=True)
 class GradingSettingsViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -481,7 +491,6 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertEqual(r2.json()["director_2_name"], "Bob B")
 
 
-@override_settings(GRADING_ENABLED=True)
 class StudentReadViewsTests(_GradingFixture):
     """Release gate: pre-release → 403; post-release → own group only."""
 
@@ -545,7 +554,6 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
 
 
-@override_settings(GRADING_ENABLED=True)
 class FinalistToggleTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -604,7 +612,6 @@ class FinalistToggleTests(_GradingFixture):
         self.assertFalse(r.json()["notified"])
 
 
-@override_settings(GRADING_ENABLED=True)
 class ComponentAnalyticsTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()

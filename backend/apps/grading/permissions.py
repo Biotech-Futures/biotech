@@ -1,13 +1,20 @@
 from rest_framework.permissions import BasePermission
 
+from apps.users.models import AdminScope
+
 from .models import MarksRelease
 
 
 class IsGrader(BasePermission):
-    """Admin-only write access. Broadened later if a dedicated grader role is added."""
+    """Any admin may grade: staff, superuser, or platform admin (AdminScope row)."""
 
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if user.is_staff or user.is_superuser:
+            return True
+        return AdminScope.objects.filter(user=user).exists()
 
 
 class MarksReleased(BasePermission):

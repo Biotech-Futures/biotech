@@ -23,9 +23,6 @@ export const Route = createFileRoute("/_auth/")({
   component: AdminHomePage,
 });
 
-// Mirrors backend GRADING_ENABLED (defaults on in code; env can flip off).
-const GRADING_ENABLED = import.meta.env.VITE_GRADING_ENABLED !== "false";
-
 const NAV_SECTIONS = [
   {
     label: "People",
@@ -52,18 +49,16 @@ const NAV_SECTIONS = [
       { title: "Tasks", url: "/task", icon: CheckSquareIcon, desc: "Assign and track tasks" },
     ],
   },
-  ...(GRADING_ENABLED
-    ? [{
-        label: "Grading",
-        cards: [
-          { title: "Mark by Component", url: "/grading/by-component", icon: ClipboardListIcon, desc: "One component at a time, across every group" },
-          { title: "Mark by Group", url: "/grading/by-group", icon: UsersIcon, desc: "Every component for a single group" },
-          { title: "Certificate Setup", url: "/grading/settings", icon: SettingsIcon, desc: "Director names, signatures, and docx templates" },
-          { title: "Release Marks", url: "/grading/release", icon: UnlockIcon, desc: "Let students and supervisors see their marks" },
-          { title: "Finalists", url: "/grading/finalists", icon: StarIcon, desc: "Flag groups that advance to the symposium" },
-        ],
-      }]
-    : []),
+  {
+    label: "Grading",
+    cards: [
+      { title: "Mark by Component", url: "/grading/by-component", icon: ClipboardListIcon, desc: "One component at a time, across every group" },
+      { title: "Mark by Group", url: "/grading/by-group", icon: UsersIcon, desc: "Every component for a single group" },
+      { title: "Certificate Setup", url: "/grading/settings", icon: SettingsIcon, desc: "Director names, signatures, and docx templates" },
+      { title: "Release Marks", url: "/grading/release", icon: UnlockIcon, desc: "Let students and supervisors see their marks" },
+      { title: "Finalists", url: "/grading/finalists", icon: StarIcon, desc: "Flag groups that advance to the symposium" },
+    ],
+  },
 ];
 
 function AdminHomePage() {

@@ -26,9 +26,6 @@ import {
   SettingsIcon,
 } from "lucide-react";
 
-// Mirrors backend GRADING_ENABLED (defaults on in code; env can flip off).
-const GRADING_ENABLED = import.meta.env.VITE_GRADING_ENABLED !== "false";
-
 type NavItem = {
   title: string;
   url: string;
@@ -82,18 +79,16 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Tasks", url: "/task", icon: <CheckSquareIcon /> },
     ],
   },
-  ...(GRADING_ENABLED
-    ? [{
-        label: "Grading",
-        items: [
-          { title: "Mark by Component", url: "/grading/by-component", icon: <ClipboardListIcon /> },
-          { title: "Mark by Group", url: "/grading/by-group", icon: <UsersIcon /> },
-          { title: "Certificate Setup", url: "/grading/settings", icon: <SettingsIcon /> },
-          { title: "Release Marks", url: "/grading/release", icon: <UnlockIcon /> },
-          { title: "Finalists", url: "/grading/finalists", icon: <StarIcon /> },
-        ],
-      }]
-    : []),
+  {
+    label: "Grading",
+    items: [
+      { title: "Mark by Component", url: "/grading/by-component", icon: <ClipboardListIcon /> },
+      { title: "Mark by Group", url: "/grading/by-group", icon: <UsersIcon /> },
+      { title: "Certificate Setup", url: "/grading/settings", icon: <SettingsIcon /> },
+      { title: "Release Marks", url: "/grading/release", icon: <UnlockIcon /> },
+      { title: "Finalists", url: "/grading/finalists", icon: <StarIcon /> },
+    ],
+  },
 ];
 
 export function NavMain() {

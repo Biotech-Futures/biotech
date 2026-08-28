@@ -543,14 +543,10 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
 # --- Grading platform --------------------------------------------------------
-# GRADING_ENABLED gates the /api/v1/grading/ URL mount and (once wired) the
-# admin-portal sidebar entry. Off in prod until the feature is ready, so the
-# app can ship dark and be flipped on for staged testing without a redeploy.
 # GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
 # link previews / unread digests / auth emails: bulk-zip jobs normally run on
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
-GRADING_ENABLED = config("GRADING_ENABLED", default="true", cast=env_bool)
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
 # Fires the "you're a finalist" email to every group member. Off by default
 # so local dev / staging don't accidentally spam real students; flip on per

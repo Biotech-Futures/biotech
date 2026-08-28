@@ -76,13 +76,9 @@ _api_v1_patterns = [
     path("events/", include(event_canonical_urlpatterns)),
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
+    path("grading/", include("apps.grading.urls")),
     path("", include("apps.users.urls")),
 ]
-
-# Grading is env-gated so the whole /api/v1/grading/ surface stays 404 until
-# GRADING_ENABLED flips on. Deploy-dark pattern — no need to hold the branch.
-if settings.GRADING_ENABLED:
-    _api_v1_patterns.append(path("grading/", include("apps.grading.urls")))
 
 
 urlpatterns = [

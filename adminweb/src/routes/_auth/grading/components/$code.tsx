@@ -78,7 +78,7 @@ function ComponentMarkingTablePage() {
 
   const { sortState, setSortState, sortedRows } = useSortableRows(
     rows,
-    { key: "time" as const, direction: "desc" as const },
+    { key: "time" as "id" | "time" | "progress", direction: "desc" as const },
     (r, key) => {
       if (key === "id") return r.group_id;
       if (key === "time") return r.submitted_at;
