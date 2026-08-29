@@ -99,10 +99,17 @@ CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     default=10 * 1024 * 1024,
     cast=int,
 )
-# Prototypes can be archives, CAD files or video, so they keep the generous
-# ceiling. Posters and reports are held to a much smaller one; note that A0
-# posters with photographs routinely export well above this, so the PDF limit
-# is worth confirming against what the programme actually accepts today.
+# Figures set by the programme after checking last year's entries: the largest
+# poster they received was 18MB, so 20MB is the deliberate headroom above a
+# known real maximum rather than a guess. Reports share that ceiling; both are
+# PDFs of the same kind of thing.
+#
+# The prototype's 50MB is above the request body limit some hosts impose in
+# front of the application (IIS defaults to roughly 28.6MB). Where that applies
+# the upload is rejected before it ever reaches this check, and the student sees
+# the host's error rather than ours — so the platform limit has to be raised to
+# match, or this ceiling is fiction. The two PDF slots share one setting;
+# giving them different limits would need a second.
 SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
     "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
     default=50 * 1024 * 1024,
@@ -110,7 +117,7 @@ SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
 )
 SUBMISSION_PDF_MAX_UPLOAD_SIZE = config(
     "SUBMISSION_PDF_MAX_UPLOAD_SIZE",
-    default=5 * 1024 * 1024,
+    default=20 * 1024 * 1024,
     cast=int,
 )
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(

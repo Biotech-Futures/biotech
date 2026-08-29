@@ -326,6 +326,19 @@
               <p class="submission-muted">
                 Any file type · up to {{ maxSizeLabel('prototype') }}
               </p>
+              <!-- The programme's own wording, shown before the upload button
+                   rather than only after a file is refused: a student with an
+                   oversized prototype needs to know there is a way through
+                   while they are deciding what to attach, not once they have
+                   already waited for a failed upload. The size is interpolated
+                   from the published limit so the sentence cannot come to
+                   contradict what the server actually enforces. -->
+              <p class="submission-muted">
+                If your submission is greater than {{ maxSizeLabel('prototype') }},
+                please upload to a cloud storage and submit a public link for us
+                to access your submission.
+              </p>
+
               <p v-if="storedFile('prototype')" class="submission-file">
                 <a :href="downloadUrl('prototype')" target="_blank" rel="noopener noreferrer">
                   {{ storedFile('prototype')?.name }}
@@ -490,8 +503,8 @@ const AUTOSAVE_DELAY_MS = 2000
 // Fallback only for the moment between the page mounting and the first
 // response arriving; the server's values replace these as soon as it loads.
 const FALLBACK_MAX_FILE_SIZES: Record<SubmissionSlot, number> = {
-  poster: 5 * 1024 * 1024,
-  report: 5 * 1024 * 1024,
+  poster: 20 * 1024 * 1024,
+  report: 20 * 1024 * 1024,
   prototype: 50 * 1024 * 1024
 }
 
