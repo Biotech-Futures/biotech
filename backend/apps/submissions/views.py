@@ -324,41 +324,64 @@ class GroupSubmissionSubmitView(APIView):
         _require_can_edit(request.user, group.id)
         _require_open(group.id)
 
-        submission, _ = Submission.objects.get_or_create(group=group)
-        if submission.is_locked:
-            # Already submitted and not reopened — resubmitting is an explicit
-            # step, so this is a mistake rather than a no-op.
-            raise SubmissionLocked()
+        # Locked for the same reason the draft save is, and it matters more
+        # here. Submitting takes a copy of the entry and then writes every
+        # column back, so a teammate's auto-save landing between the read and
+        # that write would be reverted — and the copy just frozen as "what was
+        # submitted" would be missing their answer. Reading inside the lock is
+        # what makes the snapshot and the row agree with each other.
+        #
+        # It also settles two people pressing Submit at the same instant: the
+        # second waits, sees the entry already locked, and is refused rather
+        # than submitting a second time and sending a second confirmation.
+        #
+        # SQLite (the test settings) has no row locking, so this is a no-op
+        # there; the protection is real on Postgres, which is what production
+        # runs.
+        with transaction.atomic():
+            submission, _ = (
+                Submission.objects.select_for_update().get_or_create(group=group)
+            )
+            if submission.is_locked:
+                # Already submitted and not reopened — resubmitting is an
+                # explicit step, so this is a mistake rather than a no-op.
+                raise SubmissionLocked()
 
-        # The poster is the competition's core deliverable, so an entry without
-        # one is incomplete rather than merely sparse. Checked here rather than
-        # in the browser so it cannot be clicked past.
-        if not submission.poster:
-            raise PosterRequired()
+            # The poster is the competition's core deliverable, so an entry
+            # without one is incomplete rather than merely sparse. Checked here
+            # rather than in the browser so it cannot be clicked past.
+            if not submission.poster:
+                raise PosterRequired()
 
-        # Required questions are enforced only at this point, so a team can
-        # save a half-finished draft and come back to it.
-        missing = missing_required_answers(submission)
-        if missing:
-            raise RequiredAnswersMissing(missing)
+            # Required questions are enforced only at this point, so a team can
+            # save a half-finished draft and come back to it.
+            missing = missing_required_answers(submission)
+            if missing:
+                raise RequiredAnswersMissing(missing)
 
-        # Files the previous submission relied on but this one does not, taken
-        # before the snapshot is overwritten. They were kept alive through the
-        # revision precisely so that abandoning it lost nothing; now that a new
-        # submission has completed, they are genuinely unused.
-        superseded = submission.submitted_storage_keys()
+            # Files the previous submission relied on but this one does not,
+            # taken before the snapshot is overwritten. They were kept alive
+            # through the revision precisely so that abandoning it lost
+            # nothing; now that a new submission has completed, they are
+            # genuinely unused.
+            superseded = submission.submitted_storage_keys()
 
-        submission.snapshot(request.user)
-        # Stamped at submit rather than at creation: a draft may have been
-        # started before the competition's deadline row was configured, and the
-        # cohort a judging tool filters on has to be the competition's year.
-        submission.cohort = current_cohort()
-        # Always False while writes are refused after the deadline. The field
-        # is kept because it records the state at the time of submitting, which
-        # matters if a grace period is ever introduced.
-        submission.is_late = False
-        submission.save()
+            submission.snapshot(request.user)
+            # Stamped at submit rather than at creation: a draft may have been
+            # started before the competition's deadline row was configured, and
+            # the cohort a judging tool filters on has to be the competition's
+            # year.
+            submission.cohort = current_cohort()
+            # Always False while writes are refused after the deadline. The
+            # field is kept because it records the state at the time of
+            # submitting, which matters if a grace period is ever introduced.
+            submission.is_late = False
+            submission.save()
 
+        # Outside the transaction: deleting a blob cannot be rolled back, so a
+        # later failure would otherwise leave the row pointing at a file that
+        # no longer exists. Once the commit has happened, these really are
+        # unused.
         for key in superseded - submission.submitted_storage_keys():
             SUBMISSION_FILE_SERVICE.delete(key)
 

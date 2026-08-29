@@ -240,7 +240,12 @@ class SubmissionFileTests(TestCase):
         response = self.client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
+        # Nothing is on record as submitted. A refused submit now rolls back
+        # entirely, so pressing Submit before saving anything leaves no row at
+        # all rather than an empty one — hence checking the entry is unsubmitted
+        # rather than assuming a row exists to inspect.
+        submission = Submission.objects.filter(group=self.group).first()
+        self.assertIsNone(submission.submitted_at if submission else None)
 
     def _answer_everything(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
