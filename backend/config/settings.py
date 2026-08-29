@@ -559,6 +559,11 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# Shared secret for POST /api/v1/submissions/admin/send-reminders/, the daily
+# nudge to teams whose entry is still outstanding. Same fail-loud contract as
+# above: unset means the endpoint answers 503 rather than standing open.
+SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
+
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as

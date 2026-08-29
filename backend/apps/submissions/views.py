@@ -1,7 +1,12 @@
+import hmac
+
+from django.conf import settings
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
+from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,6 +32,7 @@ from .errors import (
 )
 from .models import Submission, SubmissionInstruction, SubmissionQuestion
 from .poster_checks import inspect_poster, student_facing_problems
+from .reminders import send_due_reminders
 from .serializers import (
     SubmissionDraftSerializer,
     SubmissionQuestionSerializer,
@@ -453,3 +459,34 @@ class GroupSubmissionReopenView(APIView):
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
         })
+
+
+class SendSubmissionRemindersView(APIView):
+    """Trigger the daily reminder run. Called by a scheduler, not a person.
+
+    Guarded by a shared secret in a header rather than by a logged-in user,
+    because the caller is a cron job with no session. The same shape as the
+    RSVP reminder trigger next door, deliberately: one pattern for scheduled
+    work is easier to reason about than two.
+
+    An unset token answers 503 rather than running, so a deploy that forgot to
+    configure the secret fails loudly instead of leaving an unauthenticated
+    endpoint that emails every team.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        expected = getattr(settings, "SUBMISSION_REMINDER_TOKEN", "") or ""
+        if not expected:
+            return Response(
+                {"detail": "Submission reminder trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-Reminder-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response(send_due_reminders(), status=status.HTTP_200_OK)

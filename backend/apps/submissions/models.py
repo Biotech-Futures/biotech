@@ -173,6 +173,35 @@ class GroupExtension(models.Model):
         return f"{self.group} until {self.extended_until:%Y-%m-%d %H:%M} UTC"
 
 
+class SubmissionReminder(models.Model):
+    """The last day a team was reminded about their unfinished entry.
+
+    Keyed by the team rather than by their submission on purpose: the teams
+    most in need of a reminder are the ones who have not started, and those have
+    no submission row at all. Hanging this off ``Submission`` would have made
+    them unreachable, which is precisely backwards.
+
+    Only the date is kept, not a count or a history. The single question this
+    has to answer is "have we already written to them today?", so that a job
+    which runs twice — a retry, an overlapping schedule — does not email a team
+    twice in one day.
+    """
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="submission_reminder",
+    )
+    last_sent_on = models.DateField()
+
+    class Meta:
+        db_table = "submission_reminder"
+        verbose_name = "Submission reminder"
+
+    def __str__(self):
+        return f"{self.group} last reminded {self.last_sent_on}"
+
+
 class Submission(models.Model):
     """One team's entry. Resubmitting updates this row rather than adding one.
 

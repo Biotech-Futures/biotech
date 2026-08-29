@@ -7,12 +7,21 @@ from .views import (
     GroupSubmissionReopenView,
     GroupSubmissionSubmitView,
     GroupSubmissionView,
+    SendSubmissionRemindersView,
 )
 
 # Mounted by config.urls at /api/v1/submissions/ only. Unlike the older apps
 # there is no legacy unprefixed alias: nothing predates this feature, so there
 # are no existing clients to keep working.
 urlpatterns = [
+    # Called by a scheduler rather than a person, so it sits apart from the
+    # per-team routes below and authenticates with a shared secret instead of
+    # a session.
+    path(
+        "admin/send-reminders/",
+        SendSubmissionRemindersView.as_view(),
+        name="submission-send-reminders",
+    ),
     path(
         "groups/<int:group_id>/",
         GroupSubmissionView.as_view(),
