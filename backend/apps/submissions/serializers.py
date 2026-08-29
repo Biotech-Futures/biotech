@@ -30,11 +30,13 @@ class SubmissionSerializer(serializers.ModelSerializer):
         fields = [
             "answers",
             "poster",
+            "poster_checks",
             "report",
             "prototype",
             "prototype_url",
             "submitted_answers",
             "submitted_poster",
+            "submitted_poster_checks",
             "submitted_report",
             "submitted_prototype",
             "submitted_prototype_url",

@@ -50,7 +50,9 @@ class GroupExtensionAdmin(admin.ModelAdmin):
 
 @admin.register(Submission)
 class SubmissionAdmin(admin.ModelAdmin):
-    list_display = ("group", "is_submitted", "submitted_at", "is_late", "updated_at")
+    list_display = (
+        "group", "is_submitted", "submitted_at", "poster_flags", "is_late", "updated_at",
+    )
     list_filter = ("is_late",)
     search_fields = ("group__group_name",)
     readonly_fields = ("created_at", "updated_at")
@@ -62,3 +64,23 @@ class SubmissionAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="Submitted")
     def is_submitted(self, obj):
         return obj.is_submitted
+
+    @admin.display(description="Poster format")
+    def poster_flags(self, obj):
+        """What the format checks found, for someone scanning the list.
+
+        Reads the submitted copy in preference to the working one so the column
+        describes the poster on record rather than one uploaded during a
+        revision that was never finished.
+        """
+        flag = obj.submitted_poster_checks or obj.poster_checks
+        if not flag:
+            return "—"
+        if flag.get("unreadable"):
+            return "Could not read"
+        warnings = flag.get("warnings") or []
+        if not flag.get("has_text", True):
+            # Worth distinguishing: nothing was found wrong, but nothing could
+            # be checked either, so this is "unknown" rather than "fine".
+            return "No text to check"
+        return "OK" if not warnings else f"{len(warnings)} warning(s)"

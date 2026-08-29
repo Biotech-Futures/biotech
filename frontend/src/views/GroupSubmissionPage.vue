@@ -170,6 +170,35 @@
               <span class="submission-muted"> ({{ formatSize(storedFile('poster')?.size) }})</span>
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
+
+            <!-- Advice, not an error: the poster was accepted and the entry can
+                 be submitted as it stands. Anything the poster genuinely may
+                 not do was refused at upload and never reached this point, so
+                 everything here is a "worth checking", not a "must fix".
+                 Phrased as what we could not find rather than as a verdict,
+                 because a check reading text can be wrong about a poster that
+                 is perfectly in order. -->
+            <div v-if="posterWarnings.length" class="poster-notice">
+              <p class="poster-notice__head">Worth checking before you submit</p>
+              <!-- Deliberately general rather than naming what was not found.
+                   These checks read the text of a PDF, which is good evidence
+                   but not proof: a poster can put its team code inside an image
+                   and be perfectly correct while looking, to us, as though it
+                   has none. Telling that team "your team code is missing" is
+                   simply wrong, and being confidently wrong is what teaches
+                   students to ignore the notice. Pointing at the requirements
+                   is right either way. The individual findings are still
+                   recorded for whoever reviews the entry. -->
+              <p class="poster-notice__body">
+                Please re-check your poster against the submission requirements
+                — the team code, school logo, title, team members, and
+                supervisor contact details — before you submit.
+              </p>
+              <p class="poster-notice__foot">
+                You can submit without changing anything — this is a reminder,
+                not a problem with your file.
+              </p>
+            </div>
           </div>
 
           <div v-if="isEditable" class="submission-slot__actions">
@@ -606,6 +635,22 @@ const isBusy = computed(
  * abandoned revision leave the submitted entry alone — so the page has to be
  * explicit about which one it is displaying.
  */
+/**
+ * What the format checks found about the poster now on show.
+ *
+ * Follows the same submitted-versus-draft rule as the file itself, so a locked
+ * entry reports on the poster that was submitted rather than on one uploaded
+ * during a revision that has not been finished.
+ */
+const posterWarnings = computed(() => {
+  const submission = detail.value?.submission
+  if (!submission) return []
+  const checks = isLocked.value
+    ? submission.submitted_poster_checks
+    : submission.poster_checks
+  return checks?.warnings ?? []
+})
+
 function shownFile(slot: SubmissionSlot): StoredFile | null {
   const submission = detail.value?.submission
   if (!submission) return null
@@ -1117,7 +1162,15 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
     // Refresh a showing preview so it never displays the file just replaced.
     if (slot === 'poster' || slot === 'report') await loadPreview(slot)
   } catch (error) {
-    setMessage(handleWriteError(error), true)
+    // A poster refused on format comes back with the specific reasons. Listing
+    // them is the whole point — "not in the required format" alone would leave
+    // a student re-exporting at random to find out which way it was wrong.
+    const problems = apiErrorFromUnknown(error).body?.problems
+    if (Array.isArray(problems) && problems.length) {
+      setMessage(problems.join(' '), true)
+    } else {
+      setMessage(handleWriteError(error), true)
+    }
   } finally {
     busySlot.value = ''
     uploadPercent.value = 0
@@ -1467,6 +1520,33 @@ onBeforeUnmount(() => {
 .submission-remaining.is-near {
   color: var(--error);
   font-weight: 600;
+}
+
+/* Deliberately quieter than .submission-message--error: nothing here blocks a
+   submission, and styling advice like a failure would train students to
+   dismiss it. Tokens only — every colour has a dark-mode value already. */
+.poster-notice {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--notice-bg);
+  color: var(--body-text);
+  font-size: var(--text-meta);
+}
+
+.poster-notice__head {
+  font-weight: 700;
+  margin: 0 0 0.3rem;
+}
+
+.poster-notice__body {
+  margin: 0;
+}
+
+.poster-notice__foot {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
 }
 
 .submission-closed {

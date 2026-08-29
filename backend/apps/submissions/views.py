@@ -17,6 +17,7 @@ from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
     NotSubmittedYet,
+    PosterFormatRejected,
     PosterRequired,
     RequiredAnswersMissing,
     StudentRoleRequired,
@@ -25,6 +26,7 @@ from .errors import (
     SubmissionsNotConfigured,
 )
 from .models import Submission, SubmissionInstruction, SubmissionQuestion
+from .poster_checks import inspect_poster, student_facing_problems
 from .serializers import (
     SubmissionDraftSerializer,
     SubmissionQuestionSerializer,
@@ -33,7 +35,13 @@ from .serializers import (
 )
 from .services import current_cohort, deadline_for_group
 from .storage import SUBMISSION_FILE_SERVICE
-from .uploads import PDF_SLOTS, SLOTS, max_sizes, validate_submission_file
+from .uploads import (
+    PDF_SLOTS,
+    POSTER,
+    SLOTS,
+    max_sizes,
+    validate_submission_file,
+)
 
 
 def _get_group(group_id: int) -> Groups:
@@ -214,6 +222,19 @@ class GroupSubmissionFileView(APIView):
             raise NoFileUploaded()
         validate_submission_file(uploaded, slot)
 
+        # Format checks run here rather than at submit so a team finds out
+        # while the file is still in front of them, not once they believe they
+        # have finished. Only the poster has a required format.
+        poster_flag = None
+        if slot == POSTER:
+            checks = inspect_poster(uploaded, team_code=group.group_name)
+            if checks.blocking:
+                # Not the raw findings: only the ones a student can verify
+                # against their own file are named, and the rest become one
+                # general instruction. See student_facing_problems.
+                raise PosterFormatRejected(student_facing_problems(checks.blocking))
+            poster_flag = checks.as_flag()
+
         submission, _ = Submission.objects.get_or_create(group=group)
         _require_unlocked(submission)
         previous = getattr(submission, slot) or {}
@@ -228,7 +249,14 @@ class GroupSubmissionFileView(APIView):
             original_filename_field="name",
         ) as file_data:
             setattr(submission, slot, file_data)
-            submission.save(update_fields=[slot, "updated_at"])
+            # The flag is written in the same statement as the file it
+            # describes, so the two can never disagree about which poster is
+            # on record.
+            fields = [slot, "updated_at"]
+            if slot == POSTER:
+                submission.poster_checks = poster_flag
+                fields.append("poster_checks")
+            submission.save(update_fields=fields)
 
         # Only once the new file is safely recorded is the old one discarded —
         # the reverse order would risk losing both. A file the submitted copy
@@ -260,7 +288,13 @@ class GroupSubmissionFileView(APIView):
             raise FileNotUploadedYet()
 
         setattr(submission, slot, None)
-        submission.save(update_fields=[slot, "updated_at"])
+        # Cleared with the file, or the entry would keep reporting findings
+        # about a poster that is no longer attached.
+        fields = [slot, "updated_at"]
+        if slot == POSTER:
+            submission.poster_checks = None
+            fields.append("poster_checks")
+        submission.save(update_fields=fields)
         # Kept if the submitted copy still references it — see the upload path.
         key = existing.get("storage_key")
         if key and key not in submission.submitted_storage_keys():

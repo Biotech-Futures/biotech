@@ -72,11 +72,13 @@ const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.
 const emptyRecord = (): SubmissionRecord => ({
   answers: {},
   poster: null,
+  poster_checks: null,
   report: null,
   prototype: null,
   prototype_url: '',
   submitted_answers: null,
   submitted_poster: null,
+  submitted_poster_checks: null,
   submitted_report: null,
   submitted_prototype: null,
   submitted_prototype_url: '',
@@ -580,5 +582,104 @@ describe('an answer over its word limit', () => {
     const message = wrapper!.find('.submission-message').text()
     expect(message).toContain(QUESTIONS[0].prompt)
     expect(message).not.toContain(QUESTIONS[0].key)
+  })
+})
+
+describe('what the format checks found about the poster', () => {
+  const warned = (warnings: { code: string; message: string }[]) =>
+    buildDetail({
+      submission: {
+        answers: ANSWERED,
+        poster: POSTER,
+        poster_checks: {
+          has_text: true,
+          unreadable: false,
+          warnings: warnings.map((w) => ({ ...w, passed: false })),
+        },
+      },
+    })
+
+  const goToPoster = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('points at the requirements rather than naming what it could not find', async () => {
+    // These checks read text, which is evidence rather than proof: a team code
+    // set inside an image is invisible to them. Asserting "your team code is
+    // missing" would be confidently wrong for a poster that is perfectly
+    // correct, so the notice stays general.
+    await mountPage(
+      warned([{ code: 'team_code', message: 'We could not find your team code (BTF1).' }]),
+    )
+    await goToPoster()
+
+    const notice = wrapper!.find('.poster-notice').text()
+    expect(notice).toContain('submission requirements')
+    expect(notice).not.toContain('could not find')
+  })
+
+  it('makes clear the entry can still be submitted', async () => {
+    // The distinction the whole soft half rests on: this is advice, and a
+    // student who reads it as a blocked submission will go looking for a
+    // problem that is not there.
+    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').text()).toContain('submit without changing anything')
+  })
+
+  it('does not warn at all when the poster passed every check', async () => {
+    await mountPage(
+      buildDetail({
+        submission: {
+          answers: ANSWERED,
+          poster: POSTER,
+          poster_checks: { has_text: true, unreadable: false, warnings: [] },
+        },
+      }),
+    )
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+  })
+
+  it('says nothing about a poster that carried no readable text', async () => {
+    // A poster flattened to an image cannot be checked. Silence is right here:
+    // there is no finding to report, and inventing one would be wrong.
+    await mountPage(
+      buildDetail({
+        submission: {
+          answers: ANSWERED,
+          poster: POSTER,
+          poster_checks: { has_text: false, unreadable: false, warnings: [] },
+        },
+      }),
+    )
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+  })
+
+  it('reports on the submitted poster once the entry is locked', async () => {
+    // A locked entry shows what was submitted, and its findings have to follow
+    // the same rule or the notice would describe a different file. Set up so
+    // the two disagree: the draft was flagged, the submitted copy was clean,
+    // so a notice appearing at all would mean the wrong one was read.
+    const detail = submittedDetail()
+    detail.submission!.poster_checks = {
+      has_text: true,
+      unreadable: false,
+      warnings: [{ code: 'team_code', message: 'Draft finding.', passed: false }],
+    }
+    detail.submission!.submitted_poster_checks = {
+      has_text: true,
+      unreadable: false,
+      warnings: [],
+    }
+    await mountPage(detail)
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
   })
 })

@@ -60,6 +60,19 @@ class RequiredAnswersMissing(APIException):
         self.extra = {"missing": list(prompts)}
 
 
+class PosterFormatRejected(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "This poster is not in the required format."
+    default_code = "poster_format_rejected"
+
+    def __init__(self, problems):
+        super().__init__()
+        # Named individually, unlike the unanswered-questions case: there are at
+        # most three, each is specific, and each says what to change. A student
+        # told only "wrong format" would have to guess which way it was wrong.
+        self.extra = {"problems": list(problems)}
+
+
 class NoFileUploaded(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "No file was included in the request."

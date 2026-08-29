@@ -219,6 +219,19 @@ class Submission(models.Model):
     prototype = models.JSONField(null=True, blank=True)
     prototype_url = models.URLField(blank=True)
 
+    # What the format checks found when the poster was uploaded: whether it
+    # carried readable text, and any requirement it did not visibly meet.
+    #
+    # Recorded rather than recomputed on read for two reasons. The checks parse
+    # the file, so answering "was this poster in order?" for a list of teams
+    # would mean fetching every poster out of blob storage. And the answer is
+    # about the file as it was accepted — rewording a check later must not
+    # retroactively change what a team was told at the time.
+    #
+    # Only the warnings are kept: a poster failing a structural check is never
+    # stored in the first place, so there is nothing to record about it.
+    poster_checks = models.JSONField(null=True, blank=True)
+
     # --- the submitted copy -------------------------------------------------
     # Taken at the moment of submitting and left alone afterwards. Editing works
     # on the live fields above, so a team that reopens their entry and does not
@@ -226,6 +239,10 @@ class Submission(models.Model):
     # resubmission would quietly replace a valid entry with a half-edited one.
     submitted_answers = models.JSONField(null=True, blank=True)
     submitted_poster = models.JSONField(null=True, blank=True)
+    # Frozen with the rest of the entry, so a marker sees what was flagged
+    # about the poster that was actually submitted rather than about one
+    # uploaded afterwards during an abandoned revision.
+    submitted_poster_checks = models.JSONField(null=True, blank=True)
     submitted_report = models.JSONField(null=True, blank=True)
     submitted_prototype = models.JSONField(null=True, blank=True)
     submitted_prototype_url = models.URLField(blank=True)
@@ -286,6 +303,9 @@ class Submission(models.Model):
         for slot in self.FILE_SLOTS:
             setattr(self, f"submitted_{slot}", getattr(self, slot))
         self.submitted_prototype_url = self.prototype_url
+        # Travels with the poster it describes; copying one without the other
+        # would leave a marker reading a flag about a different file.
+        self.submitted_poster_checks = self.poster_checks
         self.submitted_at = timezone.now()
         self.submitted_by = user
         self.reopened_at = None

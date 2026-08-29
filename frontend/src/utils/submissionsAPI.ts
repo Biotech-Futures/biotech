@@ -20,16 +20,39 @@ export interface SubmissionDeadline {
   is_open: boolean
 }
 
+/** One requirement the poster did not visibly meet. */
+export interface PosterWarning {
+  code: string
+  passed: boolean
+  message: string
+}
+
+/**
+ * What the format checks found when the poster was uploaded.
+ *
+ * Only ever warnings: a poster failing a structural check is refused at upload
+ * and never stored, so nothing here can describe one.
+ */
+export interface PosterChecks {
+  /** False when the poster carries no readable text, so nothing could be checked. */
+  has_text: boolean
+  /** True when the file could not be parsed; it was accepted rather than refused. */
+  unreadable: boolean
+  warnings: PosterWarning[]
+}
+
 export interface SubmissionRecord {
   /** The working copy, edited while the entry is in progress. */
   answers: Record<string, string>
   poster: StoredFile | null
+  poster_checks: PosterChecks | null
   report: StoredFile | null
   prototype: StoredFile | null
   prototype_url: string
   /** What was actually submitted; unchanged while a revision is in progress. */
   submitted_answers: Record<string, string> | null
   submitted_poster: StoredFile | null
+  submitted_poster_checks: PosterChecks | null
   submitted_report: StoredFile | null
   submitted_prototype: StoredFile | null
   submitted_prototype_url: string
