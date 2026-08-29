@@ -21,7 +21,7 @@ from apps.submissions.poster_checks import SUPERVISOR_EMAIL, TEAM_CODE
 from apps.users.models import User
 
 from .seed_data import install_question_set
-from .test_poster_checks import A2, TEMPLATE, US_LETTER, _build_pdf
+from .test_poster_checks import A2, INSTRUCTION_DECK, US_LETTER, _build_pdf
 
 
 def _upload_file(width, height, *, text="", pages=1, name="poster.pdf"):
@@ -88,13 +88,12 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("portrait", problems.lower())
         self.assertIn("landscape", problems.lower())
 
-    def test_a_wrongly_shaped_page_gets_a_general_instruction_not_our_arithmetic(self):
-        # US Letter is portrait and looks like a normal page. The only thing
-        # wrong with it is a ratio, which the student cannot measure — so they
-        # are pointed at the template rather than told a number.
+    def test_a_wrongly_sized_page_is_told_the_size_it_should_be(self):
+        # A page size is a number in the export dialog, so this one is named
+        # rather than hidden behind a general instruction.
         problems = " ".join(self._upload(_upload_file(*US_LETTER)).data["problems"])
 
-        self.assertIn("poster template", problems)
+        self.assertIn("A2", problems)
         self.assertNotIn("ratio", problems.lower())
         self.assertNotIn("tolerance", problems.lower())
 
@@ -105,16 +104,21 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("single page", " ".join(response.data["problems"]).lower())
 
     # ------------------------------------------------------------ accepting
-    def test_a_poster_built_from_the_programmes_template_is_accepted(self):
-        # The size the programme's own PowerPoint template produces, which is
-        # not A2. Refusing this would refuse nearly every real submission.
-        response = self._upload(_upload_file(*TEMPLATE, text="BTF7 a@b.edu.au"))
+    def test_an_a2_poster_is_accepted(self):
+        response = self._upload(_upload_file(*A2, text="BTF7 a@b.edu.au"))
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(self._submission().poster)
 
+    def test_the_size_of_the_programmes_instruction_deck_is_refused(self):
+        # Recorded deliberately: that file is an instruction deck, not a canvas
+        # teams build on, so a poster arriving at its size was not set up at A2.
+        response = self._upload(_upload_file(*INSTRUCTION_DECK, text="BTF7 a@b.edu.au"))
+
+        self.assertEqual(response.status_code, 400)
+
     def test_a_complete_poster_is_recorded_with_no_warnings(self):
-        self._upload(_upload_file(*TEMPLATE, text="BTF7 supervisor@school.edu.au"))
+        self._upload(_upload_file(*A2, text="BTF7 supervisor@school.edu.au"))
 
         flag = self._submission().poster_checks
         self.assertEqual(flag["warnings"], [])
@@ -122,14 +126,14 @@ class PosterFormatUploadTests(TestCase):
 
     def test_a_poster_missing_its_team_code_is_accepted_but_flagged(self):
         # The whole point of the soft half: it goes through, and says so.
-        response = self._upload(_upload_file(*TEMPLATE, text="a@b.edu.au only"))
+        response = self._upload(_upload_file(*A2, text="a@b.edu.au only"))
 
         self.assertEqual(response.status_code, 200)
         codes = {w["code"] for w in self._submission().poster_checks["warnings"]}
         self.assertEqual(codes, {TEAM_CODE})
 
     def test_a_poster_with_no_text_layer_is_accepted_without_warnings(self):
-        response = self._upload(_upload_file(*TEMPLATE))
+        response = self._upload(_upload_file(*A2))
 
         self.assertEqual(response.status_code, 200)
         flag = self._submission().poster_checks
@@ -148,22 +152,22 @@ class PosterFormatUploadTests(TestCase):
 
     # -------------------------------------------------------- staying in step
     def test_replacing_the_poster_replaces_what_was_found_about_it(self):
-        self._upload(_upload_file(*TEMPLATE, text="nothing useful"))
+        self._upload(_upload_file(*A2, text="nothing useful"))
         self.assertTrue(self._submission().poster_checks["warnings"])
 
-        self._upload(_upload_file(*TEMPLATE, text="BTF7 supervisor@school.edu.au"))
+        self._upload(_upload_file(*A2, text="BTF7 supervisor@school.edu.au"))
 
         self.assertEqual(self._submission().poster_checks["warnings"], [])
 
     def test_removing_the_poster_clears_what_was_found_about_it(self):
-        self._upload(_upload_file(*TEMPLATE, text="nothing useful"))
+        self._upload(_upload_file(*A2, text="nothing useful"))
 
         self.client.delete(self.poster_url)
 
         self.assertIsNone(self._submission().poster_checks)
 
     def test_the_finding_is_frozen_with_the_entry_when_it_is_submitted(self):
-        self._upload(_upload_file(*TEMPLATE, text="a@b.edu.au but no code"))
+        self._upload(_upload_file(*A2, text="a@b.edu.au but no code"))
         self.client.put(
             self.detail_url,
             {"answers": {q.key: "An answer." for q in SubmissionQuestion.active()}},
@@ -179,7 +183,7 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(codes, {TEAM_CODE})
 
     def test_the_page_is_told_what_was_found(self):
-        self._upload(_upload_file(*TEMPLATE, text="BTF7 only"))
+        self._upload(_upload_file(*A2, text="BTF7 only"))
 
         payload = self.client.get(self.detail_url).data
 
@@ -190,14 +194,14 @@ class PosterFormatUploadTests(TestCase):
         # The two audiences differ on purpose: the student is pointed at the
         # template, while whoever reviews the entry can still see exactly which
         # check failed and why.
-        self._upload(_upload_file(*TEMPLATE, text="no code here"))
+        self._upload(_upload_file(*A2, text="no code here"))
 
         warnings = self._submission().poster_checks["warnings"]
         self.assertTrue(warnings)
         self.assertTrue(all(w["message"] for w in warnings), "detail was dropped")
 
     def test_the_cohort_is_published_for_the_grading_side(self):
-        self._upload(_upload_file(*TEMPLATE, text="BTF7 a@b.edu.au"))
+        self._upload(_upload_file(*A2, text="BTF7 a@b.edu.au"))
 
         payload = self.client.get(self.detail_url).data
 

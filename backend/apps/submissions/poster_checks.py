@@ -21,43 +21,42 @@ is a title and another is not. Neither can be done reliably, and a check that
 cries wolf teaches students to ignore every warning next to it — including the
 ones that are right.
 
-## Why the size is checked as a shape, not as A2
+## On the page size
 
-The programme's instructions say A2, but the PowerPoint template it hands out
-is 226.8mm x 322.8mm — about 54% of A2. A poster built in the official template
-and exported to PDF is therefore *not* A2, and a literal A2 check would refuse
-almost every entry.
+A2 portrait is enforced literally. The programme's own PowerPoint file is a
+different size — around 227mm x 323mm — but that file is an instruction deck
+with an example layout on its second slide, not a canvas teams build in, so
+posters are not expected to inherit its dimensions.
 
-What A2, A4 and that template do share is the portrait ISO shape, a height to
-width ratio of the square root of two. Checking the ratio accepts all three,
-and also accepts a team who exported at a different scale — which is harmless,
-because a poster is scaled again when it is printed. It still rejects a
-landscape page, a slide-shaped page, or a US Letter page.
+Worth knowing what this rules out: a poster designed correctly but exported at
+A4 is the same shape and would print identically, yet is refused here. That is
+a deliberate consequence of enforcing the stated size rather than the stated
+proportions.
 """
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from math import sqrt
 
 logger = logging.getLogger(__name__)
 
 
-# Height / width for every ISO paper size in portrait.
-ISO_PORTRAIT_RATIO = sqrt(2)
+# A2 portrait, in PDF points (72 to the inch): 420mm x 594mm.
+PT_PER_MM = 72.0 / 25.4
+A2_WIDTH_PT = 420 * PT_PER_MM
+A2_HEIGHT_PT = 594 * PT_PER_MM
 
-# How far from that ratio still counts. The official template is 0.6% off, so
-# the tolerance has to clear that with room to spare for a team who nudged the
-# page or whose exporter rounded. 5% still refuses US Letter (8.5% off), which
-# is the nearest wrong shape a student is likely to produce by accident.
-RATIO_TOLERANCE = 0.05
+# Exporters round, and a page nudged by a millimetre is not a different size.
+# 2% of A2's width is about 8mm — far too tight to admit A3 or A1, and far too
+# loose to be tripped by rounding.
+SIZE_TOLERANCE = 0.02
 
 # Codes are stored on the submission and read back by the page, so they are a
 # stable contract rather than display text.
 SINGLE_PAGE = "single_page"
 PORTRAIT = "portrait"
-PAGE_SHAPE = "page_shape"
+PAGE_SIZE = "page_size"
 TEAM_CODE = "team_code"
 SUPERVISOR_EMAIL = "supervisor_email"
 
@@ -68,31 +67,6 @@ GENERIC_REFUSAL = (
     "This poster does not match the required format. Please check it against "
     "the programme's poster template and export it again."
 )
-GENERIC_WARNING = (
-    "Please re-check your poster against the submission requirements — the "
-    "team code, school logo, title, team members, and supervisor contact "
-    "details — before you submit."
-)
-
-
-def student_facing_problems(checks: list[PosterCheck]) -> list[str]:
-    """What to tell the student about a refused poster.
-
-    Only findings a student can verify by looking at their own file are named:
-    a landscape page is landscape, and a three-page file has three pages, so
-    saying so is simply reporting a fact back.
-
-    Everything else is deliberately collapsed into one general sentence. The
-    page-shape test is a tolerance around a ratio, so a poster can fail it while
-    genuinely looking A2 to the person who made it — telling that student "this
-    is not A2" invites an argument they are half right about, and pointing them
-    at the template gets them to a working file faster than explaining our
-    arithmetic would.
-    """
-    named = [check.message for check in checks if check.explicit and check.message]
-    if any(not check.explicit for check in checks):
-        named.append(GENERIC_REFUSAL)
-    return named or [GENERIC_REFUSAL]
 
 
 @dataclass(frozen=True)
@@ -116,12 +90,28 @@ class PosterCheck:
         return {"code": self.code, "passed": self.passed, "message": self.message}
 
 
+def student_facing_problems(checks: list[PosterCheck]) -> list[str]:
+    """What to tell the student about a refused poster.
+
+    Only findings a student can verify by looking at their own file are named:
+    a landscape page is landscape, a three-page file has three pages, and a page
+    size is written in the export dialog they just used.
+
+    Anything else is collapsed into one general instruction, because a finding a
+    student cannot check for themselves reads as an argument rather than a fix.
+    """
+    named = [check.message for check in checks if check.explicit and check.message]
+    if any(not check.explicit for check in checks):
+        named.append(GENERIC_REFUSAL)
+    return named or [GENERIC_REFUSAL]
+
+
 @dataclass(frozen=True)
 class PosterCheckResult:
     structural: list[PosterCheck] = field(default_factory=list)
     content: list[PosterCheck] = field(default_factory=list)
     # False when the poster carries no extractable text at all, which is what a
-    # poster flattened to an image looks like. The content checks are skipped
+    # poster flattened to an image looks like. The text checks are skipped
     # entirely in that case rather than all reported as failures.
     has_text: bool = True
     # True when the file could not be parsed. Everything is skipped, and the
@@ -145,6 +135,9 @@ class PosterCheckResult:
         }
 
 
+# --------------------------------------------------------------- geometry
+
+
 def _page_size(page) -> tuple[float, float]:
     """Width and height as the page is actually displayed.
 
@@ -156,15 +149,20 @@ def _page_size(page) -> tuple[float, float]:
     box = page.mediabox
     width = float(box.width)
     height = float(box.height)
-
-    rotation = 0
-    try:
-        rotation = int(page.rotation or 0) % 360
-    except Exception:
-        rotation = 0
-    if rotation in (90, 270):
+    if _page_rotation(page) in (90, 270):
         width, height = height, width
     return width, height
+
+
+def _page_rotation(page) -> int:
+    try:
+        return int(page.rotation or 0) % 360
+    except Exception:
+        return 0
+
+
+def _close(value: float, target: float) -> bool:
+    return abs(value - target) <= target * SIZE_TOLERANCE
 
 
 def _structural_checks(reader) -> list[PosterCheck]:
@@ -198,44 +196,24 @@ def _structural_checks(reader) -> list[PosterCheck]:
         )
     )
 
-    ratio = height / width if portrait else width / height
-    within = abs(ratio - ISO_PORTRAIT_RATIO) <= ISO_PORTRAIT_RATIO * RATIO_TOLERANCE
+    right_size = _close(width, A2_WIDTH_PT) and _close(height, A2_HEIGHT_PT)
     checks.append(
         PosterCheck(
-            PAGE_SHAPE,
-            portrait and within,
-            # Kept for whoever reviews the entry. Not shown to the student:
-            # this is a tolerance around a ratio, not something they can measure.
-            "" if (portrait and within) else
-            f"Page ratio {ratio:.3f} is outside the tolerance for an ISO "
-            f"portrait page ({ISO_PORTRAIT_RATIO:.3f}).",
-            explicit=False,
+            PAGE_SIZE,
+            portrait and right_size,
+            "" if (portrait and right_size) else (
+                "The poster should be A2 (420 x 594 mm). This file is "
+                f"{width / PT_PER_MM:.0f} x {height / PT_PER_MM:.0f} mm."
+            ),
+            # A page size is a number in the export dialog the student just
+            # used, so naming it tells them exactly what to change.
+            explicit=True,
         )
     )
     return checks
 
 
-def _content_checks(text: str, *, team_code: str) -> list[PosterCheck]:
-    # Word boundaries so BTF1 is not found inside BTF12; case-insensitive
-    # because a team writing "btf1" has still put their code on the poster.
-    code_present = bool(
-        team_code
-        and re.search(rf"\b{re.escape(team_code)}\b", text, re.IGNORECASE)
-    )
-    return [
-        PosterCheck(
-            TEAM_CODE,
-            code_present,
-            "" if code_present
-            else f"We could not find your team code ({team_code}) on the poster.",
-        ),
-        PosterCheck(
-            SUPERVISOR_EMAIL,
-            bool(_EMAIL.search(text)),
-            "" if _EMAIL.search(text)
-            else "We could not find a supervisor email address on the poster.",
-        ),
-    ]
+# ---------------------------------------------------------------- content
 
 
 def _extract_text(reader) -> str:
@@ -246,6 +224,33 @@ def _extract_text(reader) -> str:
         # nothing here is worth failing an upload over.
         logger.warning("poster_checks.text_extraction_failed", exc_info=True)
         return ""
+
+
+def _content_checks(text: str, *, team_code: str) -> list[PosterCheck]:
+    # Word boundaries so BTF1 is not found inside BTF12; case-insensitive
+    # because a team writing "btf1" has still put their code on the poster.
+    code_present = bool(
+        team_code
+        and re.search(rf"\b{re.escape(team_code)}\b", text, re.IGNORECASE)
+    )
+    checks = [
+        PosterCheck(
+            TEAM_CODE,
+            code_present,
+            "" if code_present
+            else f"We could not find your team code ({team_code}) on the poster.",
+        )
+    ]
+
+    checks.append(
+        PosterCheck(
+            SUPERVISOR_EMAIL,
+            bool(_EMAIL.search(text)),
+            "" if _EMAIL.search(text)
+            else "We could not find a supervisor email address on the poster.",
+        )
+    )
+    return checks
 
 
 def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
