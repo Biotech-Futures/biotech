@@ -231,3 +231,83 @@ class ReminderTriggerEndpointTests(TestCase):
         response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="")
 
         self.assertEqual(response.status_code, 503)
+
+
+@override_settings(USE_AZURE_BLOB_STORAGE=False)
+class IndividualDeliveryTests(TestCase):
+    """One message per student, not one message listing the whole team."""
+
+    def setUp(self):
+        self.role = Roles.objects.create(role_name="student")
+        install_question_set()
+        self.deadline = Deadline.objects.create(
+            closes_at=timezone.now() + timedelta(days=3), is_active=True
+        )
+        self.group = Groups.objects.create(group_name="BTF-TEAM")
+        for name in ("ada", "grace", "alan"):
+            user = User.objects.create_user(
+                email=f"{name}@test.local", password="testUser@123",
+                first_name=name.title(), last_name="Student",
+            )
+            RoleAssignmentHistory.objects.create(
+                user=user, role=self.role, valid_from=timezone.now(), valid_to=None
+            )
+            GroupMembership.objects.create(
+                group=self.group, user=user, membership_role="student"
+            )
+
+    def test_every_student_gets_their_own_message(self):
+        send_due_reminders()
+
+        self.assertEqual(len(mail.outbox), 3)
+        self.assertEqual(
+            sorted(m.to[0] for m in mail.outbox),
+            ["ada@test.local", "alan@test.local", "grace@test.local"],
+        )
+
+    def test_no_student_can_see_a_teammates_address(self):
+        # These are school students; one team's roster is not something the
+        # programme should be handing out in a To: line.
+        send_due_reminders()
+
+        for message in mail.outbox:
+            self.assertEqual(len(message.to), 1)
+            self.assertFalse(message.cc)
+            self.assertFalse(message.bcc)
+
+    def test_everyone_receives_the_same_email(self):
+        send_due_reminders()
+
+        subjects = {m.subject for m in mail.outbox}
+        bodies = {m.body for m in mail.outbox}
+        self.assertEqual(len(subjects), 1)
+        self.assertEqual(len(bodies), 1, "students were sent differing text")
+
+    def test_one_bad_address_does_not_cost_the_rest_of_the_team_their_copy(self):
+        # The reason for sending separately at all: a server rejects a message,
+        # not a recipient, so a single typo in a team of three used to mean
+        # nobody heard anything.
+        from unittest.mock import patch
+
+        real_send = mail.EmailMessage.send
+
+        def flaky(self, *args, **kwargs):
+            if self.to == ["grace@test.local"]:
+                raise OSError("mailbox unavailable")
+            return real_send(self, *args, **kwargs)
+
+        with patch.object(mail.EmailMessage, "send", flaky):
+            result = send_due_reminders()
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(result["sent"], 1, "the team should still count as reminded")
+
+    def test_a_team_nobody_could_be_reached_on_is_tried_again_tomorrow(self):
+        from unittest.mock import patch
+
+        with patch.object(mail.EmailMessage, "send", side_effect=OSError("relay down")):
+            result = send_due_reminders()
+
+        self.assertEqual(result["failed"], 1)
+        # Nothing recorded, so the next run does not treat them as done.
+        self.assertFalse(SubmissionReminder.objects.exists())

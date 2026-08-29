@@ -87,18 +87,36 @@ class SubmissionEmailTests(TestCase):
         )
 
     def test_every_student_on_the_team_is_emailed(self):
+        # One message each rather than one message listing the team: a mail
+        # server rejects a message, not a recipient, so a single bad address
+        # would otherwise cost the whole team their confirmation.
         self._complete_and_submit()
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)
         self.assertCountEqual(
-            mail.outbox[0].to, ["student1@test.local", "student2@test.local"]
+            [message.to[0] for message in mail.outbox],
+            ["student1@test.local", "student2@test.local"],
         )
+
+    def test_no_student_can_see_a_teammates_address(self):
+        self._complete_and_submit()
+
+        for message in mail.outbox:
+            self.assertEqual(len(message.to), 1)
+            self.assertFalse(message.cc)
+            self.assertFalse(message.bcc)
+
+    def test_everyone_on_the_team_receives_the_same_email(self):
+        self._complete_and_submit()
+
+        self.assertEqual(len({message.body for message in mail.outbox}), 1)
+        self.assertEqual(len({message.subject for message in mail.outbox}), 1)
 
     # -------------------------------------------------------------- contents
     def test_sent_on_submit_with_the_group_in_the_subject(self):
         self._complete_and_submit()
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(mail.outbox)
         self.assertIn("BTF-EMAIL", mail.outbox[0].subject)
 
     def test_a_complete_submission_reports_every_required_component(self):

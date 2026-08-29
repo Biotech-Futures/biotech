@@ -11,7 +11,7 @@ import os
 from email.mime.image import MIMEImage
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -125,6 +125,11 @@ def recipients_for(group) -> list[str]:
     Mentors and supervisors are excluded deliberately: the client confirmed
     submissions are none of their business, so they should not receive a copy
     of a team's entry summary either.
+
+    Accounts that are not active are excluded too, and that is deliberate
+    rather than an oversight: an address nobody has validated is an address the
+    programme has no business writing to, and a student who has not finished
+    activating has not confirmed it is theirs.
     """
     memberships = (
         GroupMembership.objects.filter(group=group, left_at__isnull=True)
@@ -142,6 +147,79 @@ def recipients_for(group) -> list[str]:
         if membership.membership_role == ROLE_STUDENT or user_has_role(user, ROLE_STUDENT):
             emails.append(user.email)
     return sorted(set(emails))
+
+
+def send_individually(messages, *, kind: str) -> tuple[int, int]:
+    """Send one message per recipient over a single connection.
+
+    Everyone on a team receives the same email, addressed only to them. Two
+    reasons for that over one message carrying the whole team in ``To``:
+
+    * A team's students would otherwise see each other's addresses. These are
+      school students, and one team's roster is not something the programme
+      needs to hand out.
+    * Mail servers reject a message per-message, not per-recipient. One
+      mistyped address in a team of five could take the other four down with
+      it, and nobody would receive anything.
+
+    The connection is opened once and shared, so this costs one handshake for
+    the team rather than one each. Each send is guarded separately: that is the
+    whole point — a failure must cost one student their copy, not all of them.
+
+    Returns ``(sent, failed)``.
+    """
+    if not messages:
+        return 0, 0
+
+    sent = failed = 0
+    connection = get_connection()
+    try:
+        connection.open()
+    except Exception:
+        logger.error("submission_email.connection_failed kind=%s", kind)
+        return 0, len(messages)
+
+    try:
+        for message in messages:
+            message.connection = connection
+            try:
+                message.send()
+            except Exception as exc:
+                failed += 1
+                # Not logger.exception: SMTPRecipientsRefused and friends carry
+                # the recipient address in their args, which would land raw in
+                # the log sink.
+                logger.error(
+                    "submission_email.recipient_failed kind=%s error=%s",
+                    kind, type(exc).__name__,
+                )
+            else:
+                sent += 1
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+    return sent, failed
+
+
+class _Batch:
+    """A set of messages that the mail pool can treat as one task.
+
+    ``send_async`` hands whatever it is given to a worker and calls ``send()``
+    on it, so wrapping the batch keeps a whole team's mail to a single slot on
+    a pool that is shared with the login-code emails. Queueing five separate
+    tasks for one submission would let a busy deadline evening push a student's
+    sign-in code behind them.
+    """
+
+    def __init__(self, messages, kind: str):
+        self.messages = messages
+        self.kind = kind
+
+    def send(self) -> int:
+        sent, _ = send_individually(self.messages, kind=self.kind)
+        return sent
 
 
 def send_submission_confirmation(submission: Submission) -> int:
@@ -184,17 +262,26 @@ def send_submission_confirmation(submission: Submission) -> int:
         # strip_tags keeps the text between tags, so the base template's <style>
         # block arrived as visible CSS at the top of the message.
         text = render_to_string("emails/submission_confirmation.txt", context)
-        msg = EmailMultiAlternatives(
-            subject=f"{settings.BRAND_NAME}: Submission received for {group.group_name}",
-            body=text,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=to,
-        )
-        msg.attach_alternative(html, "text/html")
-        attach_green_logo(msg)
+
+        # Rendered once and reused, so every student on the team is looking at
+        # the same email — only the address it is sent to differs.
+        subject = f"{settings.BRAND_NAME}: Submission received for {group.group_name}"
+        messages = []
+        for address in to:
+            message = EmailMultiAlternatives(
+                subject=subject,
+                body=text,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[address],
+            )
+            message.attach_alternative(html, "text/html")
+            attach_green_logo(message)
+            messages.append(message)
+
         # Rendered here, sent off-thread: the worker does no ORM work, so it
         # can never race the transaction that created this submission.
-        send_async(msg, kind="submission_confirmation")
+        send_async(_Batch(messages, "submission_confirmation"),
+                   kind="submission_confirmation")
         return len(to)
     except Exception:
         logger.exception("submission_email.failed group=%s", getattr(submission, "group_id", None))

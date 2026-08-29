@@ -236,11 +236,13 @@ class ConcurrentSubmitTests(TestCase):
         # no-op, and must not send a second confirmation email either.
         client = self._make_submittable(self.ada)
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
-        self.assertEqual(len(mail.outbox), 1)
+        # One message per student on the team, so the count is the team size.
+        after_first = len(mail.outbox)
+        self.assertEqual(after_first, 2)
 
         second = self._client_for(self.grace).post(self.submit_url, {}, format="json")
 
         self.assertEqual(second.status_code, 409)
         self.assertEqual(second.data["code"], "submission_locked")
         # The team is not told twice that their entry was received.
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), after_first)

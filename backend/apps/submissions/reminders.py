@@ -29,7 +29,7 @@ from django.utils import timezone
 from apps.groups.models import Groups
 from apps.services.email_branding import brand_context
 
-from .emails import LOGO_CID, attach_green_logo, recipients_for
+from .emails import LOGO_CID, attach_green_logo, recipients_for, send_individually
 from .models import Submission, SubmissionReminder
 from .serializers import missing_required_answers
 from .services import deadline_for_group
@@ -121,8 +121,13 @@ def _submission_of(group) -> Submission | None:
         return None
 
 
-def build_reminder(group, submission, closes_at) -> EmailMultiAlternatives:
-    """Render one team's reminder. Does not send it."""
+def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives]:
+    """Render one team's reminder, as one message per student.
+
+    Rendered once and reused, so everyone on the team reads the same email —
+    only the address it is addressed to differs. See ``send_individually`` for
+    why they are not simply listed together in one ``To``.
+    """
     required, optional = components_for(submission)
     context = {
         **brand_context(),
@@ -138,17 +143,22 @@ def build_reminder(group, submission, closes_at) -> EmailMultiAlternatives:
             else ""
         ),
     }
-    message = EmailMultiAlternatives(
-        subject=f"{settings.BRAND_NAME}: Submission reminder for {group.group_name}",
-        body=render_to_string("emails/submission_reminder.txt", context),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=recipients_for(group),
-    )
-    message.attach_alternative(
-        render_to_string("emails/submission_reminder.html", context), "text/html"
-    )
-    attach_green_logo(message)
-    return message
+    subject = f"{settings.BRAND_NAME}: Submission reminder for {group.group_name}"
+    text = render_to_string("emails/submission_reminder.txt", context)
+    html = render_to_string("emails/submission_reminder.html", context)
+
+    messages = []
+    for address in recipients_for(group):
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=text,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[address],
+        )
+        message.attach_alternative(html, "text/html")
+        attach_green_logo(message)
+        messages.append(message)
+    return messages
 
 
 def teams_due(now=None) -> list[tuple]:
@@ -204,22 +214,25 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
     sent = skipped = failed = 0
 
     for group, submission, closes_at in teams_due(now):
-        message = build_reminder(group, submission, closes_at)
-        if not message.to:
+        messages = build_reminders(group, submission, closes_at)
+        if not messages:
             # No active students on the team; nobody to remind.
             skipped += 1
             continue
         if dry_run:
             sent += 1
             continue
-        try:
-            message.send()
-        except Exception as exc:
-            failed += 1
+
+        delivered, refused = send_individually(messages, kind="submission_reminder")
+        if refused:
             logger.error(
-                "submission_reminder.failed group=%s error=%s",
-                group.id, type(exc).__name__,
+                "submission_reminder.partial group=%s sent=%s failed=%s",
+                group.id, delivered, refused,
             )
+        if not delivered:
+            # Nobody on the team received it, so today is not recorded and the
+            # next run will try them again rather than skipping them as done.
+            failed += 1
             continue
 
         SubmissionReminder.objects.update_or_create(
