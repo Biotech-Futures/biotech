@@ -195,3 +195,11 @@ class PosterFormatUploadTests(TestCase):
         warnings = self._submission().poster_checks["warnings"]
         self.assertTrue(warnings)
         self.assertTrue(all(w["message"] for w in warnings), "detail was dropped")
+
+    def test_the_cohort_is_published_for_the_grading_side(self):
+        self._upload(_upload_file(*TEMPLATE, text="BTF7 a@b.edu.au"))
+
+        payload = self.client.get(self.detail_url).data
+
+        self.assertIn("cohort", payload["submission"])
+        self.assertIsInstance(payload["submission"]["cohort"], int)

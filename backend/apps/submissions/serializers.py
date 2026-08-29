@@ -28,6 +28,11 @@ class SubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Submission
         fields = [
+            # Published for the grading side: "every entry in this
+            # competition year" is the query it runs first, and without this
+            # it would have to infer the year from submitted_at, which is
+            # wrong across a grace window or an extension.
+            "cohort",
             "answers",
             "poster",
             "poster_checks",
