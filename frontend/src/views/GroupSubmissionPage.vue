@@ -445,31 +445,45 @@
              it. A button that duplicates something already happening only adds
              a control to the row. -->
 
-        <!-- Step backwards. Hidden on the first step rather than disabled, so
-             the row does not carry a permanently dead control. -->
-        <button
-          v-if="!isFirstStep"
-          class="btn btn-outline"
-          type="button"
-          :disabled="isBusy"
-          @click="goToStep(stepIndex - 1)"
-        >
-          Back
-        </button>
+        <!-- Stepping is two arrows rather than two labelled buttons, so Submit
+             can be present on every step instead of only the last.
+             Previously Next and Submit shared one slot, which meant a team who
+             had finished could not submit without first walking to the end —
+             the layout hid the one thing they had come to do. The step strip
+             above names and links every step, so the labels are not lost by
+             moving them off these controls; each still carries its destination
+             as its accessible name and its tooltip, for anyone who cannot see
+             the strip. Disabled rather than hidden at the ends, so the row does
+             not reflow as the student moves through it. -->
+        <div class="submission-steps-nav">
+          <button
+            class="btn btn-outline btn-icon"
+            type="button"
+            :disabled="isBusy || isFirstStep"
+            :aria-label="isFirstStep ? 'Previous step' : `Back: ${TABS[stepIndex - 1].label}`"
+            :title="isFirstStep ? undefined : `Back: ${TABS[stepIndex - 1].label}`"
+            @click="goToStep(stepIndex - 1)"
+          >
+            <i class="fas fa-arrow-left" aria-hidden="true"></i>
+          </button>
+          <button
+            class="btn btn-outline btn-icon"
+            type="button"
+            :disabled="isBusy || isLastStep"
+            :aria-label="isLastStep ? 'Next step' : `Next: ${TABS[stepIndex + 1].label}`"
+            :title="isLastStep ? undefined : `Next: ${TABS[stepIndex + 1].label}`"
+            @click="goToStep(stepIndex + 1)"
+          >
+            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+          </button>
+        </div>
 
-        <!-- Next carries the flow forward; on the last step it becomes Submit,
-             which is where a wizard is expected to end. -->
+        <!-- Reachable from any step now that it no longer shares a slot with
+             Next. Clicking it early is safe: an incomplete entry is refused in
+             the page and the student is taken to the first thing that needs
+             fixing, so an early press is a shortcut rather than a dead end. -->
         <button
-          v-if="!isLastStep"
-          class="btn btn-primary"
-          type="button"
-          :disabled="isBusy"
-          @click="goToStep(stepIndex + 1)"
-        >
-          Next: {{ TABS[stepIndex + 1].label }}
-        </button>
-        <button
-          v-else-if="isEditable"
+          v-if="isEditable"
           class="btn btn-primary"
           type="button"
           :disabled="isBusy"
@@ -1907,6 +1921,31 @@ onBeforeUnmount(() => {
 .submission-savestate {
   font-size: var(--text-meta);
   color: var(--muted);
+}
+
+/* The two arrows read as one control, so they sit tighter to each other than
+   to Submit — which is what keeps stepping and submitting from looking like
+   three equal choices. */
+.submission-steps-nav {
+  display: flex;
+  gap: 0.35rem;
+}
+
+/* Square, and large enough to hit on a phone: an icon-only button loses its
+   label as a target as well as as a hint, so the 44px guidance matters more
+   here than on a button with text in it. */
+.btn-icon {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.btn-icon:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .submission-savestate.is-error {

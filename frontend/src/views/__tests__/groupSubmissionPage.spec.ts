@@ -683,3 +683,30 @@ describe('what the format checks found about the poster', () => {
     expect(wrapper!.find('.poster-notice').exists()).toBe(false)
   })
 })
+
+describe('moving between steps', () => {
+  it('offers Submit from the first step, not only the last', async () => {
+    // The reason the arrows replaced a labelled Next: a team who has finished
+    // should not have to walk to the end of the wizard to find the button.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
+  })
+
+  it('keeps each arrow labelled with where it goes', async () => {
+    // An icon-only control still has to say what it does for anyone using a
+    // screen reader, so the destination moves to the accessible name.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    const forward = buttons().find((b) => b.attributes('aria-label')?.startsWith('Next:'))
+    expect(forward?.attributes('aria-label')).toBe('Next: Poster')
+  })
+
+  it('disables the back arrow on the first step rather than removing it', async () => {
+    // Hiding it would make the row reflow as the student moves through.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    const back = buttons().find((b) => b.attributes('aria-label') === 'Previous step')
+    expect(back?.attributes('disabled')).toBeDefined()
+  })
+})
