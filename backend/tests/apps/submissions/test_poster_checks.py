@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 from apps.submissions.poster_checks import (
     PAGE_SIZE,
     PORTRAIT,
+    SCHOOL_LOGO,
     SINGLE_PAGE,
     SUPERVISOR_EMAIL,
     TEAM_CODE,
@@ -76,6 +77,55 @@ def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
     ).encode()
     return bytes(out)
 
+
+
+def _build_pdf_with_image(width, height, *, x, y, w, h, text="") -> bytes:
+    """A one-page PDF with a single 1x1 image placed at a given rectangle.
+
+    The image itself is meaningless — one grey pixel. What is under test is
+    where it lands, which is decided entirely by the matrix in the content
+    stream, so a real picture would only make the fixture bigger.
+    """
+    img = bytes([0x80])  # one mid-grey 8-bit pixel
+    body = f"q {w:.2f} 0 0 {h:.2f} {x:.2f} {y:.2f} cm /Im0 Do Q".encode()
+    if text:
+        escaped = text.replace("(", r"\(").replace(")", r"\)")
+        body += f"\nBT /F1 12 Tf 40 40 Td ({escaped}) Tj ET".encode()
+
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width:.2f} {height:.2f}] "
+            f"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> "
+            f"/XObject << /Im0 6 0 R >> >> >>"
+        ).encode(),
+        4: (
+            b"<< /Length " + str(len(body)).encode() + b" >>\nstream\n"
+            + body + b"\nendstream"
+        ),
+        5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        6: (
+            b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+            b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\n"
+            b"stream\n" + img + b"\nendstream"
+        ),
+    }
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = {}
+    for num in sorted(objects):
+        offsets[num] = len(out)
+        out += f"{num} 0 obj\n".encode() + objects[num] + b"\nendobj\n"
+    start_xref = len(out)
+    size = max(objects) + 1
+    out += f"xref\n0 {size}\n".encode() + b"0000000000 65535 f \n"
+    for num in range(1, size):
+        out += f"{offsets[num]:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start_xref}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
 
 
 def _check(pdf_bytes, *, team_code="BTF1"):
@@ -207,3 +257,59 @@ class UnreadablePosterTests(SimpleTestCase):
         self.assertTrue(flag["has_text"])
         self.assertFalse(flag["unreadable"])
         self.assertIn(TEAM_CODE, {w["code"] for w in flag["warnings"]})
+
+
+class SchoolLogoTests(SimpleTestCase):
+    # A2 is 1190.55 x 1683.78 points.
+    W, H = A2
+
+    def _logo_at(self, x, y, w, h, text="BTF1 a@b.edu.au"):
+        return _check(
+            _build_pdf_with_image(self.W, self.H, x=x, y=y, w=w, h=h, text=text)
+        )
+
+    def test_a_logo_in_the_top_left_passes(self):
+        # 60pt square, 40pt in from the left, near the top edge.
+        result = self._logo_at(40, self.H - 100, 60, 60)
+
+        self.assertNotIn(SCHOOL_LOGO, _codes(result.warnings))
+
+    def test_a_logo_in_the_top_right_is_flagged(self):
+        result = self._logo_at(self.W - 100, self.H - 100, 60, 60)
+
+        self.assertIn(SCHOOL_LOGO, _codes(result.warnings))
+
+    def test_an_image_at_the_foot_of_the_page_is_not_mistaken_for_a_logo(self):
+        result = self._logo_at(40, 40, 60, 60)
+
+        self.assertIn(SCHOOL_LOGO, _codes(result.warnings))
+
+    def test_a_full_page_background_is_not_mistaken_for_a_logo(self):
+        # Its top-left corner is exactly where a logo would be; only its size
+        # tells the two apart.
+        result = self._logo_at(0, 0, self.W, self.H)
+
+        self.assertIn(SCHOOL_LOGO, _codes(result.warnings))
+
+    def test_a_poster_with_no_images_says_nothing_either_way(self):
+        # A logo placed as vector artwork leaves no image behind. Reporting it
+        # missing would be confidently wrong about a poster that has one.
+        result = _check(_build_pdf(*A2, text="BTF1 a@b.edu.au"))
+
+        codes = {check.code for check in result.content}
+        self.assertNotIn(SCHOOL_LOGO, codes)
+
+
+class SupervisorEmailPlacementTests(SimpleTestCase):
+    W, H = A2
+
+    def test_an_email_at_the_foot_passes(self):
+        # The text helper draws at y=40, which is the bottom of the page.
+        result = _check(_build_pdf(*A2, text="BTF1 supervisor@school.edu.au"))
+
+        self.assertNotIn(SUPERVISOR_EMAIL, _codes(result.warnings))
+
+    def test_no_email_anywhere_is_flagged(self):
+        result = _check(_build_pdf(*A2, text="BTF1 and nothing else"))
+
+        self.assertIn(SUPERVISOR_EMAIL, _codes(result.warnings))

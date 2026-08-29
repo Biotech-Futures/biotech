@@ -1,25 +1,25 @@
 """Format checks for an uploaded poster.
 
-The programme asks for an A2 portrait poster carrying the team's code and the
-supervisor's contact details. These checks report how far a file meets that,
-split into two kinds:
+The programme asks for an A2 portrait poster carrying the team's code, a school
+logo in the top left, and the supervisor's contact details at the foot. These
+checks report how far a file meets that, split into two kinds:
 
 * **Structural** checks read the PDF's page geometry. They are arithmetic on
   numbers the file states about itself, so they are certain, and a failure is
   refused outright.
-* **Content** checks look for text in the poster. They are good evidence but
-  not proof, so a failure is only ever a warning recorded against the entry.
+* **Content** checks look inside the poster — its text, and where its images
+  sit. They are good evidence but not proof, so a failure is only ever a
+  warning recorded against the entry.
 
 The split matters because the cost of being wrong is not symmetric: a false
 structural failure would stop a team submitting, while a false content warning
 only tells them to double-check something.
 
-Deliberately *not* checked: the school logo in the top left, and whether a
-title, team member list or school name is present. Detecting those means
-deciding that one image is a logo and another is not, or that one line of text
-is a title and another is not. Neither can be done reliably, and a check that
-cries wolf teaches students to ignore every warning next to it — including the
-ones that are right.
+Deliberately *not* checked: whether a title, team member list or school name is
+present, and whether the logo is the right logo. Detecting those means deciding
+that one line of text is a title and another is not, or recognising a school's
+branding. Neither can be done reliably, and a check that cries wolf teaches
+students to ignore every warning next to it — including the ones that are right.
 
 ## On the page size
 
@@ -52,6 +52,20 @@ A2_HEIGHT_PT = 594 * PT_PER_MM
 # loose to be tripped by rounding.
 SIZE_TOLERANCE = 0.02
 
+# Where a school logo is expected, as fractions of the page. Generous on
+# purpose: the requirement is "top left", not a coordinate, and a warning that
+# fires on a logo two centimetres further right than we imagined is a warning
+# nobody should have been shown.
+LOGO_MAX_LEFT = 0.40
+LOGO_MIN_TOP = 0.72
+LOGO_MIN_WIDTH = 0.02
+LOGO_MAX_WIDTH = 0.45
+LOGO_MAX_AREA = 0.20
+
+# Supervisor details belong at the foot of the poster. A third of the page is
+# what "the bottom" fairly means on something this tall.
+BOTTOM_BAND = 0.33
+
 # Codes are stored on the submission and read back by the page, so they are a
 # stable contract rather than display text.
 SINGLE_PAGE = "single_page"
@@ -59,6 +73,7 @@ PORTRAIT = "portrait"
 PAGE_SIZE = "page_size"
 TEAM_CODE = "team_code"
 SUPERVISOR_EMAIL = "supervisor_email"
+SCHOOL_LOGO = "school_logo"
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
@@ -213,20 +228,198 @@ def _structural_checks(reader) -> list[PosterCheck]:
     return checks
 
 
+# ------------------------------------------------------------ placement
+
+
+def _multiply(m: list[float], n: list[float]) -> list[float]:
+    """Compose two PDF transformation matrices, [a b c d e f]."""
+    a1, b1, c1, d1, e1, f1 = m
+    a2, b2, c2, d2, e2, f2 = n
+    return [
+        a1 * a2 + b1 * c2,
+        a1 * b2 + b1 * d2,
+        c1 * a2 + d1 * c2,
+        c1 * b2 + d1 * d2,
+        e1 * a2 + f1 * c2 + e2,
+        e1 * b2 + f1 * d2 + f2,
+    ]
+
+
+def _unit_square_bounds(m: list[float]) -> tuple[float, float, float, float]:
+    """Where an image drawn by this matrix actually lands.
+
+    Every image is drawn into the unit square and positioned entirely by the
+    matrix in force, so its rectangle is that square's four corners transformed.
+    Taking all four rather than the width and height alone keeps this correct
+    for a rotated or mirrored placement.
+    """
+    a, b, c, d, e, f = m
+    corners = [
+        (e, f),
+        (a + e, b + f),
+        (c + e, d + f),
+        (a + c + e, b + d + f),
+    ]
+    xs = [x for x, _ in corners]
+    ys = [y for _, y in corners]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _image_boxes(page, depth: int = 0) -> list[tuple[float, float, float, float]]:
+    """Rectangles of every image drawn on the page, in page coordinates.
+
+    pypdf reports which images a page *contains* but not where they are put:
+    position lives in the content stream, in the transformation matrix in force
+    when each image is drawn. So the stream is walked here, tracking that matrix
+    through the save/restore stack the same way a reader would.
+
+    Note the coordinate system: PDF's origin is the bottom-left with y
+    increasing upwards, so a large y means near the top of the page.
+    """
+    from pypdf.generic import ContentStream
+
+    if depth > 3:
+        # Form XObjects can nest. A depth limit keeps a malformed or hostile
+        # file from turning this into an unbounded walk.
+        return []
+
+    try:
+        resources = page.get("/Resources")
+        resources = resources.get_object() if resources else {}
+        xobjects = resources.get("/XObject")
+        xobjects = xobjects.get_object() if xobjects else {}
+        content = ContentStream(page.get_contents(), page.pdf)
+    except Exception:
+        return []
+
+    boxes: list[tuple[float, float, float, float]] = []
+    ctm: list[float] = [1, 0, 0, 1, 0, 0]
+    stack: list[list[float]] = []
+
+    for operands, operator in content.operations:
+        try:
+            if operator == b"q":
+                stack.append(list(ctm))
+            elif operator == b"Q":
+                if stack:
+                    ctm = stack.pop()
+            elif operator == b"cm":
+                ctm = _multiply([float(v) for v in operands[:6]], ctm)
+            elif operator == b"Do":
+                name = operands[0]
+                target = xobjects.get(name)
+                target = target.get_object() if target is not None else None
+                if target is None:
+                    continue
+                subtype = target.get("/Subtype")
+                if subtype == "/Image":
+                    boxes.append(_unit_square_bounds(ctm))
+                elif subtype == "/Form":
+                    # A form draws in its own space; compose its matrix so any
+                    # image inside it lands where the reader would put it.
+                    inner = target.get("/Matrix")
+                    nested_ctm = (
+                        _multiply([float(v) for v in inner], ctm) if inner else ctm
+                    )
+                    for box in _image_boxes(target, depth + 1):
+                        boxes.append(_shift(box, nested_ctm, ctm))
+        except Exception:
+            # One unreadable operation must not cost us the whole page.
+            continue
+    return boxes
+
+
+def _shift(box, nested_ctm, outer_ctm):
+    """Move a rectangle found inside a form into the outer page's coordinates."""
+    x0, y0, x1, y1 = box
+    a, b, c, d, e, f = nested_ctm
+    points = [
+        (a * x + c * y + e, b * x + d * y + f)
+        for x, y in ((x0, y0), (x1, y0), (x0, y1), (x1, y1))
+    ]
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _logo_check(page, width: float, height: float) -> PosterCheck | None:
+    """Whether something logo-shaped sits in the top-left corner.
+
+    Returns ``None`` — no finding either way — when the page holds no images at
+    all. A logo placed as vector artwork, which is what PowerPoint produces from
+    an EMF or a grouped shape, leaves no image object behind: reporting "no logo"
+    for those would be confidently wrong about a poster that has one. Staying
+    quiet is the honest answer when the only evidence available is absent.
+    """
+    if _page_rotation(page):
+        # Every rectangle below would need rotating with the page. Rare enough
+        # that saying nothing beats saying something wrong.
+        return None
+
+    boxes = _image_boxes(page)
+    if not boxes:
+        return None
+
+    page_area = width * height
+    for x0, y0, x1, y1 in boxes:
+        box_width = x1 - x0
+        box_height = y1 - y0
+        if box_width <= 0 or box_height <= 0:
+            continue
+        if x0 > width * LOGO_MAX_LEFT:
+            continue
+        if y1 < height * LOGO_MIN_TOP:
+            continue
+        if not (width * LOGO_MIN_WIDTH <= box_width <= width * LOGO_MAX_WIDTH):
+            continue
+        if (box_width * box_height) > page_area * LOGO_MAX_AREA:
+            # A full-page background sits in the top left too. Size is what
+            # separates it from a logo.
+            continue
+        return PosterCheck(SCHOOL_LOGO, True)
+
+    return PosterCheck(
+        SCHOOL_LOGO,
+        False,
+        "No school logo was found in the top-left corner of the poster.",
+    )
+
+
 # ---------------------------------------------------------------- content
 
 
-def _extract_text(reader) -> str:
+def _text_by_position(page) -> tuple[str, str]:
+    """All the poster's text, and just the text in its bottom band.
+
+    The visitor is handed each run of text along with the matrices in force, so
+    the run's position on the page can be recovered. Where that fails the bottom
+    band comes back empty and the caller falls back to looking everywhere, which
+    is a weaker check rather than a wrong one.
+    """
+    whole: list[str] = []
+    bottom: list[str] = []
+    height = float(page.mediabox.height)
+
+    def visitor(text, cm, tm, font_dict, font_size):
+        if not text or not text.strip():
+            return
+        whole.append(text)
+        try:
+            y = cm[1] * tm[4] + cm[3] * tm[5] + cm[5]
+        except Exception:
+            return
+        if y <= height * BOTTOM_BAND:
+            bottom.append(text)
+
     try:
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+        page.extract_text(visitor_text=visitor)
     except Exception:
-        # Text extraction is far more fragile than reading page geometry, and
-        # nothing here is worth failing an upload over.
         logger.warning("poster_checks.text_extraction_failed", exc_info=True)
-        return ""
+        return "", ""
+    return "".join(whole), "".join(bottom)
 
 
-def _content_checks(text: str, *, team_code: str) -> list[PosterCheck]:
+def _content_checks(text: str, bottom_text: str, *, team_code: str) -> list[PosterCheck]:
     # Word boundaries so BTF1 is not found inside BTF12; case-insensitive
     # because a team writing "btf1" has still put their code on the poster.
     code_present = bool(
@@ -242,12 +435,21 @@ def _content_checks(text: str, *, team_code: str) -> list[PosterCheck]:
         )
     ]
 
+    at_foot = bool(_EMAIL.search(bottom_text))
+    anywhere = bool(_EMAIL.search(text))
     checks.append(
         PosterCheck(
             SUPERVISOR_EMAIL,
-            bool(_EMAIL.search(text)),
-            "" if _EMAIL.search(text)
-            else "We could not find a supervisor email address on the poster.",
+            at_foot or anywhere,
+            "" if at_foot else (
+                # Present but not where the format puts it. Recorded as a pass
+                # with a note rather than a warning: the detail a reviewer wants
+                # is there, and its position is a formatting preference, not a
+                # missing requirement.
+                "An email address was found, but not at the foot of the poster."
+                if anywhere
+                else "We could not find a supervisor email address on the poster."
+            ),
         )
     )
     return checks
@@ -273,7 +475,8 @@ def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
         uploaded_file.seek(0)
         reader = PdfReader(uploaded_file)
         structural = _structural_checks(reader)
-        text = _extract_text(reader)
+        page = reader.pages[0] if len(reader.pages) else None
+        text, bottom_text = _text_by_position(page) if page else ("", "")
     except Exception:
         logger.warning("poster_checks.unreadable", exc_info=True)
         return PosterCheckResult(unreadable=True)
@@ -285,8 +488,21 @@ def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
             pass
 
     has_text = bool(text.strip())
+    content: list[PosterCheck] = []
+    if has_text:
+        content.extend(_content_checks(text, bottom_text, team_code=team_code))
+    if page is not None:
+        try:
+            width, height = _page_size(page)
+            logo = _logo_check(page, width, height)
+        except Exception:
+            logger.warning("poster_checks.logo_failed", exc_info=True)
+            logo = None
+        if logo is not None:
+            content.append(logo)
+
     return PosterCheckResult(
         structural=structural,
-        content=_content_checks(text, team_code=team_code) if has_text else [],
+        content=content,
         has_text=has_text,
     )
