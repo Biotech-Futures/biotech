@@ -30,8 +30,7 @@ export interface PosterWarning {
 /**
  * What the format checks found when the poster was uploaded.
  *
- * Only ever warnings: a poster failing a structural check is refused at upload
- * and never stored, so nothing here can describe one.
+ * Only ever warnings: a structural failure is refused at upload.
  */
 export interface PosterChecks {
   /** False when the poster carries no readable text, so nothing could be checked. */
@@ -166,9 +165,8 @@ export function reopenEntry(groupId: number | string) {
 /**
  * Upload one attachment, reporting progress as it goes.
  *
- * Uses XMLHttpRequest rather than fetch because only XHR exposes upload
- * progress events. A large poster on a slow connection otherwise shows nothing
- * at all for a minute, which people read as the page having frozen.
+ * XMLHttpRequest rather than fetch: only XHR exposes upload progress, and a
+ * large poster on a slow line otherwise looks like a frozen page.
  */
 export async function uploadSubmissionFile(
   groupId: number | string,
@@ -255,15 +253,8 @@ export function submissionFilePreviewUrl(groupId: number | string, slot: Submiss
 /**
  * Fetch an attachment and return a local object URL for displaying it.
  *
- * The backend sets `X-Frame-Options: DENY` across the whole platform, so
- * pointing a frame straight at the preview endpoint is refused by the browser.
- * Fetching the bytes and showing them from memory makes the content part of
- * this page rather than an embedded foreign document, so the framing rule does
- * not apply — and it carries credentials reliably even when the API is served
- * from a different domain than the app.
- *
- * The caller owns the returned URL and must pass it to `releasePreview` when
- * finished, or the browser holds the file in memory for the life of the tab.
+ * `X-Frame-Options: DENY` blocks framing the endpoint, so the bytes are
+ * shown from memory. The caller must `releasePreview` or it leaks.
  */
 export async function fetchPreviewObjectUrl(
   groupId: number | string,

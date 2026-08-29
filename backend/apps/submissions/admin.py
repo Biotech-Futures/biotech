@@ -30,9 +30,8 @@ class SubmissionQuestionAdmin(admin.ModelAdmin):
     list_display_links = ("key",)
 
     def get_readonly_fields(self, request, obj=None):
-        # The key is what stored answers are filed under, so it is fixed once
-        # the question exists — changing it would orphan every answer already
-        # written against it. New questions can still choose their own.
+        # Answers are filed under the key, so changing it would orphan every
+        # answer already written. New questions still choose their own.
         return ("key",) if obj else ()
 
 

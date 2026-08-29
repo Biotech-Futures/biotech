@@ -30,9 +30,8 @@ class DeadlineInfo:
 
     @property
     def is_open(self) -> bool:
-        # No configured deadline means closed rather than open-forever: a
-        # missing or deactivated Deadline row is far more likely to be a
-        # misconfiguration than an intention to accept entries indefinitely.
+        # No deadline means closed, not open forever: a missing row is far
+        # likelier to be a misconfiguration than an intention.
         cutoff = self.enforced_until or self.closes_at
         if cutoff is None:
             return False

@@ -96,9 +96,8 @@ class ConcurrentEditTests(TestCase):
         self.assertEqual(self._stored()[key], "")
 
     def test_the_same_question_is_still_last_write_wins(self):
-        # Documents the limit accepted when choosing per-question saves over a
-        # version guard: two people editing one question still resolve by
-        # whoever saved last.
+        # The limit accepted in choosing per-question saves over a version
+        # guard: one question, two editors, last write wins.
         key = self.questions[0].key
 
         self._save(self.ada, {key: "Ada's version."})
@@ -122,11 +121,8 @@ def _pdf(name="poster.pdf"):
     )
 
 
-# Confirmation mail is dispatched inline rather than through the shared thread
-# pool. Nothing here is testing email, and queueing sends on a module-level
-# executor leaks work past the end of the test — enough of it, and the mailer's
-# own tests stop being able to tell when the pool has finished. Sending inline
-# keeps that isolated and makes the outbox assertion below deterministic.
+# Mail is dispatched inline: nothing here tests email, and queueing sends on the
+# shared pool leaks work past the end of the test and into the mailer's own.
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
 class ConcurrentSubmitTests(TestCase):
     """Submitting must not undo a teammate's save that lands at the same moment.

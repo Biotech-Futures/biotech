@@ -191,9 +191,8 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(codes, {SUPERVISOR_EMAIL})
 
     def test_the_recorded_finding_keeps_the_detail_the_student_is_spared(self):
-        # The two audiences differ on purpose: the student is pointed at the
-        # template, while whoever reviews the entry can still see exactly which
-        # check failed and why.
+        # The audiences differ on purpose: the student is pointed at the
+        # template, a reviewer still sees which check failed.
         self._upload(_upload_file(*A2, text="no code here"))
 
         warnings = self._submission().poster_checks["warnings"]

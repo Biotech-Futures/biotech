@@ -31,9 +31,8 @@ SLOT_LABELS = {
 _PDF_EXTENSIONS = ("pdf",)
 _PDF_MIME_TYPES = ("application/pdf",)
 
-# Every PDF begins with this marker. The spec puts it at byte zero, but some
-# exporters emit a byte-order mark or stray whitespace first, so the first
-# kilobyte is searched rather than only the opening bytes.
+# Every PDF begins with this. Some exporters emit a BOM or whitespace first,
+# so the first kilobyte is searched rather than only the opening bytes.
 _PDF_MAGIC = b"%PDF-"
 _PDF_MAGIC_SEARCH_BYTES = 1024
 

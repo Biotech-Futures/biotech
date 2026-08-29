@@ -57,14 +57,9 @@ def _get_group(group_id: int) -> Groups:
 def _require_can_view(user, group_id: int) -> None:
     """Students on the team can read it; so can admins, for oversight.
 
-    Mentors and supervisors are deliberately excluded even though they are
-    group members. The programme treats submissions as none of their business:
-    mentors are volunteers who guide the group's work, and supervisors are a
-    pastoral point of contact. Neither is involved in assessment, so a team's
-    entry is not theirs to read.
-
-    Hiding the tab in the navigation would not achieve this on its own — the
-    page is reachable by URL — so the rule lives here.
+    Mentors and supervisors are excluded although they are group members:
+    neither is involved in assessment. Enforced here because the page is
+    reachable by URL, so hiding the nav entry would not be enough.
     """
     if is_admin(user):
         return
@@ -77,11 +72,8 @@ def _require_can_view(user, group_id: int) -> None:
 def _require_can_edit(user, group_id: int) -> None:
     """Editing is limited to students on the team.
 
-    Admins are deliberately excluded: they can view an entry but not author it,
-    so a submission always reflects what the team themselves wrote. Whether
-    mentors should be able to submit on a team's behalf is an open question
-    with the client — if the answer is yes, the role check below is where it
-    changes.
+    Admins can view an entry but not author it, so a submission always reflects
+    what the team wrote. If mentors are ever allowed to submit, change it here.
     """
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
@@ -92,8 +84,8 @@ def _require_can_edit(user, group_id: int) -> None:
 def _require_unlocked(submission) -> None:
     """Refuse edits to an entry that has been submitted.
 
-    Reopening is a deliberate act, so an already-submitted entry cannot drift
-    through stray saves or uploads — a student has to say they are revising it.
+    Reopening is deliberate, so a submitted entry cannot drift through stray
+    saves or uploads.
     """
     if submission is not None and submission.is_locked:
         raise SubmissionLocked()
@@ -102,8 +94,7 @@ def _require_unlocked(submission) -> None:
 def _require_open(group_id: int):
     """Reject writes once the team's deadline has passed.
 
-    Enforced here rather than in the browser: the frontend shows a countdown
-    for convenience, but only the server decides whether a write is accepted.
+    The page's countdown is convenience; only the server decides.
     """
     info = deadline_for_group(group_id)
     if info.closes_at is None:
@@ -133,13 +124,12 @@ class GroupSubmissionView(APIView):
         return Response({
             "group": {"id": group.id, "name": group.group_name},
             "deadline": _deadline_payload(group.id),
-            # The form renders whatever is returned here, so rewording or
-            # reordering a question is an admin edit rather than a deploy.
+            # The form renders whatever is returned here, so rewording a
+            # question is an admin edit rather than a deploy.
             "questions": SubmissionQuestionSerializer(
                 SubmissionQuestion.active(), many=True
             ).data,
-            # Keyed by section so the page can look up guidance for whichever
-            # step is showing. A missing section simply renders nothing.
+            # Keyed by section; a missing section simply renders nothing.
             "instructions": {
                 instruction.section: {
                     "heading": instruction.heading,
@@ -148,12 +138,10 @@ class GroupSubmissionView(APIView):
                 for instruction in SubmissionInstruction.objects.all()
             },
             # Published so the page can state each limit and refuse an
-            # oversized file before uploading it. Hardcoding the numbers in the
-            # frontend would give two places to change and an eventual
-            # mismatch; the server still enforces them either way.
+            # oversized file early. The server still enforces them.
             "max_file_sizes": max_sizes(),
-            # None means the team has not started yet — the page renders an
-            # empty form rather than treating it as an error.
+            # None means the team has not started; the page renders an empty
+            # form rather than an error.
             "submission": (
                 SubmissionSerializer(submission).data if submission is not None else None
             ),
@@ -168,31 +156,19 @@ class GroupSubmissionView(APIView):
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
 
-        # Locked for the read-modify-write below. Without it two teammates
-        # auto-saving at the same moment both read the stored answers, both
-        # merge into their own copy, and the second save silently discards the
-        # first — the exact failure the merge is meant to prevent.
-        #
-        # SQLite (used by the test settings) has no row locking, so this is a
-        # no-op there; the protection is real on Postgres, which is what runs in
-        # production. The tests below cover the merge semantics, not the lock.
+        # Locked for the read-modify-write below, or two teammates auto-saving
+        # at once would have the second silently discard the first.
         with transaction.atomic():
             submission, _ = (
                 Submission.objects.select_for_update().get_or_create(group=group)
             )
             _require_unlocked(submission)
 
-            # Only touch fields the client actually sent, so a client updating
-            # the link cannot blank out the answers by omitting them.
+            # Only fields the client sent, so updating the link cannot blank
+            # the answers by omitting them.
             if "answers" in data:
-                # Merged, not replaced. A save carries only the answers that
-                # changed, so two people working on different questions no
-                # longer overwrite each other — which is what teams actually do.
-                #
-                # The trade-off: an omitted key means "leave it alone", so
-                # clearing an answer requires sending an explicit empty string
-                # rather than dropping the key. The page does that naturally,
-                # because an emptied textarea is "" rather than absent.
+                # Merged, not replaced, so teammates on different questions do
+                # not overwrite each other. Clearing needs an explicit "".
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
             if "prototype_url" in data:
                 submission.prototype_url = data["prototype_url"]
@@ -205,8 +181,7 @@ class GroupSubmissionView(APIView):
 
 
 def _valid_slot(slot: str) -> str:
-    # 404 rather than 400: an unknown slot is a URL that does not exist, not a
-    # badly-formed request to one that does.
+    # 404, not 400: an unknown slot is a URL that does not exist.
     if slot not in SLOTS:
         raise Http404(f"Unknown attachment slot '{slot}'.")
     return slot
@@ -228,16 +203,14 @@ class GroupSubmissionFileView(APIView):
             raise NoFileUploaded()
         validate_submission_file(uploaded, slot)
 
-        # Format checks run here rather than at submit so a team finds out
-        # while the file is still in front of them, not once they believe they
-        # have finished. Only the poster has a required format.
+        # Checked at upload, not at submit, so a team finds out while the file
+        # is still in front of them.
         poster_flag = None
         if slot == POSTER:
             checks = inspect_poster(uploaded, team_code=group.group_name)
             if checks.blocking:
-                # Not the raw findings: only the ones a student can verify
-                # against their own file are named, and the rest become one
-                # general instruction. See student_facing_problems.
+                # Only findings a student can verify are named; the rest
+                # become one general instruction.
                 raise PosterFormatRejected(student_facing_problems(checks.blocking))
             poster_flag = checks.as_flag()
 
@@ -245,9 +218,8 @@ class GroupSubmissionFileView(APIView):
         _require_unlocked(submission)
         previous = getattr(submission, slot) or {}
 
-        # stored_file writes the blob first and removes it again if anything
-        # below raises, so a failed save cannot strand a file with no record
-        # pointing at it.
+        # Writes the blob first and removes it if anything below raises, so a
+        # failed save cannot strand a file with no record pointing at it.
         with SUBMISSION_FILE_SERVICE.stored_file(
             uploaded,
             content_type_field="mime",
@@ -255,19 +227,16 @@ class GroupSubmissionFileView(APIView):
             original_filename_field="name",
         ) as file_data:
             setattr(submission, slot, file_data)
-            # The flag is written in the same statement as the file it
-            # describes, so the two can never disagree about which poster is
-            # on record.
+            # Written with the file it describes, so the two cannot disagree
+            # about which poster is on record.
             fields = [slot, "updated_at"]
             if slot == POSTER:
                 submission.poster_checks = poster_flag
                 fields.append("poster_checks")
             submission.save(update_fields=fields)
 
-        # Only once the new file is safely recorded is the old one discarded —
-        # the reverse order would risk losing both. A file the submitted copy
-        # still points at is kept regardless: deleting it would destroy part of
-        # what the team actually submitted.
+        # Old file discarded only once the new one is recorded. A file the
+        # submitted copy still points at is kept regardless.
         previous_key = previous.get("storage_key")
         if (
             previous_key
@@ -294,8 +263,8 @@ class GroupSubmissionFileView(APIView):
             raise FileNotUploadedYet()
 
         setattr(submission, slot, None)
-        # Cleared with the file, or the entry would keep reporting findings
-        # about a poster that is no longer attached.
+        # Cleared with the file, or findings would describe a poster that is
+        # no longer attached.
         fields = [slot, "updated_at"]
         if slot == POSTER:
             submission.poster_checks = None
@@ -342,12 +311,9 @@ class GroupSubmissionFileDownloadView(APIView):
 class GroupSubmissionFilePreviewView(APIView):
     """Display an attachment in the browser rather than downloading it.
 
-    Restricted to the PDF slots. Those files have been checked byte-for-byte at
-    upload, so rendering them inline is safe; the prototype slot accepts any
-    type, and displaying arbitrary uploaded content inline is how an HTML or
-    SVG file ends up executing scripts in the viewer's session. Enforcing that
-    by which slots this endpoint accepts — rather than a flag on the download
-    endpoint — keeps the boundary a property of the URL.
+    PDF slots only: those are checked byte-for-byte at upload. The prototype
+    accepts any type, and inline HTML or SVG would execute in the viewer's
+    session. Making it a property of the URL keeps that boundary explicit.
     """
 
     def get(self, request, group_id: int, slot: str):
@@ -364,69 +330,47 @@ class GroupSubmissionSubmitView(APIView):
         _require_can_edit(request.user, group.id)
         _require_open(group.id)
 
-        # Locked for the same reason the draft save is, and it matters more
-        # here. Submitting takes a copy of the entry and then writes every
-        # column back, so a teammate's auto-save landing between the read and
-        # that write would be reverted — and the copy just frozen as "what was
-        # submitted" would be missing their answer. Reading inside the lock is
-        # what makes the snapshot and the row agree with each other.
-        #
-        # It also settles two people pressing Submit at the same instant: the
-        # second waits, sees the entry already locked, and is refused rather
-        # than submitting a second time and sending a second confirmation.
-        #
-        # SQLite (the test settings) has no row locking, so this is a no-op
-        # there; the protection is real on Postgres, which is what production
-        # runs.
+        # Submitting writes every column back, so without the lock a teammate's
+        # auto-save landing mid-submit is reverted and lost from the snapshot.
         with transaction.atomic():
             submission, _ = (
                 Submission.objects.select_for_update().get_or_create(group=group)
             )
             if submission.is_locked:
-                # Already submitted and not reopened — resubmitting is an
-                # explicit step, so this is a mistake rather than a no-op.
+                # Submitted and not reopened: resubmitting is an explicit
+                # step, so this is a mistake rather than a no-op.
                 raise SubmissionLocked()
 
-            # The poster is the competition's core deliverable, so an entry
-            # without one is incomplete rather than merely sparse. Checked here
-            # rather than in the browser so it cannot be clicked past.
+            # The competition's core deliverable, checked server-side so it
+            # cannot be clicked past.
             if not submission.poster:
                 raise PosterRequired()
 
-            # Required questions are enforced only at this point, so a team can
-            # save a half-finished draft and come back to it.
+            # Enforced only here, so a team can save a half-finished draft.
             missing = missing_required_answers(submission)
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            # Files the previous submission relied on but this one does not,
-            # taken before the snapshot is overwritten. They were kept alive
-            # through the revision precisely so that abandoning it lost
-            # nothing; now that a new submission has completed, they are
-            # genuinely unused.
+            # Files the previous submission relied on, taken before the
+            # snapshot overwrites them.
             superseded = submission.submitted_storage_keys()
 
             submission.snapshot(request.user)
-            # Stamped at submit rather than at creation: a draft may have been
-            # started before the competition's deadline row was configured, and
-            # the cohort a judging tool filters on has to be the competition's
-            # year.
+            # Stamped at submit: a draft may predate the deadline row, and the
+            # cohort has to be the competition's year.
             submission.cohort = current_cohort()
-            # Always False while writes are refused after the deadline. The
-            # field is kept because it records the state at the time of
-            # submitting, which matters if a grace period is ever introduced.
+            # Always False while post-deadline writes are refused; kept because
+            # it records the state at submit time.
             submission.is_late = False
             submission.save()
 
-        # Outside the transaction: deleting a blob cannot be rolled back, so a
-        # later failure would otherwise leave the row pointing at a file that
-        # no longer exists. Once the commit has happened, these really are
-        # unused.
+        # Outside the transaction: a blob delete cannot be rolled back, so a
+        # later failure would leave the row pointing at a missing file.
         for key in superseded - submission.submitted_storage_keys():
             SUBMISSION_FILE_SERVICE.delete(key)
 
-        # Sent after the snapshot so the email describes what was actually
-        # recorded. Never raises — a failed send must not fail the submission.
+        # After the snapshot, so the email describes what was recorded. Never
+        # raises: a failed send must not fail the submission.
         send_submission_confirmation(submission)
 
         return Response({
@@ -438,9 +382,8 @@ class GroupSubmissionSubmitView(APIView):
 class GroupSubmissionReopenView(APIView):
     """Reopen a submitted entry for revision.
 
-    The submitted copy is left exactly as it is: it is replaced only when a new
-    submission completes, so a team that reopens and changes its mind — or runs
-    out of time — still has the entry it submitted.
+    The submitted copy is replaced only when a new submission completes, so a
+    team that reopens and runs out of time still has what they submitted.
     """
 
     def post(self, request, group_id: int):
@@ -464,14 +407,9 @@ class GroupSubmissionReopenView(APIView):
 class SendSubmissionRemindersView(APIView):
     """Trigger the daily reminder run. Called by a scheduler, not a person.
 
-    Guarded by a shared secret in a header rather than by a logged-in user,
-    because the caller is a cron job with no session. The same shape as the
-    RSVP reminder trigger next door, deliberately: one pattern for scheduled
-    work is easier to reason about than two.
-
-    An unset token answers 503 rather than running, so a deploy that forgot to
-    configure the secret fails loudly instead of leaving an unauthenticated
-    endpoint that emails every team.
+    Guarded by a shared secret because the caller has no session; the same
+    shape as the RSVP trigger next door. An unset token answers 503 rather than
+    leaving an open endpoint that could email every team.
     """
 
     authentication_classes = []

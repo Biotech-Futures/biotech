@@ -10,10 +10,8 @@
 /**
  * Words in an answer.
  *
- * Must match the server, which splits on runs of whitespace, and the client's
- * Qualtrics form, whose validation regex `^\s*(\S+\s+){0,149}\S*$` does the
- * same. Anything cleverer — stripping punctuation, joining hyphenated words —
- * would disagree with what actually gets accepted.
+ * Must match the server and the client's Qualtrics regex, both of which
+ * split on whitespace. Anything cleverer would disagree with what is saved.
  */
 export function countWords(text: string | null | undefined): number {
   return (text || '').split(/\s+/).filter(Boolean).length
@@ -34,9 +32,8 @@ export function formatFileSize(bytes: number | null | undefined): string {
 /**
  * How long until a deadline, in the largest useful unit.
  *
- * Days while there are days left, then hours, then minutes — a student three
- * weeks out does not need the minute count, and one with ten minutes left
- * very much does.
+ * Days, then hours, then minutes: three weeks out nobody needs the minute
+ * count, and ten minutes out they very much do.
  */
 export function describeTimeRemaining(
   closesAt: string | null | undefined,

@@ -66,9 +66,8 @@ class SubmissionCohortTests(TestCase):
         self.assertEqual(Submission.objects.get(group=self.group).cohort, expected)
 
     def test_an_extension_does_not_move_a_team_into_another_cohort(self):
-        # The case the column exists for. A team granted extra time into the
-        # following year is still competing in the same cohort as everyone
-        # else, so the competition's own deadline decides — not the team's.
+        # The case the column exists for: a team extended into the following year
+        # still competes in the same cohort, so the programme's deadline decides.
         closes = timezone.now().replace(month=9, day=18) + timedelta(days=1)
         Deadline.objects.create(closes_at=closes, is_active=True)
         GroupExtension.objects.create(

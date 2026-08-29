@@ -29,12 +29,8 @@ logger = logging.getLogger(__name__)
 SUBMITTED = "Submitted"
 ABSENT = "Absent"
 
-# The shared helper in apps.services.email_branding attaches the *white* logo,
-# because every other email puts it on a dark green header bar. This template
-# has no bar — the masthead sits on a light card, where a white logo would be
-# invisible — so the green variant is attached here under its own Content-ID.
-# A local copy of a dozen lines is the cheaper trade than adding a variant
-# parameter to a helper that five other apps depend on.
+# The shared branding helper attaches the white logo, for emails with a dark
+# header bar. This one has none, so the green variant is attached here.
 LOGO_CID = "btf-logo-green"
 _LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "btf-logo-green.png")
 _logo_bytes: bytes | None = None
@@ -82,9 +78,8 @@ def _component(label: str, present: bool, detail: str = "") -> dict:
 def _saqs_present(submission: Submission) -> bool:
     """SAQs count as submitted once every required question is answered.
 
-    Judged against the copy that was submitted, not the working draft — the
-    email describes what is on record, not what someone is midway through
-    editing.
+    Judged against the submitted copy, not the draft: the email describes what
+    is on record.
     """
     answers = submission.submitted_answers or {}
     required = SubmissionQuestion.active().filter(is_required=True)
@@ -122,14 +117,9 @@ def build_components(submission: Submission) -> tuple[list[dict], list[dict]]:
 def recipients_for(group) -> list[str]:
     """Every student on the team.
 
-    Mentors and supervisors are excluded deliberately: the client confirmed
-    submissions are none of their business, so they should not receive a copy
-    of a team's entry summary either.
-
-    Accounts that are not active are excluded too, and that is deliberate
-    rather than an oversight: an address nobody has validated is an address the
-    programme has no business writing to, and a student who has not finished
-    activating has not confirmed it is theirs.
+    Mentors and supervisors are excluded: the client confirmed submissions are
+    none of their business. Inactive accounts are excluded deliberately too —
+    an unvalidated address is one the programme should not write to.
     """
     memberships = (
         GroupMembership.objects.filter(group=group, left_at__isnull=True)
@@ -140,8 +130,7 @@ def recipients_for(group) -> list[str]:
         user = membership.user
         if not user or not user.email or not user.is_active:
             continue
-        # Membership role can be blank on older rows, so fall back to the
-        # user's actual role rather than assuming.
+        # Blank on older rows, so fall back to the user's actual role.
         from apps.common.rbac import user_has_role
 
         if membership.membership_role == ROLE_STUDENT or user_has_role(user, ROLE_STUDENT):
@@ -152,19 +141,9 @@ def recipients_for(group) -> list[str]:
 def send_individually(messages, *, kind: str) -> tuple[int, int]:
     """Send one message per recipient over a single connection.
 
-    Everyone on a team receives the same email, addressed only to them. Two
-    reasons for that over one message carrying the whole team in ``To``:
-
-    * A team's students would otherwise see each other's addresses. These are
-      school students, and one team's roster is not something the programme
-      needs to hand out.
-    * Mail servers reject a message per-message, not per-recipient. One
-      mistyped address in a team of five could take the other four down with
-      it, and nobody would receive anything.
-
-    The connection is opened once and shared, so this costs one handshake for
-    the team rather than one each. Each send is guarded separately: that is the
-    whole point — a failure must cost one student their copy, not all of them.
+    One message each rather than one listing the team: students would otherwise
+    see each other's addresses, and a server rejects a *message*, so one bad
+    address would cost everyone their copy. Each send is guarded separately.
 
     Returns ``(sent, failed)``.
     """
@@ -186,9 +165,8 @@ def send_individually(messages, *, kind: str) -> tuple[int, int]:
                 message.send()
             except Exception as exc:
                 failed += 1
-                # Not logger.exception: SMTPRecipientsRefused and friends carry
-                # the recipient address in their args, which would land raw in
-                # the log sink.
+                # Not logger.exception: these carry the recipient address
+                # in their args, which would land raw in the log sink.
                 logger.error(
                     "submission_email.recipient_failed kind=%s error=%s",
                     kind, type(exc).__name__,
@@ -206,11 +184,8 @@ def send_individually(messages, *, kind: str) -> tuple[int, int]:
 class _Batch:
     """A set of messages that the mail pool can treat as one task.
 
-    ``send_async`` hands whatever it is given to a worker and calls ``send()``
-    on it, so wrapping the batch keeps a whole team's mail to a single slot on
-    a pool that is shared with the login-code emails. Queueing five separate
-    tasks for one submission would let a busy deadline evening push a student's
-    sign-in code behind them.
+    Keeps a team's mail to one slot on a pool shared with the login-code
+    emails, so a busy evening cannot push a sign-in code behind five sends.
     """
 
     def __init__(self, messages, kind: str):
@@ -248,8 +223,8 @@ def send_submission_confirmation(submission: Submission) -> int:
             "INCOMPLETE": any(not item["submitted"] for item in required),
             "DEADLINE": _format_deadline(deadline.closes_at),
             "SUBMITTED_BY": submission.submitted_by,
-            # Hash routing, so the path lives after the "#". Blank base means
-            # no button rather than a link to nowhere — the template checks.
+            # Hash routing. A blank base means no button rather than a link
+            # to nowhere; the template checks.
             "SUBMISSION_URL": (
                 f"{settings.FRONTEND_BASE_URL}/#/submission/{group.id}"
                 if getattr(settings, "FRONTEND_BASE_URL", "")
@@ -258,13 +233,12 @@ def send_submission_confirmation(submission: Submission) -> int:
         }
 
         html = render_to_string("emails/submission_confirmation.html", context)
-        # Rendered from its own template rather than stripped out of the HTML:
-        # strip_tags keeps the text between tags, so the base template's <style>
-        # block arrived as visible CSS at the top of the message.
+        # Its own template, not strip_tags of the HTML: that kept the <style>
+        # block as visible CSS at the top of the message.
         text = render_to_string("emails/submission_confirmation.txt", context)
 
-        # Rendered once and reused, so every student on the team is looking at
-        # the same email — only the address it is sent to differs.
+        # Rendered once and reused, so every student reads the same email;
+        # only the address differs.
         subject = f"{settings.BRAND_NAME}: Submission received for {group.group_name}"
         messages = []
         for address in to:
@@ -279,7 +253,7 @@ def send_submission_confirmation(submission: Submission) -> int:
             messages.append(message)
 
         # Rendered here, sent off-thread: the worker does no ORM work, so it
-        # can never race the transaction that created this submission.
+        # cannot race the transaction that created this submission.
         send_async(_Batch(messages, "submission_confirmation"),
                    kind="submission_confirmation")
         return len(to)

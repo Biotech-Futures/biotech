@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="content-area">
     <div v-if="isLoading" class="panel">
       <p>Loading submission…</p>
@@ -10,9 +10,8 @@
     </div>
 
     <template v-else-if="detail">
-      <!-- Mirrors the header the client's Qualtrics form injects: the logo,
-           "Submission Portal", and "BIOTech Futures" beneath it. Students
-           moving from the old form should recognise where they are. -->
+      <!-- Mirrors the header the client's Qualtrics form injects, so students
+           moving from the old form recognise where they are. -->
       <div class="page-head portal-banner">
         <div class="portal-brand">
           <!-- No backdrop needed now the banner is tinted rather than solid:
@@ -44,9 +43,8 @@
         </div>
       </div>
 
-      <!-- One line rather than a panel. In progress is the ordinary state and
-           does not warrant a bordered box; only a completed submission carries
-           information worth pausing on, so only that case is emphasised. -->
+      <!-- One line rather than a panel: in progress is the ordinary state, and
+           only a completed submission carries information worth pausing on. -->
       <div class="status-line" :class="{ 'is-submitted': isLocked }">
         <!-- A pen while editing, a tick once submitted: a hollow grey circle
              said nothing about what state the entry was in. -->
@@ -85,9 +83,8 @@
         </button>
       </div>
 
-      <!-- Progress strip. Steps stay clickable as well as sequential: moving
-           forward suits a first submission, but someone revising one answer
-           should not have to walk through the whole form to reach it. -->
+      <!-- Steps stay clickable as well as sequential: someone revising one
+           answer should not have to walk the whole form to reach it. -->
       <nav class="submission-steps" aria-label="Submission sections">
         <button
           v-for="(tab, index) in TABS"
@@ -100,9 +97,8 @@
         >
           <span class="submission-step__index">{{ index + 1 }}</span>
           <span class="submission-step__label">{{ tab.label }}</span>
-          <!-- States a fact rather than judging completion: text in every box
-               does not mean the answers are finished, so calling a section
-               "Done" would tell a student something we cannot know. -->
+          <!-- States a fact rather than judging completion: text in every box does
+               not mean the answers are finished. -->
           <span class="submission-step__state">{{ stepSummary(tab.key) }}</span>
         </button>
       </nav>
@@ -110,9 +106,8 @@
       <!-- 1. Short-answer questions. Defined in the database, so this list is
            whatever the server sent rather than anything hardcoded here. -->
       <section v-show="activeTab === 'questions'" class="panel">
-        <!-- Section header in the shape the client's Qualtrics form uses: a
-             title with one supporting line beneath. Both come from the
-             database, so admins can reword either. -->
+        <!-- Title with one supporting line, the shape the client's form uses.
+             Both come from the database, so admins can reword either. -->
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
@@ -128,9 +123,8 @@
             <span v-if="question.is_required" class="submission-required" title="Required" aria-label="required">*</span>
           </label>
           <p v-if="question.help_text" class="submission-muted">{{ question.help_text }}</p>
-          <!-- No maxlength attribute: a word limit cannot be enforced by
-               truncating keystrokes, so the count warns and the server
-               refuses an over-long answer at save time. -->
+          <!-- No maxlength: a word limit cannot be enforced by truncating
+               keystrokes, so the count warns and the server refuses at save. -->
           <textarea
             :id="question.key"
             v-model="answers[question.key]"
@@ -157,9 +151,8 @@
         </header>
 
         <div class="submission-slot submission-slot--plain">
-          <!-- No heading here: this step holds a single item and the section
-               header above already names it. The Additional materials step
-               keeps headings because it holds two. -->
+          <!-- No heading: this step holds one item and the section header names it.
+               Additional materials keeps headings because it holds two. -->
           <div class="submission-slot__info">
             <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
 
@@ -171,24 +164,12 @@
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
 
-            <!-- Advice, not an error: the poster was accepted and the entry can
-                 be submitted as it stands. Anything the poster genuinely may
-                 not do was refused at upload and never reached this point, so
-                 everything here is a "worth checking", not a "must fix".
-                 Phrased as what we could not find rather than as a verdict,
-                 because a check reading text can be wrong about a poster that
-                 is perfectly in order. -->
+            <!-- Advice, not an error: anything the poster genuinely may not do was
+                 refused at upload, so everything here is a "worth checking". -->
             <div v-if="posterWarnings.length" class="poster-notice">
               <p class="poster-notice__head">Worth checking before you submit</p>
-              <!-- Deliberately general rather than naming what was not found.
-                   These checks read the text of a PDF, which is good evidence
-                   but not proof: a poster can put its team code inside an image
-                   and be perfectly correct while looking, to us, as though it
-                   has none. Telling that team "your team code is missing" is
-                   simply wrong, and being confidently wrong is what teaches
-                   students to ignore the notice. Pointing at the requirements
-                   is right either way. The individual findings are still
-                   recorded for whoever reviews the entry. -->
+              <!-- Deliberately general: these read text, so a team code inside an image
+                   looks missing to us. The findings are still recorded for reviewers. -->
               <p class="poster-notice__body">
                 Please re-check your poster against the submission requirements
                 — the team code, school logo, title, team members, and
@@ -229,16 +210,13 @@
           </div>
         </div>
 
-        <!-- Same shape as the resource library's preview panel, so a file looks
-             the same wherever it is viewed in the platform. Guarded on the slot
-             as well as the source: hidden tabs stay in the DOM, so without that
-             this frame would also load whatever the report preview fetched. -->
+        <!-- Guarded on the slot as well as the source: hidden tabs stay in the
+             DOM, so this frame would otherwise load the report's preview too. -->
         <article class="preview-panel">
           <div class="preview-header">
             <h2>Preview</h2>
-            <!-- Always offered: some browsers refuse to display an embedded PDF
-                 at all, and a student must never be left unable to check their
-                 own file. Opens the same endpoint as a normal page load. -->
+            <!-- Always offered: some browsers refuse to embed a PDF at all, and a
+                 student must never be left unable to check their own file. -->
             <a
               v-if="storedFile('poster')"
               class="btn btn-outline btn-sm"
@@ -266,9 +244,8 @@
         </article>
       </section>
 
-      <!-- 3. Optional extras, as two blocks: the report gets the same treatment
-           as the poster since it is also a readable document; the prototype is
-           a plain upload because it can be any file type. -->
+      <!-- 3. Optional extras. The report is previewed like the poster; the
+           prototype is a plain upload because it can be any file type. -->
       <div v-show="activeTab === 'extras'">
         <section class="panel">
           <header v-if="sectionHeading || sectionBody" class="section-head">
@@ -355,13 +332,8 @@
               <p class="submission-muted">
                 Any file type · up to {{ maxSizeLabel('prototype') }}
               </p>
-              <!-- The programme's own wording, shown before the upload button
-                   rather than only after a file is refused: a student with an
-                   oversized prototype needs to know there is a way through
-                   while they are deciding what to attach, not once they have
-                   already waited for a failed upload. The size is interpolated
-                   from the published limit so the sentence cannot come to
-                   contradict what the server actually enforces. -->
+              <!-- The programme's wording, shown before the upload button so an
+                   oversized file finds the way through before waiting on a failure. -->
               <p class="submission-muted">
                 If your submission is greater than {{ maxSizeLabel('prototype') }},
                 please upload to a cloud storage and submit a public link for us
@@ -440,21 +412,11 @@
         >
           {{ saveStateLabel }}
         </span>
-        <!-- No Save draft button: auto-save runs two seconds after typing stops
-             and again on every step change, and the status line above reports
-             it. A button that duplicates something already happening only adds
-             a control to the row. -->
+        <!-- No Save draft button: auto-save runs on a pause and on every step
+             change, and the status line above reports it. -->
 
-        <!-- Stepping is two arrows rather than two labelled buttons, so Submit
-             can be present on every step instead of only the last.
-             Previously Next and Submit shared one slot, which meant a team who
-             had finished could not submit without first walking to the end —
-             the layout hid the one thing they had come to do. The step strip
-             above names and links every step, so the labels are not lost by
-             moving them off these controls; each still carries its destination
-             as its accessible name and its tooltip, for anyone who cannot see
-             the strip. Disabled rather than hidden at the ends, so the row does
-             not reflow as the student moves through it. -->
+        <!-- Arrows rather than labelled buttons, so Submit fits on every step.
+             Each keeps its destination as its accessible name and tooltip. -->
         <div class="submission-steps-nav">
           <button
             class="btn btn-outline btn-icon"
@@ -478,10 +440,8 @@
           </button>
         </div>
 
-        <!-- Reachable from any step now that it no longer shares a slot with
-             Next. Clicking it early is safe: an incomplete entry is refused in
-             the page and the student is taken to the first thing that needs
-             fixing, so an early press is a shortcut rather than a dead end. -->
+        <!-- Reachable from any step. Pressing it early is a shortcut, not a dead
+             end: the page says what is missing and moves to it. -->
         <button
           v-if="isEditable"
           class="btn btn-primary"
@@ -568,24 +528,16 @@ const prototypeUrl = ref('')
 /**
  * The answers the server is known to hold, used to send only what changed.
  *
- * A save that carried all six answers asserted the state of all six, so a
- * teammate saving at the same moment had their work overwritten by whatever
- * this tab happened to be holding. Sending just the edited question means two
- * people on different questions never collide. Not reactive: nothing renders
- * it, it only exists to be diffed against.
+ * A save carrying all six asserted all six, so a teammate saving at the same
+ * moment lost their work. Not reactive: it only exists to be diffed against.
  */
 let savedAnswers: Record<string, string> = {}
 
 /**
- * The answers that differ from what the server holds and are short enough to
- * save.
+ * Changed answers that are short enough to save.
  *
- * An over-limit answer is left out on purpose rather than sent and refused:
- * the word counter beside the box already turns red the moment it happens, so
- * sending it too would only add a jarring, redundant server error on top of a
- * signal the student can already see. It stays out of `savedAnswers` as well,
- * so trimming it back under the limit is recognised as a fresh change once it
- * happens, and nothing here is lost — it just is not on the server yet.
+ * An over-limit answer is left out rather than sent and refused: the counter
+ * beside the box already turns red, so a server error would be redundant.
  */
 function changedAnswers(): Record<string, string> {
   const overLimit = new Set(overLimitQuestions().map((q) => q.key))
@@ -645,16 +597,13 @@ const isBusy = computed(
 /**
  * A locked entry shows what was submitted, not the working draft.
  *
- * They differ while a revision is under way — that separation is what lets an
- * abandoned revision leave the submitted entry alone — so the page has to be
- * explicit about which one it is displaying.
+ * They differ while a revision is under way, which is what lets an abandoned
+ * revision leave the submitted entry alone.
  */
 /**
  * What the format checks found about the poster now on show.
  *
- * Follows the same submitted-versus-draft rule as the file itself, so a locked
- * entry reports on the poster that was submitted rather than on one uploaded
- * during a revision that has not been finished.
+ * Follows the same submitted-versus-draft rule as the file itself.
  */
 const posterWarnings = computed(() => {
   const submission = detail.value?.submission
@@ -738,13 +687,8 @@ const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 /**
  * Whether a step is required, and what it currently holds.
  *
- * Carries the requirement here rather than in a separate line above the page:
- * "is this optional?" is a question about a particular section, so the answer
- * belongs beside it.
- *
- * The state half deliberately counts rather than judging. An earlier version
- * marked a section "Done" once every box held any text at all, which claimed
- * far more than it could know — a single letter is not a finished answer.
+ * The state half counts rather than judging: an earlier version marked a
+ * section "Done" once every box held text, which claimed more than it knew.
  */
 function stepSummary(key: TabKey): string {
   if (key === 'questions') {
@@ -820,9 +764,8 @@ function overLimitQuestions() {
 }
 
 /**
- * Wording kept identical to the server's own validation message, so a student
- * sees the same sentence whichever side catches it — this client-side check
- * only means they see it sooner, and by name rather than by database key.
+ * Wording identical to the server's own message, so a student sees the same
+ * sentence whichever side catches it — only sooner, and by name not key.
  */
 function overLimitMessage(list: ReturnType<typeof overLimitQuestions>): string {
   const parts = list.map(
@@ -837,18 +780,10 @@ function unansweredQuestions() {
 }
 
 /**
- * What is still missing before the entry can be submitted, and where to send
- * the student to fix it.
+ * What is still missing, and where to send the student to fix it.
  *
- * The server refuses an incomplete submission either way; this exists so the
- * refusal arrives with somewhere to go. Naming every unanswered question in the
- * message was the previous approach and read as a wall of text — five prompts
- * separated by dots — so the message now says only *what kind* of thing is
- * missing and the page navigates to the first one instead.
- *
- * Order follows the form: questions come before the poster, so a student is
- * always sent to the earliest incomplete step rather than made to work
- * backwards.
+ * The server refuses either way; this exists so the refusal arrives with
+ * somewhere to go. Questions come before the poster, as the form does.
  */
 function submissionBlockers(): { message: string; step: TabKey; focusKey?: string } | null {
   const unanswered = unansweredQuestions()
@@ -879,10 +814,9 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
 }
 
 /**
- * Move to the step holding the first missing item and put the cursor in it.
+ * Move to the step holding the first missing item and focus it.
  *
- * Waits a tick because the target question is only in the DOM once its step is
- * showing — focusing before the switch renders would find nothing.
+ * Waits a tick: the target is only in the DOM once its step is showing.
  */
 async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
   goToStep(TABS.findIndex((tab) => tab.key === blocker.step))
@@ -906,19 +840,10 @@ function applyResult(result: SubmissionWriteResult) {
 }
 
 /**
- * Turn a failed write into a message, closing the page if that is why it failed.
+ * Turn a failed write into a message, closing the page if that is why.
  *
- * Every write path (`persistDraft`, `onSubmit`, `onReopen`, file upload,
- * file removal) can fail this same way once the deadline passes mid-edit, and
- * previously none of them acted on it: `isOpen` only ever came from the last
- * successful fetch, so it stayed stale — the boxes stayed editable and
- * auto-save kept retrying the same doomed save forever, each attempt showing
- * the same raw error again.
- *
- * The server's refusal is authoritative, so it is trusted directly rather than
- * triggering a second round-trip to confirm it: flip `isOpen` immediately, which
- * both disables the form (`isEditable` depends on it) and stops auto-save from
- * scheduling another attempt (`scheduleAutosave` guards on the same flag).
+ * The refusal is authoritative, so `isOpen` is flipped directly: that
+ * disables the form and stops auto-save retrying a doomed save forever.
  */
 function handleWriteError(error: unknown): string {
   const apiError = apiErrorFromUnknown(error)
@@ -961,10 +886,8 @@ async function loadPreview(slot: SubmissionSlot) {
 /**
  * Keep the preview in step with the tab and with what is attached.
  *
- * The poster's preview is always-on because that tab exists to display it; the
- * report's is opened by hand, since it shares its tab with the prototype. In
- * both cases a stale panel showing a replaced or deleted file would
- * misrepresent the entry, so anything not currently valid is dropped.
+ * A stale panel showing a replaced or deleted file would misrepresent the
+ * entry, so anything not currently valid is dropped.
  */
 async function syncPreviewForTab() {
   // Each document tab shows its own file; only one is ever loaded at a time,
@@ -1022,9 +945,8 @@ function formatTime(value: Date) {
 /**
  * Persist the draft.
  *
- * Never announces success: it runs every couple of seconds, and the status
- * line already reports the outcome. Failures do surface, because silently
- * losing work is the exact thing auto-save exists to prevent.
+ * Never announces success: it runs constantly and the status line reports
+ * the outcome. Failures do surface — losing work is what this prevents.
  */
 async function persistDraft() {
   if (isSaving.value) return
@@ -1216,16 +1138,11 @@ const clockTimer = setInterval(() => {
 }, 60000)
 
 /**
- * Notice the announced deadline passing while the page sits open, rather than
- * only finding out from a save that later fails.
+ * Notice the deadline passing while the page sits open, rather than only
+ * finding out from a save that later fails.
  *
- * A student who is reading rather than typing never triggers a write, so
- * `handleWriteError` alone would leave the page silently editable past the
- * deadline until they next changed something. This re-asks the server instead
- * of assuming closed the moment the clock crosses `closes_at`, because the
- * announced date and the date actually enforced can differ — a grace period
- * exists precisely so a student is not cut off the instant the published time
- * arrives, and the client is never told how long that grace period is.
+ * Re-asks the server rather than assuming closed at `closes_at`: a grace
+ * period may still be running, and its length is never sent to the client.
  */
 let deadlineRecheckDone = false
 watch(now, async () => {

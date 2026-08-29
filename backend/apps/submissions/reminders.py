@@ -56,10 +56,9 @@ def _component(label: str, present: bool, detail: str = "") -> dict:
 def _saqs_complete(submission: Submission | None) -> bool:
     """Every required question answered.
 
-    Deliberately the same call the submit endpoint makes, so "the SAQs are
-    done" cannot come to mean one thing in an email and another on the form.
-    It reads the working draft, which is the right copy here: a team being
-    reminded has not submitted, so the frozen copy is empty or stale.
+    The same call the submit endpoint makes, so this cannot come to mean one
+    thing in an email and another on the form. Reads the draft, which is the
+    right copy: a team being reminded has not submitted.
     """
     if submission is None:
         return False
@@ -73,11 +72,9 @@ def _file_name(stored: dict | None) -> str:
 def components_for(submission: Submission | None) -> tuple[list[dict], list[dict]]:
     """Required and optional components, as the reminder lists them.
 
-    The poster and the short answers are what a complete entry needs; the
-    report and the prototype are welcome but do not decide completeness. The
-    client's reminder copy had the report and the SAQs the other way around,
-    which contradicted both their own confirmation email and the question set
-    marked required in the database — corrected here to match those.
+    The client's copy had the report and the SAQs the other way around, which
+    contradicted their own confirmation email and the question set marked
+    required in the database. Corrected here to match those.
     """
     required = [
         _component(
@@ -106,9 +103,8 @@ def components_for(submission: Submission | None) -> tuple[list[dict], list[dict
 def _format_deadline(closes_at) -> str:
     """"Friday, 18 September 2026" — the programme's own wording.
 
-    Built from parts rather than with a "%-d" directive: that strips the leading
-    zero on Linux but is not a valid format on Windows, so a developer machine
-    would raise where the server would not.
+    Built from parts: "%-d" strips the leading zero on Linux but raises on
+    Windows, so a developer machine would fail where the server would not.
     """
     local = timezone.localtime(closes_at)
     return f"{local:%A}, {local.day} {local:%B %Y}"
@@ -124,9 +120,8 @@ def _submission_of(group) -> Submission | None:
 def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives]:
     """Render one team's reminder, as one message per student.
 
-    Rendered once and reused, so everyone on the team reads the same email —
-    only the address it is addressed to differs. See ``send_individually`` for
-    why they are not simply listed together in one ``To``.
+    Rendered once and reused, so everyone reads the same email. See
+    ``send_individually`` for why they are not listed together in one ``To``.
     """
     required, optional = components_for(submission)
     context = {
@@ -164,9 +159,8 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
 def teams_due(now=None) -> list[tuple]:
     """Teams inside their final week with an entry still outstanding.
 
-    Iterates teams rather than submissions. A team that has never opened the
-    form has no submission row, and those are exactly the teams a reminder is
-    for — querying submissions would skip every one of them.
+    Iterates teams, not submissions: a team that never opened the form has no
+    submission row, and those are exactly the teams a reminder is for.
     """
     now = now or timezone.now()
     today = timezone.localdate(now)
@@ -184,8 +178,7 @@ def teams_due(now=None) -> list[tuple]:
 
         info = deadline_for_group(group.id)
         if info.closes_at is None:
-            # No deadline configured for this team, so there is no week to
-            # count back from and nothing honest to tell them.
+            # No deadline to count back from, so nothing honest to say.
             continue
         if not (info.closes_at - REMINDER_WINDOW <= now <= info.closes_at):
             continue
@@ -201,13 +194,9 @@ def teams_due(now=None) -> list[tuple]:
 def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
     """Send today's reminders. Returns a small summary for the caller to log.
 
-    Sent inline rather than through the shared mail pool: that pool exists to
-    keep SMTP out of a web request, and there is no request here. A batch job
-    that has reported success should mean the mail has gone, not that it has
-    been queued behind a process that may be about to exit.
-
-    One team's failure is caught and counted rather than raised, so a single bad
-    address cannot stop the rest of the run.
+    Sent inline, not on the shared pool: that pool keeps SMTP out of a web
+    request and there is no request here, and a batch job reporting success
+    should mean the mail has gone. One team's failure cannot stop the run.
     """
     now = now or timezone.now()
     today = timezone.localdate(now)
@@ -230,8 +219,8 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
                 group.id, delivered, refused,
             )
         if not delivered:
-            # Nobody on the team received it, so today is not recorded and the
-            # next run will try them again rather than skipping them as done.
+            # Nobody received it, so today is not recorded and the next run
+            # tries again rather than treating them as done.
             failed += 1
             continue
 

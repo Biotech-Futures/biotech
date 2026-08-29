@@ -1,4 +1,4 @@
-﻿"""Tests for the team submission deadline rule and endpoints.
+"""Tests for the team submission deadline rule and endpoints.
 
 Focused on the places where a bug actually costs something: a team locked out
 early, an entry accepted after closing, or someone reaching a team they are not
@@ -129,9 +129,8 @@ class DeadlineRuleTests(TestCase):
         self.assertEqual(info.enforced_until, extended)
 
     def test_extension_is_applied_exactly_as_entered(self):
-        # An extension earlier than the standard deadline shortens the window
-        # rather than being quietly corrected upwards. Documents the deliberate
-        # choice made in services.deadline_for_group.
+        # An earlier extension shortens the window rather than being corrected
+        # upwards — the deliberate choice in services.deadline_for_group.
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=5), is_active=True)
         GroupExtension.objects.create(
             group=self.group, extended_until=timezone.now() - timedelta(hours=1)
@@ -159,9 +158,8 @@ class SubmissionApiTests(TestCase):
         self.detail_url = reverse("group-submission", kwargs={"group_id": self.group.id})
         self.submit_url = reverse("group-submission-submit", kwargs={"group_id": self.group.id})
 
-        # Installed rather than read from the database: the real set arrives via
-        # a data migration, and CI disables migrations, so relying on it made
-        # every test in this class fail there while passing locally.
+        # Installed, not read: the real set arrives by data migration and CI
+        # disables migrations, so relying on it failed there but passed locally.
         self.question_keys = [q.key for q in install_question_set()]
         install_instructions()
         self.first_key = self.question_keys[0]
@@ -315,9 +313,8 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(keys, self.question_keys)
 
     def test_upload_limits_are_published_per_slot(self):
-        # The page states each limit and refuses oversized files before
-        # uploading, so they have to come from the server rather than hardcoded
-        # copies that could drift out of step with the settings.
+        # The page states each limit, so they come from the server rather than
+        # hardcoded copies that could drift from the settings.
         response = self._client_for(self.student).get(self.detail_url)
         limits = response.data["max_file_sizes"]
 
@@ -328,9 +325,8 @@ class SubmissionApiTests(TestCase):
         self.assertGreater(limits["prototype"], limits["poster"])
 
     def test_instructions_are_returned_per_section(self):
-        # Guidance is editable by admins, so the page renders what the server
-        # sends rather than anything built into it. Each section carries a
-        # heading and a supporting line, matching the client's own form.
+        # Guidance is admin-editable, so the page renders what the server sends.
+        # Each section carries a heading and a supporting line.
         response = self._client_for(self.student).get(self.detail_url)
         instructions = response.data["instructions"]
 
@@ -352,12 +348,8 @@ class SubmissionApiTests(TestCase):
         )
 
     def test_a_write_after_the_deadline_is_refused(self):
-        # deadline_for_group's own is_open logic is covered in DeadlineRuleTests
-        # above; this exercises the actual view, because that is what the
-        # frontend's mid-edit deadline handling depends on: it reads this exact
-        # error code to know a save failed because the deadline passed, not for
-        # some other reason. Nothing previously pinned that this code is what
-        # the endpoint actually returns.
+        # The rule itself is covered above; this pins that the *endpoint* returns
+        # this code, which is what the page's mid-edit handling reads.
         Deadline.objects.all().update(closes_at=timezone.now() - timedelta(hours=1))
 
         response = self._client_for(self.student).put(

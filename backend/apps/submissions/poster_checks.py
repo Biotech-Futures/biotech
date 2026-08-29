@@ -47,27 +47,22 @@ PT_PER_MM = 72.0 / 25.4
 A2_WIDTH_PT = 420 * PT_PER_MM
 A2_HEIGHT_PT = 594 * PT_PER_MM
 
-# Exporters round, and a page nudged by a millimetre is not a different size.
-# 2% of A2's width is about 8mm — far too tight to admit A3 or A1, and far too
-# loose to be tripped by rounding.
+# Exporters round. 2% of A2's width is about 8mm: far too tight to admit A3
+# or A1, far too loose to be tripped by rounding.
 SIZE_TOLERANCE = 0.02
 
-# Where a school logo is expected, as fractions of the page. Generous on
-# purpose: the requirement is "top left", not a coordinate, and a warning that
-# fires on a logo two centimetres further right than we imagined is a warning
-# nobody should have been shown.
+# Where a logo is expected, as fractions of the page. Generous on purpose:
+# the requirement is "top left", not a coordinate.
 LOGO_MAX_LEFT = 0.40
 LOGO_MIN_TOP = 0.72
 LOGO_MIN_WIDTH = 0.02
 LOGO_MAX_WIDTH = 0.45
 LOGO_MAX_AREA = 0.20
 
-# Supervisor details belong at the foot of the poster. A third of the page is
-# what "the bottom" fairly means on something this tall.
+# A third of the page is what "the bottom" fairly means on something this tall.
 BOTTOM_BAND = 0.33
 
-# Codes are stored on the submission and read back by the page, so they are a
-# stable contract rather than display text.
+# Stored on the submission and read back by the page: a stable contract.
 SINGLE_PAGE = "single_page"
 PORTRAIT = "portrait"
 PAGE_SIZE = "page_size"
@@ -88,17 +83,15 @@ GENERIC_REFUSAL = (
 class PosterCheck:
     """One check and how the file fared against it.
 
-    ``message`` is written for whoever reviews the entry, not for the student.
-    What a student is told is decided separately by ``student_facing_problems``
-    below — see the note there on why the two differ.
+    ``message`` is for whoever reviews the entry; what a student is told is
+    decided by ``student_facing_problems``.
     """
 
     code: str
     passed: bool
     message: str = ""
-    # Whether this finding is plain enough to repeat to a student word for
-    # word. Only findings that are self-evident from looking at their own file
-    # qualify; see `student_facing_problems`.
+    # Whether this is plain enough to repeat to a student verbatim; only
+    # self-evident findings qualify. See `student_facing_problems`.
     explicit: bool = False
 
     def as_dict(self) -> dict:
@@ -108,12 +101,9 @@ class PosterCheck:
 def student_facing_problems(checks: list[PosterCheck]) -> list[str]:
     """What to tell the student about a refused poster.
 
-    Only findings a student can verify by looking at their own file are named:
-    a landscape page is landscape, a three-page file has three pages, and a page
-    size is written in the export dialog they just used.
-
-    Anything else is collapsed into one general instruction, because a finding a
-    student cannot check for themselves reads as an argument rather than a fix.
+    Only findings they can verify on their own file are named. Anything else
+    becomes one general instruction, since a finding they cannot check reads
+    as an argument rather than a fix.
     """
     named = [check.message for check in checks if check.explicit and check.message]
     if any(not check.explicit for check in checks):
@@ -125,9 +115,8 @@ def student_facing_problems(checks: list[PosterCheck]) -> list[str]:
 class PosterCheckResult:
     structural: list[PosterCheck] = field(default_factory=list)
     content: list[PosterCheck] = field(default_factory=list)
-    # False when the poster carries no extractable text at all, which is what a
-    # poster flattened to an image looks like. The text checks are skipped
-    # entirely in that case rather than all reported as failures.
+    # False when there is no extractable text — a poster flattened to an image.
+    # The text checks are then skipped rather than all reported as failures.
     has_text: bool = True
     # True when the file could not be parsed. Everything is skipped, and the
     # upload is allowed through: see `inspect_poster`.
@@ -156,10 +145,8 @@ class PosterCheckResult:
 def _page_size(page) -> tuple[float, float]:
     """Width and height as the page is actually displayed.
 
-    A page can carry a rotation that swaps the two: a landscape box rotated 90
-    degrees displays as portrait, and reading the box alone would call it
-    landscape. Judging the file by what a reader would not see is exactly the
-    kind of wrongness a blocking check cannot afford.
+    A landscape box rotated 90 degrees displays as portrait, and a blocking
+    check cannot afford to judge the file by what a reader would not see.
     """
     box = page.mediabox
     width = float(box.width)
@@ -188,8 +175,7 @@ def _structural_checks(reader) -> list[PosterCheck]:
             pages == 1,
             "" if pages == 1
             else f"The poster should be a single page. This file has {pages}.",
-            # Countable from the file itself, so repeating it is reporting a
-            # fact rather than making a judgement.
+            # Countable from the file, so this reports a fact.
             explicit=True,
         )
     ]
@@ -220,8 +206,8 @@ def _structural_checks(reader) -> list[PosterCheck]:
                 "The poster should be A2 (420 x 594 mm). This file is "
                 f"{width / PT_PER_MM:.0f} x {height / PT_PER_MM:.0f} mm."
             ),
-            # A page size is a number in the export dialog the student just
-            # used, so naming it tells them exactly what to change.
+            # A number in the export dialog they just used, so naming it
+            # tells them exactly what to change.
             explicit=True,
         )
     )
@@ -248,10 +234,8 @@ def _multiply(m: list[float], n: list[float]) -> list[float]:
 def _unit_square_bounds(m: list[float]) -> tuple[float, float, float, float]:
     """Where an image drawn by this matrix actually lands.
 
-    Every image is drawn into the unit square and positioned entirely by the
-    matrix in force, so its rectangle is that square's four corners transformed.
-    Taking all four rather than the width and height alone keeps this correct
-    for a rotated or mirrored placement.
+    Images are drawn into the unit square and placed by the matrix, so all four
+    transformed corners are taken — width and height alone break on a rotation.
     """
     a, b, c, d, e, f = m
     corners = [
@@ -268,19 +252,15 @@ def _unit_square_bounds(m: list[float]) -> tuple[float, float, float, float]:
 def _image_boxes(page, depth: int = 0) -> list[tuple[float, float, float, float]]:
     """Rectangles of every image drawn on the page, in page coordinates.
 
-    pypdf reports which images a page *contains* but not where they are put:
-    position lives in the content stream, in the transformation matrix in force
-    when each image is drawn. So the stream is walked here, tracking that matrix
-    through the save/restore stack the same way a reader would.
-
-    Note the coordinate system: PDF's origin is the bottom-left with y
-    increasing upwards, so a large y means near the top of the page.
+    pypdf reports which images a page contains but not where; position lives in
+    the content stream's transformation matrix, so the stream is walked here.
+    PDF's origin is bottom-left, so a large y means near the top.
     """
     from pypdf.generic import ContentStream
 
     if depth > 3:
-        # Form XObjects can nest. A depth limit keeps a malformed or hostile
-        # file from turning this into an unbounded walk.
+        # Forms nest; a depth limit keeps a malformed file from making this an
+        # unbounded walk.
         return []
 
     try:
@@ -345,15 +325,13 @@ def _shift(box, nested_ctm, outer_ctm):
 def _logo_check(page, width: float, height: float) -> PosterCheck | None:
     """Whether something logo-shaped sits in the top-left corner.
 
-    Returns ``None`` — no finding either way — when the page holds no images at
-    all. A logo placed as vector artwork, which is what PowerPoint produces from
-    an EMF or a grouped shape, leaves no image object behind: reporting "no logo"
-    for those would be confidently wrong about a poster that has one. Staying
-    quiet is the honest answer when the only evidence available is absent.
+    Returns ``None`` when the page holds no images at all: a vector logo, which
+    PowerPoint produces routinely, leaves no image object behind, and reporting
+    it missing would be confidently wrong about a poster that has one.
     """
     if _page_rotation(page):
-        # Every rectangle below would need rotating with the page. Rare enough
-        # that saying nothing beats saying something wrong.
+        # Every rectangle would need rotating with the page; rare enough that
+        # saying nothing beats saying something wrong.
         return None
 
     boxes = _image_boxes(page)
@@ -373,8 +351,8 @@ def _logo_check(page, width: float, height: float) -> PosterCheck | None:
         if not (width * LOGO_MIN_WIDTH <= box_width <= width * LOGO_MAX_WIDTH):
             continue
         if (box_width * box_height) > page_area * LOGO_MAX_AREA:
-            # A full-page background sits in the top left too. Size is what
-            # separates it from a logo.
+            # A full-page background starts in the top left too; size is
+            # what separates it from a logo.
             continue
         return PosterCheck(SCHOOL_LOGO, True)
 
@@ -391,10 +369,8 @@ def _logo_check(page, width: float, height: float) -> PosterCheck | None:
 def _text_by_position(page) -> tuple[str, str]:
     """All the poster's text, and just the text in its bottom band.
 
-    The visitor is handed each run of text along with the matrices in force, so
-    the run's position on the page can be recovered. Where that fails the bottom
-    band comes back empty and the caller falls back to looking everywhere, which
-    is a weaker check rather than a wrong one.
+    Each run arrives with the matrices in force, so its position is recoverable.
+    If that fails the band is empty and the caller looks everywhere instead.
     """
     whole: list[str] = []
     bottom: list[str] = []
@@ -442,10 +418,8 @@ def _content_checks(text: str, bottom_text: str, *, team_code: str) -> list[Post
             SUPERVISOR_EMAIL,
             at_foot or anywhere,
             "" if at_foot else (
-                # Present but not where the format puts it. Recorded as a pass
-                # with a note rather than a warning: the detail a reviewer wants
-                # is there, and its position is a formatting preference, not a
-                # missing requirement.
+                # Present but misplaced: a pass with a note, since position is
+                # a formatting preference rather than a missing requirement.
                 "An email address was found, but not at the foot of the poster."
                 if anywhere
                 else "We could not find a supervisor email address on the poster."
@@ -458,12 +432,9 @@ def _content_checks(text: str, bottom_text: str, *, team_code: str) -> list[Post
 def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
     """Check one uploaded poster. Never raises.
 
-    A file this cannot parse is reported as unreadable and allowed through
-    rather than refused. The upload has already been confirmed as a real PDF by
-    its magic bytes, so failing here means our reader could not cope with a file
-    that is probably fine — and refusing a team's poster on the strength of our
-    own parser giving up, at the deadline, is far worse than accepting a file a
-    marker may have to open by hand.
+    A file this cannot parse is reported unreadable and allowed through: it
+    already passed the magic-byte check, so refusing a poster at the deadline
+    because our reader gave up is worse than accepting one opened by hand.
     """
     try:
         from pypdf import PdfReader

@@ -87,9 +87,8 @@ class SubmissionEmailTests(TestCase):
         )
 
     def test_every_student_on_the_team_is_emailed(self):
-        # One message each rather than one message listing the team: a mail
-        # server rejects a message, not a recipient, so a single bad address
-        # would otherwise cost the whole team their confirmation.
+        # One each rather than one listing the team: a server rejects a message,
+        # not a recipient, so one bad address would cost everyone their copy.
         self._complete_and_submit()
 
         self.assertEqual(len(mail.outbox), 2)

@@ -67,9 +67,8 @@ class PosterFormatRejected(APIException):
 
     def __init__(self, problems):
         super().__init__()
-        # Named individually, unlike the unanswered-questions case: there are at
-        # most three, each is specific, and each says what to change. A student
-        # told only "wrong format" would have to guess which way it was wrong.
+        # Named individually: there are at most three and each says what to
+        # change, where "wrong format" alone would leave them guessing.
         self.extra = {"problems": list(problems)}
 
 

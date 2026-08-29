@@ -143,17 +143,15 @@ class PosterShapeTests(SimpleTestCase):
         self.assertEqual(_check(_build_pdf(*A2)).blocking, [])
 
     def test_a4_is_refused_even_though_it_is_the_right_shape(self):
-        # Recorded because it is the sharpest edge of enforcing the stated size
-        # rather than the stated proportions: this poster would print
-        # identically to an A2 one, and is still refused.
+        # The sharpest edge of enforcing size over proportion: this would print
+        # identically to an A2 poster and is still refused.
         result = _check(_build_pdf(*A4))
 
         self.assertIn(PAGE_SIZE, _codes(result.blocking))
 
     def test_the_programmes_instruction_deck_size_is_refused(self):
-        # Deliberate. That file is an instruction deck with an example layout,
-        # not a canvas teams build on, so a poster arriving at its size has not
-        # been set up at A2.
+        # Deliberate: that file is an instruction deck, not a canvas teams build
+        # on, so its size means the poster was not set up at A2.
         result = _check(_build_pdf(*INSTRUCTION_DECK))
 
         self.assertIn(PAGE_SIZE, _codes(result.blocking))
@@ -187,9 +185,8 @@ class PosterShapeTests(SimpleTestCase):
         self.assertIn(SINGLE_PAGE, _codes(result.blocking))
 
     def test_a_rotated_page_is_judged_as_it_is_displayed(self):
-        # A landscape box turned 90 degrees displays as portrait. Reading the
-        # box alone would refuse a poster that looks perfectly correct to the
-        # person who made it.
+        # A landscape box turned 90 degrees displays as portrait; reading the box
+        # alone would refuse a poster that looks correct to its author.
         result = _check(_build_pdf(A2[1], A2[0], rotate=90))
 
         self.assertEqual(result.blocking, [])
@@ -230,9 +227,8 @@ class PosterContentTests(SimpleTestCase):
         self.assertNotIn(TEAM_CODE, _codes(result.warnings))
 
     def test_a_poster_with_no_text_layer_is_not_warned_about_at_all(self):
-        # A poster flattened to an image has no text to search. Reporting every
-        # content check as failed would be a wall of warnings that are all
-        # wrong, which teaches students to ignore the ones that are right.
+        # Flattened to an image, there is nothing to search. A wall of warnings
+        # that are all wrong teaches students to ignore the right ones.
         result = _check(_build_pdf(*A2))
 
         self.assertFalse(result.has_text)
@@ -242,9 +238,8 @@ class PosterContentTests(SimpleTestCase):
 
 class UnreadablePosterTests(SimpleTestCase):
     def test_a_file_that_cannot_be_parsed_is_allowed_through(self):
-        # Refusing a team's poster because our own reader gave up — at the
-        # deadline — is worse than accepting one a marker may have to open by
-        # hand. It is recorded, not blocked.
+        # Refusing a poster at the deadline because our reader gave up is worse
+        # than accepting one a marker opens by hand. Recorded, not blocked.
         result = _check(b"%PDF-1.4\nnot really a pdf\n%%EOF\n")
 
         self.assertTrue(result.unreadable)

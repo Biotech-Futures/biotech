@@ -65,9 +65,8 @@ class ReminderTests(TestCase):
 
     # ------------------------------------------------------------- who is due
     def test_a_team_that_never_started_is_reminded(self):
-        # The quietest failure this could have: these teams have no submission
-        # row, so anything that queried submissions would skip exactly the
-        # teams most in need of a reminder.
+        # The quietest failure available: these teams have no submission row, so
+        # querying submissions would skip exactly those most needing a reminder.
         self._team("BTF-NOTHING")
 
         self.assertIn("BTF-NOTHING", self._names_due(self._inside_window()))
@@ -93,9 +92,8 @@ class ReminderTests(TestCase):
         self.assertEqual(self._names_due(timezone.now()), set())
 
     def test_nobody_is_reminded_once_the_deadline_has_passed(self):
-        # Reminders stop at the announced time rather than when writes are
-        # actually refused: the grace period after it is not published, and an
-        # email arriving inside it would announce it.
+        # Reminders stop at the announced time, not when writes stop: the grace
+        # period is unpublished, and an email inside it would announce it.
         self._team("BTF-LATE")
 
         after = self.deadline.closes_at + timedelta(minutes=1)
@@ -164,9 +162,8 @@ class ReminderTests(TestCase):
 
     # ------------------------------------------------------------- contents
     def test_the_email_names_the_required_components_the_right_way_round(self):
-        # The client's copy had the report required and the SAQs optional,
-        # contradicting their own confirmation email and the question set. This
-        # pins the correction so it cannot be quietly undone.
+        # The client's copy had these the other way around, contradicting their
+        # confirmation email. This pins the correction.
         self._team("BTF-COPY")
 
         send_due_reminders(self._inside_window())
@@ -284,9 +281,8 @@ class IndividualDeliveryTests(TestCase):
         self.assertEqual(len(bodies), 1, "students were sent differing text")
 
     def test_one_bad_address_does_not_cost_the_rest_of_the_team_their_copy(self):
-        # The reason for sending separately at all: a server rejects a message,
-        # not a recipient, so a single typo in a team of three used to mean
-        # nobody heard anything.
+        # The reason for sending separately: a server rejects a message, not a
+        # recipient, so one typo used to mean nobody heard anything.
         from unittest.mock import patch
 
         real_send = mail.EmailMessage.send

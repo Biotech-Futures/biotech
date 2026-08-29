@@ -10,13 +10,11 @@ from .views import (
     SendSubmissionRemindersView,
 )
 
-# Mounted by config.urls at /api/v1/submissions/ only. Unlike the older apps
-# there is no legacy unprefixed alias: nothing predates this feature, so there
-# are no existing clients to keep working.
+# Mounted at /api/v1/submissions/ only. No legacy unprefixed alias: nothing
+# predates this feature, so there are no existing clients to keep working.
 urlpatterns = [
-    # Called by a scheduler rather than a person, so it sits apart from the
-    # per-team routes below and authenticates with a shared secret instead of
-    # a session.
+    # Called by a scheduler, not a person: it authenticates with a shared
+    # secret rather than a session.
     path(
         "admin/send-reminders/",
         SendSubmissionRemindersView.as_view(),

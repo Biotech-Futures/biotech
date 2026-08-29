@@ -15,9 +15,8 @@ It also means rewording the real questions cannot break unrelated tests.
 from apps.submissions.models import SubmissionInstruction, SubmissionQuestion
 
 
-# Shape mirrors the real set — six questions, all required, 150-word cap — but
-# the wording is deliberately generic: these exist to exercise the mechanism,
-# not to assert the competition's copy.
+# Same shape as the real set, but deliberately generic wording: these exercise
+# the mechanism rather than assert the competition's copy.
 QUESTIONS = (
     ("solution_purpose", "What does your solution do?"),
     ("inspiration", "What was the inspiration for your solution?"),
