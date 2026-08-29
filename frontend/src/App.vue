@@ -81,7 +81,7 @@
                 class="sidebar-link"
                 :class="{ active: route.path.includes('/submission') }"
               >
-                <i class="fas fa-file-arrow-up sidebar-icon"></i>
+                <i class="fas fa-flask sidebar-icon"></i>
                 <span>Submission</span>
               </RouterLink>
             </li>
