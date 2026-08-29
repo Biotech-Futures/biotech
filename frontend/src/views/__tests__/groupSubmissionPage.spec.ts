@@ -17,10 +17,10 @@ import type { SubmissionDetail, SubmissionRecord } from '@/utils/submissionsAPI'
  * Two design points these specs pin down, because both are easy to "fix" into
  * something worse:
  *
- * * Submit is never disabled for an incomplete entry. It stays clickable and
- *   the server answers with the list of unanswered questions, which the page
- *   then names. Greying the button out instead would leave a student hunting
- *   for which box is blank.
+ * * Submit is never disabled for an incomplete entry. It stays clickable, and
+ *   pressing it says what is missing and moves to the first thing that needs
+ *   fixing. Greying the button out instead would leave a student hunting for
+ *   which box is blank with nothing to tell them why.
  * * A locked entry offers "Resubmit" (reopen it), and only once reopened does
  *   the action become "New Attempt". The first ever submission is plain
  *   "Submit".
@@ -160,7 +160,13 @@ const mountPage = async (detail: SubmissionDetail) => {
   const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
   await router.push('/submission/1')
   await router.isReady()
-  wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+  // Attached to the document so focus actually moves: an unattached component
+  // can never hold document.activeElement, and sending the student to the
+  // question that needs fixing is part of what these specs check.
+  wrapper = mount(GroupSubmissionPage, {
+    attachTo: document.body,
+    global: { plugins: [router, pinia] },
+  })
   for (let i = 0; i < 4; i += 1) await flushPromises()
   return wrapper
 }
@@ -226,20 +232,68 @@ describe('submitting', () => {
     expect(buttonNamed(/^Submit$/)?.attributes('disabled')).toBeUndefined()
   })
 
-  it('names the unanswered questions when the server refuses', async () => {
+  it('refuses an incomplete entry without listing every unanswered question', async () => {
+    // The message used to name each blank question, which for a mostly-empty
+    // form was a wall of prompts. It now says only what kind of thing is
+    // missing; the page navigates to the first one instead of describing it.
     await mountPage(buildDetail({ submission: { answers: {}, poster: POSTER } }))
     await goToLastStep()
-    saveDraft.mockResolvedValue({ deadline: submittedDetail().deadline, submission: emptyRecord() })
-    submitEntry.mockRejectedValue(
-      Object.assign(new Error('Required answers missing.'), {
-        body: { missing: ['solution_purpose'] },
-      }),
-    )
 
     await buttonNamed(/^Submit$/)!.trigger('click')
     await flushPromises()
 
-    expect(submitEntry).toHaveBeenCalled()
+    // toContain, not toBe: the banner carries a dismiss control of its own.
+    const message = wrapper!.find('.submission-message').text()
+    expect(message).toContain('Some required questions have not been answered.')
+    expect(message).not.toContain(QUESTIONS[0].prompt)
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('sends the student to the first unanswered question, not merely back a step', async () => {
+    await mountPage(
+      buildDetail({
+        submission: { answers: { solution_purpose: 'Done.' }, poster: POSTER },
+      }),
+    )
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    // The first question is answered, so the second is the one to land on.
+    expect(document.activeElement?.id).toBe(QUESTIONS[1].key)
+  })
+
+  it('sends the student to the poster step when only the poster is missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A poster must be uploaded before the entry can be submitted.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Poster')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('reports both when the questions are unanswered and the poster is missing', async () => {
+    // Questions come first on the form, so that is where the student is sent —
+    // but being told about only one of the two problems would mean a second
+    // refusal waiting behind the first.
+    await mountPage(buildDetail({ submission: { answers: {}, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'Some required questions have not been answered, and no poster has been uploaded.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    expect(submitEntry).not.toHaveBeenCalled()
   })
 
   it('calls the API when submit is pressed', async () => {
@@ -505,7 +559,13 @@ describe('an answer over its word limit', () => {
     await flushPromises()
 
     expect(submitEntry).not.toHaveBeenCalled()
-    expect(saveDraft).not.toHaveBeenCalled()
+    // A save may still happen — moving to the offending question is a tab
+    // change, and leaving a tab flushes any pending auto-save. What matters is
+    // that no save carried the over-limit answer, in either direction: neither
+    // the too-long text nor the older valid version it would have replaced.
+    for (const [, payload] of saveDraft.mock.calls) {
+      expect(Object.keys(payload.answers)).not.toContain(QUESTIONS[0].key)
+    }
   })
 
   it('names the question by its prompt, not its database key', async () => {

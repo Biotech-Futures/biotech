@@ -326,7 +326,6 @@
               <p class="submission-muted">
                 Any file type · up to {{ maxSizeLabel('prototype') }}
               </p>
-
               <p v-if="storedFile('prototype')" class="submission-file">
                 <a :href="downloadUrl('prototype')" target="_blank" rel="noopener noreferrer">
                   {{ storedFile('prototype')?.name }}
@@ -444,7 +443,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME } from '@/constants/brand'
@@ -760,6 +759,75 @@ function overLimitMessage(list: ReturnType<typeof overLimitQuestions>): string {
   return `Answer too long for ${parts.join(', ')}.`
 }
 
+/** Required questions still blank, in the order they appear on the form. */
+function unansweredQuestions() {
+  return questions.value.filter((q) => q.is_required && !(answers[q.key] ?? '').trim())
+}
+
+/**
+ * What is still missing before the entry can be submitted, and where to send
+ * the student to fix it.
+ *
+ * The server refuses an incomplete submission either way; this exists so the
+ * refusal arrives with somewhere to go. Naming every unanswered question in the
+ * message was the previous approach and read as a wall of text — five prompts
+ * separated by dots — so the message now says only *what kind* of thing is
+ * missing and the page navigates to the first one instead.
+ *
+ * Order follows the form: questions come before the poster, so a student is
+ * always sent to the earliest incomplete step rather than made to work
+ * backwards.
+ */
+function submissionBlockers(): { message: string; step: TabKey; focusKey?: string } | null {
+  const unanswered = unansweredQuestions()
+  const posterMissing = !shownFile('poster')
+
+  if (unanswered.length && posterMissing) {
+    return {
+      message:
+        'Some required questions have not been answered, and no poster has been uploaded.',
+      step: 'questions',
+      focusKey: unanswered[0].key
+    }
+  }
+  if (unanswered.length) {
+    return {
+      message: 'Some required questions have not been answered.',
+      step: 'questions',
+      focusKey: unanswered[0].key
+    }
+  }
+  if (posterMissing) {
+    return {
+      message: 'A poster must be uploaded before the entry can be submitted.',
+      step: 'poster'
+    }
+  }
+  return null
+}
+
+/**
+ * Move to the step holding the first missing item and put the cursor in it.
+ *
+ * Waits a tick because the target question is only in the DOM once its step is
+ * showing — focusing before the switch renders would find nothing.
+ */
+async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
+  goToStep(TABS.findIndex((tab) => tab.key === blocker.step))
+  if (!blocker.focusKey) return
+  await nextTick()
+  const field = document.getElementById(blocker.focusKey)
+  if (!(field instanceof HTMLTextAreaElement)) return
+  field.focus()
+  // Guarded because scrolling is presentation, not behaviour: jsdom has no
+  // layout and does not implement this at all, and an unhandled rejection here
+  // would be a real failure reported for a cosmetic one. Focus above is what
+  // actually matters, and it has already happened.
+  if (typeof field.scrollIntoView === 'function') {
+    field.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
 function applyResult(result: SubmissionWriteResult) {
   if (!detail.value) return
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
@@ -960,9 +1028,23 @@ async function onSubmit() {
     // instead of what is currently in the box — correct, but exactly the kind
     // of surprise ("I edited this, why did the old version go in?") worth
     // refusing up front instead.
+    // Navigation is deliberately not awaited: it only moves the view, and
+    // awaiting it would hand control back to the event loop mid-refusal, which
+    // is long enough for a pending auto-save to fire on the way out.
     const overLimit = overLimitQuestions()
     if (overLimit.length) {
       setMessage(overLimitMessage(overLimit), true)
+      void goToBlocker({ step: 'questions', focusKey: overLimit[0].key })
+      return
+    }
+
+    // Checked here as well as on the server, for the same reason: so the
+    // refusal can point at the thing that needs fixing. The server stays the
+    // authority — this only saves a round trip and lands the student on it.
+    const blocker = submissionBlockers()
+    if (blocker) {
+      setMessage(blocker.message, true)
+      void goToBlocker(blocker)
       return
     }
 
@@ -980,15 +1062,11 @@ async function onSubmit() {
     syncFromDetail()
     setMessage('Submitted. Choose Resubmit if you need to change anything before the deadline.')
   } catch (error) {
-    const apiError = apiErrorFromUnknown(error)
-    // The backend names the unanswered questions, so repeat them here rather
-    // than leaving the student to hunt for which box is blank.
-    const missing = apiError.body?.missing
-    if (Array.isArray(missing) && missing.length) {
-      setMessage(`${apiError.message} Still needed: ${missing.join(' · ')}`, true)
-    } else {
-      setMessage(handleWriteError(error), true)
-    }
+    // The server's own sentence is used as-is. It already says what is wrong
+    // without listing every question, and the pre-check above is what normally
+    // catches this — reaching here means the entry changed underneath us, so
+    // there is nothing reliable to point at.
+    setMessage(handleWriteError(error), true)
   } finally {
     isSubmitting.value = false
   }
