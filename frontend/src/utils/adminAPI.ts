@@ -153,42 +153,191 @@ export const fetchAdminSummary = (): Promise<AdminSummaryResponse> =>
   adminGet<AdminSummaryResponse>('/summary/')
 
 // ---------------------------------------------------------------------------
-// Users
+// Users & Supervisors
+//
+// Contract notes (matches apps/admin/):
+// - List uses a custom envelope: `{ msg, data: { items, total, page, limit, hasMore } }`.
+//   Pagination param is `limit` (not page_size) and sorting uses `sortBy`/`sortOrder`.
+// - Role strings: "student" | "mentor" | "supervisor" | "admin". Supervisors are
+//   just users filtered with `?role=supervisor`; there is no separate endpoint.
+// - Single status toggle: PATCH .../status/ with `{ isActive: bool }`.
+// - Bulk status: PATCH .../bulk-status/; bulk delete: POST .../bulk-delete/ (accepts
+//   `force` + `selectAll` for delete-all-matching).
 // ---------------------------------------------------------------------------
 
+export interface AdminEnvelope<T> {
+  msg: string
+  data: T
+}
+
+export interface AdminUserCountry {
+  id: number
+  countryName: string
+}
+
+export interface AdminUserState {
+  id: number
+  stateName: string
+  countryName?: string | null
+}
+
+export interface AdminUserSupervisee {
+  name: string
+  email: string
+}
+
 export interface AdminUser {
-  id?: number | string
-  user_id?: string
-  first_name?: string | null
-  last_name?: string | null
-  email?: string | null
-  username?: string | null
-  role?: string | null
-  status?: string | null
-  is_active?: boolean
-  [key: string]: unknown
+  id: number
+  firstName: string | null
+  lastName: string | null
+  email: string | null
+  role: string | null
+  country: AdminUserCountry | null
+  state: AdminUserState | null
+  groupId: number | null
+  groupName: string | null
+  schoolName: string | null
+  mentorBackground: string | null
+  mentorInstitution: string | null
+  mentorReason: string | null
+  mentorMaxGroupCount: number | null
+  yearLevel: number | null
+  joinPermissionReceived: boolean
+  interests: string[]
+  isAdmin: boolean
+  isActive: boolean
+  hasLoggedIn: boolean
+  lastLogin: string | null
+  accountStatus: 'active' | 'deactivated'
+  invitedAt: string | null
+  activatedAt: string | null
+  supervisorName: string | null
+  supervisorEmail: string | null
+  supervisees: AdminUserSupervisee[]
 }
 
 export interface UserListParams {
-  search?: string
-  role?: string | string[]
-  status?: string | string[]
   page?: number
-  page_size?: number
-  ordering?: string
+  limit?: number
+  search?: string
+  role?: string
+  state?: string
+  country?: string
+  active?: string
+  inGroup?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
-export const fetchAdminUsers = (params: UserListParams = {}) =>
-  adminGet<PaginatedResult<AdminUser>>(`/user/${buildAdminQuery(params)}`)
+export interface UserListData {
+  items: AdminUser[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+}
 
-export const fetchAdminUser = (userId: string | number) =>
-  adminGet<AdminUser>(`/user/${userId}/`)
+/** Filters that mirror the list view — reused by bulk status/delete for select-all-matching. */
+export interface UserListFilters {
+  search?: string
+  role?: string
+  state?: string
+  country?: string
+  /** The list endpoint reads this as a parsed string; bulk status/delete expect a boolean. */
+  active?: string | boolean
+  inGroup?: string
+}
 
-export const fetchUserCountries = () =>
-  adminGet<unknown[]>(`/user/countries/`)
+export const fetchAdminUsers = (params: UserListParams = {}): Promise<UserListData> =>
+  adminGet<AdminEnvelope<UserListData>>(`/user/${buildAdminQuery(params)}`).then((env) => env.data)
 
-export const fetchUserStates = () =>
-  adminGet<unknown[]>(`/user/states/`)
+export const fetchAdminUser = (userId: string | number): Promise<AdminUser> =>
+  adminGet<AdminEnvelope<AdminUser>>(`/user/${userId}/`).then((env) => env.data)
+
+export type CreateUserPayload = Record<string, unknown> & {
+  email: string
+  firstName: string
+  lastName: string
+  role: string
+}
+
+export const createAdminUser = (payload: CreateUserPayload) =>
+  adminPost<AdminEnvelope<AdminUser>>('/user/', payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export const updateAdminUser = (userId: string | number, payload: Record<string, unknown>) =>
+  adminPut<AdminEnvelope<AdminUser>>(`/user/${userId}/`, payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export const deleteAdminUser = (userId: string | number) =>
+  adminDelete<AdminEnvelope<null>>(`/user/${userId}/`).then((env) => env.msg)
+
+export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
+  adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export interface BulkStatusPayload {
+  isActive: boolean
+  selectAll?: boolean
+  filters?: UserListFilters
+  excludeIds?: number[]
+  userIds: number[]
+}
+export interface BulkStatusResult {
+  msg: string
+  data: {
+    updatedIds: number[]
+    unchangedIds: number[]
+    notFoundIds: number[]
+    skippedSelf: boolean
+  }
+}
+export const bulkSetUsersActive = (payload: BulkStatusPayload): Promise<BulkStatusResult> =>
+  adminPatch<AdminEnvelope<BulkStatusResult['data']>>('/user/bulk-status/', payload).then(
+    (env) => ({ msg: env.msg, data: env.data })
+  )
+
+export interface BulkDeletePayload {
+  userIds: number[]
+  force?: boolean
+  selectAll?: boolean
+  filters?: UserListFilters
+  excludeIds?: number[]
+  expectedCount?: number | null
+}
+export interface BulkDeleteResult {
+  msg: string
+  data: {
+    deletedIds: number[]
+    failedIds: number[]
+    notFoundIds: number[]
+    skippedSelf: boolean
+    skippedAdmins: number
+  }
+}
+export const bulkDeleteUsers = (payload: BulkDeletePayload): Promise<BulkDeleteResult> =>
+  adminPost<AdminEnvelope<BulkDeleteResult['data']>>('/user/bulk-delete/', payload).then(
+    (env) => ({ msg: env.msg, data: env.data })
+  )
+
+/** Countries lookup. Pass `{ inUse: true }` to restrict to countries that actually
+ *  have users — the lookup holds every country on earth, but only a fraction have
+ *  rows worth filtering to. */
+export const fetchAdminCountries = (
+  options: { inUse?: boolean } = {}
+): Promise<AdminUserCountry[]> =>
+  adminGet<AdminEnvelope<AdminUserCountry[]>>(
+    `/user/countries/${options.inUse ? buildAdminQuery({ inUse: true }) : ''}`
+  ).then((env) => env.data)
+
+export const fetchAdminStates = (): Promise<AdminUserState[]> =>
+  adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
 
 // ---------------------------------------------------------------------------
 // Groups
@@ -214,6 +363,74 @@ export const fetchAdminGroups = (params: GroupListParams = {}) =>
 
 export const fetchAdminGroup = (groupId: string | number) =>
   adminGet<AdminGroup>(`/group/${groupId}/`)
+
+// ---------------------------------------------------------------------------
+// Student group assignment
+//
+// The group list endpoint returns a custom envelope:
+//   `{ msg, data: { items, total, page, limit, has_more } }` where each group
+//   carries its full member array (`{ id, name, email, role, membershipId }`),
+//   so the free-seat capacity rule can be computed client-side.
+// ---------------------------------------------------------------------------
+
+export interface AdminGroupMember {
+  id: string
+  name: string
+  email: string
+  /** "student" | "mentor" */
+  role: string
+  membershipId: number | null
+}
+
+export interface AdminGroupDetail {
+  id: number
+  name: string
+  members: AdminGroupMember[]
+  mentor: AdminGroupMember | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminGroupListData {
+  items: AdminGroupDetail[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface GroupListDetailParams {
+  page?: number
+  limit?: number
+  searchName?: string
+  searchGroup?: string
+  mentorStatus?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+/** Full group payloads — used by the assign-student surfaces. */
+export const fetchAdminGroupList = (params: GroupListDetailParams = {}) =>
+  adminGet<AdminEnvelope<AdminGroupListData>>(`/group/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export interface StudentAssignment {
+  studentId: number
+  groupId: number
+}
+
+/** Assign students to groups (POST /match/confirm/). Returns the count confirmed. */
+export const confirmStudentAssignments = (assignments: StudentAssignment[]) =>
+  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', { assignments }).then(
+    (env) => ({ msg: env.msg, assignedCount: env.data.assigned_count })
+  )
+
+/** Remove a student from their group (DELETE /group/{id}/members/{userId}/). */
+export const removeGroupMember = (groupId: string | number, userId: string | number) =>
+  adminDelete<AdminEnvelope<AdminGroupDetail | null>>(
+    `/group/${groupId}/members/${userId}/`
+  ).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
 // Events
@@ -294,6 +511,54 @@ export interface AdminMentor {
 export const fetchAdminMentors = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<AdminMentor>>(`/mentor/${buildAdminQuery(params)}`)
 
+/** Full mentor profile rows used by the People → Mentors tab (GET /mentor/). */
+export interface AdminMentorAvailability {
+  weekday: number
+  startTime: string
+  endTime: string
+}
+
+export interface AdminMentorCertificate {
+  certificateTypeName: string
+  certificateNumber: string | null
+  issuedBy: string | null
+  issuedAt: string
+  expiresAt: string | null
+  fileUrl: string | null
+  /** Backend maps this from MentorCertificate.verified — a boolean despite the "At". */
+  verifiedAt: boolean | string | null
+}
+
+export interface AdminMentorDetail {
+  mentorId: number
+  firstName: string | null
+  lastName: string | null
+  name: string
+  email: string | null
+  isActive: boolean
+  institution: string | null
+  countryName: string | null
+  maxGroupCount: number
+  currentAssignedCount: number
+  remainingCapacity: number
+  interests: string[]
+  lastMessageAt: string | null
+  hasLoggedIn?: boolean
+  lastLogin?: string | null
+  availability: AdminMentorAvailability[]
+  certificates: AdminMentorCertificate[]
+}
+
+export const fetchAdminMentorDetails = () =>
+  adminGet<AdminEnvelope<AdminMentorDetail[]>>('/mentor/').then((env) => env.data)
+
+/** Toggle a mentor's account status (PATCH /mentor/{mentorId}/active/). */
+export const setAdminMentorActive = (mentorId: number, isActive: boolean) =>
+  adminPatch<AdminEnvelope<{ mentorId: number; isActive: boolean }>>(
+    `/mentor/${mentorId}/active/`,
+    { isActive }
+  ).then((env) => env.data)
+
 // ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
@@ -327,3 +592,87 @@ export const fetchMentorMatchGroups = (params: Record<string, unknown> = {}) =>
 
 export const fetchMentorMatchMatchedGroups = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/mentor-match/matched-groups/${buildAdminQuery(params)}`)
+
+// --- Typed mentor-match surfaces (Replace Inactive Mentors) -----------------
+
+export interface MentorListItem {
+  mentorId: number
+  name: string
+  countryName: string | null
+  institution: string | null
+  interests: string[]
+  maxGroupCount: number
+  currentAssignedCount: number
+  remainingCapacity: number
+}
+
+/** Flat mentor list (GET /mentor-match/mentors/) — the fallback pool for replacements. */
+export const fetchMentorMatchMentorList = () =>
+  adminGet<AdminEnvelope<MentorListItem[]>>('/mentor-match/mentors/').then((env) => env.data)
+
+export interface MatchedGroupMentor {
+  mentorId: number
+  name: string
+  isActive: boolean
+  countryName: string | null
+  institution: string | null
+}
+
+export interface MatchedGroupStudent {
+  name: string
+  hasLoggedIn: boolean
+  interests: string[]
+}
+
+export interface MatchedGroup {
+  membershipId: number
+  groupId: number
+  groupName: string
+  countryName: string | null
+  studentCount: number
+  students: MatchedGroupStudent[]
+  mentor: MatchedGroupMentor
+}
+
+/** Confirmed mentor assignments (GET /mentor-match/matched-groups/). */
+export const fetchMatchedGroups = () =>
+  adminGet<AdminEnvelope<MatchedGroup[]>>('/mentor-match/matched-groups/').then(
+    (env) => env.data
+  )
+
+export interface MentorAssignment {
+  groupId: number
+  mentorUserId: number
+}
+
+export const confirmMentorAssignments = (assignments: MentorAssignment[]) =>
+  adminPost<AdminEnvelope<{ confirmedCount: number }>>('/mentor-match/confirm/', {
+    assignments
+  }).then((env) => ({ msg: env.msg, confirmedCount: env.data.confirmedCount }))
+
+export const unassignMentors = (groupIds: number[]) =>
+  adminPost<AdminEnvelope<{ unassignedCount: number }>>('/mentor-match/unassign/', {
+    groupIds
+  }).then((env) => ({ msg: env.msg, unassignedCount: env.data.unassignedCount }))
+
+export interface MentorReplaceSuggestion {
+  mentorUserId: number
+  name: string
+  institution: string | null
+  remainingCapacity: number
+  atCapacity: boolean
+  score: number
+  reason: string
+}
+
+export interface MentorReplaceSuggestionsData {
+  groupId: number
+  groupName: string
+  suggestions: MentorReplaceSuggestion[]
+}
+
+/** Scored replacement mentors for one group (GET /mentor-match/replace-suggestions/). */
+export const fetchMentorReplaceSuggestions = (groupId: number) =>
+  adminGet<AdminEnvelope<MentorReplaceSuggestionsData>>(
+    `/mentor-match/replace-suggestions/?groupId=${groupId}`
+  ).then((env) => env.data)

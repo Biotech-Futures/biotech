@@ -334,7 +334,7 @@ const renderCell = (value: unknown) => {
 
 .admin-table__head {
   padding: 0.85rem 1rem;
-  text-align: left;
+  text-align: center;
   font-weight: 600;
   color: var(--charcoal);
   background-color: var(--light-green);
@@ -342,8 +342,10 @@ const renderCell = (value: unknown) => {
   white-space: nowrap;
 }
 
+/* Column headers are centered horizontally per the admin portal style,
+   regardless of how the cell content is aligned. */
 .admin-table__head--right {
-  text-align: right;
+  text-align: center;
 }
 
 .admin-table__head--center {

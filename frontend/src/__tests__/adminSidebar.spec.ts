@@ -94,7 +94,7 @@ describe('App sidebar admin section', () => {
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
   })
 
-  it('renders the Admin nav and all eight sub-links for admins', async () => {
+  it('renders the Admin nav and all expected sub-links for admins', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
     await mountApp({ viewport: 'desktop' })
