@@ -36,11 +36,50 @@
       <span>{{ error }}</span>
     </p>
 
+    <BulkActionsBar
+      v-if="bulkCount && !loading"
+      :count="bulkCount"
+      noun="group"
+      :disabled="busy"
+      @clear="clearSelection"
+    >
+      <button type="button" class="btn btn-sm btn-danger" :disabled="busy" @click="confirmBulkDelete">
+        <i class="fas fa-trash" aria-hidden="true"></i> Delete
+      </button>
+    </BulkActionsBar>
+
+    <div v-if="selectionBanner" class="admin-groups__selection-banner" aria-live="polite">
+      <template v-if="selectAllMatching">
+        <span>
+          <i class="fas fa-check-double admin-groups__selection-icon" aria-hidden="true"></i>
+          <span v-if="excludedCount > 0">
+            {{ effectiveSelectAllCount }} of {{ totalCount }} groups selected.
+          </span>
+          <span v-else>All {{ totalCount }} groups matching these filters are selected.</span>
+        </span>
+        <button type="button" class="admin-groups__selection-link" @click="clearSelection">
+          Clear selection
+        </button>
+      </template>
+      <template v-else>
+        <span>
+          <i class="fas fa-circle-info admin-groups__selection-icon" aria-hidden="true"></i>
+          <span>All {{ pageRowCount }} groups on this page are selected.</span>
+        </span>
+        <button type="button" class="admin-groups__selection-link" @click="selectAllMatchingNow">
+          Select all {{ totalCount }} groups matching these filters
+        </button>
+      </template>
+    </div>
+
     <AdminDataTable
       :columns="columns"
       :rows="rows"
       row-key="id"
       :loading="loading"
+      selectable
+      :selected="displaySelected"
+      select-all-label="Select all groups on this page"
       :sort-state="sortState"
       :page="page"
       :page-size="limit"
@@ -48,6 +87,7 @@
       :page-size-options="[25, 50, 100]"
       empty-message="No groups found."
       pager-label="Groups pagination"
+      @update:selected="onSelectedChange"
       @update:sort="onSortChange"
       @page-change="onPageChange"
       @page-size-change="onPageSizeChange"
@@ -78,6 +118,44 @@
     </AdminDataTable>
 
     <GroupDetailModal v-model="detailOpen" :group="detailGroup" @changed="onDetailChanged" />
+
+    <!-- Bulk delete confirm (forces the DELETE keyword when select-all / force) -->
+    <ConfirmDialog
+      v-model="bulkDelete.open"
+      title="Delete groups"
+      :message="bulkDeleteMessage"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      :disabled="deleteConfirmBlocked"
+      @confirm="runBulkDelete"
+    >
+      <label class="admin-groups__force-toggle">
+        <input v-model="bulkForce" type="checkbox" />
+        <span>
+          Force delete — also permanently delete any hosted workshops linked to these groups.
+          Required to remove groups that still have one.
+        </span>
+      </label>
+      <p v-if="bulkForce" class="admin-groups__force-warning">
+        This destroys that content too, not just the group, and cannot be undone.
+      </p>
+      <div class="admin-groups__delete-type">
+        <label class="admin-groups__delete-confirm-label" for="bulk-delete-confirm">
+          Type <span class="admin-groups__delete-keyword">DELETE</span> to confirm
+        </label>
+        <input
+          id="bulk-delete-confirm"
+          v-model="deleteConfirmText"
+          class="form-input"
+          autocomplete="off"
+          placeholder="DELETE"
+        />
+      </div>
+      <p v-if="bulkDeleteProgress" class="admin-groups__delete-progress">
+        Deleting... {{ bulkDeleteProgress.done }} of {{ bulkDeleteProgress.total }}
+      </p>
+    </ConfirmDialog>
 
     <FormSheet
       v-model="formOpen"
@@ -111,8 +189,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AdminDataTable, { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
 import {
@@ -120,7 +200,9 @@ import {
   createGroup,
   updateGroup,
   fetchNextGroupName,
-  type AdminGroupDetail
+  bulkDeleteGroups,
+  type AdminGroupDetail,
+  type GroupListDetailParams
 } from '@/utils/adminAPI'
 import { formatDateAU } from '@/utils/date'
 
@@ -175,18 +257,21 @@ watch(searchInput, () => {
   if (searchDebounce) clearTimeout(searchDebounce)
   searchDebounce = setTimeout(() => {
     page.value = 1
+    clearSelection()
     loadGroups()
   }, 300)
 })
 
 watch(mentorStatus, () => {
   page.value = 1
+  clearSelection()
   loadGroups()
 })
 
 const onSortChange = (next: SortState) => {
   sortState.value = next
   page.value = 1
+  clearSelection()
   loadGroups()
 }
 
@@ -199,6 +284,146 @@ const onPageSizeChange = (size: number) => {
   limit.value = size
   page.value = 1
   loadGroups()
+}
+
+// --- Selection -------------------------------------------------------------
+
+const selectedMap = ref<Map<number, AdminGroupDetail>>(new Map())
+const selectAllMatching = ref(false)
+const excludedIds = ref<Set<string>>(new Set())
+
+const selectedIds = computed(() => Array.from(selectedMap.value.keys()))
+const pageIds = computed(() => rows.value.map((row) => String(row.id)))
+const pageRowCount = computed(() => rows.value.length)
+
+const displaySelected = computed<Array<string | number>>(() => {
+  if (selectAllMatching.value) {
+    return pageIds.value.filter((id) => !excludedIds.value.has(id))
+  }
+  return selectedIds.value
+})
+
+const excludedCount = computed(() => excludedIds.value.size)
+const effectiveSelectAllCount = computed(() => Math.max(0, totalCount.value - excludedCount.value))
+const bulkCount = computed(() => (selectAllMatching.value ? effectiveSelectAllCount.value : selectedMap.value.size))
+
+const allOnPageSelected = computed(() => {
+  const shown = new Set(displaySelected.value.map((id) => String(id)))
+  return pageIds.value.length > 0 && pageIds.value.every((id) => shown.has(id))
+})
+
+const selectionBanner = computed(
+  () => selectAllMatching.value || (allOnPageSelected.value && totalCount.value > pageRowCount.value)
+)
+
+// Filters/search/sort redefine the matching set, so drop the selection (see
+// the watchers/onSortChange above).
+const clearSelection = () => {
+  selectedMap.value = new Map()
+  selectAllMatching.value = false
+  excludedIds.value = new Set()
+}
+
+const onSelectedChange = (value: Array<string | number>) => {
+  if (selectAllMatching.value) {
+    const next = new Set(excludedIds.value)
+    pageIds.value.forEach((id) => {
+      if (value.includes(id)) next.delete(id)
+      else next.add(id)
+    })
+    excludedIds.value = next
+    return
+  }
+  const rowById = new Map(rows.value.map((row) => [row.id, row]))
+  const next = new Map<number, AdminGroupDetail>()
+  for (const id of value) {
+    const numericId = Number(id)
+    const existing = selectedMap.value.get(numericId)
+    next.set(numericId, existing ?? rowById.get(numericId) ?? ({ id: numericId } as AdminGroupDetail))
+  }
+  selectedMap.value = next
+}
+
+const selectAllMatchingNow = () => {
+  selectedMap.value = new Map()
+  excludedIds.value = new Set()
+  selectAllMatching.value = true
+}
+
+// --- Bulk delete -----------------------------------------------------------
+// "select all matching" hard-deletes in chunks: each call caps how many
+// groups it removes and reports how many are still left, so the browser
+// loops (feeding back everything already attempted as excludeIds) instead of
+// asking the backend to cascade-delete a huge set in one transaction.
+const BULK_DELETE_CHUNK = 25
+
+const bulkFilters = computed<GroupListDetailParams>(() => ({
+  searchGroup: searchInput.value || undefined,
+  mentorStatus: mentorStatus.value || undefined
+}))
+
+const bulkDelete = ref({ open: false })
+const bulkForce = ref(false)
+const deleteConfirmText = ref('')
+const bulkDeleteProgress = ref<{ done: number; total: number } | null>(null)
+
+const bulkDeleteMessage = computed(() => {
+  const count = bulkCount.value
+  const base = `This permanently removes the selected ${count === 1 ? 'group' : 'groups'} and all related data (chat history, tasks, memberships). This cannot be undone.`
+  return selectAllMatching.value
+    ? `${base} Every group matching the current filters will be deleted.`
+    : base
+})
+
+const deleteConfirmBlocked = computed(
+  () => (selectAllMatching.value || bulkForce.value) && deleteConfirmText.value !== 'DELETE'
+)
+
+const confirmBulkDelete = () => {
+  bulkForce.value = false
+  deleteConfirmText.value = ''
+  bulkDelete.value = { open: true }
+}
+
+const runBulkDelete = async () => {
+  busy.value = true
+  try {
+    if (selectAllMatching.value) {
+      const expectedCount = bulkCount.value
+      let excludeIds = [...excludedIds.value].map(Number)
+      let done = 0
+      bulkDeleteProgress.value = { done: 0, total: expectedCount }
+
+      for (;;) {
+        const { data } = await bulkDeleteGroups({
+          selectAll: true,
+          filters: bulkFilters.value,
+          excludeIds,
+          expectedCount,
+          force: bulkForce.value,
+          limit: BULK_DELETE_CHUNK
+        })
+        if (!data) break
+        done += data.deletedIds.length
+        excludeIds = [...excludeIds, ...data.deletedIds, ...data.failedIds, ...data.notFoundIds]
+        bulkDeleteProgress.value = { done, total: expectedCount }
+        if (!data.remaining) break
+      }
+    } else {
+      await bulkDeleteGroups({
+        groupIds: selectedIds.value,
+        force: bulkForce.value
+      })
+    }
+    bulkDelete.value = { open: false }
+    clearSelection()
+    await loadGroups()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Bulk delete failed.'
+  } finally {
+    busy.value = false
+    bulkDeleteProgress.value = null
+  }
 }
 
 // --- Detail modal --------------------------------------------------------
@@ -283,6 +508,96 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
+.admin-groups__selection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(1, 113, 81, 0.25);
+  border-radius: 8px;
+  background-color: rgba(1, 113, 81, 0.06);
+  color: var(--charcoal);
+  font-size: 0.875rem;
+}
+
+.admin-groups__selection-icon {
+  margin-right: 0.4rem;
+  color: var(--dark-green);
+}
+
+.admin-groups__selection-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--dark-green);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.admin-groups__force-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--charcoal);
+}
+
+.admin-groups__force-toggle input {
+  margin-top: 0.15rem;
+  accent-color: var(--danger);
+}
+
+.admin-groups__force-warning {
+  margin: 0.5rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-left: 4px solid var(--danger);
+  border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--risk);
+  font-size: 0.8rem;
+}
+
+.admin-groups__delete-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+}
+
+.admin-groups__delete-confirm-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-groups__delete-keyword {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.admin-groups__delete-type input {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+}
+
+.admin-groups__delete-progress {
+  margin: 0.75rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
 .admin-groups__filters {
   display: flex;
   flex-wrap: wrap;

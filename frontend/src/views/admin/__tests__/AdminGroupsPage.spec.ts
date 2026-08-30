@@ -207,3 +207,145 @@ describe('AdminGroupsPage', () => {
     expect(dialogs().find((d) => d.textContent!.includes('Rename group'))).toBeUndefined()
   })
 })
+
+describe('AdminGroupsPage bulk delete', () => {
+  const bulkDeleteMockFor = (opts: {
+    groups: unknown[]
+    totalCount: number
+    chunks: Array<Record<string, unknown>>
+  }) => {
+    let bulkCall = 0
+    return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/bulk-delete/')) {
+        const data = opts.chunks[Math.min(bulkCall, opts.chunks.length - 1)]
+        bulkCall += 1
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data }), { status: 200 }))
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              msg: 'ok',
+              data: {
+                items: opts.groups,
+                total: opts.totalCount,
+                page: 1,
+                limit: 25,
+                has_more: opts.totalCount > opts.groups.length
+              }
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+  }
+
+  it('deletes explicitly selected rows without requiring the typed DELETE confirmation', async () => {
+    const fetchMock = bulkDeleteMockFor({
+      groups: [groupA, groupB],
+      totalCount: 2,
+      chunks: [{ deletedIds: [1], failedIds: [], notFoundIds: [] }]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const rowCheckbox = wrapper.find('input[aria-label="Select row 1"]')
+    expect(rowCheckbox.exists()).toBe(true)
+    await rowCheckbox.setValue(true)
+    expect(wrapper.text()).toContain('1 group selected')
+
+    const deleteButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')
+    expect(deleteButton).toBeDefined()
+    await deleteButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete'
+    ) as HTMLButtonElement
+    expect(confirmButton.disabled).toBe(false)
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/group/bulk-delete/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    expect(JSON.parse(String(call[1].body))).toEqual({ groupIds: [1], force: false })
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+  })
+
+  it('loops chunked requests for select-all-matching until nothing remains, requiring force + typed DELETE', async () => {
+    const fetchMock = bulkDeleteMockFor({
+      groups: [groupA, groupB],
+      totalCount: 60,
+      chunks: [
+        { deletedIds: [101, 102], failedIds: [], notFoundIds: [], remaining: 35 },
+        { deletedIds: [201, 202], failedIds: [], notFoundIds: [], remaining: 0 }
+      ]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const headerCheckbox = wrapper.find('thead input[type="checkbox"]')
+    expect(headerCheckbox.exists()).toBe(true)
+    await headerCheckbox.setValue(true)
+
+    const selectAllLink = wrapper.findAll('button').find((b) => b.text().includes('Select all 60 groups'))
+    expect(selectAllLink).toBeDefined()
+    await selectAllLink!.trigger('click')
+    expect(wrapper.text()).toContain('60 groups selected')
+
+    const deleteButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')
+    await deleteButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete'
+    ) as HTMLButtonElement
+    // Blocked until both force and the typed DELETE keyword are provided.
+    expect(confirmButton.disabled).toBe(true)
+
+    const forceCheckbox = dialog.querySelector('input[type="checkbox"]') as HTMLInputElement
+    forceCheckbox.checked = true
+    forceCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    const deleteInput = dialog.querySelector('#bulk-delete-confirm') as HTMLInputElement
+    deleteInput.value = 'DELETE'
+    deleteInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(confirmButton.disabled).toBe(false)
+
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const bulkCalls = fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/group/bulk-delete/') && (i as RequestInit | undefined)?.method === 'POST'
+    )
+    expect(bulkCalls.length).toBe(2)
+
+    const firstBody = JSON.parse(String((bulkCalls[0][1] as RequestInit).body))
+    expect(firstBody).toMatchObject({
+      selectAll: true,
+      force: true,
+      expectedCount: 60,
+      limit: 25,
+      excludeIds: []
+    })
+
+    const secondBody = JSON.parse(String((bulkCalls[1][1] as RequestInit).body))
+    expect(secondBody.excludeIds).toEqual([101, 102])
+
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+  })
+})

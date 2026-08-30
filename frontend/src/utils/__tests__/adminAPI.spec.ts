@@ -11,7 +11,8 @@ import {
   updateGroup,
   fetchGroupMessages,
   removeGroupMessage,
-  removeGroupMember
+  removeGroupMember,
+  bulkDeleteGroups
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -388,5 +389,72 @@ describe('removeGroupMember', () => {
     ]
     expect(init!.method).toBe('DELETE')
     expect(result).toBe('Member removed successfully')
+  })
+})
+
+describe('bulkDeleteGroups', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const fetchMockFor = (data: unknown) =>
+    vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: '2 group(s) deleted', data }), { status: 200 })
+      )
+    })
+
+  it('posts explicit groupIds and force', async () => {
+    const fetchMock = fetchMockFor({ deletedIds: [1, 2], failedIds: [], notFoundIds: [] })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await bulkDeleteGroups({ groupIds: [1, 2], force: true })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/group/bulk-delete/')) as [
+      string,
+      RequestInit
+    ]
+    expect(init!.method).toBe('POST')
+    const body = JSON.parse(String(init.body))
+    expect(body).toEqual({ groupIds: [1, 2], force: true })
+    expect(result.data?.deletedIds).toEqual([1, 2])
+  })
+
+  it('sends selectAll, filters, excludeIds, expectedCount and limit, and resolves remaining', async () => {
+    const fetchMock = fetchMockFor({
+      deletedIds: [3, 4],
+      failedIds: [],
+      notFoundIds: [],
+      remaining: 36
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await bulkDeleteGroups({
+      selectAll: true,
+      filters: { searchGroup: 'BTF', mentorStatus: 'unmatched' },
+      excludeIds: [1, 2],
+      expectedCount: 40,
+      force: false,
+      limit: 25
+    })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/group/bulk-delete/')) as [
+      string,
+      RequestInit
+    ]
+    expect(init!.method).toBe('POST')
+    const body = JSON.parse(String(init.body))
+    expect(body).toEqual({
+      selectAll: true,
+      filters: { searchGroup: 'BTF', mentorStatus: 'unmatched' },
+      excludeIds: [1, 2],
+      expectedCount: 40,
+      force: false,
+      limit: 25
+    })
+    expect(result.data?.remaining).toBe(36)
   })
 })
