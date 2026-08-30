@@ -127,7 +127,10 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
         role: currentFilters.value.role,
         state: currentFilters.value.state,
         country: currentFilters.value.country,
-        active: filters.value.status === 'all' ? undefined : filters.value.status,
+        active:
+          filters.value.status === 'all'
+            ? undefined
+            : filters.value.status === 'active',
         inGroup: currentFilters.value.inGroup,
         sortBy: sortByFromKey[sortState.value.key] || 'createdAt',
         sortOrder: sortState.value.direction
