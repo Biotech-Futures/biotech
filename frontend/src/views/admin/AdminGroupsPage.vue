@@ -66,11 +66,18 @@
         {{ formatDateAU(toGroup(row).createdAt) }}
       </template>
       <template #cell-actions="{ row }">
-        <button type="button" class="btn btn-sm btn-outline" @click.stop="openRename(toGroup(row))">
-          Rename
-        </button>
+        <div class="admin-groups__row-actions">
+          <button type="button" class="btn btn-sm btn-outline" @click.stop="openDetail(toGroup(row))">
+            View
+          </button>
+          <button type="button" class="btn btn-sm btn-outline" @click.stop="openRename(toGroup(row))">
+            Rename
+          </button>
+        </div>
       </template>
     </AdminDataTable>
+
+    <GroupDetailModal v-model="detailOpen" :group="detailGroup" @changed="onDetailChanged" />
 
     <FormSheet
       v-model="formOpen"
@@ -107,6 +114,7 @@
 import { onMounted, ref, watch } from 'vue'
 import AdminDataTable, { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
 import {
   fetchAdminGroupList,
   createGroup,
@@ -190,6 +198,23 @@ const onPageChange = (next: number) => {
 const onPageSizeChange = (size: number) => {
   limit.value = size
   page.value = 1
+  loadGroups()
+}
+
+// --- Detail modal --------------------------------------------------------
+
+const detailOpen = ref(false)
+const detailGroup = ref<AdminGroupDetail | null>(null)
+
+const openDetail = (group: AdminGroupDetail) => {
+  detailGroup.value = group
+  detailOpen.value = true
+}
+
+// Member removal changes this group's student count (and the removed
+// student's own group membership elsewhere), so refresh the list rather than
+// patching the row locally.
+const onDetailChanged = () => {
   loadGroups()
 }
 
@@ -316,6 +341,12 @@ const submitForm = async () => {
   margin-bottom: 1rem;
   color: var(--danger);
   font-size: 0.9rem;
+}
+
+.admin-groups__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .admin-groups__name {

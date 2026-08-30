@@ -8,7 +8,10 @@ import {
   fetchAdminGroupList,
   fetchNextGroupName,
   createGroup,
-  updateGroup
+  updateGroup,
+  fetchGroupMessages,
+  removeGroupMessage,
+  removeGroupMember
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -287,5 +290,103 @@ describe('updateGroup', () => {
     expect(init!.method).toBe('PUT')
     expect(JSON.parse(String(init.body))).toEqual({ name: 'Renamed Group' })
     expect(result.data).toEqual(updated)
+  })
+})
+
+describe('fetchGroupMessages', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('requests the messages endpoint with pagination params and resolves the envelope data', async () => {
+    const payload = {
+      msg: 'Messages retrieved successfully',
+      data: {
+        items: [
+          {
+            id: 'm1',
+            group_id: '1',
+            sender: { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student' },
+            message_type: 'text',
+            text: 'Hey team, how is everyone?',
+            attachments: [],
+            gif: null,
+            sent_at: '2026-01-05T00:00:00Z',
+            edited_at: null
+          }
+        ],
+        total: 1,
+        page: 1,
+        limit: 50,
+        has_more: false
+      }
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchGroupMessages(1, { page: 1, limit: 50 })
+
+    const calledUrl = String(fetchMock.mock.calls[0][0])
+    expect(calledUrl).toContain('/api/v1/admin/group/1/messages/')
+    expect(calledUrl).toContain('page=1')
+    expect(calledUrl).toContain('limit=50')
+    expect(result).toEqual(payload.data)
+  })
+})
+
+describe('removeGroupMessage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('DELETEs the message and resolves the confirmation message', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ msg: 'Message removed successfully', data: { id: 'm1', group_id: '1' } }),
+          { status: 200 }
+        )
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await removeGroupMessage(1, 'm1')
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/group/1/messages/m1/')) as [
+      string,
+      RequestInit
+    ]
+    expect(init!.method).toBe('DELETE')
+    expect(result).toBe('Message removed successfully')
+  })
+})
+
+describe('removeGroupMember', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('DELETEs the membership and resolves the confirmation message', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Member removed successfully', data: null }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await removeGroupMember(1, 10)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/group/1/members/10/')) as [
+      string,
+      RequestInit
+    ]
+    expect(init!.method).toBe('DELETE')
+    expect(result).toBe('Member removed successfully')
   })
 })
