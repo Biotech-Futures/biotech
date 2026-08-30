@@ -1,3 +1,5 @@
+
+
 <template>
   <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
@@ -291,13 +293,16 @@
                           </option>
                         </select>
                       </label>
+
+
+
                       <label class="task-filter-row">
                         <span>Due after</span>
-                        <input v-model="taskFilters.dueDateAfter" type="date" />
+                        <AppDatePicker v-model="taskFilters.dueDateAfter" placeholder="Due after date" />
                       </label>
                       <label class="task-filter-row">
                         <span>Due before</span>
-                        <input v-model="taskFilters.dueDateBefore" type="date" />
+                        <AppDatePicker v-model="taskFilters.dueDateBefore" placeholder="Due before date" />
                       </label>
                       <label class="task-filter-row task-filter-row--checkbox">
                         <input
@@ -800,7 +805,7 @@
                         <i class="fas fa-calendar" aria-hidden="true"></i>
                         <span>Due date</span>
                       </label>
-                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="date" class="task-dialog-input" />
+                      <AppDatePicker v-model="taskForm.dueDate" placeholder="Select due date" />
                     </div>
 
                     <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
@@ -959,11 +964,11 @@
                 </label>
                 <label>
                   <span>From</span>
-                  <input type="date" v-model="messageSearchFilters.from" />
+                  <AppDatePicker v-model="messageSearchFilters.from" placeholder="From date" />
                 </label>
                 <label>
                   <span>To</span>
-                  <input type="date" v-model="messageSearchFilters.to" />
+                  <AppDatePicker v-model="messageSearchFilters.to" placeholder="To date" />
                 </label>
               </div>
               <div v-if="messageSearchError" class="chat-panel-status">{{ messageSearchError }}</div>
@@ -1751,6 +1756,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppDatePicker from '../components/AppDatePicker.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
@@ -6463,13 +6469,9 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
-.task-filter-row input[type='date'] {
+.task-filter-row input[type='date'],
+.task-filter-row .app-date-picker-wrapper {
   width: 100%;
-  height: 34px;
-  padding: 0 0.55rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: #fff;
   color: var(--charcoal);
   font: inherit;
 }
@@ -7747,6 +7749,7 @@ onBeforeUnmount(() => {
 .message-search-filters input[type="date"] {
   border: 1px solid var(--border-default);
   border-radius: 8px;
+  min-height: 38px;
   padding: 0.36rem 0.55rem;
   background: var(--surface, #fff);
   font: inherit;

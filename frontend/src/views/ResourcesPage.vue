@@ -33,22 +33,18 @@
 
       <label class="filter-field">
         <span class="filter-label">Since</span>
-        <input
+        <AppDatePicker
           v-model="sinceDate"
-          type="date"
-          class="form-control resource-date"
-          aria-label="Filter resources uploaded since"
+          placeholder="Filter since date"
         />
         <span v-if="getFieldError('since')" class="field-error">{{ getFieldError('since') }}</span>
       </label>
 
       <label class="filter-field">
         <span class="filter-label">Until</span>
-        <input
+        <AppDatePicker
           v-model="untilDate"
-          type="date"
-          class="form-control resource-date"
-          aria-label="Filter resources uploaded until"
+          placeholder="Filter until date"
         />
         <span v-if="getFieldError('until')" class="field-error">{{ getFieldError('until') }}</span>
       </label>
@@ -153,6 +149,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AppDatePicker from '../components/AppDatePicker.vue'
 import {
   fetchResources,
   fetchResourceLabels,
@@ -364,10 +361,16 @@ onMounted(() => {
   text-transform: uppercase;
 }
 
+:deep(.app-date-picker-input) {
+  min-height: 42px;
+  font-size: 1rem;
+}
+
 .resource-select,
 .resource-date,
 .resource-search {
   min-height: 42px;
+  background-color: var(--white);
 }
 
 .field-error {
