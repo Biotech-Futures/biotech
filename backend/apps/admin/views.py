@@ -774,9 +774,21 @@ class ResourceUploadView(APIView):
 class ResourceFileReplaceView(APIView):
     """POST /api/v1/resource/{id}/upload - Replace resource file"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
-
     def post(self, request, resource_id):
-        result = replace_resource_file(resource_id, request.data)
+        uploaded_file = request.FILES.get("file")
+        if uploaded_file is None:
+            return Response(
+                {"msg": "No file was uploaded.", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = {
+            **request.data.dict(),
+            "file_bytes": uploaded_file.read(),
+            "file_name": uploaded_file.name,
+            "file_mime_type": uploaded_file.content_type or "application/octet-stream",
+            "file_size": uploaded_file.size,
+        }
+        result = replace_resource_file(resource_id, payload)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
