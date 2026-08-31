@@ -75,13 +75,16 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/login' : '/dashboard')
+    next(auth.isAdmin ? '/login' : (auth.isSupervisor ? '/profile' : '/dashboard'))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
     next('/login')
+
+  } else if (auth.isAuthenticated && auth.isSupervisor && to.path === '/dashboard') {
+    next('/profile')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
@@ -94,7 +97,7 @@ router.beforeEach((to, from, next) => {
       return
     }
 
-    next('/dashboard')
+    next(auth.isSupervisor ? '/profile' : '/dashboard')
   } else {
     next()
   }

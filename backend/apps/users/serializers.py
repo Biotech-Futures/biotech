@@ -323,6 +323,88 @@ class UserSerializer(serializers.ModelSerializer):
         return not obj.has_usable_password()
 
 
+class SupervisedStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    school_name = serializers.CharField(allow_blank=True)
+    year_lvl = serializers.CharField(allow_blank=True)
+    interests = serializers.ListField(child=serializers.CharField())
+    pg_first_name = serializers.CharField(allow_blank=True)
+    pg_last_name = serializers.CharField(allow_blank=True)
+    pg_email = serializers.EmailField(allow_blank=True, allow_null=True)
+    parent_guardian_flag = serializers.BooleanField()
+    has_join_permission = serializers.BooleanField()
+    joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
+    group_id = serializers.IntegerField(allow_null=True)
+    group_name = serializers.CharField(allow_null=True)
+
+
+class SupervisedGroupMemberSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    role = serializers.CharField()
+
+
+class SupervisedGroupSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    group_name = serializers.CharField()
+    members = SupervisedGroupMemberSerializer(many=True)
+    interests = serializers.ListField(child=serializers.CharField())
+
+
+class SupervisedGroupNameSerializer(serializers.Serializer):
+    group_name = serializers.CharField(max_length=255)
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
+
+
+class SupervisedGroupWriteSerializer(serializers.Serializer):
+    group_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
+
+
+class SupervisedInterestCatalogSerializer(serializers.Serializer):
+    interests = serializers.ListField(child=serializers.CharField())
+
+
+class SupervisedGroupMemberChangeSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    role = serializers.ChoiceField(
+        choices=["student", "mentor"],
+        required=False,
+        default="student",
+    )
+
+
+class SupervisedMentorSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class SupervisedStudentGuardianSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    pg_first_name = serializers.CharField(max_length=255)
+    pg_last_name = serializers.CharField(max_length=255)
+    pg_email = serializers.EmailField(required=False, allow_blank=True)
+
+
 class BulkUserStatusSerializer(serializers.Serializer):
     user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
