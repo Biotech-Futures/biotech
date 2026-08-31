@@ -702,18 +702,21 @@ def replace_resource_file(
     resource = Resources.objects.get(id=resource_id)
     next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
     
-    # Upload new file
+    # Upload new file. The temp file must be closed (with-block exited)
+    # before upload_file()/os.unlink() run — Windows refuses to delete a
+    # file that's still open, unlike Mac/Linux which allows it.
     file_bytes = payload.get('file_bytes', b'')
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         if isinstance(file_bytes, bytes):
             tmp.write(file_bytes)
         else:
             tmp.write(bytes(file_bytes))
-        tmp.flush()
-        try:
-            upload_file(tmp.name, next_storage_key)
-        finally:
-            os.unlink(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        upload_file(tmp_path, next_storage_key)
+    finally:
+        os.unlink(tmp_path)
     
     resource.storage_key = next_storage_key
     resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
