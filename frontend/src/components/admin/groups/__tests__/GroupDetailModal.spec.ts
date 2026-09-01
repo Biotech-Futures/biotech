@@ -82,6 +82,10 @@ const fetchMockFor = (opts: {
 // document.body, mirroring AdminGroupsPage.spec.ts's dialog helpers.
 const dialog = () => document.body.querySelector('[role="dialog"]') as HTMLElement | null
 
+// The removal confirmations use the app's ConfirmDialog, which teleports its own
+// role="dialog" into <body> with the .admin-modal--confirm class.
+const confirmDialog = () => document.body.querySelector('.admin-modal--confirm') as HTMLElement | null
+
 const clickButton = (root: HTMLElement, label: string) => {
   const button = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.trim() === label)
   if (!button) throw new Error(`button "${label}" not found`)
@@ -124,8 +128,6 @@ describe('GroupDetailModal', () => {
   })
 
   it('removes a member after confirmation and emits changed', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    vi.stubGlobal('alert', vi.fn())
     const fetchMock = fetchMockFor({ page1: [], total: 0 })
     await mountModal(fetchMock)
 
@@ -134,6 +136,11 @@ describe('GroupDetailModal', () => {
     )
     expect(removeButtons.length).toBe(2)
     removeButtons[0].dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    // The click stages the removal; confirm it in the app's ConfirmDialog.
+    expect(confirmDialog()!.textContent).toContain('Remove Ada Lovelace from BTF1?')
+    clickButton(confirmDialog()!, 'Remove')
     await flushPromises()
 
     const call = fetchMock.mock.calls.find(
@@ -145,11 +152,13 @@ describe('GroupDetailModal', () => {
   })
 
   it('does not remove the member when the confirmation is declined', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
     const fetchMock = fetchMockFor({ page1: [], total: 0 })
     await mountModal(fetchMock)
 
     clickButton(dialog()!, 'Remove')
+    await flushPromises()
+
+    clickButton(confirmDialog()!, 'Cancel')
     await flushPromises()
 
     const called = fetchMock.mock.calls.some(
@@ -160,8 +169,6 @@ describe('GroupDetailModal', () => {
   })
 
   it('removes a message after confirmation and decrements the total', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    vi.stubGlobal('alert', vi.fn())
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
     await mountModal(fetchMock)
 
@@ -170,6 +177,9 @@ describe('GroupDetailModal', () => {
     const removeMessageButton = dialog()!.querySelector('[aria-label="Remove message"]') as HTMLButtonElement | null
     expect(removeMessageButton).toBeTruthy()
     removeMessageButton!.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    clickButton(confirmDialog()!, 'Remove')
     await flushPromises()
 
     const call = fetchMock.mock.calls.find(

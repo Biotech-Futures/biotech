@@ -26,10 +26,9 @@
             <button
               type="button"
               class="btn btn-sm btn-outline"
-              :disabled="removingMemberId === member.id"
-              @click="handleRemoveMember(member)"
+              @click="requestRemoveMember(member)"
             >
-              {{ removingMemberId === member.id ? 'Removing...' : 'Remove' }}
+              Remove
             </button>
           </li>
         </ul>
@@ -57,10 +56,9 @@
                 <button
                   type="button"
                   class="group-detail__message-remove"
-                  :disabled="removingMessageId === message.id"
                   aria-label="Remove message"
                   title="Remove message"
-                  @click="handleRemoveMessage(message)"
+                  @click="requestRemoveMessage(message)"
                 >
                   <i class="fas fa-trash" aria-hidden="true"></i>
                 </button>
@@ -95,11 +93,40 @@
       </section>
     </div>
   </FormSheet>
+
+  <ConfirmDialog
+    :model-value="memberToRemove !== null"
+    title="Remove student"
+    :message="removeMemberMessage"
+    confirm-label="Remove"
+    busy-label="Removing..."
+    variant="danger"
+    :busy="removingMember"
+    @confirm="confirmRemoveMember"
+    @update:model-value="(value) => { if (!value) closeRemoveMember() }"
+  >
+    <p v-if="removeMemberError" class="group-detail__error" role="alert">{{ removeMemberError }}</p>
+  </ConfirmDialog>
+
+  <ConfirmDialog
+    :model-value="messageToRemove !== null"
+    title="Remove message"
+    message="Remove this message from the group? This will hide it from the message history."
+    confirm-label="Remove"
+    busy-label="Removing..."
+    variant="danger"
+    :busy="removingMessage"
+    @confirm="confirmRemoveMessage"
+    @update:model-value="(value) => { if (!value) closeRemoveMessage() }"
+  >
+    <p v-if="removeMessageError" class="group-detail__error" role="alert">{{ removeMessageError }}</p>
+  </ConfirmDialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
   fetchGroupMessages,
   removeGroupMember,
@@ -136,22 +163,45 @@ watch(
   { immediate: true }
 )
 
-const removingMemberId = ref<string | null>(null)
+// Removal is confirmed through the app's ConfirmDialog (consistent styling and
+// accessibility with the rest of the admin area), so the click just stages the
+// target and the dialog's confirm event does the work.
+const memberToRemove = ref<AdminGroupMember | null>(null)
+const removingMember = ref(false)
+const removeMemberError = ref('')
 
-const handleRemoveMember = async (member: AdminGroupMember) => {
-  if (!props.group) return
-  const confirmed = window.confirm(`Remove ${member.name || member.email} from ${props.group.name}?`)
-  if (!confirmed) return
+const removeMemberMessage = computed(() => {
+  const member = memberToRemove.value
+  if (!member) return ''
+  return `Remove ${member.name || member.email} from ${props.group?.name ?? 'this group'}?`
+})
 
-  removingMemberId.value = member.id
+const requestRemoveMember = (member: AdminGroupMember) => {
+  removeMemberError.value = ''
+  memberToRemove.value = member
+}
+
+const closeRemoveMember = () => {
+  if (removingMember.value) return
+  memberToRemove.value = null
+  removeMemberError.value = ''
+}
+
+const confirmRemoveMember = async () => {
+  const member = memberToRemove.value
+  if (!props.group || !member) return
+
+  removingMember.value = true
+  removeMemberError.value = ''
   try {
     await removeGroupMember(props.group.id, member.id)
     members.value = members.value.filter((m) => m.id !== member.id)
     emit('changed', props.group.id)
+    memberToRemove.value = null
   } catch (err) {
-    window.alert(err instanceof Error ? err.message : 'Could not remove student. Please try again.')
+    removeMemberError.value = err instanceof Error ? err.message : 'Could not remove student. Please try again.'
   } finally {
-    removingMemberId.value = null
+    removingMember.value = false
   }
 }
 
@@ -164,7 +214,6 @@ const messagesLimit = ref(50)
 const messagesHasMore = ref(false)
 const messagesLoading = ref(false)
 const messagesError = ref('')
-const removingMessageId = ref<string | null>(null)
 
 const loadMessages = async () => {
   if (!props.group) return
@@ -208,20 +257,36 @@ const messageBody = (message: AdminGroupMessage): string => {
   return message.text
 }
 
-const handleRemoveMessage = async (message: AdminGroupMessage) => {
-  if (!props.group) return
-  const confirmed = window.confirm('Remove this message from the group? This will hide it from the message history.')
-  if (!confirmed) return
+const messageToRemove = ref<AdminGroupMessage | null>(null)
+const removingMessage = ref(false)
+const removeMessageError = ref('')
 
-  removingMessageId.value = message.id
+const requestRemoveMessage = (message: AdminGroupMessage) => {
+  removeMessageError.value = ''
+  messageToRemove.value = message
+}
+
+const closeRemoveMessage = () => {
+  if (removingMessage.value) return
+  messageToRemove.value = null
+  removeMessageError.value = ''
+}
+
+const confirmRemoveMessage = async () => {
+  const message = messageToRemove.value
+  if (!props.group || !message) return
+
+  removingMessage.value = true
+  removeMessageError.value = ''
   try {
     await removeGroupMessage(props.group.id, message.id)
     messages.value = messages.value.filter((m) => m.id !== message.id)
     if (messagesTotal.value !== null) messagesTotal.value -= 1
+    messageToRemove.value = null
   } catch (err) {
-    window.alert(err instanceof Error ? err.message : 'Could not remove message. Please try again.')
+    removeMessageError.value = err instanceof Error ? err.message : 'Could not remove message. Please try again.'
   } finally {
-    removingMessageId.value = null
+    removingMessage.value = false
   }
 }
 
