@@ -1,5 +1,20 @@
 <template>
   <div>
+    <div class="component-table__switcher" role="tablist" aria-label="Component">
+      <button
+        v-for="c in COMPONENTS"
+        :key="c.code"
+        type="button"
+        role="tab"
+        :aria-selected="c.code === code"
+        class="component-table__switch"
+        :class="{ active: c.code === code }"
+        @click="switchComponent(c.code)"
+      >
+        {{ c.name }}
+      </button>
+    </div>
+
     <p v-if="isLoading" class="component-table__hint">Loading…</p>
 
     <div v-else-if="loadError" class="card component-table__error">
@@ -148,7 +163,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
 import {
@@ -159,7 +174,21 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const route = useRoute()
+const router = useRouter()
 const code = computed(() => String(route.params.code || ''))
+
+// Same hard-coded list as the By-component landing (matches the seed migration).
+const COMPONENTS: { code: string; name: string }[] = [
+  { code: 'SAQ', name: 'Short Answer Questions' },
+  { code: 'POSTER', name: 'A2 Poster' },
+  { code: 'REPORT', name: 'Scientific Report' },
+  { code: 'PROTOTYPE', name: 'Prototype' }
+]
+
+const switchComponent = (target: string) => {
+  if (target === code.value) return
+  void router.push(`/grading/components/${target}`)
+}
 
 const payload = ref<ComponentListPayload | null>(null)
 const isLoading = ref(false)
@@ -278,6 +307,45 @@ const displayRows = computed(() => {
 </script>
 
 <style scoped>
+/* Segmented pill switcher, matching the Events page view tabs. */
+.component-table__switcher {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  margin-bottom: 1.75rem;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.component-table__switch {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.component-table__switch:hover:not(.active) {
+  color: var(--charcoal);
+  background: var(--accent-green-soft);
+}
+
+.component-table__switch.active {
+  background: var(--dark-green);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+}
+
 .component-table__hint {
   color: var(--text-muted);
   font-size: 0.9rem;

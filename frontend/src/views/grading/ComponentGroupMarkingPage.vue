@@ -69,7 +69,13 @@
           :grades="block.grades"
           :is-saving="saveStatus === 'saving'"
           @save="saveMarks"
-        />
+        >
+          <template #actions>
+            <RouterLink :to="`/grading/components/${code}`" class="btn btn-outline btn-sm">
+              Back
+            </RouterLink>
+          </template>
+        </RubricForm>
       </div>
     </div>
   </div>
@@ -227,7 +233,7 @@ const saveMarks = async (items: GradeBulkItem[]) => {
 
 .component-marking__id {
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 1.35rem;
   font-weight: 400;
 }
 

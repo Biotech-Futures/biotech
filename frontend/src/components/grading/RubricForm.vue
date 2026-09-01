@@ -37,6 +37,7 @@
       </div>
 
       <div class="rubric-form__actions">
+        <slot name="actions"></slot>
         <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">
           {{ isSaving ? 'Saving…' : 'Save marks' }}
         </button>
@@ -180,6 +181,18 @@ const handleSubmit = () => {
   border-color: var(--dark-green);
 }
 
+/* Hide the native number spinners — marks are typed, not stepped. */
+.rubric-form__mark {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.rubric-form__mark::-webkit-inner-spin-button,
+.rubric-form__mark::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .rubric-form__comment {
   resize: vertical;
 }
@@ -187,5 +200,6 @@ const handleSubmit = () => {
 .rubric-form__actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
 }
 </style>

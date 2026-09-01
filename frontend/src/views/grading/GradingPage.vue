@@ -2,9 +2,8 @@
   <div class="content-area grading">
     <header class="grading__hero">
       <div>
-        <p class="grading__eyebrow">Admin</p>
         <h1 class="grading__title">Grading</h1>
-        <p class="grading__subtitle">Mark submissions, release results, and manage finalists.</p>
+        <p class="grading__subtitle">Mark submissions, release results and manage finalists.</p>
       </div>
     </header>
 
@@ -65,15 +64,6 @@ const isTabActive = (tab: GradingTab) => {
 <style scoped>
 .grading__hero {
   margin-bottom: 1.25rem;
-}
-
-.grading__eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--dark-green);
-  margin-bottom: 0.25rem;
 }
 
 .grading__title {

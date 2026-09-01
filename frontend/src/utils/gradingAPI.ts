@@ -70,6 +70,14 @@ export function fetchMyGrades(): Promise<MyGradesPayload> {
   return requestJson<MyGradesPayload>('/api/v1/grading/me/grades/')
 }
 
+// Submission file URLs are absolute when storage is Azure (SAS-signed) but
+// relative (/media/...) with local dev storage — resolve those against the
+// API origin so they don't 404 against the SPA dev server.
+export function resolveApiFileUrl(url: string | null): string | null {
+  if (!url) return null
+  return url.startsWith('http') ? url : `${API_BASE_URL}${url}`
+}
+
 // Save a blob through a synthetic <a download> click. Needed because the API
 // sits on a different origin than the SPA dev server, so a plain <a href>
 // would not carry the session cookie.

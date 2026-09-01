@@ -20,8 +20,8 @@
         </template>
       </p>
       <a
-        v-if="submission.file_url"
-        :href="submission.file_url"
+        v-if="fileUrl"
+        :href="fileUrl"
         target="_blank"
         rel="noreferrer"
         class="btn btn-outline btn-sm"
@@ -43,8 +43,8 @@
     </a>
 
     <iframe
-      v-if="submission.file_url"
-      :src="submission.file_url"
+      v-if="fileUrl"
+      :src="fileUrl"
       :title="`${component.name} preview`"
       class="submission-preview__frame"
     ></iframe>
@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Submission, SubmissionComponent } from '@/utils/gradingAPI'
+import { resolveApiFileUrl, type Submission, type SubmissionComponent } from '@/utils/gradingAPI'
 
 const props = defineProps<{
   submission: Submission | null
@@ -61,6 +61,8 @@ const props = defineProps<{
   lastGraderName?: string | null
   graderNames?: string[]
 }>()
+
+const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? null))
 
 const submittedLabel = computed(() =>
   props.submission ? new Date(props.submission.submitted_at).toLocaleString() : ''

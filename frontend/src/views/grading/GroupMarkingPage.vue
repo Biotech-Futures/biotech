@@ -12,6 +12,24 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
+      <div class="card group-marking__jump-card">
+        <p class="group-marking__jump-hint">Enter the group's ID.</p>
+        <form class="group-marking__jump" @submit.prevent="jump">
+          <div class="group-marking__jump-wrap">
+            <i class="fas fa-magnifying-glass group-marking__jump-icon" aria-hidden="true"></i>
+            <input
+              v-model="jumpId"
+              type="number"
+              min="1"
+              placeholder="Group ID"
+              class="group-marking__jump-input"
+              aria-label="Group ID"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Open</button>
+        </form>
+      </div>
+
       <div class="group-marking__header">
         <h2 class="group-marking__title">
           {{ payload.group.group_name }}
@@ -21,13 +39,28 @@
           <button
             type="button"
             class="btn btn-outline btn-sm"
+            :disabled="prevId == null"
+            @click="goto(prevId)"
+          >
+            <i class="fas fa-chevron-left" aria-hidden="true"></i> Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="nextId == null"
+            @click="goto(nextId)"
+          >
+            Next <i class="fas fa-chevron-right" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
             :disabled="isDownloading"
             @click="downloadAll"
           >
             <i class="fas fa-download" aria-hidden="true"></i>
             {{ isDownloading ? 'Preparing…' : 'Download all' }}
           </button>
-          <RouterLink to="/grading/by-group" class="btn btn-outline btn-sm">Back</RouterLink>
         </div>
       </div>
 
@@ -46,7 +79,7 @@
           role="tab"
           :aria-selected="block.component.code === effectiveCode"
           class="group-marking__tab"
-          :class="{ 'group-marking__tab--active': block.component.code === effectiveCode }"
+          :class="{ active: block.component.code === effectiveCode }"
           @click="activeCode = block.component.code"
         >
           {{ block.component.name }}
@@ -61,28 +94,70 @@
           :grades="activeBlock.grades"
           :is-saving="saveStatus === 'saving'"
           @save="saveMarks"
-        />
+        >
+          <template #actions>
+            <RouterLink to="/grading/by-group" class="btn btn-outline btn-sm">Back</RouterLink>
+          </template>
+        </RubricForm>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
 import {
   downloadGroupZip,
+  fetchComponentRows,
   fetchGroupMarking,
   saveGradesBulk,
+  type ComponentRow,
   type GradeBulkItem,
   type GroupMarkingPayload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const route = useRoute()
+const router = useRouter()
 const groupId = computed(() => Number(route.params.groupId))
+const jumpId = ref('')
+
+// Cohort list for prev/next. Any component's row list carries every group
+// (submitted or not), so SAQ doubles as the group index for this page.
+const cohort = ref<ComponentRow[]>([])
+
+onMounted(async () => {
+  try {
+    cohort.value = (await fetchComponentRows('SAQ')).rows
+  } catch {
+    cohort.value = [] // prev/next simply stay disabled
+  }
+})
+
+const prevId = computed(() => {
+  const idx = cohort.value.findIndex((r) => r.group_id === groupId.value)
+  return idx > 0 ? cohort.value[idx - 1].group_id : null
+})
+
+const nextId = computed(() => {
+  const idx = cohort.value.findIndex((r) => r.group_id === groupId.value)
+  return idx >= 0 && idx < cohort.value.length - 1 ? cohort.value[idx + 1].group_id : null
+})
+
+const goto = (id: number | null) => {
+  if (id == null) return
+  void router.push(`/grading/groups/${id}`)
+}
+
+const jump = () => {
+  const n = Number(jumpId.value)
+  if (!Number.isFinite(n) || n <= 0 || n === groupId.value) return
+  jumpId.value = ''
+  void router.push(`/grading/groups/${n}`)
+}
 
 const payload = ref<GroupMarkingPayload | null>(null)
 const isLoading = ref(false)
@@ -180,6 +255,52 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
+.group-marking__jump-card {
+  max-width: 36rem;
+}
+
+.group-marking__jump-hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.group-marking__jump {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.group-marking__jump-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.group-marking__jump-icon {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.group-marking__jump-input {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem 0.45rem 2rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
+.group-marking__jump-input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
 .group-marking__header {
   display: flex;
   align-items: center;
@@ -195,7 +316,7 @@ const downloadAll = async () => {
 
 .group-marking__id {
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 1.35rem;
   font-weight: 400;
 }
 
@@ -221,38 +342,43 @@ const downloadAll = async () => {
   color: var(--dark-green);
 }
 
+/* Segmented pill switcher, matching the Events page view tabs. */
 .group-marking__tabs {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  border-bottom: 1px solid var(--border-light);
+  padding: 0.3rem;
+  align-self: flex-start;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .group-marking__tab {
   border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  background: none;
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  font-family: inherit;
+  background: transparent;
   color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  font-family: inherit;
   cursor: pointer;
-  border-radius: 6px 6px 0 0;
   transition:
-    color 0.15s ease,
-    border-color 0.15s ease,
-    background-color 0.15s ease;
+    color 0.18s ease,
+    background-color 0.18s ease;
 }
 
-.group-marking__tab:hover {
+.group-marking__tab:hover:not(.active) {
   color: var(--charcoal);
+  background: var(--accent-green-soft);
 }
 
-.group-marking__tab--active {
-  color: var(--dark-green);
-  border-bottom-color: var(--dark-green);
-  background: var(--accent-green-soft);
+.group-marking__tab.active {
+  background: var(--dark-green);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
 .group-marking__pane {
