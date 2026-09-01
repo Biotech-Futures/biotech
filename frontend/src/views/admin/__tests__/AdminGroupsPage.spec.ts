@@ -192,6 +192,53 @@ describe('AdminGroupsPage', () => {
     expect(dialogs().find((d) => d.textContent!.includes('New group'))).toBeUndefined()
   })
 
+  it('shows the duplicate-name error inside the dialog and keeps it open', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (u.includes('/group/next-name/')) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: { name: 'BTF41' } }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ msg: 'A group with this name already exists', data: null }), { status: 400 })
+        )
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ msg: 'ok', data: { items: [groupA], total: 1, page: 1, limit: 25, has_more: false } }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))
+    await newGroupButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('New group'))!
+    const nameInput = dialog.querySelector('input[type="text"]') as HTMLInputElement
+    nameInput.value = 'BTF1'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+
+    const createButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')!
+    createButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(dialogs().find((d) => d.textContent!.includes('New group'))).toBeDefined()
+    expect(dialog.textContent).toContain('A group with this name already exists')
+  })
+
   it('renames a group', async () => {
     const fetchMock = fetchMockFor([groupA])
     vi.stubGlobal('fetch', fetchMock)
@@ -224,6 +271,88 @@ describe('AdminGroupsPage', () => {
     }) as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toEqual({ name: 'Renamed Group' })
     expect(dialogs().find((d) => d.textContent!.includes('Rename group'))).toBeUndefined()
+  })
+})
+
+describe('AdminGroupsPage bulk delete failure path', () => {
+  it('shows the block reason inside the still-open dialog, then succeeds once force is checked', async () => {
+    let blocked = true
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/bulk-delete/')) {
+        if (blocked) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ msg: 'Group cannot be deleted because other records reference it', data: null }),
+              { status: 400 }
+            )
+          )
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ msg: 'ok', data: { deletedIds: [1], failedIds: [], notFoundIds: [] } }), {
+            status: 200
+          })
+        )
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ msg: 'ok', data: { items: [groupA], total: 1, page: 1, limit: 25, has_more: false } }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const rowCheckbox = wrapper.find('input[aria-label="Select BTF1"]')
+    await rowCheckbox.setValue(true)
+    const deleteButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')
+    await deleteButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete'
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    // The dialog stays open on failure, and the error must be visible inside
+    // it — not just set on a page-level ref hidden behind the open modal.
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeDefined()
+    expect(dialog.textContent).toContain('Group cannot be deleted because other records reference it')
+
+    blocked = false
+    const forceCheckbox = dialog.querySelector('input[type="checkbox"]') as HTMLInputElement
+    forceCheckbox.checked = true
+    forceCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+    // Checking force requires the typed DELETE confirmation too, same as
+    // select-all-matching does.
+    const deleteInput = dialog.querySelector('#bulk-delete-confirm') as HTMLInputElement
+    deleteInput.value = 'DELETE'
+    deleteInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(confirmButton.disabled).toBe(false)
+
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+    const calls = fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/group/bulk-delete/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit][]
+    expect(calls.length).toBe(2)
+    expect(JSON.parse(String(calls[0][1].body)).force).toBe(false)
+    expect(JSON.parse(String(calls[1][1].body)).force).toBe(true)
   })
 })
 

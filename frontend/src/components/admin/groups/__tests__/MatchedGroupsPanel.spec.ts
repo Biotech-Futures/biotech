@@ -31,7 +31,10 @@ const mentorPool = [
   { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2 }
 ]
 
-const fetchMockFor = (groups: unknown[]) =>
+const fetchMockFor = (
+  groups: unknown[],
+  opts: { replaceStatus?: number; replaceBody?: unknown } = {}
+) =>
   vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const method = (init?.method || 'GET').toUpperCase()
     const u = String(url)
@@ -45,7 +48,33 @@ const fetchMockFor = (groups: unknown[]) =>
       )
     }
     if (method === 'POST' && u.includes('/mentor-match/replace/')) {
-      return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: { replaced: 1 } }), { status: 200 }))
+      return Promise.resolve(
+        new Response(JSON.stringify(opts.replaceBody ?? { msg: 'ok', data: { replaced: 1 } }), {
+          status: opts.replaceStatus ?? 200
+        })
+      )
+    }
+    if (method === 'POST' && u.includes('/mentor-match/confirm/')) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'ok', data: { confirmedCount: 1 } }), { status: 200 })
+      )
+    }
+    if (method === 'GET' && u.includes('/mentor-match/replace-suggestions/')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'ok',
+            data: {
+              groupId: 2,
+              groupName: 'BTF2',
+              suggestions: [
+                { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
+              ]
+            }
+          }),
+          { status: 200 }
+        )
+      )
     }
     if (method === 'GET' && u.includes('/mentor-match/matched-groups/')) {
       return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: groups }), { status: 200 }))
@@ -175,5 +204,66 @@ describe('MatchedGroupsPanel', () => {
 
     const namesAfter = wrapper.findAll('.matched-groups__name').map((n) => n.text())
     expect(namesAfter).toEqual(['BTF2', 'BTF1'])
+  })
+
+  it('shows the backend rejection when replacing with a mentor at capacity', async () => {
+    const fetchMock = fetchMockFor([activeGroup], {
+      replaceStatus: 400,
+      replaceBody: { msg: 'Mentor is at capacity (2/2).', data: null }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    // Full mentors are hidden by default — reveal Ada King (mentorId 22, 2/2).
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    const select = wrapper.find('select')
+    await select.setValue('22')
+
+    const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
+    await confirmButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Mentor is at capacity (2/2).')
+    // The inline form must stay open on failure so the admin can pick again,
+    // not silently reset as if nothing happened.
+    expect(wrapper.find('select').exists()).toBe(true)
+  })
+
+  it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
+    const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    expect(bulkButton).toBeDefined()
+    await bulkButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain('BTF2')
+    // The top scored (non-full) suggestion is pre-selected automatically.
+    expect(dialog.textContent).toContain('Rosalind Franklin')
+
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim().startsWith('Confirm')
+    ) as HTMLButtonElement
+    expect(confirmButton.disabled).toBe(false)
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/mentor-match/confirm/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    expect(call).toBeDefined()
+    expect(JSON.parse(String(call[1].body))).toEqual({
+      assignments: [{ groupId: 2, mentorUserId: 23 }]
+    })
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 })

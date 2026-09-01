@@ -171,6 +171,10 @@
       :disabled="deleteConfirmBlocked"
       @confirm="runBulkDelete"
     >
+      <p v-if="error" class="admin-groups__error" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>{{ error }}</span>
+      </p>
       <label class="admin-groups__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
         <span>
@@ -435,6 +439,7 @@ const deleteConfirmBlocked = computed(
 const confirmBulkDelete = () => {
   bulkForce.value = false
   deleteConfirmText.value = ''
+  error.value = ''
   bulkDelete.value = { open: true }
 }
 
