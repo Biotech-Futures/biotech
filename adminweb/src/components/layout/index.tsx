@@ -23,6 +23,11 @@ function formatCrumbLabel(segment: string) {
     groups: "Groups",
     "student-matching": "Student Matching",
     "mentor-matching": "Mentor Matching",
+    "by-component": "Mark by Component",
+    "by-group": "Mark by Group",
+    settings: "Certificate Setup",
+    release: "Release Marks",
+    finalists: "Finalists",
   };
 
   if (labelMap[segment]) {

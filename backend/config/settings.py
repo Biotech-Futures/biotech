@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
+    'apps.submissions',
+    'apps.grading',
     'apps.services',
     'matching',
     'drf_spectacular',
@@ -238,7 +240,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": config("DB_SSLMODE", default="require"),
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -539,6 +541,19 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# --- Grading platform --------------------------------------------------------
+# GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
+# link previews / unread digests / auth emails: bulk-zip jobs normally run on
+# a daemon thread after transaction.on_commit, but tests set this true to
+# execute inline so assertions can observe the job row and result URL.
+GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# Fires the "you're a finalist" email to every group member. Off by default
+# so local dev / staging don't accidentally spam real students; flip on per
+# environment via env var once the announcement copy is signed off.
+GRADING_FINALIST_EMAIL_ENABLED = config(
+    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
+)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
