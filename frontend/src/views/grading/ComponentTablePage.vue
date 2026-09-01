@@ -90,13 +90,14 @@
                   Progress <i :class="sortIcon('progress')" aria-hidden="true"></i>
                 </button>
               </th>
+              <th>Marks</th>
               <th>Marker</th>
               <th class="component-table__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="component-table__empty">No groups.</td>
+              <td colspan="9" class="component-table__empty">No groups.</td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
               <td>{{ r.group_id }}</td>
@@ -122,6 +123,10 @@
                   ></i>
                   {{ progressLabel(r) }}
                 </span>
+                <span v-else class="component-table__muted">—</span>
+              </td>
+              <td>
+                <span v-if="r.marks_total != null">{{ r.marks_total }}</span>
                 <span v-else class="component-table__muted">—</span>
               </td>
               <td>

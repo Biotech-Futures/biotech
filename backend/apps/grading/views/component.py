@@ -1,6 +1,8 @@
 from datetime import date
 
-from django.db.models import Count, Q
+from decimal import Decimal
+
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions
 from rest_framework.response import Response
@@ -59,6 +61,7 @@ class ComponentMarkingListView(APIView):
         # with a null mark exists when a comment was left but the rubric row
         # wasn't scored yet — treat that as "in progress", not "graded".
         graded_counts = {}
+        mark_totals = {}
         # Grader attribution: latest-first walk over scored grades gives us both
         # the most-recent grader (first hit per submission) and the deduped list
         # (insertion order = latest-first) in a single pass.
@@ -69,9 +72,14 @@ class ComponentMarkingListView(APIView):
             counts = (
                 Grade.objects.filter(submission_id__in=submission_ids, mark__isnull=False)
                 .values("submission_id")
-                .annotate(cnt=Count("id"))
+                .annotate(cnt=Count("id"), total=Sum("mark"))
             )
             graded_counts = {row["submission_id"]: row["cnt"] for row in counts}
+            # Pin to 2 dp — SQLite aggregates lose the decimal scale ("12.5").
+            mark_totals = {
+                row["submission_id"]: str(Decimal(row["total"]).quantize(Decimal("0.01")))
+                for row in counts
+            }
 
             grader_rows = (
                 Grade.objects.filter(
@@ -107,6 +115,7 @@ class ComponentMarkingListView(APIView):
                 "submitted_at": submission["submitted_at"] if submission else None,
                 "is_late": submission["is_late"] if submission else False,
                 "criteria_graded": graded_counts.get(sid, 0) if sid else 0,
+                "marks_total": mark_totals.get(sid) if sid else None,
                 "last_grader_name": last_grader.get(sid) if sid else None,
                 "grader_names": graders_by_sub.get(sid, []) if sid else [],
             })

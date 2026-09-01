@@ -51,7 +51,8 @@ const tabs: GradingTab[] = [
     alsoMatches: ['/grading/groups']
   },
   { label: 'Release', to: '/grading/release', icon: 'fa-unlock' },
-  { label: 'Finalists', to: '/grading/finalists', icon: 'fa-star' },
+  { label: 'Select Finalists', to: '/grading/finalists', icon: 'fa-star' },
+  { label: 'Notify Finalists', to: '/grading/notify-finalists', icon: 'fa-envelope' },
   { label: 'Settings', to: '/grading/settings', icon: 'fa-gear' }
 ]
 

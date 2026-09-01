@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="finalists">
     <section class="card finalists__add">
       <div class="card-header">
@@ -29,7 +29,98 @@
     <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
 
     <section>
-      <h3 class="card-title finalists__list-title">Current Finalists</h3>
+      <h3 class="card-title finalists__list-title">
+        <button
+          type="button"
+          class="finalists__collapse-btn"
+          :aria-expanded="showGroupMarks"
+          @click="showGroupMarks = !showGroupMarks"
+        >
+          Group Marks
+          <i
+            class="fas fa-chevron-down finalists__chevron"
+            :class="{ 'finalists__chevron--collapsed': !showGroupMarks }"
+            aria-hidden="true"
+          ></i>
+        </button>
+      </h3>
+      <template v-if="showGroupMarks">
+      <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
+      <div v-else class="finalists__scroll">
+        <table class="finalists__table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Group</th>
+              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">{{ c.code }}</th>
+              <th>Total</th>
+              <th>Marker</th>
+              <th class="finalists__cell--right"></th>
+              <th class="finalists__cell--right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="candidates.length === 0">
+              <td :colspan="candidateComponents.length + 6" class="finalists__empty">No groups.</td>
+            </tr>
+            <tr v-for="r in candidates" :key="r.group_id">
+              <td class="finalists__muted">#{{ r.group_id }}</td>
+              <td class="finalists__cell--strong">{{ r.group_name }}</td>
+              <td v-for="c in candidateComponents" :key="c.code">
+                <span v-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
+              <td class="finalists__cell--strong">
+                <span v-if="r.total != null">{{ r.total }}</span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
+              <td>{{ r.markers.length ? r.markers.join(', ') : '—' }}</td>
+              <td class="finalists__cell--right">
+                <button
+                  v-if="!r.is_finalist"
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="isMutating"
+                  @click="addFromRow(r.group_id)"
+                >
+                  Add as Finalist
+                </button>
+                <span v-else class="finalists__muted">Added</span>
+              </td>
+              <td class="finalists__cell--right">
+                <RouterLink
+                  v-if="r.has_submission"
+                  :to="`/grading/groups/${r.group_id}`"
+                  class="btn btn-outline btn-sm"
+                >
+                  Open
+                </RouterLink>
+                <span v-else class="finalists__muted">No submission</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      </template>
+    </section>
+
+    <section>
+      <h3 class="card-title finalists__list-title">
+        <button
+          type="button"
+          class="finalists__collapse-btn"
+          :aria-expanded="showCurrentFinalists"
+          @click="showCurrentFinalists = !showCurrentFinalists"
+        >
+          Current Finalists
+          <i
+            class="fas fa-chevron-down finalists__chevron"
+            :class="{ 'finalists__chevron--collapsed': !showCurrentFinalists }"
+            aria-hidden="true"
+          ></i>
+        </button>
+      </h3>
+      <template v-if="showCurrentFinalists">
       <p v-if="isLoading" class="finalists__hint">Loading…</p>
       <div v-else-if="loadError" class="card">
         <p class="finalists__load-error">Failed to load. {{ loadError }}</p>
@@ -43,14 +134,13 @@
               <th>Group</th>
               <th>Flagged at</th>
               <th>Flagged by</th>
-              <th>Notified</th>
-              <th class="finalists__cell--center">Notify</th>
+              <th>Notified at</th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="7" class="finalists__empty">No finalists yet.</td>
+              <td colspan="6" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__muted">#{{ f.group_id }}</td>
@@ -63,16 +153,6 @@
                   {{ f.notified_at ? new Date(f.notified_at).toLocaleString() : 'Sent' }}
                 </span>
                 <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--center">
-                <input
-                  type="checkbox"
-                  class="finalists__notify-checkbox"
-                  :checked="selectedIds.has(f.group_id)"
-                  :disabled="f.notified"
-                  :aria-label="`Notify ${f.group_name} by email`"
-                  @change="toggleSelected(f.group_id)"
-                />
               </td>
               <td class="finalists__cell--right">
                 <button
@@ -88,76 +168,8 @@
           </tbody>
         </table>
       </div>
+      </template>
     </section>
-
-    <section class="card finalists__email-section">
-      <div class="card-header">
-        <h3 class="card-title">Send Email Notification</h3>
-      </div>
-      <p class="finalists__hint">
-        Send a notification email to the finalist teams. Tick Notify on specific teams
-        to email only those.
-      </p>
-      <div class="finalists__email-actions">
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          :disabled="sendingMode !== null"
-          @click="sendEmails('all')"
-        >
-          {{ sendingMode === 'all' ? 'Sending…' : 'Send Email to All Groups' }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-outline btn-sm"
-          :disabled="sendingMode !== null || selectedIds.size === 0"
-          @click="sendEmails('selected')"
-        >
-          {{ sendingMode === 'selected' ? 'Sending…' : 'Send Email to Selected Groups' }}
-        </button>
-      </div>
-      <p v-if="lastEmailed" class="finalists__last-emailed">
-        Last Emailed at {{ new Date(lastEmailed.notified_at!).toLocaleString() }}<template
-          v-if="lastEmailed.notified_by"
-        >
-          by {{ lastEmailed.notified_by }}</template
-        >.
-      </p>
-    </section>
-
-    <Teleport to="body">
-      <div v-if="pendingSendMode" class="finalists__overlay" @click.self="pendingSendMode = null">
-        <div
-          class="finalists__dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Send notification emails"
-        >
-          <h3 class="finalists__dialog-title">
-            <i class="fas fa-envelope" aria-hidden="true"></i> Send notification emails?
-          </h3>
-          <p class="finalists__dialog-text">{{ confirmText }}</p>
-          <div class="finalists__dialog-actions">
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="sendingMode !== null"
-              @click="pendingSendMode = null"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="sendingMode !== null"
-              @click="confirmSend"
-            >
-              {{ sendingMode !== null ? 'Sending…' : 'Send' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -165,9 +177,10 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   addFinalist,
+  fetchFinalistCandidates,
   fetchFinalists,
-  notifyFinalists,
   removeFinalist,
+  type FinalistCandidatesResponse,
   type FinalistListResponse
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -178,20 +191,13 @@ const loadError = ref('')
 const actionError = ref('')
 const actionMessage = ref('')
 const isMutating = ref(false)
-const sendingMode = ref<'all' | 'selected' | null>(null)
 const groupId = ref('')
 
 const finalists = computed(() => list.value?.finalists ?? [])
 
-// Teams ticked in the Select column. Empty selection = email all un-notified.
-const selectedIds = ref(new Set<number>())
-
-const toggleSelected = (id: number) => {
-  const next = new Set(selectedIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  selectedIds.value = next
-}
+// Collapsible sections — both open by default.
+const showGroupMarks = ref(true)
+const showCurrentFinalists = ref(true)
 
 const load = async () => {
   isLoading.value = true
@@ -206,7 +212,43 @@ const load = async () => {
   }
 }
 
-onMounted(load)
+// Group Marks ranking table (per-component totals, marker, add shortcut).
+const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
+const isLoadingCandidates = ref(false)
+
+const candidates = computed(() => candidatesResp.value?.rows ?? [])
+const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+const loadCandidates = async () => {
+  isLoadingCandidates.value = true
+  try {
+    candidatesResp.value = await fetchFinalistCandidates()
+  } catch (err) {
+    candidatesResp.value = null
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    isLoadingCandidates.value = false
+  }
+}
+
+onMounted(() => {
+  void load()
+  void loadCandidates()
+})
+
+const addFromRow = async (id: number) => {
+  actionMessage.value = ''
+  actionError.value = ''
+  isMutating.value = true
+  try {
+    await addFinalist(id)
+    await Promise.all([load(), loadCandidates()])
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    isMutating.value = false
+  }
+}
 
 const add = async () => {
   const n = Number(groupId.value)
@@ -220,56 +262,11 @@ const add = async () => {
   try {
     await addFinalist(n)
     groupId.value = ''
-    await load()
+    await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isMutating.value = false
-  }
-}
-
-// The most recent successful email send across all finalists.
-const lastEmailed = computed(() => {
-  const rows = finalists.value.filter((f) => f.notified_at)
-  if (rows.length === 0) return null
-  return rows.reduce((a, b) => (a.notified_at! > b.notified_at! ? a : b))
-})
-
-// Which send is awaiting confirmation in the dialog; null = dialog closed.
-const pendingSendMode = ref<'all' | 'selected' | null>(null)
-
-const confirmText = computed(() => {
-  if (pendingSendMode.value === 'all') {
-    return 'This will send the notification email to every finalist team that has not been notified yet.'
-  }
-  const count = selectedIds.value.size
-  return `This will send the notification email to the ${count} selected ${count === 1 ? 'team' : 'teams'}.`
-})
-
-const sendEmails = (mode: 'all' | 'selected') => {
-  if (mode === 'selected' && selectedIds.value.size === 0) return
-  pendingSendMode.value = mode
-}
-
-const confirmSend = async () => {
-  const mode = pendingSendMode.value
-  if (!mode) return
-  actionMessage.value = ''
-  actionError.value = ''
-  sendingMode.value = mode
-  try {
-    const result = await notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined)
-    actionMessage.value =
-      result.sent > 0
-        ? `Sent ${result.sent} notification ${result.sent === 1 ? 'email' : 'emails'}.`
-        : 'No emails sent — every finalist team is already notified, or email is disabled on the backend.'
-    selectedIds.value = new Set()
-    await load()
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    sendingMode.value = null
-    pendingSendMode.value = null
   }
 }
 
@@ -280,7 +277,7 @@ const remove = async (id: number) => {
   try {
     await removeFinalist(id)
     actionMessage.value = 'Finalist removed.'
-    await load()
+    await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -298,6 +295,28 @@ const remove = async (id: number) => {
 
 .finalists__list-title {
   margin-bottom: 0.5rem;
+}
+
+.finalists__collapse-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.finalists__chevron {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.finalists__chevron--collapsed {
+  transform: rotate(-90deg);
 }
 
 .finalists__hint {
@@ -356,77 +375,9 @@ const remove = async (id: number) => {
   margin: 0;
 }
 
-.finalists__email-actions {
-  display: flex;
-  gap: 1.25rem;
-}
-
-.finalists__last-emailed {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-style: normal;
-  margin: 1rem 0 0;
-}
-
-.finalists__overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  z-index: 2000;
-}
-
-.finalists__dialog {
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  border-radius: 10px;
-  box-shadow: 0 10px 40px var(--shadow);
-  width: 100%;
-  max-width: 26rem;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.finalists__dialog-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 1.15rem;
-  margin: 0;
-}
-
-.finalists__dialog-title i {
-  color: var(--dark-green);
-}
-
-.finalists__dialog-text {
-  color: var(--text-muted);
-  font-size: 0.92rem;
-  margin: 0;
-}
-
-.finalists__dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-/* Only the finalists table runs full width; the two cards stay compact. */
-.finalists__add,
-.finalists__email-section {
+/* Only the tables run full width; the add card stays compact. */
+.finalists__add {
   max-width: 48rem;
-}
-
-/* No divider under the heading — the hint line sits directly beneath it. */
-.finalists__email-section .card-header {
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 0;
 }
 
 .finalists__banner {
@@ -498,22 +449,6 @@ const remove = async (id: number) => {
    that sets text-align: left. */
 .finalists__table .finalists__cell--right {
   text-align: right;
-}
-
-.finalists__table .finalists__cell--center {
-  text-align: center;
-}
-
-.finalists__notify-checkbox {
-  width: 1.25rem;
-  height: 1.25rem;
-  accent-color: var(--dark-green);
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-.finalists__notify-checkbox:disabled {
-  cursor: not-allowed;
 }
 
 .finalists__muted {

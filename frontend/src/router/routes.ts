@@ -105,6 +105,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue') },
       { path: 'release', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
       { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
+      { path: 'notify-finalists', name: 'grading-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') },
       { path: 'settings', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') }
     ]
   },

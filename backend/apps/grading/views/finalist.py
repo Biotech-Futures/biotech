@@ -10,7 +10,10 @@ never accidentally emails real people; toggle explicitly per environment.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import transaction
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -18,8 +21,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
+from apps.submissions.models import Submission, SubmissionComponent
 
-from ..models import FinalistFlag
+from ..models import FinalistFlag, Grade
 from ..permissions import IsGrader
 from ..services.finalist_notify import notify_finalist
 
@@ -54,6 +58,109 @@ class FinalistListView(APIView):
                 }
                 for f in flags
             ]
+        })
+
+
+class FinalistCandidatesView(APIView):
+    """GET /api/v1/grading/finalists/candidates/ — every group with its mark
+    total per component, the overall total, and who marked it. The ranking
+    table admins use to decide which groups to flag as finalists.
+
+    Shape:
+        {
+          "components": [{"code": "SAQ", "name": "..."}, ...],
+          "rows": [
+            {"group_id", "group_name",
+             "marks": {"SAQ": "12.50" | null, ...},   # sum of scored marks
+             "total": "31.00" | null,                  # sum across components
+             "markers": ["Ada Grader", ...],           # deduped, latest first
+             "is_finalist": bool}
+          ]
+        }
+
+    Rows are sorted by total (highest first); ungraded groups sink to the
+    bottom alphabetically.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    @staticmethod
+    def _fmt(value) -> str:
+        # SQLite aggregates lose the decimal scale ("12.5"); pin to 2 dp.
+        return str(Decimal(value).quantize(Decimal("0.01")))
+
+    def get(self, request):
+        components = list(SubmissionComponent.objects.order_by("order", "id"))
+        code_by_component = {c.id: c.code for c in components}
+        groups = list(
+            Groups.objects.filter(deleted_at__isnull=True)
+            .order_by("group_name")
+            .values("id", "group_name")
+        )
+        submissions = list(Submission.objects.values("id", "group_id", "component_id"))
+        sub_meta = {s["id"]: s for s in submissions}
+
+        totals_by_sub = {
+            row["submission_id"]: row["total"]
+            for row in Grade.objects.filter(mark__isnull=False)
+            .values("submission_id")
+            .annotate(total=Sum("mark"))
+        }
+
+        markers_by_group: dict[int, list[str]] = {}
+        grader_rows = (
+            Grade.objects.filter(mark__isnull=False, graded_by__isnull=False)
+            .order_by("-graded_at")
+            .values("submission_id", "graded_by__first_name", "graded_by__last_name")
+        )
+        for row in grader_rows:
+            meta = sub_meta.get(row["submission_id"])
+            if meta is None:
+                continue
+            name = f'{row["graded_by__first_name"]} {row["graded_by__last_name"]}'.strip()
+            if not name:
+                continue
+            names = markers_by_group.setdefault(meta["group_id"], [])
+            if name not in names:
+                names.append(name)
+
+        marks_by_group: dict[int, dict[str, object]] = {}
+        for s in submissions:
+            total = totals_by_sub.get(s["id"])
+            if total is None:
+                continue
+            marks_by_group.setdefault(s["group_id"], {})[code_by_component[s["component_id"]]] = total
+
+        finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        submitted_group_ids = {s["group_id"] for s in submissions}
+
+        rows = []
+        for g in groups:
+            marks = marks_by_group.get(g["id"], {})
+            overall = sum(marks.values()) if marks else None
+            rows.append({
+                "group_id": g["id"],
+                "group_name": g["group_name"],
+                "marks": {
+                    c.code: (self._fmt(marks[c.code]) if c.code in marks else None)
+                    for c in components
+                },
+                "total": self._fmt(overall) if overall is not None else None,
+                "markers": markers_by_group.get(g["id"], []),
+                "is_finalist": g["id"] in finalist_ids,
+                "has_submission": g["id"] in submitted_group_ids,
+            })
+        rows.sort(
+            key=lambda r: (
+                r["total"] is None,
+                -float(r["total"]) if r["total"] is not None else 0.0,
+                r["group_id"],
+            )
+        )
+
+        return Response({
+            "components": [{"code": c.code, "name": c.name} for c in components],
+            "rows": rows,
         })
 
 

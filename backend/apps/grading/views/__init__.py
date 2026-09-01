@@ -6,7 +6,12 @@ from .download import (
     GradingJobDownloadView,
     GroupDownloadView,
 )
-from .finalist import FinalistListView, FinalistNotifyAllView, FinalistToggleView
+from .finalist import (
+    FinalistCandidatesView,
+    FinalistListView,
+    FinalistNotifyAllView,
+    FinalistToggleView,
+)
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupMarkingView
 from .release import MarksReleaseView
@@ -20,6 +25,7 @@ __all__ = [
     "ComponentAnalyticsView",
     "ComponentDownloadView",
     "ComponentMarkingListView",
+    "FinalistCandidatesView",
     "FinalistListView",
     "FinalistNotifyAllView",
     "FinalistToggleView",

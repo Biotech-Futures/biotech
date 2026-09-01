@@ -5,6 +5,7 @@ from .views import (
     ComponentAnalyticsView,
     ComponentDownloadView,
     ComponentMarkingListView,
+    FinalistCandidatesView,
     FinalistListView,
     FinalistNotifyAllView,
     FinalistToggleView,
@@ -62,6 +63,7 @@ urlpatterns = [
     # M8 — finalist flagging + optional notification.
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
     path("finalists/notify/", FinalistNotifyAllView.as_view(), name="finalist-notify"),
+    path("finalists/candidates/", FinalistCandidatesView.as_view(), name="finalist-candidates"),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
 
     # M9 — read-only analytics for Team 4's dashboards.

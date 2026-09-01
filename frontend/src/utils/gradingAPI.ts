@@ -200,6 +200,8 @@ export interface ComponentRow {
   submitted_at: string | null
   is_late: boolean
   criteria_graded: number
+  /** Sum of scored marks for this component (2-dp string), null when ungraded. */
+  marks_total: string | null
   last_grader_name: string | null
   grader_names: string[]
 }
@@ -397,6 +399,28 @@ export function updateGradingSettings(
     method: 'PATCH',
     body: isForm ? patch : JSON.stringify(patch)
   })
+}
+
+// Ranking table for picking finalists: per-group mark totals by component.
+export interface FinalistCandidateRow {
+  group_id: number
+  group_name: string
+  /** Component code -> summed marks (decimal string), null when ungraded. */
+  marks: Record<string, string | null>
+  total: string | null
+  markers: string[]
+  is_finalist: boolean
+  has_submission: boolean
+}
+
+export interface FinalistCandidatesResponse {
+  components: { code: string; name: string }[]
+  rows: FinalistCandidateRow[]
+}
+
+// GET /api/v1/grading/finalists/candidates/ — sorted by total, highest first.
+export function fetchFinalistCandidates(): Promise<FinalistCandidatesResponse> {
+  return requestJson<FinalistCandidatesResponse>('/api/v1/grading/finalists/candidates/')
 }
 
 // POST /api/v1/grading/finalists/notify/ — email finalist teams not yet

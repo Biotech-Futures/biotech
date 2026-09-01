@@ -653,6 +653,43 @@ class FinalistToggleTests(_GradingFixture):
         r_bad = self.client.post(url, {"group_ids": "1,2"}, format="json")
         self.assertEqual(r_bad.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_candidates_totals_markers_and_finalist_state(self):
+        Grade.objects.create(
+            submission=self.saq_submission, criterion=self.saq_c1,
+            mark=Decimal("8.00"), graded_by=self.staff,
+        )
+        Grade.objects.create(
+            submission=self.saq_submission, criterion=self.saq_c2,
+            mark=Decimal("4.50"), graded_by=self.staff,
+        )
+        Grade.objects.create(
+            submission=self.poster_submission, criterion=self.poster_c1,
+            mark=Decimal("7.00"), graded_by=self.staff,
+        )
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        ungraded = Groups.objects.create(group_name="BTF-UNGRADED")
+
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(reverse("grading:finalist-candidates"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        body = r.json()
+        self.assertEqual([c["code"] for c in body["components"]][:2], ["SAQ", "POSTER"])
+
+        rows = {row["group_id"]: row for row in body["rows"]}
+        graded = rows[self.group.id]
+        self.assertEqual(graded["marks"]["SAQ"], "12.50")
+        self.assertEqual(graded["marks"]["POSTER"], "7.00")
+        self.assertIsNone(graded["marks"]["REPORT"])
+        self.assertEqual(graded["total"], "19.50")
+        self.assertEqual(graded["markers"], ["Ada Grader"])
+        self.assertTrue(graded["is_finalist"])
+        # Graded group ranks above the ungraded one.
+        self.assertEqual(body["rows"][0]["group_id"], self.group.id)
+        self.assertIsNone(rows[ungraded.id]["total"])
+        self.assertFalse(rows[ungraded.id]["is_finalist"])
+        self.assertTrue(graded["has_submission"])
+        self.assertFalse(rows[ungraded.id]["has_submission"])
+
     def test_notify_all_denied_for_non_staff(self):
         self.client.force_authenticate(self.non_staff)
         r = self.client.post(reverse("grading:finalist-notify"))
