@@ -223,7 +223,7 @@ export interface UserListParams {
   role?: string
   state?: string
   country?: string
-  active?: string
+  active?: string | boolean
   inGroup?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'

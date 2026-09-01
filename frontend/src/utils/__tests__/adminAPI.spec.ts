@@ -95,6 +95,28 @@ describe('fetchAdminUsers', () => {
     expect(result).toEqual(payload.data)
     expect(result.total).toBe(1)
   })
+
+  it('serializes the status filter as active=true / active=false', async () => {
+    const payload = {
+      msg: 'Users retrieved successfully',
+      data: { items: [], total: 0, page: 1, limit: 25, hasMore: false }
+    }
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }))
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchAdminUsers({ active: true })
+    await fetchAdminUsers({ active: false })
+    await fetchAdminUsers({ active: undefined })
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url))
+    expect(urls[0]).toContain('active=true')
+    expect(urls[1]).toContain('active=false')
+    expect(urls[2]).not.toContain('active')
+  })
 })
 
 describe('bulk user actions', () => {
