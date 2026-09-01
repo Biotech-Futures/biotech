@@ -42,6 +42,8 @@ const fetchMockFor = (opts: {
   page1?: unknown[]
   page2?: unknown[]
   total?: number
+  /** When set, every DELETE responds 409 with this message instead of succeeding. */
+  deleteError?: string
 } = {}) =>
   vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const method = (init?.method || 'GET').toUpperCase()
@@ -49,6 +51,11 @@ const fetchMockFor = (opts: {
 
     if (u.includes('/services/csrf/')) {
       return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+    }
+    if (method === 'DELETE' && opts.deleteError) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: opts.deleteError, code: 'conflict' }), { status: 409 })
+      )
     }
     if (method === 'DELETE' && u.includes('/members/')) {
       return Promise.resolve(
@@ -168,6 +175,25 @@ describe('GroupDetailModal', () => {
     expect(dialog()!.textContent).toContain('Ada Lovelace')
   })
 
+  it('shows a member-removal failure inline in the dialog, not via window.alert', async () => {
+    const alertSpy = vi.fn()
+    vi.stubGlobal('alert', alertSpy)
+    const fetchMock = fetchMockFor({ page1: [], total: 0, deleteError: 'Group must keep at least one student.' })
+    await mountModal(fetchMock)
+
+    clickButton(dialog()!, 'Remove')
+    await flushPromises()
+    clickButton(confirmDialog()!, 'Remove')
+    await flushPromises()
+
+    // Error surfaces inside the confirm dialog, which stays open.
+    expect(confirmDialog()!.textContent).toContain('Group must keep at least one student.')
+    expect(alertSpy).not.toHaveBeenCalled()
+    // The member is still listed and nothing was emitted to the parent.
+    expect(dialog()!.textContent).toContain('Ada Lovelace')
+    expect(wrapper!.emitted('changed')).toBeFalsy()
+  })
+
   it('removes a message after confirmation and decrements the total', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
     await mountModal(fetchMock)
@@ -189,6 +215,25 @@ describe('GroupDetailModal', () => {
     expect(call).toBeDefined()
     expect(dialog()!.textContent).not.toContain('Hey team, how is everyone?')
     expect(dialog()!.textContent).toContain('Messages (0)')
+  })
+
+  it('shows a message-removal failure inline in the dialog, not via window.alert', async () => {
+    const alertSpy = vi.fn()
+    vi.stubGlobal('alert', alertSpy)
+    const fetchMock = fetchMockFor({ page1: [textMessage], total: 1, deleteError: 'Message already removed.' })
+    await mountModal(fetchMock)
+
+    const removeMessageButton = dialog()!.querySelector('[aria-label="Remove message"]') as HTMLButtonElement | null
+    removeMessageButton!.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    clickButton(confirmDialog()!, 'Remove')
+    await flushPromises()
+
+    expect(confirmDialog()!.textContent).toContain('Message already removed.')
+    expect(alertSpy).not.toHaveBeenCalled()
+    // Message stays and the count is unchanged.
+    expect(dialog()!.textContent).toContain('Hey team, how is everyone?')
+    expect(dialog()!.textContent).toContain('Messages (1)')
   })
 
   it('requests the next page of messages when the pager is used', async () => {
