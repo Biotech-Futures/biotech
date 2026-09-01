@@ -496,7 +496,8 @@ const openDetail = (group: AdminGroupDetail) => {
 
 // Member removal changes this group's student count (and the removed
 // student's own group membership elsewhere), so refresh the list rather than
-// patching the row locally.
+// patching the row locally. The modal keeps its own copy of the member list, so
+// it stays correct while it's open without us re-seeding it here.
 const onDetailChanged = () => {
   loadGroups()
 }

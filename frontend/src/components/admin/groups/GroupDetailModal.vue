@@ -15,10 +15,10 @@
       </section>
 
       <section class="group-detail__section">
-        <h3>Members ({{ group.members.length }})</h3>
-        <p v-if="!group.members.length" class="group-detail__muted">No students in this group yet.</p>
+        <h3>Members ({{ members.length }})</h3>
+        <p v-if="!members.length" class="group-detail__muted">No students in this group yet.</p>
         <ul v-else class="group-detail__members">
-          <li v-for="member in group.members" :key="member.id" class="group-detail__member">
+          <li v-for="member in members" :key="member.id" class="group-detail__member">
             <div class="group-detail__member-info">
               <span class="group-detail__member-name">{{ member.name }}</span>
               <span class="group-detail__member-email">{{ member.email }}</span>
@@ -116,12 +116,25 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'changed', group: AdminGroupDetail): void
+  (e: 'changed', groupId: AdminGroupDetail['id']): void
 }>()
 
 const onDismiss = () => emit('update:modelValue', false)
 
 // --- Members -------------------------------------------------------------
+
+// Local, editable copy of the members list. We never mutate `props.group`
+// directly: it's the same object reference the parent holds in its table rows,
+// so writing to it would silently patch the parent's data (and trips
+// vue/no-mutating-props). The parent refreshes its list off the `changed` event.
+const members = ref<AdminGroupMember[]>([])
+watch(
+  () => props.group,
+  (group) => {
+    members.value = group ? [...group.members] : []
+  },
+  { immediate: true }
+)
 
 const removingMemberId = ref<string | null>(null)
 
@@ -133,8 +146,8 @@ const handleRemoveMember = async (member: AdminGroupMember) => {
   removingMemberId.value = member.id
   try {
     await removeGroupMember(props.group.id, member.id)
-    props.group.members = props.group.members.filter((m) => m.id !== member.id)
-    emit('changed', props.group)
+    members.value = members.value.filter((m) => m.id !== member.id)
+    emit('changed', props.group.id)
   } catch (err) {
     window.alert(err instanceof Error ? err.message : 'Could not remove student. Please try again.')
   } finally {
