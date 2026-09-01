@@ -122,7 +122,11 @@ class UserDetailView(APIView):
         return Response(result, status=code)
 
     def delete(self, request, user_id):
-        result = delete_user(int(user_id), initiated_by=request.user)
+        # force=True also purges records that PROTECT the user (chat messages,
+        # uploaded resources, workshops, match runs) — permanently. The admin
+        # portal gates this behind an explicit opt-in + typed confirmation.
+        force = bool(request.data.get("force"))
+        result = delete_user(int(user_id), initiated_by=request.user, force=force)
         code = status.HTTP_200_OK if result.get(
             "msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
