@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
+import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
@@ -371,6 +372,57 @@ describe('AdminUsersView', () => {
     expect(firstRow.text()).toContain('Science')
     expect(firstRow.text()).toContain('Maths')
     expect(firstRow.text()).toContain('No')
+  })
+
+  it('opens the student CSV import sheet from the Students toolbar only', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([buildUser()]))
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    const importButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Import Students CSV')
+    expect(importButton).toBeDefined()
+    await importButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(AdminStudentImportSheet).props('modelValue')).toBe(true)
+
+    wrapper.unmount()
+    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Import Students CSV')).toBe(false)
+    expect(wrapper.findComponent(AdminStudentImportSheet).exists()).toBe(false)
+  })
+
+  it('reloads students after a successful CSV import', async () => {
+    const fetchMock = fetchMockFor([buildUser()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    const initialListCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/user/') && !String(call[0]).includes('limit=200')
+    ).length
+
+    const importButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Import Students CSV')
+    await importButton!.trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent(AdminStudentImportSheet).vm.$emit('imported', {
+      msg: 'Bulk import complete: 1 created, 0 skipped',
+      data: { created: [], skipped: [] }
+    })
+    await flushPromises()
+
+    const listCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]).includes('/user/') && !String(call[0]).includes('limit=200')
+    )
+    expect(listCalls).toHaveLength(initialListCalls + 1)
+    expect(String(listCalls.at(-1)?.[0])).toContain('role=student')
   })
 
   it('assigns a student to a group through the assign dialog', async () => {

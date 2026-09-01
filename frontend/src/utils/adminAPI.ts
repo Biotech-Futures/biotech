@@ -261,8 +261,60 @@ export type CreateUserPayload = Record<string, unknown> & {
   role: string
 }
 
+export interface StudentImportRow {
+  firstName: string
+  lastName: string
+  email: string
+  country: string
+  state: string | null
+  schoolName: string
+  yearLevel: number
+  interests: string[]
+  guardianFirstName: string
+  guardianLastName: string
+  guardianEmail: string
+  supervisorFirstName: string
+  supervisorLastName: string
+  supervisorEmail: string
+  joinpermResponseId: string
+  active: boolean
+  groupNumber?: string
+}
+
+export interface StudentImportSkippedRow {
+  email: string
+  reason: string
+}
+
+export interface StudentImportCoRegistrationGroup {
+  name: string
+  memberCount: number
+}
+
+export interface StudentImportCoRegistration {
+  groupsCreated: StudentImportCoRegistrationGroup[]
+  warnings: string[]
+}
+
+export interface StudentBulkImportData {
+  created: AdminUser[]
+  skipped: StudentImportSkippedRow[]
+  coRegistration?: StudentImportCoRegistration
+}
+
+export interface StudentBulkImportResult {
+  msg: string
+  data: StudentBulkImportData
+}
+
 export const createAdminUser = (payload: CreateUserPayload) =>
   adminPost<AdminEnvelope<AdminUser>>('/user/', payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBulkImportResult> =>
+  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows).then((env) => ({
     msg: env.msg,
     data: env.data
   }))

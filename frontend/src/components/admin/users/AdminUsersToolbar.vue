@@ -15,7 +15,13 @@
         />
       </div>
     </template>
-    <button v-if="isStudentMode" type="button" class="btn btn-outline" title="CSV import coming soon">
+    <button
+      v-if="isStudentMode"
+      type="button"
+      class="btn btn-outline"
+      :disabled="loading"
+      @click="emit('import-students')"
+    >
       <i class="fas fa-file-arrow-up" aria-hidden="true"></i>
       <span>Import Students CSV</span>
     </button>
@@ -46,6 +52,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:search', value: string): void
   (e: 'add'): void
+  (e: 'import-students'): void
 }>()
 
 const search = computed({
