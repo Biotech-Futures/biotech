@@ -36,6 +36,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "link",
             "submitted_at",
             "is_late",
+            "overall_comment",
         ]
         read_only_fields = fields
 
@@ -113,5 +114,13 @@ class GradeBulkItemSerializer(serializers.Serializer):
     comment = serializers.CharField(allow_blank=True, required=False, default="")
 
 
+class OverallCommentItemSerializer(serializers.Serializer):
+    """Optional per-submission overall comment saved alongside the grades."""
+
+    submission = serializers.IntegerField()
+    comment = serializers.CharField(allow_blank=True, default="")
+
+
 class GradeBulkRequestSerializer(serializers.Serializer):
     items = GradeBulkItemSerializer(many=True)
+    overall_comments = OverallCommentItemSerializer(many=True, required=False, default=list)

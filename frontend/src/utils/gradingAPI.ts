@@ -149,6 +149,8 @@ export interface Submission {
   link: string
   submitted_at: string
   is_late: boolean
+  /** Marker's overall feedback on the whole submission. */
+  overall_comment: string
 }
 
 export interface RubricCriterion {
@@ -296,10 +298,27 @@ export function fetchGroupMarking(groupId: number, year?: number): Promise<Group
 }
 
 // POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
-export function saveGradesBulk(items: GradeBulkItem[]): Promise<Grade[]> {
+// Which components carry an overall-comment box, and its heading. SAQ has
+// none (its overall comment never appears in the released document).
+const OVERALL_COMMENT_LABELS: Record<string, string> = {
+  POSTER: 'Overall Poster Comment',
+  REPORT: 'Overall Scientific Report Comment',
+  PROTOTYPE: 'Overall Prototype Comment'
+}
+
+export function overallCommentLabel(code: string): string | null {
+  return OVERALL_COMMENT_LABELS[code] ?? null
+}
+
+export function saveGradesBulk(
+  items: GradeBulkItem[],
+  overallComments?: { submission: number; comment: string }[]
+): Promise<Grade[]> {
   return requestJson<Grade[]>('/api/v1/grading/grades/bulk/', {
     method: 'POST',
-    body: JSON.stringify({ items })
+    body: JSON.stringify(
+      overallComments?.length ? { items, overall_comments: overallComments } : { items }
+    )
   })
 }
 

@@ -202,7 +202,8 @@ def marks_release_fields(context: dict) -> dict:
         "Supervisors": context.get("supervisors", ""),
         "SchoolHeading": "School(s)",
         "Schools": context.get("schools", ""),
-        "PosterComment": context.get("poster_comment", ""),
+        "PosterComment": (by_code.get("POSTER") or {}).get("overall_comment", "")
+        or context.get("poster_comment", ""),
     }
     for i in range(10):
         c = poster[i] if i < len(poster) else None

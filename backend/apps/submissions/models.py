@@ -40,6 +40,10 @@ class Submission(models.Model):
         related_name="submissions",
     )
     is_late = models.BooleanField(default=False)
+    # Marker's overall feedback on the whole submission — complements the
+    # per-criterion Grade.comment fields and feeds the marks release docx
+    # (the template's "Overall Poster Comment" block).
+    overall_comment = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "submission"

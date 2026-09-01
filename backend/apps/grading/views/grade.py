@@ -46,8 +46,11 @@ class GradeBulkView(APIView):
         req = GradeBulkRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
         items = req.validated_data["items"]
+        overall_comments = req.validated_data.get("overall_comments") or []
 
-        submission_ids = {i["submission"] for i in items}
+        submission_ids = {i["submission"] for i in items} | {
+            o["submission"] for o in overall_comments
+        }
         criterion_ids = {i["criterion"] for i in items}
         submissions = {
             s.id: s for s in Submission.objects.filter(id__in=submission_ids).select_related("component")
@@ -79,6 +82,19 @@ class GradeBulkView(APIView):
                     )},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+        for i, entry in enumerate(overall_comments):
+            if entry["submission"] not in submissions:
+                return Response(
+                    {"detail": f"overall_comments[{i}]: submission {entry['submission']} not found"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        for entry in overall_comments:
+            submission = submissions[entry["submission"]]
+            if submission.overall_comment != entry["comment"]:
+                submission.overall_comment = entry["comment"]
+                submission.save(update_fields=["overall_comment"])
 
         saved = []
         for item in items:

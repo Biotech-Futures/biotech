@@ -82,6 +82,7 @@ def _grades_payload(group, year: int) -> list[dict]:
             "code": component.code,
             "name": component.name,
             "submitted": submission is not None,
+            "overall_comment": submission.overall_comment if submission else "",
             "criteria": criteria_out,
         })
     return out

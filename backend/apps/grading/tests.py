@@ -168,6 +168,25 @@ class GradeBulkViewTests(_GradingFixture):
         g.refresh_from_db()
         self.assertEqual(g.mark, Decimal("9.00"))
 
+    def test_overall_comment_saved_with_bulk(self):
+        url = reverse("grading:grade-bulk")
+        payload = {
+            "items": [
+                {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "8.00"},
+            ],
+            "overall_comments": [
+                {"submission": self.poster_submission.id, "comment": "Strong poster overall."},
+            ],
+        }
+        resp = self.client.post(url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.poster_submission.refresh_from_db()
+        self.assertEqual(self.poster_submission.overall_comment, "Strong poster overall.")
+
+        # Unknown submission id in overall_comments is a 400.
+        bad = {"items": [], "overall_comments": [{"submission": 99999, "comment": "x"}]}
+        self.assertEqual(self.client.post(url, bad, format="json").status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_component_mismatch_rejected_atomically(self):
         url = reverse("grading:grade-bulk")
         # First item is fine; second binds a POSTER criterion to the SAQ submission.
@@ -806,6 +825,8 @@ class ClientDocxTemplateTests(_GradingFixture):
             submission=self.poster_submission, criterion=self.poster_c1,
             mark=Decimal("3.50"), graded_by=self.staff,
         )
+        self.poster_submission.overall_comment = "Strong poster overall."
+        self.poster_submission.save(update_fields=["overall_comment"])
         components = _grades_payload(self.group, 2026)
         data = render_marks_summary(marks_summary_context(self.group, 2026, components))
         xml = self._document_xml(data)
@@ -815,6 +836,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("4.00", xml)            # S1 mark
         self.assertIn("Nice claim.", xml)     # S1 comment
         self.assertIn("7.50", xml)            # CombinedTotal = 4.00 + 3.50
+        self.assertIn("Strong poster overall.", xml)  # PosterComment
 
     def test_certificate_content_controls_filled(self):
         from apps.grading.services.docx import (

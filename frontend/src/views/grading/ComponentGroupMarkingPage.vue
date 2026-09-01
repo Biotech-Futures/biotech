@@ -68,27 +68,37 @@
         Marks saved.
       </p>
 
-      <div class="component-marking__pane">
-        <SubmissionPreview
-          :submission="block.submission"
-          :component="block.component"
-          :last-grader-name="currentRow?.last_grader_name"
-          :grader-names="currentRow?.grader_names"
-        />
-        <RubricForm
-          :submission="block.submission"
-          :criteria="block.criteria"
-          :grades="block.grades"
-          :is-saving="saveStatus === 'saving'"
-          @save="saveMarks"
-        >
-          <template #actions>
-            <RouterLink :to="`/grading/components/${code}`" class="btn btn-outline btn-sm">
-              Back
-            </RouterLink>
-          </template>
-        </RubricForm>
-      </div>
+      <ResizableSplit v-if="block.submission" right-max="23rem">
+        <template #left>
+          <SubmissionPreview
+            :submission="block.submission"
+            :component="block.component"
+            :last-grader-name="currentRow?.last_grader_name"
+            :grader-names="currentRow?.grader_names"
+          />
+        </template>
+        <template #right>
+          <RubricForm
+            :submission="block.submission"
+            :criteria="block.criteria"
+            :grades="block.grades"
+            :overall-comment-label="overallCommentLabel(block.component.code)"
+            :is-saving="saveStatus === 'saving'"
+            @save="saveMarks"
+          >
+            <template #actions>
+              <RouterLink :to="`/grading/components/${code}`" class="btn btn-outline btn-sm">
+                Back
+              </RouterLink>
+            </template>
+          </RubricForm>
+        </template>
+      </ResizableSplit>
+      <SubmissionPreview
+        v-else
+        :submission="block.submission"
+        :component="block.component"
+      />
     </div>
   </div>
 </template>
@@ -96,11 +106,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ResizableSplit from '@/components/grading/ResizableSplit.vue'
 import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
 import {
   fetchComponentRows,
   fetchGroupMarking,
+  overallCommentLabel,
   saveGradesBulk,
   type ComponentListPayload,
   type GradeBulkItem,
@@ -194,11 +206,17 @@ const switchComponent = (target: string) => {
   void router.push(`/grading/components/${target}/${groupId.value}`)
 }
 
-const saveMarks = async (items: GradeBulkItem[]) => {
+const saveMarks = async (items: GradeBulkItem[], overallComment: string | null) => {
   saveStatus.value = 'saving'
   actionError.value = ''
   try {
-    await saveGradesBulk(items)
+    const submissionId = block.value?.submission?.id
+    await saveGradesBulk(
+      items,
+      overallComment !== null && submissionId != null
+        ? [{ submission: submissionId, comment: overallComment }]
+        : undefined
+    )
     // Refetch both: grades for the form, rows for progress + marker columns.
     const [groupPayload, rowsPayload] = await Promise.all([
       fetchGroupMarking(groupId.value),
@@ -338,16 +356,4 @@ const saveMarks = async (items: GradeBulkItem[]) => {
   color: var(--dark-green);
 }
 
-.component-marking__pane {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .component-marking__pane {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

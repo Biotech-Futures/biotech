@@ -1,6 +1,6 @@
 <template>
   <div v-if="submission">
-    <div v-if="criteria.length === 0" class="rubric-form__empty">
+    <div v-if="criteria.length === 0 && !overallCommentLabel" class="rubric-form__empty">
       No rubric defined for this component yet. Add criteria in the Django admin
       rubric editor, then reload.
     </div>
@@ -36,10 +36,20 @@
         </div>
       </div>
 
+      <div v-if="overallCommentLabel" class="rubric-form__criterion rubric-form__overall">
+        <p class="rubric-form__name">{{ overallCommentLabel }}</p>
+        <textarea
+          v-model="overallComment"
+          placeholder="Overall feedback on this submission (optional)"
+          rows="3"
+          class="rubric-form__comment rubric-form__overall-input"
+        ></textarea>
+      </div>
+
       <div class="rubric-form__actions">
         <slot name="actions"></slot>
         <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">
-          {{ isSaving ? 'Saving…' : 'Save marks' }}
+          {{ isSaving ? 'Saving…' : criteria.length === 0 ? 'Save Comment' : 'Save marks' }}
         </button>
       </div>
     </form>
@@ -47,7 +57,8 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import type { Grade, GradeBulkItem, RubricCriterion, Submission } from '@/utils/gradingAPI'
 
 const props = defineProps<{
@@ -55,15 +66,28 @@ const props = defineProps<{
   criteria: RubricCriterion[]
   grades: Grade[]
   isSaving: boolean
+  /** Heading for the overall-comment box; omit/null to hide it (e.g. SAQ). */
+  overallCommentLabel?: string | null
 }>()
 
 const emit = defineEmits<{
-  save: [items: GradeBulkItem[]]
+  /** overallComment is null when the box is hidden for this component. */
+  save: [items: GradeBulkItem[], overallComment: string | null]
 }>()
 
 type FormRow = { mark: string; comment: string }
 
 const state = reactive<Record<number, FormRow>>({})
+const overallComment = ref('')
+
+// Mirror the server's overall comment whenever the submission (re)loads.
+watch(
+  () => props.submission,
+  (submission) => {
+    overallComment.value = submission?.overall_comment ?? ''
+  },
+  { immediate: true }
+)
 
 // Preload form state from existing grades keyed by criterion id, with empty
 // defaults for un-graded criteria. Re-runs when the payload refetches after a
@@ -81,6 +105,43 @@ watch(
   },
   { immediate: true }
 )
+
+// Unsaved edits: any mark, comment, or overall comment differing from the
+// last server payload. Retyping the exact stored value counts as clean.
+const isDirty = computed(() => {
+  const byCriterion = new Map<number, Grade>()
+  for (const g of props.grades) byCriterion.set(g.criterion, g)
+  const rowsDirty = props.criteria.some((c) => {
+    const row = state[c.id]
+    if (!row) return false
+    const g = byCriterion.get(c.id)
+    return row.mark.trim() !== (g?.mark ?? '').trim() || row.comment !== (g?.comment ?? '')
+  })
+  const overallDirty = props.overallCommentLabel
+    ? overallComment.value !== (props.submission?.overall_comment ?? '')
+    : false
+  return rowsDirty || overallDirty
+})
+
+const UNSAVED_MESSAGE = 'You have unsaved marks or comments. Leave without saving?'
+
+// Tab close / reload — the browser shows its own generic prompt.
+const onBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!isDirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+window.addEventListener('beforeunload', onBeforeUnload)
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
+
+// In-app navigation: leaving the marking route, and Prev/Next (same route,
+// different group id) which only fires the update guard.
+const confirmLeave = () => !isDirty.value || window.confirm(UNSAVED_MESSAGE)
+onBeforeRouteLeave(confirmLeave)
+onBeforeRouteUpdate(confirmLeave)
+
+// Parents guard non-route switches (e.g. the component tabs) themselves.
+defineExpose({ isDirty })
 
 const setMark = (criterionId: number, mark: string) => {
   if (state[criterionId]) state[criterionId].mark = mark
@@ -101,7 +162,7 @@ const handleSubmit = () => {
     mark: state[c.id]?.mark?.trim() ? state[c.id].mark : null,
     comment: state[c.id]?.comment ?? ''
   }))
-  emit('save', items)
+  emit('save', items, props.overallCommentLabel ? overallComment.value : null)
 }
 </script>
 
@@ -117,13 +178,27 @@ const handleSubmit = () => {
 .rubric-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0;
+  max-width: 22rem;
+}
+
+/* Criteria read as one seamless panel: no gaps, no dividers between them. */
+.rubric-form__criterion + .rubric-form__criterion {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.rubric-form__criterion:has(+ .rubric-form__criterion) {
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .rubric-form__criterion {
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem;
   background: var(--surface-elevated);
 }
 
@@ -136,7 +211,8 @@ const handleSubmit = () => {
 }
 
 .rubric-form__name {
-  font-weight: 600;
+  font-weight: 400;
+  font-size: 0.85rem;
   margin: 0;
 }
 
@@ -154,7 +230,7 @@ const handleSubmit = () => {
 
 .rubric-form__fields {
   display: grid;
-  grid-template-columns: 8rem 1fr;
+  grid-template-columns: 3.5rem 1fr;
   gap: 0.5rem;
 }
 
@@ -197,9 +273,15 @@ const handleSubmit = () => {
   resize: vertical;
 }
 
+.rubric-form__overall-input {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
 .rubric-form__actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+  margin-top: 1rem;
 }
 </style>

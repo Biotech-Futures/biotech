@@ -80,26 +80,37 @@
           :aria-selected="block.component.code === effectiveCode"
           class="group-marking__tab"
           :class="{ active: block.component.code === effectiveCode }"
-          @click="activeCode = block.component.code"
+          @click="switchTab(block.component.code)"
         >
           {{ block.component.name }}
         </button>
       </div>
 
-      <div v-if="activeBlock" class="group-marking__pane">
-        <SubmissionPreview :submission="activeBlock.submission" :component="activeBlock.component" />
-        <RubricForm
-          :submission="activeBlock.submission"
-          :criteria="activeBlock.criteria"
-          :grades="activeBlock.grades"
-          :is-saving="saveStatus === 'saving'"
-          @save="saveMarks"
-        >
-          <template #actions>
-            <RouterLink to="/grading/by-group" class="btn btn-outline btn-sm">Back</RouterLink>
-          </template>
-        </RubricForm>
-      </div>
+      <ResizableSplit v-if="activeBlock && activeBlock.submission" right-max="23rem">
+        <template #left>
+          <SubmissionPreview :submission="activeBlock.submission" :component="activeBlock.component" />
+        </template>
+        <template #right>
+          <RubricForm
+            ref="rubricForm"
+            :submission="activeBlock.submission"
+            :criteria="activeBlock.criteria"
+            :grades="activeBlock.grades"
+            :overall-comment-label="overallCommentLabel(activeBlock.component.code)"
+            :is-saving="saveStatus === 'saving'"
+            @save="saveMarks"
+          >
+            <template #actions>
+              <RouterLink to="/grading/by-group" class="btn btn-outline btn-sm">Back</RouterLink>
+            </template>
+          </RubricForm>
+        </template>
+      </ResizableSplit>
+      <SubmissionPreview
+        v-else-if="activeBlock"
+        :submission="activeBlock.submission"
+        :component="activeBlock.component"
+      />
     </div>
   </div>
 </template>
@@ -107,12 +118,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ResizableSplit from '@/components/grading/ResizableSplit.vue'
 import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
 import {
   downloadGroupZip,
   fetchComponentRows,
   fetchGroupMarking,
+  overallCommentLabel,
   saveGradesBulk,
   type ComponentRow,
   type GradeBulkItem,
@@ -170,6 +183,20 @@ const actionError = ref('')
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const isDownloading = ref(false)
 const activeCode = ref<string | null>(null)
+const rubricForm = ref<InstanceType<typeof RubricForm> | null>(null)
+
+// Tab switches swap the form's props in place, silently discarding edits —
+// route guards don't fire here, so ask the form first.
+const switchTab = (code: string) => {
+  if (code === effectiveCode.value) return
+  if (
+    rubricForm.value?.isDirty &&
+    !window.confirm('You have unsaved marks or comments. Switch section without saving?')
+  ) {
+    return
+  }
+  activeCode.value = code
+}
 
 const effectiveCode = computed(
   () => activeCode.value ?? payload.value?.components[0]?.component.code ?? null
@@ -206,11 +233,17 @@ watch(
   { immediate: true }
 )
 
-const saveMarks = async (items: GradeBulkItem[]) => {
+const saveMarks = async (items: GradeBulkItem[], overallComment: string | null) => {
   saveStatus.value = 'saving'
   actionError.value = ''
   try {
-    await saveGradesBulk(items)
+    const submissionId = activeBlock.value?.submission?.id
+    await saveGradesBulk(
+      items,
+      overallComment !== null && submissionId != null
+        ? [{ submission: submissionId, comment: overallComment }]
+        : undefined
+    )
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.
     payload.value = await fetchGroupMarking(groupId.value)
     saveStatus.value = 'saved'
@@ -415,16 +448,4 @@ const downloadAll = async () => {
   box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
-.group-marking__pane {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .group-marking__pane {
-    grid-template-columns: 1fr;
-  }
-}
 </style>
