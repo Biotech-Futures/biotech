@@ -44,8 +44,13 @@ const fetchMockFor = (opts: {
   total?: number
   /** When set, every DELETE responds 409 with this message instead of succeeding. */
   deleteError?: string
-} = {}) =>
-  vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+} = {}) => {
+  // Message deletes are tracked so a later GET reflects them, mirroring the
+  // real backend (the component re-fetches the page after a removal).
+  const deletedMessageIds = new Set<string>()
+  const rawTotal = opts.total ?? (opts.page1?.length ?? 0)
+
+  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const method = (init?.method || 'GET').toUpperCase()
     const u = String(url)
 
@@ -63,14 +68,17 @@ const fetchMockFor = (opts: {
       )
     }
     if (method === 'DELETE' && u.includes('/messages/')) {
+      const id = u.match(/\/messages\/([^/]+)\//)?.[1]
+      if (id) deletedMessageIds.add(id)
       return Promise.resolve(
         new Response(JSON.stringify({ msg: 'Message removed successfully', data: null }), { status: 200 })
       )
     }
     if (method === 'GET' && u.includes('/messages/')) {
       const page = u.includes('page=2') ? 2 : 1
-      const items = page === 2 ? (opts.page2 ?? []) : (opts.page1 ?? [])
-      const total = opts.total ?? items.length
+      const raw = (page === 2 ? (opts.page2 ?? []) : (opts.page1 ?? [])) as { id: string }[]
+      const items = raw.filter((m) => !deletedMessageIds.has(m.id))
+      const total = rawTotal - deletedMessageIds.size
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -83,6 +91,7 @@ const fetchMockFor = (opts: {
     }
     return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
   })
+}
 
 // FormSheet renders via <Teleport to="body">, so its content lives outside
 // the mounted wrapper's own element tree. Query/interact through
@@ -223,6 +232,32 @@ describe('GroupDetailModal', () => {
     expect(call).toBeDefined()
     expect(dialog()!.textContent).not.toContain('Hey team, how is everyone?')
     expect(dialog()!.textContent).toContain('Messages (0)')
+  })
+
+  it('re-fetches after a message removal so the pager reflects the new total', async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => ({ ...textMessage, id: `p1-${i}`, text: `msg ${i}` }))
+    const fetchMock = fetchMockFor({ page1, page2: [{ ...textMessage, id: 'p2-0' }], total: 51 })
+    await mountModal(fetchMock)
+
+    const nextButton = () =>
+      Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Next') as
+        | HTMLButtonElement
+        | undefined
+    expect(nextButton()!.disabled).toBe(false)
+
+    // Remove one message from page 1 -> total drops to 50 -> a single page.
+    ;(dialog()!.querySelector('[aria-label="Remove message"]') as HTMLButtonElement).dispatchEvent(
+      new Event('click', { bubbles: true })
+    )
+    await flushPromises()
+    clickButton(confirmDialog()!, 'Remove')
+    await flushPromises()
+
+    const getCalls = fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/messages/') && (i as RequestInit | undefined)?.method !== 'DELETE'
+    )
+    expect(getCalls.length).toBeGreaterThanOrEqual(2) // initial load + re-fetch after removal
+    expect(nextButton()).toBeUndefined() // pager gone: 50 fits on one page
   })
 
   it('shows a message-removal failure inline in the dialog, not via window.alert', async () => {

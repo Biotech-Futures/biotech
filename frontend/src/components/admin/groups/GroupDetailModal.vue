@@ -280,9 +280,15 @@ const confirmRemoveMessage = async () => {
   removeMessageError.value = ''
   try {
     await removeGroupMessage(props.group.id, message.id)
-    messages.value = messages.value.filter((m) => m.id !== message.id)
-    if (messagesTotal.value !== null) messagesTotal.value -= 1
     messageToRemove.value = null
+    // Re-fetch so items / total / has_more all reconcile with the server rather
+    // than trying to patch them locally (a stale has_more leaves "Next" enabled
+    // and fetches an empty page). If that emptied the last page, step back one.
+    await loadMessages()
+    if (!messages.value.length && messagesPage.value > 1) {
+      messagesPage.value -= 1
+      await loadMessages()
+    }
   } catch (err) {
     removeMessageError.value = err instanceof Error ? err.message : 'Could not remove message. Please try again.'
   } finally {
