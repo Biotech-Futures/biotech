@@ -1,7 +1,7 @@
 <template>
   <div class="card by-group">
     <div class="card-header">
-      <h3 class="card-title">Mark by group</h3>
+      <h3 class="card-title">Mark by Group</h3>
     </div>
     <p class="by-group__hint">Every component for a single group. Enter the group's ID.</p>
     <form class="by-group__form" @submit.prevent="open">
@@ -80,5 +80,17 @@ const open = () => {
 .by-group__input:focus {
   outline: none;
   border-color: var(--dark-green);
+}
+
+/* Hide the native number spinners — IDs are typed, not stepped. */
+.by-group__input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.by-group__input::-webkit-inner-spin-button,
+.by-group__input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 </style>

@@ -1,7 +1,7 @@
 <template>
   <div class="card by-component">
     <div class="card-header">
-      <h3 class="card-title">Mark by component</h3>
+      <h3 class="card-title">Mark by Component</h3>
     </div>
     <p class="by-component__hint">One component at a time, across every group.</p>
     <ul class="by-component__list">

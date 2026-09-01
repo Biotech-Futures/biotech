@@ -96,6 +96,16 @@ class FinalistFlag(models.Model):
     )
     flagged_at = models.DateTimeField(auto_now_add=True)
     notified = models.BooleanField(default=False)
+    # When the notification email actually went out; null until then (and for
+    # rows notified before this field existed).
+    notified_at = models.DateTimeField(null=True, blank=True)
+    notified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_notifications",
+    )
 
     class Meta:
         db_table = "finalist_flag"

@@ -91,7 +91,7 @@
                 </button>
               </th>
               <th>Marker</th>
-              <th class="component-table__cell--right">Action</th>
+              <th class="component-table__cell--right"></th>
             </tr>
           </thead>
           <tbody>
@@ -458,6 +458,9 @@ const displayRows = computed(() => {
   padding: 0;
   font: inherit;
   color: inherit;
+  /* Buttons don't pick up the header's uppercase styling on their own. */
+  text-transform: inherit;
+  letter-spacing: inherit;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -486,7 +489,9 @@ const displayRows = computed(() => {
   font-weight: 600;
 }
 
-.component-table__cell--right {
+/* Scoped under the table selector so this outweighs the generic th/td rule
+   that sets text-align: left. */
+.component-table__table .component-table__cell--right {
   text-align: right;
 }
 

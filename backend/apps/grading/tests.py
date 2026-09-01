@@ -1,6 +1,7 @@
 import io
 import zipfile
 from decimal import Decimal
+from importlib import import_module
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -46,6 +47,18 @@ class _GradingFixture(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        # settings_test disables migrations entirely, so the 0002_seed_components
+        # data migration never runs there — seed the same rows ourselves, reusing
+        # the migration's own COMPONENTS list so the two can't drift.
+        seed_components = import_module(
+            "apps.submissions.migrations.0002_seed_components"
+        ).COMPONENTS
+        for row in seed_components:
+            SubmissionComponent.objects.update_or_create(
+                code=row["code"],
+                defaults={k: v for k, v in row.items() if k != "code"},
+            )
+
         cls.group = Groups.objects.create(group_name="BTF-TEST-1")
         cls.saq = SubmissionComponent.objects.get(code="SAQ")
         cls.poster = SubmissionComponent.objects.get(code="POSTER")
@@ -580,6 +593,70 @@ class FinalistToggleTests(_GradingFixture):
         r2 = self.client.delete(self.url)  # already gone
         self.assertEqual(r2.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FinalistFlag.objects.filter(group=self.group).exists())
+
+    @override_settings(GRADING_FINALIST_EMAIL_ENABLED=True)
+    def test_notify_all_emails_unnotified_flags_only(self):
+        from django.core import mail
+
+        member = User.objects.create_user(
+            email="member@example.com", first_name="Mem", last_name="Ber", password="pw12345!",
+        )
+        GroupMembership.objects.create(
+            group=self.group, user=member, membership_role="student",
+        )
+        already = Groups.objects.create(group_name="BTF-TEST-2")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        FinalistFlag.objects.create(group=already, flagged_by=self.staff, notified=True)
+
+        self.client.force_authenticate(self.staff)
+        url = reverse("grading:finalist-notify")
+        r = self.client.post(url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["sent"], 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("member@example.com", mail.outbox[0].to)
+        notified_flag = FinalistFlag.objects.get(group=self.group)
+        self.assertTrue(notified_flag.notified)
+        self.assertIsNotNone(notified_flag.notified_at)
+
+        # Second press: everything already notified (or has no recipients) — no new mail.
+        r2 = self.client.post(url)
+        self.assertEqual(r2.json()["sent"], 0)
+        self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(GRADING_FINALIST_EMAIL_ENABLED=True)
+    def test_notify_with_group_ids_targets_only_those(self):
+        from django.core import mail
+
+        member = User.objects.create_user(
+            email="member@example.com", first_name="Mem", last_name="Ber", password="pw12345!",
+        )
+        GroupMembership.objects.create(group=self.group, user=member, membership_role="student")
+        other_group = Groups.objects.create(group_name="BTF-TEST-3")
+        other_member = User.objects.create_user(
+            email="other@example.com", first_name="Oth", last_name="Er", password="pw12345!",
+        )
+        GroupMembership.objects.create(group=other_group, user=other_member, membership_role="student")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        FinalistFlag.objects.create(group=other_group, flagged_by=self.staff)
+
+        self.client.force_authenticate(self.staff)
+        url = reverse("grading:finalist-notify")
+        r = self.client.post(url, {"group_ids": [self.group.id]}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["sent"], 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("member@example.com", mail.outbox[0].to)
+        self.assertFalse(FinalistFlag.objects.get(group=other_group).notified)
+
+        # Malformed group_ids is a 400, not a mass send.
+        r_bad = self.client.post(url, {"group_ids": "1,2"}, format="json")
+        self.assertEqual(r_bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_notify_all_denied_for_non_staff(self):
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.post(reverse("grading:finalist-notify"))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_list_returns_flagged_groups(self):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)

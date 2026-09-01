@@ -305,6 +305,18 @@ const downloadAll = async () => {
   border-color: var(--dark-green);
 }
 
+/* Hide the native number spinners — IDs are typed, not stepped. */
+.group-marking__jump-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.group-marking__jump-input::-webkit-inner-spin-button,
+.group-marking__jump-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .group-marking__header {
   display: flex;
   align-items: center;

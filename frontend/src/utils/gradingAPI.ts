@@ -267,7 +267,10 @@ export interface FinalistRow {
   group_id: number
   group_name: string
   flagged_at: string
+  flagged_by: string | null
   notified: boolean
+  notified_at: string | null
+  notified_by: string | null
 }
 
 export interface FinalistListResponse {
@@ -393,6 +396,16 @@ export function updateGradingSettings(
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/', {
     method: 'PATCH',
     body: isForm ? patch : JSON.stringify(patch)
+  })
+}
+
+// POST /api/v1/grading/finalists/notify/ — email finalist teams not yet
+// notified. Pass groupIds to restrict the send to those teams; omitted means
+// all. Safe to repeat: already-notified flags are skipped server-side.
+export function notifyFinalists(groupIds?: number[]): Promise<{ sent: number; pending: number }> {
+  return requestJson<{ sent: number; pending: number }>('/api/v1/grading/finalists/notify/', {
+    method: 'POST',
+    body: JSON.stringify(groupIds?.length ? { group_ids: groupIds } : {})
   })
 }
 

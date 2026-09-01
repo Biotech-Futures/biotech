@@ -8,7 +8,11 @@
       <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
     </div>
 
-    <template v-else-if="status">
+    <div v-else-if="status" class="card release__panel">
+      <div class="card-header">
+        <h3 class="card-title">Release Marks</h3>
+      </div>
+
       <div class="release__card" :class="released ? 'release__card--ok' : 'release__card--warn'">
         <i v-if="released" class="fas fa-circle-check release__icon--ok" aria-hidden="true"></i>
         <div>
@@ -17,7 +21,7 @@
           </p>
           <p class="release__detail">
             <template v-if="released">
-              Released at {{ releasedAtLabel }}<template v-if="status.released_by"> by {{ status.released_by }}</template>.
+              Last Released at {{ releasedAtLabel }}<template v-if="status.released_by"> by {{ status.released_by }}</template>.
             </template>
             <template v-else>
               Students and supervisors cannot see their grades until you release.
@@ -47,7 +51,7 @@
           {{ isToggling ? 'Unreleasing…' : 'Unrelease' }}
         </button>
       </div>
-    </template>
+    </div>
 
     <Teleport to="body">
       <div v-if="showConfirm" class="release__overlay" @click.self="showConfirm = false">
@@ -155,6 +159,19 @@ const confirmRelease = async () => {
 .release__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.release__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* No divider under the heading — the status card right below is separation enough. */
+.release__panel .card-header {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .release__load-error p {

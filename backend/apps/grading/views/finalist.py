@@ -29,9 +29,16 @@ class FinalistListView(APIView):
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
+    @staticmethod
+    def _user_name(user) -> str | None:
+        if user is None:
+            return None
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        return full_name or user.email
+
     def get(self, request):
         flags = (
-            FinalistFlag.objects.select_related("group")
+            FinalistFlag.objects.select_related("group", "flagged_by", "notified_by")
             .order_by("group__group_name")
         )
         return Response({
@@ -40,10 +47,44 @@ class FinalistListView(APIView):
                     "group_id": f.group_id,
                     "group_name": f.group.group_name,
                     "flagged_at": f.flagged_at,
+                    "flagged_by": self._user_name(f.flagged_by),
                     "notified": f.notified,
+                    "notified_at": f.notified_at,
+                    "notified_by": self._user_name(f.notified_by),
                 }
                 for f in flags
             ]
+        })
+
+
+class FinalistNotifyAllView(APIView):
+    """POST /api/v1/grading/finalists/notify/ — email finalist teams that
+    haven't been notified yet.
+
+    Optional body ``{"group_ids": [1, 2, ...]}`` restricts the send to those
+    groups; omitted or empty means every un-notified finalist.
+
+    ``notify_finalist`` is a no-op per flag when it was already notified or
+    when ``GRADING_FINALIST_EMAIL_ENABLED`` is off, so this is safe to press
+    repeatedly.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def post(self, request):
+        flags = FinalistFlag.objects.select_related("group").filter(notified=False)
+        group_ids = request.data.get("group_ids")
+        if group_ids:
+            if not isinstance(group_ids, list) or not all(isinstance(g, int) for g in group_ids):
+                return Response(
+                    {"detail": "group_ids must be a list of integers"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            flags = flags.filter(group_id__in=group_ids)
+        sent = sum(1 for flag in flags if notify_finalist(flag, actor=request.user))
+        return Response({
+            "sent": sent,
+            "pending": FinalistFlag.objects.filter(notified=False).count(),
         })
 
 
@@ -75,7 +116,7 @@ class FinalistToggleView(APIView):
         should_notify = bool(request.data.get("notify"))
         notified_now = False
         if should_notify:
-            notify_finalist(flag)
+            notify_finalist(flag, actor=request.user)
             notified_now = flag.notified  # notify_finalist sets it if it actually sent
 
         return Response(

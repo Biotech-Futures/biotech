@@ -15,6 +15,7 @@ import logging
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils import timezone
 
 from apps.groups.models.group_members import GroupMembership
 
@@ -23,7 +24,7 @@ from ..models import FinalistFlag
 logger = logging.getLogger(__name__)
 
 
-def notify_finalist(flag: FinalistFlag) -> bool:
+def notify_finalist(flag: FinalistFlag, actor=None) -> bool:
     """Send the "you're a finalist" email to every active member of the group.
 
     No-op when the env flag is off, or when the flag has already been
@@ -73,5 +74,7 @@ def notify_finalist(flag: FinalistFlag) -> bool:
         return False
 
     flag.notified = True
-    flag.save(update_fields=["notified"])
+    flag.notified_at = timezone.now()
+    flag.notified_by = actor
+    flag.save(update_fields=["notified", "notified_at", "notified_by"])
     return True
