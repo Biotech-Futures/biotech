@@ -3,6 +3,7 @@ import {
   buildAdminQuery,
   fetchAdminSummary,
   fetchAdminUsers,
+  deleteAdminUser,
   bulkSetUsersActive,
   bulkDeleteUsers
 } from '@/utils/adminAPI'
@@ -113,6 +114,26 @@ describe('fetchAdminUsers', () => {
 describe('bulk user actions', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('deleteAdminUser sends optional force body', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string) => {
+        if (String(url).includes('/services/csrf/')) {
+          return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ msg: 'User deleted successfully', data: null }), { status: 200 })
+        )
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await deleteAdminUser(7, true)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/7/')) as [string, RequestInit]
+    expect(init!.method).toBe('DELETE')
+    expect(JSON.parse(String(init.body))).toEqual({ force: true })
   })
 
   it('bulkSetUsersActive posts the exact status body', async () => {

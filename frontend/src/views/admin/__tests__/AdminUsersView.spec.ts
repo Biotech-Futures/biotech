@@ -323,6 +323,26 @@ describe('AdminUsersView', () => {
     expect(wrapper.text()).toContain('Team B')
     expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Assign')).toBe(true)
     expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Remove')).toBe(true)
+    // Student mode omits row-level Edit/Deactivate and bulk Activate/Deactivate/Delete.
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Edit')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Deactivate')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Activate')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Delete')).toBe(false)
+  })
+
+  it('shows row-level Edit/Deactivate and bulk actions for the users tab', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([
+      buildUser({ groupId: null, groupName: null })
+    ]))
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Users', noun: 'user' }
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Edit')).toBe(true)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Deactivate')).toBe(true)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Assign')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Remove')).toBe(false)
   })
 
   it('builds the student table with the expected columns in order', async () => {

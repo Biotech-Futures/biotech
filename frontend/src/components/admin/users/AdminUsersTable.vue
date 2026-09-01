@@ -109,10 +109,16 @@
         >
           {{ toAdminUser(row).groupId ? 'Remove' : 'Assign' }}
         </button>
-        <button type="button" class="btn btn-sm btn-outline" @click="emit('edit', toAdminUser(row))">
+        <button
+          v-if="!isStudentMode"
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click="emit('edit', toAdminUser(row))"
+        >
           Edit
         </button>
         <button
+          v-if="!isStudentMode"
           type="button"
           class="btn btn-sm"
           :class="toAdminUser(row).isActive ? 'btn-outline' : 'btn-primary'"
