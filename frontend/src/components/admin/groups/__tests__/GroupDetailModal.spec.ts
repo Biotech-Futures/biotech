@@ -134,6 +134,14 @@ describe('GroupDetailModal', () => {
     expect(text).toContain('[GIF]')
   })
 
+  it('renders no timestamp instead of "Invalid Date" for a malformed sent_at', async () => {
+    const fetchMock = fetchMockFor({ page1: [{ ...textMessage, sent_at: 'not-a-date' }], total: 1 })
+    await mountModal(fetchMock)
+
+    expect(dialog()!.textContent).toContain('Hey team, how is everyone?')
+    expect(dialog()!.textContent).not.toContain('Invalid Date')
+  })
+
   it('removes a member after confirmation and emits changed', async () => {
     const fetchMock = fetchMockFor({ page1: [], total: 0 })
     await mountModal(fetchMock)

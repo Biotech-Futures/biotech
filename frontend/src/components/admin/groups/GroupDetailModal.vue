@@ -290,8 +290,11 @@ const confirmRemoveMessage = async () => {
   }
 }
 
-const formatMessageTime = (value: string): string =>
-  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+const formatMessageTime = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
 </script>
 
 <style scoped>
