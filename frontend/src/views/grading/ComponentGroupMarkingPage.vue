@@ -23,7 +23,7 @@
     <div v-else-if="payload && block" class="component-marking">
       <div class="component-marking__header">
         <h2 class="component-marking__title">
-          {{ block.component.name }}: {{ payload.group.group_name }}
+          {{ payload.group.group_name }}
           <span class="component-marking__id">#{{ groupId }}</span>
         </h2>
         <div class="component-marking__nav">
@@ -43,10 +43,22 @@
           >
             Next <i class="fas fa-chevron-right" aria-hidden="true"></i>
           </button>
-          <RouterLink :to="`/grading/components/${code}`" class="btn btn-outline btn-sm">
-            List
-          </RouterLink>
         </div>
+      </div>
+
+      <div class="component-marking__tabs" role="tablist" aria-label="Components">
+        <button
+          v-for="b in payload.components"
+          :key="b.component.code"
+          type="button"
+          role="tab"
+          :aria-selected="b.component.code === code"
+          class="component-marking__tab"
+          :class="{ active: b.component.code === code }"
+          @click="switchComponent(b.component.code)"
+        >
+          {{ b.component.name }}
+        </button>
       </div>
 
       <p v-if="actionError" class="component-marking__banner component-marking__banner--error">
@@ -116,10 +128,15 @@ const currentRow = computed(
   () => rows.value?.rows.find((r) => r.group_id === groupId.value) ?? null
 )
 
-// Prev/next from the component row list, skipping groups without a submission
-// — no point navigating to an empty marking pane.
+// Prev/next walk the cohort in group-ID order (matching the #id in the
+// heading), skipping groups without a submission — no point navigating to an
+// empty marking pane.
+const orderedRows = computed(() =>
+  (rows.value?.rows ?? []).slice().sort((a, b) => a.group_id - b.group_id)
+)
+
 const prevId = computed(() => {
-  const list = rows.value?.rows ?? []
+  const list = orderedRows.value
   const idx = list.findIndex((r) => r.group_id === groupId.value)
   if (idx < 0) return null
   const back = list
@@ -130,7 +147,7 @@ const prevId = computed(() => {
 })
 
 const nextId = computed(() => {
-  const list = rows.value?.rows ?? []
+  const list = orderedRows.value
   const idx = list.findIndex((r) => r.group_id === groupId.value)
   if (idx < 0) return null
   const fwd = list.slice(idx + 1).find((r) => r.submission_id != null)
@@ -170,6 +187,11 @@ watch(
 const goto = (id: number | null) => {
   if (id == null) return
   void router.push(`/grading/components/${code.value}/${id}`)
+}
+
+const switchComponent = (target: string) => {
+  if (target === code.value) return
+  void router.push(`/grading/components/${target}/${groupId.value}`)
 }
 
 const saveMarks = async (items: GradeBulkItem[]) => {
@@ -240,6 +262,63 @@ const saveMarks = async (items: GradeBulkItem[]) => {
 .component-marking__nav {
   display: flex;
   gap: 0.35rem;
+}
+
+/* Soft green fill lifts Prev/Next off the page without competing with the
+   solid-green primary actions (Save marks). */
+.component-marking__nav .btn {
+  background: var(--accent-green-soft);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
+}
+
+.component-marking__nav .btn:hover:not(:disabled) {
+  background: var(--dark-green);
+  color: #fff;
+}
+
+.component-marking__nav .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Segmented pill switcher, matching the Events page view tabs. */
+.component-marking__tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  align-self: flex-start;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.component-marking__tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.component-marking__tab:hover:not(.active) {
+  color: var(--charcoal);
+  background: var(--accent-green-soft);
+}
+
+.component-marking__tab.active {
+  background: var(--dark-green);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
 .component-marking__banner {

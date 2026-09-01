@@ -38,7 +38,7 @@
         <div class="group-marking__header-actions">
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
             :disabled="prevId == null"
             @click="goto(prevId)"
           >
@@ -46,7 +46,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
             :disabled="nextId == null"
             @click="goto(nextId)"
           >
@@ -131,7 +131,11 @@ const cohort = ref<ComponentRow[]>([])
 
 onMounted(async () => {
   try {
+    // The API returns rows sorted by group name; walk prev/next in ID order
+    // instead so navigation matches the #id shown in the heading.
     cohort.value = (await fetchComponentRows('SAQ')).rows
+      .slice()
+      .sort((a, b) => a.group_id - b.group_id)
   } catch {
     cohort.value = [] // prev/next simply stay disabled
   }
@@ -323,6 +327,24 @@ const downloadAll = async () => {
 .group-marking__header-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+/* Soft green fill lifts Prev/Next off the page without competing with the
+   solid-green primary actions (Save marks). Download all stays plain outline. */
+.group-marking__nav-btn {
+  background: var(--accent-green-soft);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
+}
+
+.group-marking__nav-btn:hover:not(:disabled) {
+  background: var(--dark-green);
+  color: #fff;
+}
+
+.group-marking__header-actions .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .group-marking__banner {

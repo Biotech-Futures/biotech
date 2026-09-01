@@ -10,10 +10,7 @@
 
     <template v-else-if="status">
       <div class="release__card" :class="released ? 'release__card--ok' : 'release__card--warn'">
-        <i
-          :class="released ? 'fas fa-circle-check release__icon--ok' : 'fas fa-triangle-exclamation release__icon--warn'"
-          aria-hidden="true"
-        ></i>
+        <i v-if="released" class="fas fa-circle-check release__icon--ok" aria-hidden="true"></i>
         <div>
           <p class="release__headline">
             {{ released ? 'Marks are released' : 'Marks are NOT released' }}
@@ -36,20 +33,53 @@
           type="button"
           class="btn btn-primary btn-sm"
           :disabled="isToggling || released"
-          @click="flip(true)"
+          @click="showConfirm = true"
         >
-          {{ released ? 'Already released' : 'Release now' }}
+          Release
         </button>
         <button
+          v-if="released"
           type="button"
           class="btn btn-outline btn-sm"
-          :disabled="isToggling || !released"
-          @click="flip(false)"
+          :disabled="isToggling"
+          @click="unrelease"
         >
-          Unrelease
+          {{ isToggling ? 'Unreleasing…' : 'Unrelease' }}
         </button>
       </div>
     </template>
+
+    <Teleport to="body">
+      <div v-if="showConfirm" class="release__overlay" @click.self="showConfirm = false">
+        <div class="release__dialog" role="dialog" aria-modal="true" aria-label="Release marks">
+          <h3 class="release__dialog-title">
+            <i class="fas fa-unlock" aria-hidden="true"></i> Release marks?
+          </h3>
+          <p class="release__dialog-text">
+            Students and supervisors will immediately be able to see their grades, download
+            their marks summary and certificate.
+          </p>
+          <div class="release__dialog-actions">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isToggling"
+              @click="showConfirm = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="isToggling"
+              @click="confirmRelease"
+            >
+              {{ isToggling ? 'Releasing…' : 'Release' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -85,12 +115,28 @@ const load = async () => {
 
 onMounted(load)
 
-const flip = async (release: boolean) => {
+const showConfirm = ref(false)
+
+const unrelease = async () => {
   isToggling.value = true
   actionError.value = ''
   try {
-    status.value = await toggleRelease(release)
+    status.value = await toggleRelease(false)
   } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    isToggling.value = false
+  }
+}
+
+const confirmRelease = async () => {
+  isToggling.value = true
+  actionError.value = ''
+  try {
+    status.value = await toggleRelease(true)
+    showConfirm.value = false
+  } catch (err) {
+    showConfirm.value = false
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isToggling.value = false
@@ -130,22 +176,21 @@ const flip = async (release: boolean) => {
 }
 
 .release__card--ok {
-  background: var(--accent-green-soft);
-  border-color: var(--dark-green);
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
 }
 
 .release__card--warn {
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  border-color: var(--warning);
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+}
+
+.release__card--warn .release__detail {
+  color: #d97706;
 }
 
 .release__icon--ok {
   color: var(--dark-green);
-  margin-top: 0.2rem;
-}
-
-.release__icon--warn {
-  color: #8a6100;
   margin-top: 0.2rem;
 }
 
@@ -174,6 +219,59 @@ const flip = async (release: boolean) => {
 
 .release__actions {
   display: flex;
+  gap: 0.5rem;
+}
+
+.release__actions .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.release__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.release__dialog {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px var(--shadow);
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.release__dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.release__dialog-title i {
+  color: var(--dark-green);
+}
+
+.release__dialog-text {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.release__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
 }
 </style>

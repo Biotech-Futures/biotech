@@ -22,11 +22,19 @@ class MarksReleaseView(APIView):
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
+    @staticmethod
+    def _released_by_label(rel):
+        if not rel.released_by_id:
+            return None
+        user = rel.released_by
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        return full_name or user.email
+
     def get(self, request):
         rel = MarksRelease.load()
         return Response({
             "released_at": rel.released_at,
-            "released_by": getattr(rel.released_by, "email", None) if rel.released_by_id else None,
+            "released_by": self._released_by_label(rel),
         })
 
     def post(self, request):
@@ -41,5 +49,5 @@ class MarksReleaseView(APIView):
         rel.save()
         return Response({
             "released_at": rel.released_at,
-            "released_by": getattr(rel.released_by, "email", None) if rel.released_by_id else None,
+            "released_by": self._released_by_label(rel),
         })

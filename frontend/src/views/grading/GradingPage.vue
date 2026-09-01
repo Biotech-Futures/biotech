@@ -101,12 +101,16 @@ const isTabActive = (tab: GradingTab) => {
     border-color 0.15s ease;
 }
 
+/* Hover states set background AND color explicitly so no global rule can
+   ever combine into green-on-green (invisible text). */
 .grading__tab:hover {
+  background: var(--accent-green-soft);
   border-color: var(--dark-green);
   color: var(--dark-green);
 }
 
-.grading__tab--active {
+.grading__tab--active,
+.grading__tab--active:hover {
   background: var(--dark-green);
   border-color: var(--dark-green);
   color: #fff;
