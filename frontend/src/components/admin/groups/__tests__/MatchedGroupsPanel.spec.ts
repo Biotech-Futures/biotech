@@ -73,6 +73,9 @@ describe('MatchedGroupsPanel', () => {
 
     expect(wrapper.text()).toContain('BTF1')
     expect(wrapper.text()).toContain('Marie Curie')
+    // Capacity is looked up from the separately-fetched mentor pool (Marie
+    // Curie is mentorId 20 there: currentAssignedCount 1, maxGroupCount 4).
+    expect(wrapper.text()).toContain('1/4')
     expect(wrapper.text()).toContain('BTF2')
     expect(wrapper.text()).toContain('1 inactive')
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))

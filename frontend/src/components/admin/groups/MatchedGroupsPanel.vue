@@ -66,7 +66,12 @@
                 <td>{{ group.studentCount }}</td>
                 <td>
                   <div class="matched-groups__mentor-cell">
-                    <span>{{ group.mentor.name }}</span>
+                    <span>
+                      {{ group.mentor.name }}
+                      <span v-if="capacityFor(group.mentor.mentorId)" class="matched-groups__capacity">
+                        · {{ capacityFor(group.mentor.mentorId) }}
+                      </span>
+                    </span>
                     <span v-if="group.mentor.institution" class="matched-groups__muted">{{ group.mentor.institution }}</span>
                   </div>
                 </td>
@@ -196,6 +201,16 @@ const inactiveGroups = computed(() => groups.value.filter((g) => !g.mentor.isAct
 const inactiveCount = computed(() => inactiveGroups.value.length)
 
 const showFullMentors = ref(false)
+
+// matched-groups rows don't carry capacity themselves — it only exists on the
+// separately-fetched mentor pool, so look it up by id rather than re-fetching
+// per row.
+const mentorById = computed(() => new Map(mentors.value.map((m) => [m.mentorId, m])))
+
+const capacityFor = (mentorId: number): string | null => {
+  const mentor = mentorById.value.get(mentorId)
+  return mentor ? `${mentor.currentAssignedCount}/${mentor.maxGroupCount}` : null
+}
 
 // --- Sorting -----------------------------------------------------------
 // Client-side only: fetchMatchedGroups() returns the full confirmed set in
@@ -498,6 +513,12 @@ const onBulkConfirmed = () => {
 .matched-groups__muted {
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+.matched-groups__capacity {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 
 .matched-groups__status {
