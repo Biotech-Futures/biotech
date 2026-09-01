@@ -12,7 +12,8 @@ import {
   fetchGroupMessages,
   removeGroupMessage,
   removeGroupMember,
-  bulkDeleteGroups
+  bulkDeleteGroups,
+  replaceMentor
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -456,5 +457,33 @@ describe('bulkDeleteGroups', () => {
       limit: 25
     })
     expect(result.data?.remaining).toBe(36)
+  })
+})
+
+describe('replaceMentor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts the membership/group/new-mentor triple and resolves the replaced count', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Mentor replaced successfully', data: { replaced: 1 } }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await replaceMentor({ membershipId: 100, groupId: 1, newMentorUserId: 23 })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/mentor-match/replace/')) as [
+      string,
+      RequestInit
+    ]
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ membershipId: 100, groupId: 1, newMentorUserId: 23 })
+    expect(result.replaced).toBe(1)
   })
 })

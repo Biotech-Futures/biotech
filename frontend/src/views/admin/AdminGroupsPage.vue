@@ -5,11 +5,37 @@
         <h1>Groups</h1>
         <p class="page-subtitle">Manage student groups and mentor assignments.</p>
       </div>
-      <button type="button" class="btn btn-outline" @click="openCreate">
+      <button v-if="activeTab === 'groups'" type="button" class="btn btn-outline" @click="openCreate">
         <i class="fas fa-plus" aria-hidden="true"></i> New group
       </button>
     </div>
 
+    <div class="admin-groups__tabs" role="tablist">
+      <button
+        type="button"
+        class="admin-groups__tab"
+        :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
+        role="tab"
+        :aria-selected="activeTab === 'groups'"
+        @click="activeTab = 'groups'"
+      >
+        Groups
+      </button>
+      <button
+        type="button"
+        class="admin-groups__tab"
+        :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
+        role="tab"
+        :aria-selected="activeTab === 'matched'"
+        @click="activeTab = 'matched'"
+      >
+        Matched Groups
+      </button>
+    </div>
+
+    <MatchedGroupsPanel v-if="activeTab === 'matched'" />
+
+    <template v-else>
     <div class="admin-groups__filters">
       <label class="admin-groups__search">
         <span class="sr-only">Search groups</span>
@@ -77,9 +103,6 @@
       :rows="rows"
       row-key="id"
       :loading="loading"
-      selectable
-      :selected="displaySelected"
-      select-all-label="Select all groups on this page"
       :sort-state="sortState"
       :page="page"
       :page-size="limit"
@@ -87,11 +110,29 @@
       :page-size-options="[25, 50, 100]"
       empty-message="No groups found."
       pager-label="Groups pagination"
-      @update:selected="onSelectedChange"
       @update:sort="onSortChange"
       @page-change="onPageChange"
       @page-size-change="onPageSizeChange"
     >
+      <template #header-select>
+        <input
+          type="checkbox"
+          :checked="allOnPageSelected"
+          :indeterminate.prop="somePageSelected && !allOnPageSelected"
+          aria-label="Select all groups on this page"
+          :disabled="loading || !rows.length"
+          @change="toggleSelectAllPage"
+        />
+      </template>
+      <template #cell-select="{ row }">
+        <input
+          type="checkbox"
+          :checked="isRowSelected(toGroup(row).id)"
+          :aria-label="`Select ${toGroup(row).name}`"
+          :disabled="loading"
+          @change="toggleRow(toGroup(row).id)"
+        />
+      </template>
       <template #cell-name="{ row }">
         <span class="admin-groups__name">{{ toGroup(row).name }}</span>
       </template>
@@ -185,6 +226,7 @@
         </button>
       </template>
     </FormSheet>
+    </template>
   </div>
 </template>
 
@@ -195,6 +237,7 @@ import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
+import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
 import {
   fetchAdminGroupList,
   createGroup,
@@ -206,7 +249,14 @@ import {
 } from '@/utils/adminAPI'
 import { formatDateAU } from '@/utils/date'
 
+// "Groups" (the list built here) and "Matched Groups" (confirmed mentor
+// assignments, mentor replace/unassign) are tabs on one page — matching the
+// reference app, which nests both under one "Groups & Matching" section
+// rather than giving Matched Groups its own top-level admin route.
+const activeTab = ref<'groups' | 'matched'>('groups')
+
 const columns: AdminColumn[] = [
+  { key: 'select', label: '', width: '42px' },
   { key: 'name', label: 'Name', sortable: true },
   { key: 'members', label: 'Members', sortable: true },
   { key: 'mentor', label: 'Mentor', sortable: true },
@@ -287,30 +337,32 @@ const onPageSizeChange = (size: number) => {
 }
 
 // --- Selection -------------------------------------------------------------
-
-const selectedMap = ref<Map<number, AdminGroupDetail>>(new Map())
+// Row selection is owned entirely here, not through AdminDataTable's built-in
+// `selectable`/`:selected` mechanism — that path routes every toggle through
+// a derived Set the child recomputes from its own props snapshot, emits back
+// up, and this page then has to reconcile into its own state. That round trip
+// turned out to be unreliable in practice (state silently stopped tracking
+// unchecks in testing). A single Set mutated directly by our own toggle
+// functions, read directly by our own checkbox bindings, removes that extra
+// hop entirely — one source of truth, no reconciliation step to go stale.
+const selectedIds = ref<Set<number>>(new Set())
 const selectAllMatching = ref(false)
-const excludedIds = ref<Set<string>>(new Set())
+const excludedIds = ref<Set<number>>(new Set())
 
-const selectedIds = computed(() => Array.from(selectedMap.value.keys()))
-const pageIds = computed(() => rows.value.map((row) => String(row.id)))
+const pageIds = computed(() => rows.value.map((row) => row.id))
 const pageRowCount = computed(() => rows.value.length)
 
-const displaySelected = computed<Array<string | number>>(() => {
-  if (selectAllMatching.value) {
-    return pageIds.value.filter((id) => !excludedIds.value.has(id))
-  }
-  return selectedIds.value
-})
+const isRowSelected = (id: number): boolean =>
+  selectAllMatching.value ? !excludedIds.value.has(id) : selectedIds.value.has(id)
 
 const excludedCount = computed(() => excludedIds.value.size)
 const effectiveSelectAllCount = computed(() => Math.max(0, totalCount.value - excludedCount.value))
-const bulkCount = computed(() => (selectAllMatching.value ? effectiveSelectAllCount.value : selectedMap.value.size))
+const bulkCount = computed(() => (selectAllMatching.value ? effectiveSelectAllCount.value : selectedIds.value.size))
 
-const allOnPageSelected = computed(() => {
-  const shown = new Set(displaySelected.value.map((id) => String(id)))
-  return pageIds.value.length > 0 && pageIds.value.every((id) => shown.has(id))
-})
+const allOnPageSelected = computed(
+  () => pageIds.value.length > 0 && pageIds.value.every((id) => isRowSelected(id))
+)
+const somePageSelected = computed(() => pageIds.value.some((id) => isRowSelected(id)))
 
 const selectionBanner = computed(
   () => selectAllMatching.value || (allOnPageSelected.value && totalCount.value > pageRowCount.value)
@@ -319,33 +371,34 @@ const selectionBanner = computed(
 // Filters/search/sort redefine the matching set, so drop the selection (see
 // the watchers/onSortChange above).
 const clearSelection = () => {
-  selectedMap.value = new Map()
+  selectedIds.value = new Set()
   selectAllMatching.value = false
   excludedIds.value = new Set()
 }
 
-const onSelectedChange = (value: Array<string | number>) => {
+const setRowSelected = (id: number, selected: boolean) => {
   if (selectAllMatching.value) {
     const next = new Set(excludedIds.value)
-    pageIds.value.forEach((id) => {
-      if (value.includes(id)) next.delete(id)
-      else next.add(id)
-    })
+    if (selected) next.delete(id)
+    else next.add(id)
     excludedIds.value = next
     return
   }
-  const rowById = new Map(rows.value.map((row) => [row.id, row]))
-  const next = new Map<number, AdminGroupDetail>()
-  for (const id of value) {
-    const numericId = Number(id)
-    const existing = selectedMap.value.get(numericId)
-    next.set(numericId, existing ?? rowById.get(numericId) ?? ({ id: numericId } as AdminGroupDetail))
-  }
-  selectedMap.value = next
+  const next = new Set(selectedIds.value)
+  if (selected) next.add(id)
+  else next.delete(id)
+  selectedIds.value = next
+}
+
+const toggleRow = (id: number) => setRowSelected(id, !isRowSelected(id))
+
+const toggleSelectAllPage = () => {
+  const makeSelected = !allOnPageSelected.value
+  pageIds.value.forEach((id) => setRowSelected(id, makeSelected))
 }
 
 const selectAllMatchingNow = () => {
-  selectedMap.value = new Map()
+  selectedIds.value = new Set()
   excludedIds.value = new Set()
   selectAllMatching.value = true
 }
@@ -411,7 +464,7 @@ const runBulkDelete = async () => {
       }
     } else {
       await bulkDeleteGroups({
-        groupIds: selectedIds.value,
+        groupIds: [...selectedIds.value],
         force: bulkForce.value
       })
     }
@@ -596,6 +649,33 @@ const submitForm = async () => {
   margin: 0.75rem 0 0;
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+.admin-groups__tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.admin-groups__tab {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.admin-groups__tab:hover {
+  color: var(--charcoal);
+}
+
+.admin-groups__tab--active {
+  color: var(--dark-green);
+  border-bottom-color: var(--dark-green);
 }
 
 .admin-groups__filters {

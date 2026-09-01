@@ -756,6 +756,19 @@ export const unassignMentors = (groupIds: number[]) =>
     groupIds
   }).then((env) => ({ msg: env.msg, unassignedCount: env.data.unassignedCount }))
 
+export interface MentorReplacePayload {
+  membershipId: number
+  groupId: number
+  newMentorUserId: number
+}
+
+/** Swap one group's mentor for another (POST /mentor-match/replace/). Rejects
+ *  if the new mentor is already at capacity. */
+export const replaceMentor = (payload: MentorReplacePayload) =>
+  adminPost<AdminEnvelope<{ replaced: number }>>('/mentor-match/replace/', payload).then(
+    (env) => ({ msg: env.msg, replaced: env.data.replaced })
+  )
+
 export interface MentorReplaceSuggestion {
   mentorUserId: number
   name: string

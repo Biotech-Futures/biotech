@@ -39,6 +39,10 @@ const fetchMockFor = (groups: unknown[], totalCount = groups.length) =>
 
     if (url.includes('/services/csrf/')) {
       payload = { csrfToken: 'csrf-test' }
+    } else if (url.includes('/mentor-match/matched-groups/')) {
+      payload = { msg: 'ok', data: [] }
+    } else if (url.includes('/mentor-match/mentors/')) {
+      payload = { msg: 'ok', data: [] }
     } else if (url.includes('/group/next-name/')) {
       payload = { msg: 'ok', data: { name: 'BTF41' } }
     } else if (method === 'POST' && url.includes('/group/')) {
@@ -89,6 +93,21 @@ describe('AdminGroupsPage', () => {
     expect(wrapper.text()).toContain('Grace Hopper')
     expect(wrapper.text()).toContain('Unassigned')
     expect(wrapper.text()).toContain('1 student')
+  })
+
+  it('switches to the Matched Groups tab and hides the groups list', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([groupA, groupB]))
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const matchedTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Matched Groups')
+    expect(matchedTab).toBeDefined()
+    await matchedTab!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No confirmed mentor assignments yet.')
+    expect(wrapper.text()).not.toContain('BTF1')
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))).toBeUndefined()
   })
 
   it('searches by group name after the debounce', async () => {
@@ -258,7 +277,7 @@ describe('AdminGroupsPage bulk delete', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    const rowCheckbox = wrapper.find('input[aria-label="Select row 1"]')
+    const rowCheckbox = wrapper.find('input[aria-label="Select BTF1"]')
     expect(rowCheckbox.exists()).toBe(true)
     await rowCheckbox.setValue(true)
     expect(wrapper.text()).toContain('1 group selected')
@@ -281,6 +300,29 @@ describe('AdminGroupsPage bulk delete', () => {
     ) as [string, RequestInit]
     expect(JSON.parse(String(call[1].body))).toEqual({ groupIds: [1], force: false })
     expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+  })
+
+  it('drops the selected count when a row is unchecked in select-all-matching mode', async () => {
+    // Regression: select-all-matching tracked excluded ids as strings while
+    // AdminDataTable's row keys (and the plain-selection path) are numbers,
+    // so unchecking a row never actually registered — the count stayed frozen.
+    const fetchMock = bulkDeleteMockFor({ groups: [groupA, groupB], totalCount: 10, chunks: [] })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const headerCheckbox = wrapper.find('thead input[type="checkbox"]')
+    await headerCheckbox.setValue(true)
+    const selectAllLink = wrapper.findAll('button').find((b) => b.text().includes('Select all 10 groups'))
+    await selectAllLink!.trigger('click')
+    expect(wrapper.text()).toContain('10 groups selected')
+
+    const rowCheckbox = wrapper.find('input[aria-label="Select BTF1"]')
+    await rowCheckbox.setValue(false)
+    expect(wrapper.text()).toContain('9 groups selected')
+
+    await rowCheckbox.setValue(true)
+    expect(wrapper.text()).toContain('10 groups selected')
   })
 
   it('loops chunked requests for select-all-matching until nothing remains, requiring force + typed DELETE', async () => {
