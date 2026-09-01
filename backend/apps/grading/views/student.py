@@ -136,7 +136,13 @@ class MyCertificateView(APIView):
             request.user.get_full_name() if hasattr(request.user, "get_full_name") else ""
         ) or request.user.email
         payload = render_participation_certificate(
-            certificate_context(student_full_name, group.group_name, year)
+            certificate_context(
+                student_full_name,
+                group.group_name,
+                year,
+                first_name=request.user.first_name,
+                last_name=request.user.last_name,
+            )
         )
         return _docx_response(payload, f"certificate-{group.id}.docx")
 

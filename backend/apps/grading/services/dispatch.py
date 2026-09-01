@@ -183,6 +183,8 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
                     sp.user.get_full_name() or sp.user.email,
                     group.group_name,
                     year,
+                    first_name=sp.user.first_name,
+                    last_name=sp.user.last_name,
                 )
             )
             zf.writestr(f"{folder}/marks-summary.docx", summary_bytes)

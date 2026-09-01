@@ -779,3 +779,55 @@ class ComponentAnalyticsTests(_GradingFixture):
         self.assertEqual(marks["count"], 0)
         self.assertIsNone(marks["mean"])
         self.assertEqual(marks["histogram"], [])
+
+
+class ClientDocxTemplateTests(_GradingFixture):
+    """The client's real 2025 templates (bundled fallbacks) render correctly.
+
+    The marks release template uses <<[Field]>> tokens; the merit certificate
+    uses Word content controls with aliases. Both must come back with tokens
+    replaced and our data in place.
+    """
+
+    @staticmethod
+    def _document_xml(data: bytes) -> str:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return z.read("word/document.xml").decode("utf8")
+
+    def test_marks_release_tokens_filled(self):
+        from apps.grading.services.docx import marks_summary_context, render_marks_summary
+        from apps.grading.views.student import _grades_payload
+
+        Grade.objects.create(
+            submission=self.saq_submission, criterion=self.saq_c1,
+            mark=Decimal("4.00"), comment="Nice claim.", graded_by=self.staff,
+        )
+        Grade.objects.create(
+            submission=self.poster_submission, criterion=self.poster_c1,
+            mark=Decimal("3.50"), graded_by=self.staff,
+        )
+        components = _grades_payload(self.group, 2026)
+        data = render_marks_summary(marks_summary_context(self.group, 2026, components))
+        xml = self._document_xml(data)
+        self.assertNotIn("&lt;&lt;[", xml)
+        self.assertNotIn("<<[", xml)
+        self.assertIn("BTF-TEST-1", xml)      # TeamCode
+        self.assertIn("4.00", xml)            # S1 mark
+        self.assertIn("Nice claim.", xml)     # S1 comment
+        self.assertIn("7.50", xml)            # CombinedTotal = 4.00 + 3.50
+
+    def test_certificate_content_controls_filled(self):
+        from apps.grading.services.docx import (
+            certificate_context,
+            render_participation_certificate,
+        )
+
+        data = render_participation_certificate(
+            certificate_context(
+                "Ada Grader", "BTF-TEST-1", 2026, first_name="Ada", last_name="Grader",
+            )
+        )
+        xml = self._document_xml(data)
+        self.assertIn("Ada", xml)
+        self.assertIn("Grader", xml)
+        self.assertIn("BTF-TEST-1", xml)      # projectTitle falls back to group name
