@@ -170,10 +170,11 @@
       :busy="busy"
       :disabled="deleteConfirmBlocked"
       @confirm="runBulkDelete"
+      @cancel="onBulkDeleteCancelled"
     >
-      <p v-if="error" class="admin-groups__error" role="alert">
+      <p v-if="bulkDeleteError" class="admin-groups__error" role="alert">
         <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-        <span>{{ error }}</span>
+        <span>{{ bulkDeleteError }}</span>
       </p>
       <label class="admin-groups__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
@@ -423,6 +424,9 @@ const bulkDelete = ref({ open: false })
 const bulkForce = ref(false)
 const deleteConfirmText = ref('')
 const bulkDeleteProgress = ref<{ done: number; total: number } | null>(null)
+// Kept separate from the page-level `error` so a delete failure only shows
+// inside the dialog, not also behind its backdrop at the top of the page.
+const bulkDeleteError = ref('')
 
 const bulkDeleteMessage = computed(() => {
   const count = bulkCount.value
@@ -439,12 +443,42 @@ const deleteConfirmBlocked = computed(
 const confirmBulkDelete = () => {
   bulkForce.value = false
   deleteConfirmText.value = ''
-  error.value = ''
+  bulkDeleteError.value = ''
   bulkDelete.value = { open: true }
+}
+
+const onBulkDeleteCancelled = () => {
+  // Abandoning a partially-failed delete: clear the leftover selection so it
+  // doesn't linger in the bulk bar. A plain cancel (no error) keeps the
+  // selection, matching the other admin dialogs.
+  if (bulkDeleteError.value) clearSelection()
+  bulkDeleteError.value = ''
+}
+
+// A group referenced by a PROTECT relation (a hosted workshop) comes back in
+// `failedIds` with a 200, not an exception — surface that instead of silently
+// closing the dialog as if everything was deleted.
+const describeBulkDeleteFailure = (failed: number, notFound: number): string => {
+  const parts: string[] = []
+  if (failed > 0) {
+    parts.push(
+      `${failed} ${failed === 1 ? 'group' : 'groups'} couldn't be deleted because other records ` +
+        `(such as a hosted workshop) still reference ${failed === 1 ? 'it' : 'them'}. ` +
+        'Tick "Force delete" to remove those too.'
+    )
+  }
+  if (notFound > 0) {
+    parts.push(`${notFound} ${notFound === 1 ? 'group was' : 'groups were'} already deleted.`)
+  }
+  return parts.join(' ')
 }
 
 const runBulkDelete = async () => {
   busy.value = true
+  bulkDeleteError.value = ''
+  const deletedIds: number[] = []
+  const failedIds: number[] = []
+  const notFoundIds: number[] = []
   try {
     if (selectAllMatching.value) {
       const expectedCount = bulkCount.value
@@ -463,21 +497,45 @@ const runBulkDelete = async () => {
         })
         if (!data) break
         done += data.deletedIds.length
+        deletedIds.push(...data.deletedIds)
+        failedIds.push(...data.failedIds)
+        notFoundIds.push(...data.notFoundIds)
         excludeIds = [...excludeIds, ...data.deletedIds, ...data.failedIds, ...data.notFoundIds]
         bulkDeleteProgress.value = { done, total: expectedCount }
         if (!data.remaining) break
       }
     } else {
-      await bulkDeleteGroups({
+      const { data } = await bulkDeleteGroups({
         groupIds: [...selectedIds.value],
         force: bulkForce.value
       })
+      if (data) {
+        deletedIds.push(...data.deletedIds)
+        failedIds.push(...data.failedIds)
+        notFoundIds.push(...data.notFoundIds)
+      }
     }
+
+    await loadGroups()
+
+    // Drop the groups that actually went from the selection (keep failed ones so
+    // a force retry targets them). Subtract by id rather than rebuilding from the
+    // response so the surviving entries keep the type AdminDataTable keys by.
+    if (deletedIds.length) {
+      const gone = new Set(deletedIds.map(Number))
+      selectedIds.value = new Set([...selectedIds.value].filter((id) => !gone.has(Number(id))))
+    }
+
+    if (failedIds.length || notFoundIds.length) {
+      // Keep the dialog open with the reason so the admin can retry with force.
+      bulkDeleteError.value = describeBulkDeleteFailure(failedIds.length, notFoundIds.length)
+      return
+    }
+
     bulkDelete.value = { open: false }
     clearSelection()
-    await loadGroups()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Bulk delete failed.'
+    bulkDeleteError.value = err instanceof Error ? err.message : 'Bulk delete failed.'
   } finally {
     busy.value = false
     bulkDeleteProgress.value = null

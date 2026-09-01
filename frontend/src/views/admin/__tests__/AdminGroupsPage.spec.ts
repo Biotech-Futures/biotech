@@ -330,6 +330,8 @@ describe('AdminGroupsPage bulk delete failure path', () => {
     // it — not just set on a page-level ref hidden behind the open modal.
     expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeDefined()
     expect(dialog.textContent).toContain('Group cannot be deleted because other records reference it')
+    // ...and not also rendered at the top of the page (behind the backdrop).
+    expect(wrapper.text()).not.toContain('Group cannot be deleted because other records reference it')
 
     blocked = false
     const forceCheckbox = dialog.querySelector('input[type="checkbox"]') as HTMLInputElement
@@ -353,6 +355,148 @@ describe('AdminGroupsPage bulk delete failure path', () => {
     expect(calls.length).toBe(2)
     expect(JSON.parse(String(calls[0][1].body)).force).toBe(false)
     expect(JSON.parse(String(calls[1][1].body)).force).toBe(true)
+  })
+
+  it('surfaces a 200 response that only reports failedIds instead of closing silently', async () => {
+    // The real backend returns 200 with the blocked ids in `failedIds` (a hosted
+    // workshop PROTECTs the row) — not an HTTP error. Without inspecting the body
+    // the dialog would just close and the group would quietly survive.
+    let groups = [groupA]
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/bulk-delete/')) {
+        const force = JSON.parse(String(init?.body ?? '{}')).force
+        if (force) {
+          groups = []
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ msg: 'ok', data: { deletedIds: [1], failedIds: [], notFoundIds: [] } }),
+              { status: 200 }
+            )
+          )
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              msg: '0 group(s) deleted; 1 could not be deleted (referenced by other records)',
+              data: { deletedIds: [], failedIds: [1], notFoundIds: [] }
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              msg: 'ok',
+              data: { items: groups, total: groups.length, page: 1, limit: 25, has_more: false }
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="Select BTF1"]').setValue(true)
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete'
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    // Dialog stays open, tells the admin why, and the group is still listed.
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeDefined()
+    expect(dialog.textContent).toContain("couldn't be deleted")
+    expect(dialog.textContent).toContain('Force delete')
+    expect(wrapper.text()).toContain('BTF1')
+
+    // Retrying with force clears the blocker and closes the dialog.
+    const forceCheckbox = dialog.querySelector('input[type="checkbox"]') as HTMLInputElement
+    forceCheckbox.checked = true
+    forceCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+    const deleteInput = dialog.querySelector('#bulk-delete-confirm') as HTMLInputElement
+    deleteInput.value = 'DELETE'
+    deleteInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+    const bulkCalls = fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/group/bulk-delete/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit][]
+    expect(JSON.parse(String(bulkCalls[0][1].body)).force).toBe(false)
+    expect(JSON.parse(String(bulkCalls[1][1].body)).force).toBe(true)
+  })
+
+  it('clears the leftover selection when a failed bulk delete is cancelled', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/bulk-delete/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ msg: 'blocked', data: { deletedIds: [], failedIds: [1], notFoundIds: [] } }),
+            { status: 200 }
+          )
+        )
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              msg: 'ok',
+              data: { items: [groupA], total: 1, page: 1, limit: 25, has_more: false }
+            }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="Select BTF1"]').setValue(true)
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    Array.from(dialog.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Delete')!
+      .dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 group selected')
+
+    // Cancel out of the failed attempt — the bulk bar should not keep a phantom
+    // selection around.
+    Array.from(dialog.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Cancel')!
+      .dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+    expect(wrapper.text()).not.toContain('group selected')
   })
 })
 
