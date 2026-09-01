@@ -14,11 +14,44 @@
     <div v-else-if="payload" class="component-table">
       <div class="component-table__header">
         <h2 class="component-table__title">{{ payload.component.name }}</h2>
-        <p class="component-table__stats">
-          {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
-        </p>
+        <div class="component-table__actions">
+          <p class="component-table__stats">
+            {{ submittedCount }}/{{ payload.rows.length }} submitted ·
+            {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+          </p>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="startJob('zip')"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Zip
+          </button>
+          <button
+            v-if="payload.component.code === 'SAQ'"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="startJob('xlsx')"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> XLSX
+          </button>
+          <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+        </div>
       </div>
+
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--info">
+        {{ jobBusyLabel }}
+      </p>
+      <p v-else-if="job.phase.value === 'done'" class="component-table__banner component-table__banner--ok">
+        Download ready — check your browser downloads.
+      </p>
+      <p v-else-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
+        {{ job.error.value }}
+      </p>
+      <p v-if="uploadMessage" class="component-table__banner component-table__banner--ok">
+        {{ uploadMessage }}
+      </p>
 
       <div class="component-table__scroll">
         <table class="component-table__table">
@@ -116,6 +149,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
+import { useJobPolling } from '@/composables/useJobPolling'
 import {
   fetchComponentRows,
   type ComponentListPayload,
@@ -129,6 +164,24 @@ const code = computed(() => String(route.params.code || ''))
 const payload = ref<ComponentListPayload | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
+
+const job = useJobPolling()
+const uploadMessage = ref('')
+
+const jobBusyLabel = computed(() => {
+  if (job.phase.value === 'downloading') return 'Downloading…'
+  return 'Preparing export… this can take a moment for large cohorts.'
+})
+
+const startJob = (format: 'zip' | 'xlsx') => {
+  uploadMessage.value = ''
+  void job.start(code.value, format)
+}
+
+const onUploadApplied = async (written: number) => {
+  uploadMessage.value = `Marks applied — wrote ${written} row${written === 1 ? '' : 's'}.`
+  await load()
+}
 
 type SortKey = 'id' | 'time' | 'progress'
 const sortKey = ref<SortKey>('time')
@@ -148,7 +201,14 @@ const load = async () => {
   }
 }
 
-watch(code, () => void load(), { immediate: true })
+watch(
+  code,
+  () => {
+    uploadMessage.value = ''
+    void load()
+  },
+  { immediate: true }
+)
 
 const submittedCount = computed(
   () => payload.value?.rows.filter((r) => r.submission_id != null).length ?? 0
@@ -260,6 +320,35 @@ const displayRows = computed(() => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0;
+}
+
+.component-table__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.component-table__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.component-table__banner--info {
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+}
+
+.component-table__banner--ok {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+.component-table__banner--error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 
 .component-table__scroll {
