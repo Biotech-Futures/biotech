@@ -391,3 +391,92 @@ describe('AdminGroupsPage bulk delete', () => {
     expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
   })
 })
+
+// Cross-feature checks: does the whole page hold together across the seams
+// between features, not just each feature in isolation (already covered by
+// the describe blocks above).
+describe('AdminGroupsPage integration', () => {
+  it('shows a newly created group in the list without a manual reload', async () => {
+    // Unlike fetchMockFor, the GET response here changes once the create
+    // actually lands — the point is to prove the post-create reload really
+    // renders the new row, not just that the POST call was made.
+    let created = false
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+
+      if (u.includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'csrf-test' }), { status: 200 }))
+      }
+      if (u.includes('/group/next-name/')) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: { name: 'BTF41' } }), { status: 200 }))
+      }
+      if (method === 'POST' && u.includes('/group/')) {
+        created = true
+        return Promise.resolve(
+          new Response(JSON.stringify({ msg: 'Group created successfully', data: createdGroup }), { status: 201 })
+        )
+      }
+      if (method === 'GET' && u.includes('/group/')) {
+        const items = created ? [createdGroup, groupA, groupB] : [groupA, groupB]
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ msg: 'ok', data: { items, total: items.length, page: 1, limit: 25, has_more: false } }),
+            { status: 200 }
+          )
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('BTF41')
+
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))
+    await newGroupButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('New group'))!
+    const createButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')!
+    createButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('BTF41')
+  })
+
+  it('preserves loaded groups and search state when switching to Matched Groups and back', async () => {
+    const fetchMock = fetchMockFor([groupA, groupB])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    await wrapper.find('input[type="search"]').setValue('BTF')
+    const groupListCallsBeforeSwitch = fetchMock.mock.calls.filter(
+      ([u]) => String(u).includes('/group/') && !String(u).includes('/group/next-name/')
+    ).length
+
+    const matchedTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Matched Groups')
+    await matchedTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('BTF1')
+
+    const groupsTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Groups')
+    await groupsTab!.trigger('click')
+    await flushPromises()
+
+    // Switching tabs is a pure template toggle for the Groups list's own
+    // state — the underlying refs live in AdminGroupsPage's own script scope
+    // regardless of which tab is shown, so re-showing "Groups" must not
+    // re-fetch or drop what's already loaded/typed. (Matched Groups itself
+    // legitimately re-fetches every time it's shown — it's a separate
+    // component behind v-if — so this only counts /group/ list calls.)
+    const groupListCallsAfterSwitch = fetchMock.mock.calls.filter(
+      ([u]) => String(u).includes('/group/') && !String(u).includes('/group/next-name/')
+    ).length
+    expect(groupListCallsAfterSwitch).toBe(groupListCallsBeforeSwitch)
+    expect(wrapper.text()).toContain('BTF1')
+    expect((wrapper.find('input[type="search"]').element as HTMLInputElement).value).toBe('BTF')
+  })
+})
