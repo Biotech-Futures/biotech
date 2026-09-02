@@ -50,6 +50,8 @@ _DUAL_MOUNTS: tuple[tuple[str, str], ...] = (
     ("resources/", "apps.resources.urls"),
     # ``services`` exposes csrf/login/logout endpoints; dual-mount for consistency.
     ("services/",  "apps.services.urls"),
+    # FE hits ``/api/v1/meetings/meetings/`` for mentor-scheduled group meetings.
+    ("meetings/",  "apps.meetings.urls"),
 )
 
 

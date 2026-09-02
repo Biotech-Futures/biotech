@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'apps.user_sessions',
     'apps.matching_runtime',
     'apps.tasks',
+    'apps.meetings',
     'apps.workshops',
     'apps.certificates',
     'apps.services',
@@ -112,7 +113,7 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
             "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
+        ), 
         cast=Csv(),
     )
     if str(value).strip()
