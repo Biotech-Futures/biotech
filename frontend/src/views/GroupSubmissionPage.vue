@@ -64,10 +64,6 @@
         </button>
       </div>
 
-      <p v-if="!isOpen" class="submission-closed">
-        Submissions are closed, so this entry can no longer be changed. It stays visible here.
-      </p>
-
       <!-- Slim bar rather than a full card: it appears after every action, so
            card-sized padding pushed the form down the page each time. -->
       <div v-if="message" class="submission-message" :class="{ 'submission-message--error': isError }">
@@ -666,13 +662,20 @@ const stage = computed<SubmissionStage>(
  * team who never started was told "In Progress" after the deadline had gone.
  * Listing the cases makes a missing one visible instead of silent.
  */
+const CLOSED = 'Submissions are closed.'
+
 const state = computed(() => {
   const closed = !isOpen.value
   const by = submittedLine.value
 
   switch (stage.value) {
     case 'submitted':
-      return { tone: 'submitted', icon: 'fa-check', headline: 'Submitted', detail: by }
+      return {
+        tone: 'submitted',
+        icon: 'fa-check',
+        headline: 'Submitted',
+        detail: closed ? [by, CLOSED].filter(Boolean).join('. ') : by,
+      }
     case 'revising':
       return closed
         ? {
@@ -680,9 +683,9 @@ const state = computed(() => {
             icon: 'fa-check',
             headline: 'Submitted',
             // The point they would otherwise have to work out for themselves.
-            detail: by
-              ? `${by}. Your unfinished revision was not submitted.`
-              : 'Your unfinished revision was not submitted.',
+            detail: [by, CLOSED, 'Your unfinished revision was not submitted.']
+              .filter(Boolean)
+              .join('. '),
           }
         : {
             tone: 'progress',
@@ -696,8 +699,7 @@ const state = computed(() => {
             tone: 'missed',
             icon: 'fa-circle-exclamation',
             headline: 'Not Submitted',
-            detail:
-              'The deadline passed. Your saved work is below, but it was never submitted.',
+            detail: 'Submissions are closed. Your saved work is below, but it was never submitted.',
           }
         : { tone: 'progress', icon: 'fa-pen', headline: 'In Progress', detail: '' }
     default:
@@ -706,7 +708,7 @@ const state = computed(() => {
             tone: 'missed',
             icon: 'fa-circle-exclamation',
             headline: 'Not Submitted',
-            detail: 'The deadline passed. No entry was received.',
+            detail: 'Submissions are closed.',
           }
         : { tone: 'progress', icon: 'fa-pen', headline: 'Not Started', detail: '' }
   }
@@ -1554,15 +1556,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
-.submission-closed {
-  padding: 0.75rem 1rem;
-  margin-bottom: var(--gap-lg);
-  border-radius: 8px;
-  border-left: 4px solid var(--accent);
-  background: var(--notice-bg);
-  font-size: var(--text-meta);
-  font-weight: 600;
-}
 
 .submission-message {
   display: flex;

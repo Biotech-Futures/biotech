@@ -421,7 +421,7 @@ describe('the deadline passing while the page is open', () => {
     wrapper!.findAll('textarea').forEach((box) => {
       expect(box.attributes('disabled')).toBeDefined()
     })
-    expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+    expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
     expect(wrapper!.text()).toMatch(/deadline has passed/i)
   })
 
@@ -476,7 +476,7 @@ describe('the deadline passing while the page is open', () => {
       await flushPromises()
 
       expect(fetchSubmission).toHaveBeenCalledTimes(2)
-      expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+      expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
       wrapper!.findAll('textarea').forEach((box) => {
         expect(box.attributes('disabled')).toBeDefined()
       })
@@ -745,11 +745,11 @@ describe('what the status line says', () => {
     expect(text).toContain('still stands')
   })
 
-  it('tells a team that never started that nothing was received', async () => {
+  it('tells a team that never started that nothing went in', async () => {
     await mountPage(at('not_started', false))
     const text = line()
     expect(text).toContain('Not Submitted')
-    expect(text).toContain('No entry was received')
+    expect(text).toContain('Submissions are closed')
     expect(text).not.toContain('In Progress')
   })
 
@@ -832,7 +832,7 @@ describe('how the status line is worded', () => {
     await mountPage(buildDetail({ isOpen: false, submission: { stage: 'not_started' } }))
 
     const text = wrapper!.find('.status-line').text()
-    expect(text).toContain('The deadline passed.')
+    expect(text).toContain('Submissions are closed.')
     expect(text).not.toMatch(/deadline passed on/i)
   })
 
@@ -840,6 +840,15 @@ describe('how the status line is worded', () => {
     await mountPage(submittedDetail())
 
     expect(wrapper!.find('.status-line__state').text()).toBe('Submitted.')
+  })
+
+  it('says the window is shut in the status line, not a separate banner', async () => {
+    // The banner said the same thing twice, one line below the status it
+    // duplicated.
+    await mountPage(buildDetail({ isOpen: false, submission: { stage: 'not_started' } }))
+
+    expect(wrapper!.find('.submission-closed').exists()).toBe(false)
+    expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
   })
 
   it('leaves the headline unpunctuated when it stands alone', async () => {
