@@ -708,12 +708,7 @@ const state = computed(() => {
             headline: 'Not Submitted',
             detail: 'The deadline passed. No entry was received.',
           }
-        : {
-            tone: 'progress',
-            icon: 'fa-pen',
-            headline: 'Not Started',
-            detail: 'Add your answers and poster before the deadline.',
-          }
+        : { tone: 'progress', icon: 'fa-pen', headline: 'Not Started', detail: '' }
   }
 })
 
