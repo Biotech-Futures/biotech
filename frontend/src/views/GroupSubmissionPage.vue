@@ -45,19 +45,13 @@
 
       <!-- One line rather than a panel: in progress is the ordinary state, and
            only a completed submission carries information worth pausing on. -->
-      <div class="status-line" :class="{ 'is-submitted': isLocked }">
-        <!-- A pen while editing, a tick once submitted: a hollow grey circle
-             said nothing about what state the entry was in. -->
+      <div class="status-line" :class="`is-${state.tone}`">
         <span class="status-line__icon" aria-hidden="true">
-          <i :class="isLocked ? 'fas fa-check' : 'fas fa-pen'"></i>
+          <i :class="`fas ${state.icon}`"></i>
         </span>
-        <strong class="status-line__state">{{ isLocked ? 'Submitted' : 'In Progress' }}</strong>
-        <span v-if="isLocked && submittedLine" class="status-line__detail">{{ submittedLine }}</span>
-        <!-- Reassurance during a revision: the entry they already handed in is
-             still the one that counts until they finish this one. -->
-        <span v-else-if="isRevising" class="status-line__detail">
-          Your previous submission still stands until you submit again.
-        </span>
+        <strong class="status-line__state">{{ state.headline
+          }}{{ state.detail ? '.' : '' }}</strong>
+        <span v-if="state.detail" class="status-line__detail">{{ state.detail }}</span>
 
         <button
           v-if="isLocked && isOpen"
@@ -69,10 +63,6 @@
           {{ isReopening ? 'Opening…' : 'Resubmit' }}
         </button>
       </div>
-
-      <p v-if="!isOpen" class="submission-closed">
-        Submissions are closed, so this entry can no longer be changed. It stays visible here.
-      </p>
 
       <!-- Slim bar rather than a full card: it appears after every action, so
            card-sized padding pushed the form down the page each time. -->
@@ -483,6 +473,7 @@ import {
   submitEntry,
   uploadSubmissionFile,
   type StoredFile,
+  type SubmissionStage,
   type SubmissionDetail,
   type SubmissionSlot,
   type SubmissionWriteResult
@@ -595,20 +586,24 @@ const isBusy = computed(
 )
 
 /**
- * A locked entry shows what was submitted, not the working draft.
+ * Whether the page displays the frozen copy rather than the working draft.
  *
- * They differ while a revision is under way, which is what lets an abandoned
- * revision leave the submitted entry alone.
+ * Not simply "is it locked": once the deadline shuts, an unfinished revision
+ * stops mattering and what was submitted is what gets marked, so that is what
+ * the team must be shown. Reading `is_locked` alone showed them a draft nobody
+ * would ever grade.
  */
-/**
- * What the format checks found about the poster now on show.
- *
- * Follows the same submitted-versus-draft rule as the file itself.
- */
+const showsSubmittedCopy = computed(() => {
+  const submission = detail.value?.submission
+  if (!submission?.is_submitted) return false
+  return submission.is_locked || !isOpen.value
+})
+
+/** What the format checks found about whichever poster is on show. */
 const posterWarnings = computed(() => {
   const submission = detail.value?.submission
   if (!submission) return []
-  const checks = isLocked.value
+  const checks = showsSubmittedCopy.value
     ? submission.submitted_poster_checks
     : submission.poster_checks
   return checks?.warnings ?? []
@@ -617,7 +612,9 @@ const posterWarnings = computed(() => {
 function shownFile(slot: SubmissionSlot): StoredFile | null {
   const submission = detail.value?.submission
   if (!submission) return null
-  return isLocked.value ? submission[`submitted_${slot}` as const] : submission[slot]
+  return showsSubmittedCopy.value
+    ? submission[`submitted_${slot}` as const]
+    : submission[slot]
 }
 const stepIndex = computed(() => TABS.findIndex((tab) => tab.key === activeTab.value))
 const isFirstStep = computed(() => stepIndex.value <= 0)
@@ -649,13 +646,81 @@ const isRevising = computed(
   () => Boolean(detail.value?.submission?.is_submitted) && !isLocked.value
 )
 
+/**
+ * Where the entry stands. A team with no entry at all has not started one.
+ */
+const stage = computed<SubmissionStage>(
+  () => detail.value?.submission?.stage ?? 'not_started'
+)
+
+/**
+ * How the entry is described, from its stage paired with the open window.
+ *
+ * A table rather than nested conditions because the two facts are independent:
+ * every stage can be met with the window open or shut, and the combinations
+ * the old conditionals did not cover are exactly where they went wrong — a
+ * team who never started was told "In Progress" after the deadline had gone.
+ * Listing the cases makes a missing one visible instead of silent.
+ */
+const CLOSED = 'Submissions are closed.'
+
+const state = computed(() => {
+  const closed = !isOpen.value
+  const by = submittedLine.value
+
+  switch (stage.value) {
+    case 'submitted':
+      return {
+        tone: 'submitted',
+        icon: 'fa-check',
+        headline: 'Submitted',
+        detail: closed ? [by, CLOSED].filter(Boolean).join('. ') : by,
+      }
+    case 'revising':
+      return closed
+        ? {
+            tone: 'submitted',
+            icon: 'fa-check',
+            headline: 'Submitted',
+            // The point they would otherwise have to work out for themselves.
+            detail: [by, CLOSED, 'Your unfinished revision was not submitted.']
+              .filter(Boolean)
+              .join('. '),
+          }
+        : {
+            tone: 'progress',
+            icon: 'fa-pen',
+            headline: 'In Progress',
+            detail: 'Your previous submission still stands until you submit again.',
+          }
+    case 'in_progress':
+      return closed
+        ? {
+            tone: 'missed',
+            icon: 'fa-circle-exclamation',
+            headline: 'Not Submitted',
+            detail: 'Submissions are closed. Your saved work is below, but it was never submitted.',
+          }
+        : { tone: 'progress', icon: 'fa-pen', headline: 'In Progress', detail: '' }
+    default:
+      return closed
+        ? {
+            tone: 'missed',
+            icon: 'fa-circle-exclamation',
+            headline: 'Not Submitted',
+            detail: 'Submissions are closed.',
+          }
+        : { tone: 'progress', icon: 'fa-pen', headline: 'Not Started', detail: '' }
+  }
+})
+
 const submittedLine = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.submitted_at) return ''
   const when = formatDate(submission.submitted_at)
   return submission.submitted_by_name
-    ? `by ${submission.submitted_by_name} on ${when}`
-    : `on ${when}`
+    ? `By ${submission.submitted_by_name} on ${when}`
+    : `On ${when}`
 })
 
 const deadlineDate = computed(() => {
@@ -906,12 +971,16 @@ async function syncPreviewForTab() {
 /** Copy server state into the fields, showing whichever copy applies. */
 function syncFromDetail() {
   const submission = detail.value?.submission
-  const source = isLocked.value ? submission?.submitted_answers : submission?.answers
+  const source = showsSubmittedCopy.value
+    ? submission?.submitted_answers
+    : submission?.answers
   questions.value.forEach((question) => {
     answers[question.key] = source?.[question.key] ?? ''
   })
   prototypeUrl.value =
-    (isLocked.value ? submission?.submitted_prototype_url : submission?.prototype_url) ?? ''
+    (showsSubmittedCopy.value
+      ? submission?.submitted_prototype_url
+      : submission?.prototype_url) ?? ''
   // Baseline for change detection: what was just loaded is, by definition,
   // what the server already has.
   savedSnapshot.value = currentSnapshot()
@@ -1423,10 +1492,6 @@ onBeforeUnmount(() => {
   letter-spacing: -0.005em;
 }
 
-.status-line__detail::before {
-  content: '· ';
-}
-
 .status-line__action {
   margin-left: auto;
 }
@@ -1440,6 +1505,17 @@ onBeforeUnmount(() => {
 
 .status-line.is-submitted .status-line__state {
   color: var(--accent);
+}
+
+/* A deadline gone by with nothing submitted. Stated rather than alarmed:
+   there is nothing left to do about it, so red would only be cruel. */
+.status-line.is-missed .status-line__icon {
+  background: var(--field-disabled-bg);
+  color: var(--muted);
+}
+
+.status-line.is-missed .status-line__state {
+  color: var(--body-text);
 }
 
 .submission-remaining {
@@ -1480,15 +1556,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
-.submission-closed {
-  padding: 0.75rem 1rem;
-  margin-bottom: var(--gap-lg);
-  border-radius: 8px;
-  border-left: 4px solid var(--accent);
-  background: var(--notice-bg);
-  font-size: var(--text-meta);
-  font-weight: 600;
-}
 
 .submission-message {
   display: flex;

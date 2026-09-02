@@ -20,6 +20,9 @@ export interface SubmissionDeadline {
   is_open: boolean
 }
 
+/** How far an entry has got, independently of whether the window is open. */
+export type SubmissionStage = 'not_started' | 'in_progress' | 'submitted' | 'revising'
+
 /** One requirement the poster did not visibly meet. */
 export interface PosterWarning {
   code: string
@@ -58,7 +61,12 @@ export interface SubmissionRecord {
   submitted_at: string | null
   submitted_by_name: string
   reopened_at: string | null
-  status: 'in_progress' | 'submitted'
+  /**
+   * How far the entry has got, said independently of the deadline.
+   *
+   * Whether the window is open is a separate fact; the page pairs the two.
+   */
+  stage: SubmissionStage
   is_submitted: boolean
   /** Submitted and not reopened — editing is closed. */
   is_locked: boolean

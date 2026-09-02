@@ -21,7 +21,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
     is_submitted = serializers.BooleanField(read_only=True)
     is_locked = serializers.BooleanField(read_only=True)
-    status = serializers.CharField(read_only=True)
+    stage = serializers.CharField(read_only=True)
     submitted_by_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -45,7 +45,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "submitted_at",
             "submitted_by_name",
             "reopened_at",
-            "status",
+            "stage",
             "is_submitted",
             "is_locked",
             "is_late",

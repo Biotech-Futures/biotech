@@ -17,6 +17,14 @@ from django.db import models
 from django.utils import timezone
 
 
+# How far an entry has got. Read by the page and by anything reporting on a
+# cohort, so these strings are a contract rather than display text.
+STAGE_NOT_STARTED = "not_started"
+STAGE_IN_PROGRESS = "in_progress"
+STAGE_SUBMITTED = "submitted"
+STAGE_REVISING = "revising"
+
+
 def _default_cohort() -> int:
     """Fallback cohort for a draft row.
 
@@ -270,7 +278,7 @@ class Submission(models.Model):
     FILE_SLOTS = ("poster", "report", "prototype")
 
     def __str__(self):
-        return f"{self.group} ({self.status})"
+        return f"{self.group} ({self.stage})"
 
     @property
     def is_submitted(self) -> bool:
@@ -285,8 +293,26 @@ class Submission(models.Model):
         return self.reopened_at is None or self.reopened_at <= self.submitted_at
 
     @property
-    def status(self) -> str:
-        return "submitted" if self.is_locked else "in_progress"
+    def has_content(self) -> bool:
+        """Anything at all filled in, so an untouched entry can be told apart."""
+        if any(str(value).strip() for value in (self.answers or {}).values()):
+            return True
+        if self.prototype_url:
+            return True
+        return any(getattr(self, slot) for slot in self.FILE_SLOTS)
+
+    @property
+    def stage(self) -> str:
+        """How far the entry has got, said independently of the deadline.
+
+        Deliberately knows nothing about whether submissions are still open:
+        that is a fact about the competition, not about this entry, and keeping
+        the two apart is what lets a caller answer "submitted but closed"
+        without a third state existing for it.
+        """
+        if self.submitted_at is None:
+            return STAGE_IN_PROGRESS if self.has_content else STAGE_NOT_STARTED
+        return STAGE_SUBMITTED if self.is_locked else STAGE_REVISING
 
     def snapshot(self, user):
         """Copy the working entry into the submitted set.

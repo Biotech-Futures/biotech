@@ -78,14 +78,14 @@ class SubmissionLifecycleTests(TestCase):
         self.client.put(self.detail_url, {"answers": self._answers()}, format="json")
 
         submission = self._submission()
-        self.assertEqual(submission.status, "in_progress")
+        self.assertEqual(submission.stage, "in_progress")
         self.assertFalse(submission.is_locked)
 
     def test_submitting_locks_the_entry(self):
         self.assertEqual(self._fill_and_submit().status_code, 200)
 
         submission = self._submission()
-        self.assertEqual(submission.status, "submitted")
+        self.assertEqual(submission.stage, "submitted")
         self.assertTrue(submission.is_locked)
         self.assertEqual(submission.submitted_by, self.student)
 
@@ -95,7 +95,7 @@ class SubmissionLifecycleTests(TestCase):
         response = self.client.post(self.reopen_url, {}, format="json")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self._submission().status, "in_progress")
+        self.assertEqual(self._submission().stage, "revising")
 
     def test_reopening_an_unsubmitted_entry_is_refused(self):
         self.client.put(self.detail_url, {"answers": self._answers()}, format="json")
@@ -124,7 +124,7 @@ class SubmissionLifecycleTests(TestCase):
         response = self.client.get(self.detail_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["submission"]["status"], "submitted")
+        self.assertEqual(response.data["submission"]["stage"], "submitted")
         self.assertEqual(response.data["submission"]["submitted_by_name"], "Ada Lovelace")
 
     def test_submitting_twice_without_reopening_is_refused(self):
@@ -190,3 +190,84 @@ class SubmissionLifecycleTests(TestCase):
         self.client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(Submission.objects.filter(group=self.group).count(), 1)
+
+
+class SubmissionStageTests(TestCase):
+    """The four stages an entry moves through, said without the deadline.
+
+    Stage is deliberately blind to whether submissions are still open: that is
+    a fact about the competition, not about this entry. Keeping them apart is
+    what lets a caller say "submitted, and the window has closed" without
+    inventing a fifth stage for it.
+    """
+
+    def setUp(self):
+        self.group = Groups.objects.create(group_name="BTF-STAGE")
+
+    def test_an_untouched_entry_has_not_started(self):
+        submission = Submission.objects.create(group=self.group)
+
+        self.assertEqual(submission.stage, "not_started")
+
+    def test_whitespace_alone_does_not_count_as_started(self):
+        submission = Submission.objects.create(
+            group=self.group, answers={"solution_purpose": "   "}
+        )
+
+        self.assertEqual(submission.stage, "not_started")
+
+    def test_a_written_answer_makes_it_in_progress(self):
+        submission = Submission.objects.create(
+            group=self.group, answers={"solution_purpose": "Something."}
+        )
+
+        self.assertEqual(submission.stage, "in_progress")
+
+    def test_an_uploaded_file_alone_makes_it_in_progress(self):
+        submission = Submission.objects.create(
+            group=self.group, poster={"storage_key": "k", "name": "p.pdf"}
+        )
+
+        self.assertEqual(submission.stage, "in_progress")
+
+    def test_a_prototype_link_alone_makes_it_in_progress(self):
+        submission = Submission.objects.create(
+            group=self.group, prototype_url="https://example.org/demo"
+        )
+
+        self.assertEqual(submission.stage, "in_progress")
+
+    def test_a_completed_entry_is_submitted(self):
+        submission = Submission.objects.create(
+            group=self.group, answers={"solution_purpose": "Something."}
+        )
+        submission.snapshot(None)
+        submission.save()
+
+        self.assertEqual(submission.stage, "submitted")
+
+    def test_reopening_moves_it_to_revising(self):
+        submission = Submission.objects.create(
+            group=self.group, answers={"solution_purpose": "Something."}
+        )
+        submission.snapshot(None)
+        submission.save()
+        submission.reopened_at = submission.submitted_at + timedelta(minutes=1)
+        submission.save()
+
+        self.assertEqual(submission.stage, "revising")
+
+    def test_a_revising_entry_still_counts_as_submitted(self):
+        # The distinction the old two-value status could not express: work is
+        # under way *and* there is a completed entry on record.
+        submission = Submission.objects.create(
+            group=self.group, answers={"solution_purpose": "Something."}
+        )
+        submission.snapshot(None)
+        submission.save()
+        submission.reopened_at = submission.submitted_at + timedelta(minutes=1)
+        submission.save()
+
+        self.assertEqual(submission.stage, "revising")
+        self.assertTrue(submission.is_submitted)
+        self.assertFalse(submission.is_locked)
