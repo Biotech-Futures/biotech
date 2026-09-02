@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission, SubmissionComponent
+from apps.submissions.models import Submission
+
+from ..models import SubmissionComponent
 
 from ..models import Grade, Rubric
 from ..permissions import IsGrader

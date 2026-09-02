@@ -33,7 +33,9 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
-from apps.submissions.models import Submission, SubmissionComponent
+from apps.submissions.models import Submission
+
+from ..models import SubmissionComponent
 from apps.users.models import StudentProfile
 
 from ..models import Grade, GradingJob, RubricCriterion

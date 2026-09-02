@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from apps.submissions.models import Submission, SubmissionComponent
+from apps.submissions.models import Submission
+
+from .models import SubmissionComponent
 
 from .models import Grade, Rubric, RubricCriterion
 

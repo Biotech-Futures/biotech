@@ -14,7 +14,9 @@ from rest_framework.test import APIClient
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.grading.models import FinalistFlag, Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
-from apps.submissions.models import Submission, SubmissionComponent
+from apps.submissions.models import Submission
+
+from apps.grading.models import SubmissionComponent
 from apps.users.models import AdminScope, User
 
 
