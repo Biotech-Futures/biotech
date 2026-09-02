@@ -581,6 +581,84 @@ class SubmissionDeadlineViewTests(_GradingFixture):
         )
 
 
+class GroupExtensionViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("grading:deadline-extensions")
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_grant_list_and_revoke(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-11-05T13:00:00Z",
+             "reason": "School flood."},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["extension"]["group_name"], "BTF-TEST-1")
+
+        listed = self.client.get(self.url).json()["extensions"]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["reason"], "School flood.")
+        self.assertEqual(listed[0]["granted_by"], "Ada Grader")
+
+        # Upsert: granting again replaces, not duplicates.
+        self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-11-08T13:00:00Z"},
+            format="json",
+        )
+        listed = self.client.get(self.url).json()["extensions"]
+        self.assertEqual(len(listed), 1)
+        self.assertIn("2026-11-08", listed[0]["extended_until"])
+
+        detail = reverse("grading:deadline-extension-detail", kwargs={"group_id": self.group.id})
+        self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
+        # Idempotent revoke.
+        self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.get(self.url).json()["extensions"], [])
+
+    def test_unknown_group_404(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(
+            self.url,
+            {"group_id": 999_999, "extended_until": "2026-11-05T13:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_extension_before_deadline_rejected(self):
+        from datetime import datetime, timezone as tz
+
+        from apps.submissions.models import Deadline
+
+        Deadline.objects.create(
+            closes_at=datetime(2026, 10, 1, 13, 0, tzinfo=tz.utc), is_active=True,
+        )
+        self.client.force_authenticate(self.staff)
+
+        # Earlier than the deadline would shorten the window — refused.
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-09-15T13:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("later than the current deadline", r.json()["detail"])
+
+        # Later is fine.
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-10-15T13:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+
+
 class MarksReleaseViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()

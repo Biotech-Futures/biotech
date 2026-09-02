@@ -25,6 +25,7 @@ const route = useRoute()
 
 const tabs = [
   { label: 'Submission Deadline', to: '/grading/management/submission-deadline' },
+  { label: 'Extend Deadline', to: '/grading/management/extend-deadline' },
   { label: 'Release Marks', to: '/grading/management/release-marks' },
   { label: 'Release Certificates', to: '/grading/management/release-certificates' },
   { label: 'Document Setup', to: '/grading/management/document-setup' },
@@ -44,7 +45,9 @@ const tabs = [
   margin-bottom: 1.75rem;
   background: var(--white);
   border: 1px solid var(--border-light);
-  border-radius: 999px;
+  /* Not 999px: with the rail wrapped onto two rows a fully-round radius turns
+     into a giant lozenge. 1.4rem still reads as a pill on a single row. */
+  border-radius: 1.4rem;
   box-shadow: 0 1px 2px var(--shadow);
 }
 

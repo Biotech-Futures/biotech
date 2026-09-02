@@ -1,6 +1,10 @@
 from .analytics import ComponentAnalyticsView
 from .component import ComponentMarkingListView
-from .deadline import SubmissionDeadlineView
+from .deadline import (
+    GroupExtensionDetailView,
+    GroupExtensionListView,
+    SubmissionDeadlineView,
+)
 from .download import (
     ComponentDownloadView,
     GradingJobDetailView,
@@ -37,6 +41,8 @@ __all__ = [
     "GradingJobDownloadView",
     "GradingSettingsView",
     "GroupDownloadView",
+    "GroupExtensionDetailView",
+    "GroupExtensionListView",
     "GroupMarkingView",
     "MarksReleaseView",
     "SubmissionDeadlineView",

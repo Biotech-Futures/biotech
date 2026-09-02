@@ -325,6 +325,40 @@ export function toggleCertificatesRelease(release: boolean): Promise<ReleaseStat
   })
 }
 
+// Per-team extra time on top of the global deadline.
+export interface GroupExtension {
+  group_id: number
+  group_name: string
+  extended_until: string
+  reason: string
+  granted_at: string
+  granted_by: string | null
+}
+
+// GET /api/v1/grading/deadline/extensions/ — every granted extension.
+export function fetchGroupExtensions(): Promise<{ extensions: GroupExtension[] }> {
+  return requestJson<{ extensions: GroupExtension[] }>('/api/v1/grading/deadline/extensions/')
+}
+
+// POST — grant or update one team's extension (one per team).
+export function saveGroupExtension(
+  groupId: number,
+  extendedUntil: string,
+  reason: string
+): Promise<{ extension: GroupExtension }> {
+  return requestJson<{ extension: GroupExtension }>('/api/v1/grading/deadline/extensions/', {
+    method: 'POST',
+    body: JSON.stringify({ group_id: groupId, extended_until: extendedUntil, reason })
+  })
+}
+
+// DELETE — revoke a team's extension (idempotent).
+export function removeGroupExtension(groupId: number): Promise<void> {
+  return requestJson<void>(`/api/v1/grading/deadline/extensions/${groupId}/`, {
+    method: 'DELETE'
+  })
+}
+
 // The active submission deadline; null means submissions are closed until set.
 export interface SubmissionDeadline {
   closes_at: string

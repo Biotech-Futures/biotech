@@ -44,8 +44,8 @@
         <h3 class="card-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
       </div>
       <p class="deadline__hint">
-        Students see the closing time; the server quietly keeps accepting for the grace
-        hours after it, so far-behind timezones aren't cut off mid-day.
+        Times are in your local timezone. Students see the closing time; the server quietly
+        keeps accepting for the grace hours after it.
       </p>
 
       <form class="deadline__form" @submit.prevent="confirmOpen = true">

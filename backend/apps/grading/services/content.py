@@ -317,6 +317,63 @@ def set_submission_deadline(*, closes_at, grace_hours: int, set_by=None) -> dict
     return deadline_status()
 
 
+def _extension_payload(extension) -> dict:
+    granted_by = None
+    if extension.granted_by is not None:
+        granted_by = (
+            f"{extension.granted_by.first_name} {extension.granted_by.last_name}".strip()
+            or extension.granted_by.email
+        )
+    return {
+        "group_id": extension.group_id,
+        "group_name": extension.group.group_name,
+        "extended_until": extension.extended_until,
+        "reason": extension.reason,
+        "granted_at": extension.granted_at,
+        "granted_by": granted_by,
+    }
+
+
+def group_extensions() -> list[dict]:
+    """Every per-team deadline extension currently granted."""
+    from apps.submissions.models import GroupExtension
+
+    return [
+        _extension_payload(e)
+        for e in GroupExtension.objects.select_related("group", "granted_by")
+        .filter(group__deleted_at__isnull=True)
+        # Longest-running extension first — the team with the most extra time.
+        .order_by("-extended_until", "group__group_name")
+    ]
+
+
+def set_group_extension(*, group_id: int, extended_until, reason: str, granted_by) -> dict:
+    """Grant (or update) one team's extension. One per group — newest wins."""
+    from django.utils import timezone
+
+    from apps.submissions.models import GroupExtension
+
+    extension, _ = GroupExtension.objects.update_or_create(
+        group_id=group_id,
+        defaults={
+            "extended_until": extended_until,
+            "reason": reason,
+            "granted_at": timezone.now(),
+            "granted_by": granted_by,
+        },
+    )
+    extension = GroupExtension.objects.select_related("group", "granted_by").get(pk=extension.pk)
+    return _extension_payload(extension)
+
+
+def remove_group_extension(group_id: int) -> bool:
+    """Revoke a team's extension; True if one existed."""
+    from apps.submissions.models import GroupExtension
+
+    deleted, _ = GroupExtension.objects.filter(group_id=group_id).delete()
+    return bool(deleted)
+
+
 def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
     """The announced closing time that applied to each group.
 

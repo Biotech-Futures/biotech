@@ -118,6 +118,7 @@ const routes: RouteRecordRaw[] = [
           { path: '', redirect: '/grading/management/submission-deadline' },
           { path: 'new-season', name: 'grading-new-season', component: () => import('@/views/grading/SeasonPage.vue') },
           { path: 'submission-deadline', name: 'grading-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
+          { path: 'extend-deadline', name: 'grading-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
           { path: 'release-marks', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
           { path: 'release-certificates', name: 'grading-release-certificates', component: () => import('@/views/grading/ReleaseCertificatesPage.vue') },
           { path: 'document-setup', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },

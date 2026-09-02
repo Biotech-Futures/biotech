@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     BulkUploadMarksView,
     CertificatesReleaseView,
+    GroupExtensionDetailView,
+    GroupExtensionListView,
     SubmissionDeadlineView,
     ComponentAnalyticsView,
     ComponentDownloadView,
@@ -51,6 +53,9 @@ urlpatterns = [
 
     # Submission deadline: view + set the window students can submit in.
     path("deadline/", SubmissionDeadlineView.as_view(), name="deadline"),
+    # Per-team extensions on top of the global deadline.
+    path("deadline/extensions/", GroupExtensionListView.as_view(), name="deadline-extensions"),
+    path("deadline/extensions/<int:group_id>/", GroupExtensionDetailView.as_view(), name="deadline-extension-detail"),
 
     # M6 — release toggles + configurable director/template settings.
     path("release/", MarksReleaseView.as_view(), name="release"),
