@@ -60,8 +60,12 @@ def _require_can_view(user, group_id: int) -> None:
     Mentors and supervisors are excluded although they are group members:
     neither is involved in assessment. Enforced here because the page is
     reachable by URL, so hiding the nav entry would not be enough.
+
+    Staff and superusers pass alongside AdminScope admins so the definition
+    matches grading's ``IsGrader``: anyone who can mark an entry can read the
+    files they are marking.
     """
-    if is_admin(user):
+    if is_admin(user) or user.is_staff or user.is_superuser:
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
