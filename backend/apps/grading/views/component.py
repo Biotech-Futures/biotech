@@ -48,7 +48,10 @@ class ComponentMarkingListView(APIView):
         year = int(request.query_params.get("year") or date.today().year)
 
         rubric = Rubric.objects.filter(component=component, year=year, active=True).first()
-        criteria_total = rubric.criteria.count() if rubric else 0
+        criteria = list(rubric.criteria.all()) if rubric else []
+        criteria_total = len(criteria)
+        # Rubric position (1-based) per criterion, for the marker breakdown.
+        position_by_criterion = {c.id: i + 1 for i, c in enumerate(criteria)}
 
         groups = list(
             Groups.objects.filter(deleted_at__isnull=True)
@@ -59,6 +62,7 @@ class ComponentMarkingListView(APIView):
             e.group_id: e
             for e in content.submission_entries(component_code=component.code)
         }
+        deadlines = content.group_deadline_map(list(entries)) if entries else {}
         # Count *scored* grades per submission (mark is not null). A Grade row
         # with a null mark exists when a comment was left but the rubric row
         # wasn't scored yet — treat that as "in progress", not "graded".
@@ -69,6 +73,7 @@ class ComponentMarkingListView(APIView):
         # (insertion order = latest-first) in a single pass.
         last_grader = {}
         graders_by_sub = {}
+        criterion_markers_by_sub = {}
         submission_ids = [e.submission_id for e in entries.values()]
         if submission_ids:
             counts = (
@@ -97,6 +102,7 @@ class ComponentMarkingListView(APIView):
                 .order_by("submission_id", "-graded_at")
                 .values(
                     "submission_id",
+                    "criterion_id",
                     "graded_by__first_name",
                     "graded_by__last_name",
                 )
@@ -110,6 +116,15 @@ class ComponentMarkingListView(APIView):
                 names = graders_by_sub.setdefault(sid, [])
                 if name not in names:
                     names.append(name)
+                # One grade per (submission, criterion), so no dedupe needed:
+                # each row is that criterion's latest marker.
+                position = position_by_criterion.get(row["criterion_id"])
+                if position is not None:
+                    criterion_markers_by_sub.setdefault(sid, []).append(
+                        {"n": position, "marker": name}
+                    )
+            for markers in criterion_markers_by_sub.values():
+                markers.sort(key=lambda m: m["n"])
 
         rows = []
         for g in groups:
@@ -121,9 +136,14 @@ class ComponentMarkingListView(APIView):
                 "submission_id": sid,
                 "submitted_at": entry.submitted_at if entry else None,
                 "is_late": entry.is_late if entry else False,
+                # None on time; "" late but amount unknown; else e.g. "3h 12m".
+                "late_by": content.lateness_label(entry, deadlines.get(g["id"])) if entry else None,
                 "criteria_graded": graded_counts.get(sid, 0) if sid else 0,
                 "marks_total": mark_totals.get(sid) if sid else None,
                 "last_grader_name": last_grader.get(sid) if sid else None,
+                # [{"n": 1, "marker": "Ada Grader"}, ...] — latest marker per
+                # rubric position; only scored criteria appear.
+                "criterion_markers": criterion_markers_by_sub.get(sid, []) if sid else [],
                 "grader_names": graders_by_sub.get(sid, []) if sid else [],
             })
 

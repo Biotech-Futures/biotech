@@ -88,7 +88,12 @@
 
       <ResizableSplit v-if="activeBlock && activeBlock.submission" right-max="23rem">
         <template #left>
-          <SubmissionPreview :submission="activeBlock.submission" :component="activeBlock.component" />
+          <SubmissionPreview
+            :submission="activeBlock.submission"
+            :component="activeBlock.component"
+            :last-grader-name="activeBlock.last_grader_name"
+            :criterion-markers="criterionMarkers"
+          />
         </template>
         <template #right>
           <RubricForm
@@ -110,6 +115,8 @@
         v-else-if="activeBlock"
         :submission="activeBlock.submission"
         :component="activeBlock.component"
+        :last-grader-name="activeBlock.last_grader_name"
+        :criterion-markers="criterionMarkers"
       />
     </div>
   </div>
@@ -206,6 +213,20 @@ const activeBlock = computed(
   () => payload.value?.components.find((b) => b.component.code === effectiveCode.value) ?? null
 )
 
+// Who last marked each rubric criterion of the active section (tooltip lines).
+const criterionMarkers = computed(() => {
+  const block = activeBlock.value
+  if (!block) return []
+  const byCriterion = new Map(block.grades.map((g) => [g.criterion, g]))
+  // Numbered by rubric position (1-based), not the full criterion text.
+  return block.criteria.flatMap((c, i) => {
+    const grade = byCriterion.get(c.id)
+    return grade?.mark != null && grade.graded_by_name
+      ? [{ name: String(i + 1), marker: grade.graded_by_name }]
+      : []
+  })
+})
+
 const load = async () => {
   if (!Number.isFinite(groupId.value) || groupId.value <= 0) return
   isLoading.value = true
@@ -238,10 +259,11 @@ const saveMarks = async (items: GradeBulkItem[], overallComment: string | null) 
   actionError.value = ''
   try {
     const submissionId = activeBlock.value?.submission?.id
+    const componentCode = activeBlock.value?.component.code
     await saveGradesBulk(
       items,
-      overallComment !== null && submissionId != null
-        ? [{ submission: submissionId, comment: overallComment }]
+      overallComment !== null && submissionId != null && componentCode
+        ? [{ submission: submissionId, component: componentCode, comment: overallComment }]
         : undefined
     )
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.

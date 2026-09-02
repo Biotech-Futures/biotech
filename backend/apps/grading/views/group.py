@@ -58,14 +58,24 @@ class GroupMarkingView(APIView):
         }
 
         grades_by_component: dict[int, list[Grade]] = {}
+        # Latest scored grade's author per component — same "marker" definition
+        # as the component table (mark set, grader recorded, newest wins).
+        last_marked: dict[int, tuple] = {}
         submission_ids = {e.submission_id for e in entries_by_component.values()}
         if submission_ids:
             for grade in Grade.objects.filter(
                 submission_id__in=submission_ids
-            ).select_related("criterion__rubric"):
-                grades_by_component.setdefault(
-                    grade.criterion.rubric.component_id, []
-                ).append(grade)
+            ).select_related("criterion__rubric", "graded_by"):
+                component_id = grade.criterion.rubric.component_id
+                grades_by_component.setdefault(component_id, []).append(grade)
+                if grade.mark is not None and grade.graded_by is not None:
+                    name = (
+                        f"{grade.graded_by.first_name} {grade.graded_by.last_name}".strip()
+                        or grade.graded_by.email
+                    )
+                    current = last_marked.get(component_id)
+                    if current is None or grade.graded_at > current[0]:
+                        last_marked[component_id] = (grade.graded_at, name)
 
         payload_components = []
         for component in components:
@@ -74,6 +84,7 @@ class GroupMarkingView(APIView):
             criteria = list(rubric.criteria.all()) if rubric else []
             grades = grades_by_component.get(component.id, []) if entry else []
 
+            last = last_marked.get(component.id) if entry else None
             payload_components.append({
                 "component": SubmissionComponentSerializer(component).data,
                 "submission": content.entry_payload(
@@ -82,6 +93,7 @@ class GroupMarkingView(APIView):
                 "rubric_id": rubric.id if rubric else None,
                 "criteria": RubricCriterionSerializer(criteria, many=True).data,
                 "grades": GradeSerializer(grades, many=True).data,
+                "last_grader_name": last[1] if last else None,
             })
 
         return Response({

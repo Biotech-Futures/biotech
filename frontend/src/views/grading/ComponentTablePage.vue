@@ -91,7 +91,14 @@
                 </button>
               </th>
               <th>Marks</th>
-              <th>Marker</th>
+              <th>
+                Marker
+                <i
+                  class="fas fa-circle-info component-table__marker-info"
+                  data-tip="Hover over a marker's name to see who marked each part."
+                  aria-hidden="true"
+                ></i>
+              </th>
               <th class="component-table__cell--right"></th>
             </tr>
           </thead>
@@ -114,7 +121,12 @@
                 </template>
                 <span v-else class="component-table__muted">—</span>
               </td>
-              <td>{{ r.is_late ? 'Yes' : '—' }}</td>
+              <td>
+                <span v-if="r.is_late" class="component-table__late">
+                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                </span>
+                <span v-else class="component-table__muted">—</span>
+              </td>
               <td>
                 <span v-if="r.submission_id != null" class="component-table__progress">
                   <i
@@ -133,7 +145,7 @@
                 <span
                   v-if="r.last_grader_name"
                   class="component-table__marker"
-                  :title="`Marked by: ${r.grader_names.join(', ')}`"
+                  :title="markerTooltip(r)"
                 >
                   {{ r.last_grader_name }}
                   <i
@@ -259,6 +271,13 @@ const fullyMarkedCount = computed(
 
 const isDone = (r: ComponentRow) =>
   r.submission_id != null && criteriaTotal.value > 0 && r.criteria_graded >= criteriaTotal.value
+
+// One line per rubric position with whoever last marked it; falls back to the
+// flat grader list for rows with no per-criterion data.
+const markerTooltip = (r: ComponentRow) =>
+  r.criterion_markers?.length
+    ? r.criterion_markers.map((m) => `${m.n}: ${m.marker}`).join('\n')
+    : `Marked by: ${r.grader_names.join(', ')}`
 
 const progressLabel = (r: ComponentRow) =>
   criteriaTotal.value > 0 ? `${r.criteria_graded}/${criteriaTotal.value}` : '—'
@@ -502,6 +521,42 @@ const displayRows = computed(() => {
 
 .component-table__muted {
   color: var(--text-muted);
+}
+
+.component-table__late {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.component-table__marker-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.2rem;
+  position: relative;
+}
+
+/* Instant tooltip — native title has an uncontrollable hover delay. */
+.component-table__marker-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 1.4rem;
+  z-index: 20;
+  display: none;
+  background: #333;
+  color: #fff;
+  font: 400 10px/1.4 var(--font-family, sans-serif);
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  white-space: normal;
+  width: max-content;
+  max-width: 10rem;
+}
+
+.component-table__marker-info:hover::after {
+  display: block;
 }
 
 .component-table__progress {

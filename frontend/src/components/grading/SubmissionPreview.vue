@@ -30,7 +30,17 @@
       </a>
     </div>
 
-    <pre v-if="submission.text" class="submission-preview__text">{{ submission.text }}</pre>
+    <div v-if="submission.answers?.length" class="submission-preview__answers">
+      <section
+        v-for="(block, i) in submission.answers"
+        :key="i"
+        class="submission-preview__answer"
+      >
+        <h4 class="submission-preview__question">{{ block.prompt }}</h4>
+        <p class="submission-preview__answer-text">{{ block.answer }}</p>
+      </section>
+    </div>
+    <pre v-else-if="submission.text" class="submission-preview__text">{{ submission.text }}</pre>
 
     <a
       v-if="submission.link"
@@ -73,6 +83,8 @@ const props = defineProps<{
   component: SubmissionComponent
   lastGraderName?: string | null
   graderNames?: string[]
+  /** Latest marker per rubric criterion — one tooltip line per part. */
+  criterionMarkers?: { name: string; marker: string }[]
 }>()
 
 const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? null))
@@ -140,6 +152,10 @@ const submittedLabel = computed(() =>
 )
 
 const markerTooltip = computed(() => {
+  // One line per rubric criterion with whoever last marked it.
+  if (props.criterionMarkers?.length) {
+    return props.criterionMarkers.map((c) => `${c.name}: ${c.marker}`).join('\n')
+  }
   const names = props.graderNames?.length
     ? props.graderNames
     : props.lastGraderName
@@ -200,6 +216,41 @@ const markerTooltip = computed(() => {
   word-break: break-word;
   max-height: 60vh;
   overflow: auto;
+}
+
+/* One continuous white sheet behind every answer; the gaps between the
+   outlined blocks stay white instead of showing the page background. */
+.submission-preview__answers {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  background: #fff;
+  padding: 0.85rem;
+  border-radius: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.submission-preview__question {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #000;
+}
+
+/* Only the answer is outlined — like the Mark/Comment inputs beside it —
+   while the question sits on the white sheet above the box. */
+.submission-preview__answer-text {
+  margin: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-primary, #1f2937);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .submission-preview__link {

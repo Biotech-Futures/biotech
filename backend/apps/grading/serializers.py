@@ -56,6 +56,10 @@ class RubricSerializer(serializers.ModelSerializer):
 class GradeSerializer(serializers.ModelSerializer):
     """Read + PATCH single grade. Only ``mark`` and ``comment`` are writable."""
 
+    # Display name of the last marker, so the marking page can say who last
+    # touched each criterion without a second lookup.
+    graded_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Grade
         fields = [
@@ -65,9 +69,17 @@ class GradeSerializer(serializers.ModelSerializer):
             "mark",
             "comment",
             "graded_by",
+            "graded_by_name",
             "graded_at",
         ]
-        read_only_fields = ["id", "submission", "criterion", "graded_by", "graded_at"]
+        read_only_fields = ["id", "submission", "criterion", "graded_by", "graded_by_name", "graded_at"]
+
+    @staticmethod
+    def get_graded_by_name(obj) -> str | None:
+        user = obj.graded_by
+        if user is None:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or user.email
 
 
 class GradeBulkItemSerializer(serializers.Serializer):

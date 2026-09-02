@@ -741,12 +741,19 @@ class FinalistToggleTests(_GradingFixture):
         body = r.json()
         self.assertEqual([c["code"] for c in body["components"]][:2], ["SAQ", "POSTER"])
 
+        # Only components whose active rubric has criteria appear as columns;
+        # REPORT/PROTOTYPE carry no criteria so they are omitted entirely.
+        self.assertEqual([c["code"] for c in body["components"]], ["SAQ", "POSTER"])
+
         rows = {row["group_id"]: row for row in body["rows"]}
         graded = rows[self.group.id]
         self.assertEqual(graded["marks"]["SAQ"], "12.50")
         self.assertEqual(graded["marks"]["POSTER"], "7.00")
-        self.assertIsNone(graded["marks"]["REPORT"])
+        self.assertNotIn("REPORT", graded["marks"])
         self.assertEqual(graded["total"], "19.50")
+        # Fixture submits before any deadline exists -> not late, no label.
+        self.assertFalse(graded["is_late"])
+        self.assertIsNone(graded["late_by"])
         self.assertEqual(graded["markers"], ["Ada Grader"])
         self.assertTrue(graded["is_finalist"])
         # Graded group ranks above the ungraded one.
@@ -755,6 +762,25 @@ class FinalistToggleTests(_GradingFixture):
         self.assertFalse(rows[ungraded.id]["is_finalist"])
         self.assertTrue(graded["has_submission"])
         self.assertFalse(rows[ungraded.id]["has_submission"])
+
+    def test_candidates_late_column(self):
+        from datetime import timedelta
+
+        from apps.submissions.models import Deadline
+
+        # Deadline 3h12m before the fixture's submit time -> "3h 12m" late.
+        Deadline.objects.create(
+            closes_at=self.submission.submitted_at - timedelta(hours=3, minutes=12),
+            is_active=True,
+        )
+        Submission.objects.filter(pk=self.submission.pk).update(is_late=True)
+
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(reverse("grading:finalist-candidates"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        row = next(x for x in r.json()["rows"] if x["group_id"] == self.group.id)
+        self.assertTrue(row["is_late"])
+        self.assertEqual(row["late_by"], "3h 12m")
 
     def test_notify_all_denied_for_non_staff(self):
         self.client.force_authenticate(self.non_staff)

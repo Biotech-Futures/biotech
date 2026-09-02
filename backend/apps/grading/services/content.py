@@ -56,17 +56,20 @@ class ComponentEntry:
     file: dict | None
     text: str  # SAQ answers flattened to readable text
     link: str  # prototype URL
+    # SAQ only: the same answers structured as (prompt, answer) pairs, so the
+    # marking page can render one box per question instead of parsing `text`.
+    answers: tuple[tuple[str, str], ...] = ()
 
 
-def _flatten_answers(answers: dict) -> str:
-    """Render the submitted answers JSON as marker-readable text.
+def _answer_blocks(answers: dict) -> list[tuple[str, str]]:
+    """The submitted answers JSON as ordered (prompt, answer) pairs.
 
     Questions supply the headings so the export means something off-platform;
     answers whose question has since been retired still appear, labelled by
     their raw key rather than silently dropped.
     """
     if not answers:
-        return ""
+        return []
     prompts = {q.key: q.prompt for q in SubmissionQuestion.objects.all()}
     ordered = [q.key for q in SubmissionQuestion.objects.order_by("order", "id")]
     keys = [k for k in ordered if k in answers]
@@ -76,8 +79,13 @@ def _flatten_answers(answers: dict) -> str:
         value = str(answers.get(key) or "").strip()
         if not value:
             continue
-        blocks.append(f"{prompts.get(key, key)}\n{value}")
-    return "\n\n".join(blocks)
+        blocks.append((prompts.get(key, key), value))
+    return blocks
+
+
+def _flatten_answers(answers: dict) -> str:
+    """Marker-readable text form of the answers (exports, zip text.txt)."""
+    return "\n\n".join(f"{prompt}\n{value}" for prompt, value in _answer_blocks(answers))
 
 
 def _expand(submission: Submission, components: list[SubmissionComponent]) -> list[ComponentEntry]:
@@ -93,10 +101,13 @@ def _expand(submission: Submission, components: list[SubmissionComponent]) -> li
         file_blob = None
         text = ""
         link = ""
+        answer_blocks: tuple[tuple[str, str], ...] = ()
         if component.code == SAQ:
-            text = _flatten_answers(submission.submitted_answers or {})
-            if not text:
+            blocks = _answer_blocks(submission.submitted_answers or {})
+            if not blocks:
                 continue
+            answer_blocks = tuple(blocks)
+            text = "\n\n".join(f"{prompt}\n{value}" for prompt, value in blocks)
         elif component.code in _FILE_SLOTS:
             file_blob = getattr(submission, _FILE_SLOTS[component.code]) or None
             if component.code == PROTOTYPE:
@@ -113,6 +124,7 @@ def _expand(submission: Submission, components: list[SubmissionComponent]) -> li
             file=file_blob,
             text=text,
             link=link,
+            answers=answer_blocks,
             **common,
         ))
     return entries
@@ -200,11 +212,62 @@ def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> di
         "file_url": file_url(entry),
         "file_name": (entry.file or {}).get("name"),
         "text": entry.text,
+        # SAQ: per-question blocks so the page can box each answer; the flat
+        # `text` above stays for exports and older consumers.
+        "answers": [
+            {"prompt": prompt, "answer": answer} for prompt, answer in entry.answers
+        ] or None,
         "link": entry.link,
         "submitted_at": entry.submitted_at,
         "is_late": entry.is_late,
         "overall_comment": overall_comment,
     }
+
+
+def late_by_label(delta) -> str:
+    """'1d 3h 12m' / '3h 12m' / '45m' — how far past the deadline a submit landed."""
+    total_minutes = max(0, int(delta.total_seconds() // 60))
+    days, rest = divmod(total_minutes, 60 * 24)
+    hours, minutes = divmod(rest, 60)
+    if days:
+        return f"{days}d {hours}h {minutes}m"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m"
+    return "<1m"
+
+
+def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
+    """The row's late label: None on time, '' late-but-unknown-amount, else '3h 12m'.
+
+    '' covers a deadline edited after the fact: ``is_late`` was recorded at
+    submit, so the row still says late without inventing a duration.
+    """
+    if not entry.is_late:
+        return None
+    if entry.submitted_at is not None and closes_at is not None and entry.submitted_at > closes_at:
+        return late_by_label(entry.submitted_at - closes_at)
+    return ""
+
+
+def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
+    """The announced closing time that applied to each group.
+
+    Per-group extensions override the active baseline deadline — same
+    resolution as the portal's ``deadline_for_group``, done in two queries so
+    a whole-cohort table doesn't pay one query per group. ``None`` when no
+    deadline is configured at all.
+    """
+    from apps.submissions.models import Deadline, GroupExtension
+
+    baseline = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
+    default = baseline.closes_at if baseline else None
+    overrides = dict(
+        GroupExtension.objects.filter(group_id__in=group_ids)
+        .values_list("group_id", "extended_until")
+    )
+    return {gid: overrides.get(gid, default) for gid in group_ids}
 
 
 def feedback_map(group_ids: list[int] | None = None) -> dict[tuple[int, int], str]:
