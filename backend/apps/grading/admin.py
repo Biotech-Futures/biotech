@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    ComponentFeedback,
     FinalistFlag,
     Grade,
     GradingJob,
@@ -8,7 +9,23 @@ from .models import (
     MarksRelease,
     Rubric,
     RubricCriterion,
+    SubmissionComponent,
 )
+
+
+@admin.register(SubmissionComponent)
+class SubmissionComponentAdmin(admin.ModelAdmin):
+    list_display = ("code", "name", "is_optional", "accepts_file", "accepts_text", "accepts_link", "order")
+    list_editable = ("order",)
+    ordering = ("order", "id")
+
+
+@admin.register(ComponentFeedback)
+class ComponentFeedbackAdmin(admin.ModelAdmin):
+    list_display = ("id", "group", "component", "updated_by", "updated_at")
+    list_filter = ("component",)
+    raw_id_fields = ("group", "updated_by")
+    search_fields = ("group__group_name",)
 
 
 class RubricCriterionInline(admin.TabularInline):

@@ -21,12 +21,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission
 
-from ..models import SubmissionComponent
-
-from ..models import FinalistFlag, Grade
+from ..models import FinalistFlag, Grade, SubmissionComponent
 from ..permissions import IsGrader
+from ..services import content
 from ..services.finalist_notify import notify_finalist
 
 
@@ -99,13 +97,15 @@ class FinalistCandidatesView(APIView):
             .order_by("group_name")
             .values("id", "group_name")
         )
-        submissions = list(Submission.objects.values("id", "group_id", "component_id"))
-        sub_meta = {s["id"]: s for s in submissions}
+        entries = content.submission_entries()
+        group_by_submission = {e.submission_id: e.group_id for e in entries}
 
-        totals_by_sub = {
-            row["submission_id"]: row["total"]
+        # One submission id spans an entry's components, so totals must split
+        # by the criterion's component or every column would show the same sum.
+        totals = {
+            (row["submission_id"], row["criterion__rubric__component_id"]): row["total"]
             for row in Grade.objects.filter(mark__isnull=False)
-            .values("submission_id")
+            .values("submission_id", "criterion__rubric__component_id")
             .annotate(total=Sum("mark"))
         }
 
@@ -116,25 +116,26 @@ class FinalistCandidatesView(APIView):
             .values("submission_id", "graded_by__first_name", "graded_by__last_name")
         )
         for row in grader_rows:
-            meta = sub_meta.get(row["submission_id"])
-            if meta is None:
+            group_id = group_by_submission.get(row["submission_id"])
+            if group_id is None:
                 continue
             name = f'{row["graded_by__first_name"]} {row["graded_by__last_name"]}'.strip()
             if not name:
                 continue
-            names = markers_by_group.setdefault(meta["group_id"], [])
+            names = markers_by_group.setdefault(group_id, [])
             if name not in names:
                 names.append(name)
 
         marks_by_group: dict[int, dict[str, object]] = {}
-        for s in submissions:
-            total = totals_by_sub.get(s["id"])
-            if total is None:
+        for (submission_id, component_id), total in totals.items():
+            group_id = group_by_submission.get(submission_id)
+            code = code_by_component.get(component_id)
+            if group_id is None or code is None:
                 continue
-            marks_by_group.setdefault(s["group_id"], {})[code_by_component[s["component_id"]]] = total
+            marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
-        submitted_group_ids = {s["group_id"] for s in submissions}
+        submitted_group_ids = {e.group_id for e in entries}
 
         rows = []
         for g in groups:

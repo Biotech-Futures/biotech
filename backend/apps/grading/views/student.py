@@ -15,12 +15,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.group_members import GroupMembership
-from apps.submissions.models import Submission
 
-from ..models import SubmissionComponent
-
-from ..models import Grade, Rubric
+from ..models import Grade, Rubric, SubmissionComponent
 from ..permissions import MarksReleased
+from ..services import content
 from ..services.docx import (
     certificate_context,
     marks_summary_context,
@@ -50,30 +48,36 @@ def _active_group_for(user):
 
 
 def _grades_payload(group, year: int) -> list[dict]:
-    """Shape one group's marks for both JSON reads and docx rendering."""
+    """Shape one group's marks for both JSON reads and docx rendering.
+
+    A criterion belongs to exactly one component, so looking a grade up by
+    ``(submission_id, criterion_id)`` stays exact even though every component
+    of an entry shares one submission id.
+    """
     components = list(SubmissionComponent.objects.order_by("order", "id"))
-    submissions = {
-        s.component_id: s
-        for s in Submission.objects.filter(group=group)
+    entries = {
+        e.component_id: e
+        for e in content.submission_entries(group_id=group.id)
     }
+    feedback = content.feedback_map([group.id])
     rubrics = {
         r.component_id: r
         for r in Rubric.objects.filter(year=year, active=True).prefetch_related("criteria")
     }
     grades_by_pair: dict[tuple[int, int], Grade] = {}
-    submission_ids = [s.id for s in submissions.values()]
+    submission_ids = {e.submission_id for e in entries.values()}
     if submission_ids:
         for g in Grade.objects.filter(submission_id__in=submission_ids):
             grades_by_pair[(g.submission_id, g.criterion_id)] = g
 
     out = []
     for component in components:
-        submission = submissions.get(component.id)
+        entry = entries.get(component.id)
         rubric = rubrics.get(component.id)
         criteria = list(rubric.criteria.all()) if rubric else []
         criteria_out = []
         for c in criteria:
-            grade = grades_by_pair.get((submission.id, c.id)) if submission else None
+            grade = grades_by_pair.get((entry.submission_id, c.id)) if entry else None
             criteria_out.append({
                 "name": c.name,
                 "max_mark": str(c.max_mark),
@@ -83,8 +87,8 @@ def _grades_payload(group, year: int) -> list[dict]:
         out.append({
             "code": component.code,
             "name": component.name,
-            "submitted": submission is not None,
-            "overall_comment": submission.overall_comment if submission else "",
+            "submitted": entry is not None,
+            "overall_comment": feedback.get((group.id, component.id), ""),
             "criteria": criteria_out,
         })
     return out

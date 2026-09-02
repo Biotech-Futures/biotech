@@ -26,9 +26,8 @@ from typing import Iterable
 from django.db import transaction
 from openpyxl import load_workbook
 
-from apps.submissions.models import Submission
-
 from ..models import Grade, RubricCriterion
+from .content import submission_entries
 
 
 REQUIRED_COLUMNS = ("group_id", "criterion_id", "mark", "comment")
@@ -142,10 +141,11 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
         diff.errors.append({"row": 0, "message": f"no rubric criteria exist for component {component_code}"})
         return diff
 
+    # Groups with submitted content for this component -> their entry's
+    # submission id (the Grade anchor; one id spans the whole entry).
     submissions_by_group = {
-        s.group_id: s for s in Submission.objects.filter(
-            component__code=component_code,
-        )
+        e.group_id: e.submission_id
+        for e in submission_entries(component_code=component_code)
     }
     grades_by_pair: dict[tuple[int, int], Grade] = {
         (g.submission.group_id, g.criterion_id): g
@@ -179,8 +179,8 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
             diff.errors.append({"row": row_num, "message": f"criterion {criterion_id} does not belong to component {component_code}"})
             continue
 
-        submission = submissions_by_group.get(group_id)
-        if submission is None:
+        submission_id = submissions_by_group.get(group_id)
+        if submission_id is None:
             diff.errors.append({"row": row_num, "message": f"group {group_id} has no {component_code} submission to grade"})
             continue
 
@@ -201,7 +201,7 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
             "row": row_num,
             "group_id": group_id,
             "criterion_id": criterion_id,
-            "submission_id": submission.id,
+            "submission_id": submission_id,
             "mark": str(mark) if mark is not None else None,
             "comment": comment,
         }
