@@ -85,7 +85,7 @@ const emptyRecord = (): SubmissionRecord => ({
   submitted_at: null,
   submitted_by_name: '',
   reopened_at: null,
-  status: 'in_progress',
+  stage: 'not_started',
   is_submitted: false,
   is_locked: false,
   is_late: false,
@@ -121,7 +121,7 @@ const submittedDetail = () =>
       submitted_answers: ANSWERED,
       submitted_poster: POSTER,
       submitted_at: new Date().toISOString(),
-      status: 'submitted',
+      stage: 'submitted',
       is_submitted: true,
       is_locked: true,
     },
@@ -138,7 +138,7 @@ const reopenedDetail = () => {
       submitted_poster: POSTER,
       submitted_at: new Date(now - 60_000).toISOString(),
       reopened_at: new Date(now).toISOString(),
-      status: 'in_progress',
+      stage: 'revising',
       is_submitted: true,
       is_locked: false,
     },
@@ -708,5 +708,121 @@ describe('moving between steps', () => {
 
     const back = buttons().find((b) => b.attributes('aria-label') === 'Previous step')
     expect(back?.attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('what the status line says', () => {
+  // Stage and window are independent, so all eight pairings are stated here.
+  // The three that used to be wrong are the closed ones that are not
+  // "submitted" — each previously read "In Progress" after the deadline.
+  const line = () => wrapper!.find('.status-line').text()
+
+  const at = (stage: SubmissionRecord['stage'], isOpen: boolean, extra = {}) =>
+    buildDetail({
+      isOpen,
+      submission: { stage, ...extra },
+    })
+
+  it('invites a team that has not started while the window is open', async () => {
+    await mountPage(at('not_started', true))
+    expect(line()).toContain('Not Started')
+  })
+
+  it('says a started entry is in progress while the window is open', async () => {
+    await mountPage(at('in_progress', true, { answers: ANSWERED }))
+    expect(line()).toContain('In Progress')
+  })
+
+  it('says submitted while the window is open', async () => {
+    await mountPage(submittedDetail())
+    expect(line()).toContain('Submitted')
+  })
+
+  it('reassures a team mid-revision that their entry still stands', async () => {
+    await mountPage(reopenedDetail())
+    const text = line()
+    expect(text).toContain('In Progress')
+    expect(text).toContain('still stands')
+  })
+
+  it('tells a team that never started that nothing was received', async () => {
+    await mountPage(at('not_started', false))
+    const text = line()
+    expect(text).toContain('Not Submitted')
+    expect(text).toContain('No entry was received')
+    expect(text).not.toContain('In Progress')
+  })
+
+  it('tells a team with an unsubmitted draft that it never went in', async () => {
+    await mountPage(at('in_progress', false, { answers: ANSWERED }))
+    const text = line()
+    expect(text).toContain('Not Submitted')
+    expect(text).toContain('never submitted')
+    expect(text).not.toContain('In Progress')
+  })
+
+  it('still says submitted once the window has closed', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+    expect(line()).toContain('Submitted')
+  })
+
+  it('tells a team who ran out of time mid-revision that the revision did not count', async () => {
+    // The case that mattered most: they have a valid entry on record, and the
+    // version they were editing is not it.
+    const detail = reopenedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+
+    const text = line()
+    expect(text).toContain('Submitted')
+    expect(text).toContain('unfinished revision was not submitted')
+    expect(text).not.toContain('In Progress')
+  })
+})
+
+describe('which copy of the entry is shown', () => {
+  const SUBMITTED_ANSWERS = { solution_purpose: 'SUBMITTED.', inspiration: 'SUBMITTED.' }
+  const DRAFT_ANSWERS = { solution_purpose: 'DRAFT.', inspiration: 'DRAFT.' }
+  const SUBMITTED_POSTER = { ...POSTER, name: 'submitted.pdf' }
+  const DRAFT_POSTER = { ...POSTER, name: 'draft.pdf' }
+
+  const midRevision = (isOpen: boolean) => {
+    const now = Date.now()
+    return buildDetail({
+      isOpen,
+      submission: {
+        stage: 'revising',
+        answers: DRAFT_ANSWERS,
+        poster: DRAFT_POSTER,
+        submitted_answers: SUBMITTED_ANSWERS,
+        submitted_poster: SUBMITTED_POSTER,
+        submitted_at: new Date(now - 60_000).toISOString(),
+        reopened_at: new Date(now).toISOString(),
+        is_submitted: true,
+        is_locked: false,
+      },
+    })
+  }
+
+  it('shows the draft while a revision is still possible', async () => {
+    await mountPage(midRevision(true))
+    expect(wrapper!.findAll('textarea')[0].element.value).toBe('DRAFT.')
+  })
+
+  it('shows what was submitted once the window has closed', async () => {
+    // Otherwise the team reads a draft nobody will ever mark, and believes it
+    // is their entry.
+    await mountPage(midRevision(false))
+    expect(wrapper!.findAll('textarea')[0].element.value).toBe('SUBMITTED.')
+  })
+
+  it('shows the submitted poster once the window has closed', async () => {
+    await mountPage(midRevision(false))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-file').text()).toContain('submitted.pdf')
   })
 })
