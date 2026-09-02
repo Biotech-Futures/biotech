@@ -233,6 +233,29 @@ class MarksRelease(SingletonModel):
         return f"MarksRelease(released_at={self.released_at})"
 
 
+class CertificatesRelease(SingletonModel):
+    """Gate for participation-certificate downloads, separate from marks.
+
+    Certificates can go out on a different day than grades (e.g. certificates
+    at the ceremony, marks a week later), so each has its own toggle.
+    """
+
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="certificates_releases",
+    )
+
+    class Meta:
+        db_table = "certificates_release"
+
+    def __str__(self):
+        return f"CertificatesRelease(released_at={self.released_at})"
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)

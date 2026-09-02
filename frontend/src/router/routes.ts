@@ -109,10 +109,26 @@ const routes: RouteRecordRaw[] = [
       { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
       { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/ComponentGroupMarkingPage.vue') },
       { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue') },
-      { path: 'release', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
       { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
-      { path: 'notify-finalists', name: 'grading-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') },
-      { path: 'settings', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') }
+      {
+        // Management: the run-the-competition levers, grouped under one tab.
+        path: 'management',
+        component: () => import('@/views/grading/ManagementPage.vue'),
+        children: [
+          { path: '', redirect: '/grading/management/submission-deadline' },
+          { path: 'new-season', name: 'grading-new-season', component: () => import('@/views/grading/SeasonPage.vue') },
+          { path: 'submission-deadline', name: 'grading-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
+          { path: 'release-marks', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
+          { path: 'release-certificates', name: 'grading-release-certificates', component: () => import('@/views/grading/ReleaseCertificatesPage.vue') },
+          { path: 'document-setup', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
+          { path: 'notify-finalists', name: 'grading-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') }
+        ]
+      },
+      // Legacy paths from before the Management grouping.
+      { path: 'deadline', redirect: '/grading/management/submission-deadline' },
+      { path: 'release', redirect: '/grading/management/release-marks' },
+      { path: 'settings', redirect: '/grading/management/document-setup' },
+      { path: 'notify-finalists', redirect: '/grading/management/notify-finalists' }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

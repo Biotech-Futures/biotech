@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.grading.models import (
+    CertificatesRelease,
     ComponentFeedback,
     FinalistFlag,
     Grade,
@@ -532,6 +533,54 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(g.graded_by_id, self.staff.id)
 
 
+class SubmissionDeadlineViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("grading:deadline")
+
+    def test_non_staff_denied(self):
+        self.client.force_authenticate(self.non_staff)
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_null_when_unset(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNone(r.json()["deadline"])
+
+    def test_post_creates_active_deadline(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.post(
+            self.url,
+            {"closes_at": "2026-10-30T13:00:00Z", "grace_hours": 6},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        deadline = r.json()["deadline"]
+        self.assertTrue(deadline["is_open"])
+        self.assertEqual(deadline["grace_hours"], 6)
+
+        # Newest active row wins: setting again replaces what's in force.
+        r2 = self.client.post(
+            self.url, {"closes_at": "2020-01-01T00:00:00Z"}, format="json"
+        )
+        self.assertFalse(r2.json()["deadline"]["is_open"])
+
+    def test_bad_payload_rejected(self):
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(
+            self.client.post(self.url, {"closes_at": "not-a-date"}, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self.client.post(
+                self.url, {"closes_at": "2026-10-30T13:00:00Z", "grace_hours": -1},
+                format="json",
+            ).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class MarksReleaseViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -601,6 +650,12 @@ class StudentReadViewsTests(_GradingFixture):
         rel.released_by = self.staff
         rel.save()
 
+    def _release_certificates_now(self):
+        rel = CertificatesRelease.load()
+        rel.released_at = timezone.now()
+        rel.released_by = self.staff
+        rel.save()
+
     def test_pre_release_denied(self):
         self.client.force_authenticate(self.student_user)
         r = self.client.get(reverse("grading:me-grades"))
@@ -626,11 +681,78 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
 
     def test_certificate_docx_streams(self):
+        # Certificates have their own gate — marks being released is neither
+        # necessary nor sufficient.
         self._release_now()
         self.client.force_authenticate(self.student_user)
+        self.assertEqual(
+            self.client.get(reverse("grading:me-certificate")).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self._release_certificates_now()
         r = self.client.get(reverse("grading:me-certificate"))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
+
+    @override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+    def test_supervisor_bundle_adapts_to_release_gates(self):
+        from django.core.files.storage import default_storage
+
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        supervisor = User.objects.create_user(
+            email="super@example.com", first_name="Sue", last_name="Pervisor",
+            password="pw12345!",
+        )
+        profile = SupervisorProfile.objects.create(user=supervisor, school_name="Test School")
+        StudentProfile.objects.create(
+            user=self.student_user, pg_first_name="P", pg_last_name="G",
+            supervisor=profile, school_name="Test School", year_lvl="11",
+        )
+
+        def bundle_names():
+            resp = self.client.post(reverse("grading:supervisor-download"), {}, format="json")
+            self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+            job = GradingJob.objects.get(pk=resp.json()["job_id"])
+            self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+            with default_storage.open(job.result_url, "rb") as fh:
+                return set(zipfile.ZipFile(io.BytesIO(fh.read())).namelist())
+
+        self.client.force_authenticate(supervisor)
+
+        # Neither gate open -> the endpoint itself refuses.
+        self.assertEqual(
+            self.client.post(reverse("grading:supervisor-download"), {}, format="json").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        # Marks only -> summaries, no certificates.
+        self._release_now()
+        names = bundle_names()
+        self.assertTrue(any(n.endswith("marks-summary.docx") for n in names), names)
+        self.assertFalse(any(n.endswith("certificate.docx") for n in names), names)
+
+        # Certificates too -> both documents.
+        self._release_certificates_now()
+        names = bundle_names()
+        self.assertTrue(any(n.endswith("marks-summary.docx") for n in names), names)
+        self.assertTrue(any(n.endswith("certificate.docx") for n in names), names)
+
+    def test_certificates_release_toggle(self):
+        self.client.force_authenticate(self.staff)
+        url = reverse("grading:certificates-release")
+        r = self.client.get(url)
+        self.assertIsNone(r.json()["released_at"])
+
+        r = self.client.post(url, {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(r.json()["released_at"])
+        # Marks gate untouched by the certificates toggle.
+        self.assertIsNone(MarksRelease.load().released_at)
+
+        r = self.client.post(url, {"release": "false"}, format="json")
+        self.assertIsNone(r.json()["released_at"])
 
 
 class FinalistToggleTests(_GradingFixture):

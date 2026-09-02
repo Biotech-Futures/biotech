@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from apps.groups.models.group_members import GroupMembership
 
 from ..models import Grade, Rubric, SubmissionComponent
-from ..permissions import MarksReleased
+from ..permissions import CertificatesReleased, MarksReleased
 from ..services import content
 from ..services.docx import (
     certificate_context,
@@ -130,9 +130,13 @@ class MySummaryView(APIView):
 
 
 class MyCertificateView(APIView):
-    """GET /api/v1/grading/me/certificate/ — participation certificate docx."""
+    """GET /api/v1/grading/me/certificate/ — participation certificate docx.
 
-    permission_classes = [permissions.IsAuthenticated, MarksReleased]
+    Gated on the certificates toggle, not the marks one: certificates can be
+    handed out (e.g. at the ceremony) before or after grades go live.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, CertificatesReleased]
 
     def get(self, request):
         group = _active_group_for(request.user)

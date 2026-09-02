@@ -1,5 +1,6 @@
 from .analytics import ComponentAnalyticsView
 from .component import ComponentMarkingListView
+from .deadline import SubmissionDeadlineView
 from .download import (
     ComponentDownloadView,
     GradingJobDetailView,
@@ -14,7 +15,7 @@ from .finalist import (
 )
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupMarkingView
-from .release import MarksReleaseView
+from .release import CertificatesReleaseView, MarksReleaseView
 from .settings import GradingSettingsView
 from .student import MyCertificateView, MyGradesView, MySummaryView
 from .supervisor import SupervisorDownloadView, SupervisorGradesView
@@ -22,6 +23,7 @@ from .upload import BulkUploadMarksView
 
 __all__ = [
     "BulkUploadMarksView",
+    "CertificatesReleaseView",
     "ComponentAnalyticsView",
     "ComponentDownloadView",
     "ComponentMarkingListView",
@@ -37,6 +39,7 @@ __all__ = [
     "GroupDownloadView",
     "GroupMarkingView",
     "MarksReleaseView",
+    "SubmissionDeadlineView",
     "MyCertificateView",
     "MyGradesView",
     "MySummaryView",

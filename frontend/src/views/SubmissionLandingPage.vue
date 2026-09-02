@@ -1,6 +1,5 @@
 <template>
   <div class="content-area">
-    <h1 class="submission-landing__heading">Submission</h1>
 
     <div v-if="isLoading" class="card">
       <p>Finding your team…</p>
@@ -10,6 +9,13 @@
       <h2 class="card-title">Could not load your teams</h2>
       <p class="submission-landing__muted">{{ loadError }}</p>
       <button class="btn btn-outline btn-sm" type="button" @click="resolve">Try again</button>
+    </div>
+
+    <!-- Admins aren't on teams: entries are opened from the Grading tables. -->
+    <div v-else-if="!groups.length && auth.isAdmin" class="card">
+      <p class="submission-landing__muted">
+        Please contact the administrator via {{ SUPPORT_EMAIL }}
+      </p>
     </div>
 
     <!-- No team. Deliberately an explanation rather than an error: entries are
@@ -47,15 +53,18 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useGroupsStore } from '@/stores/groups'
+import { useAuthStore } from '@/stores/auth'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 
 const router = useRouter()
 const store = useGroupsStore()
+const auth = useAuthStore()
 
 const isLoading = ref(true)
 const loadError = ref('')
 
 const groups = computed(() => store.sorted)
+
 
 async function resolve() {
   isLoading.value = true
@@ -97,6 +106,7 @@ onMounted(resolve)
   color: #6b7280;
   font-size: 0.9rem;
 }
+
 
 .submission-landing__list {
   list-style: none;

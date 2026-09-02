@@ -311,6 +311,47 @@ export interface GradingSettingsDetail {
   component_weights: Record<string, number>
 }
 
+// GET /api/v1/grading/certificates-release/ — the certificates gate, separate
+// from marks so certificates can go out on a different day.
+export function fetchCertificatesRelease(): Promise<ReleaseStatus> {
+  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/')
+}
+
+// POST /api/v1/grading/certificates-release/ — flip certificates on/off.
+export function toggleCertificatesRelease(release: boolean): Promise<ReleaseStatus> {
+  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/', {
+    method: 'POST',
+    body: JSON.stringify({ release })
+  })
+}
+
+// The active submission deadline; null means submissions are closed until set.
+export interface SubmissionDeadline {
+  closes_at: string
+  /** Quiet extra hours the server accepts past the announced time. */
+  grace_hours: number
+  is_open: boolean
+  /** Display name of the admin who set it; null for script-created rows. */
+  set_by: string | null
+  created_at: string
+}
+
+// GET /api/v1/grading/deadline/ — the deadline currently in force.
+export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadline | null }> {
+  return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/')
+}
+
+// POST /api/v1/grading/deadline/ — set a new deadline (newest active row wins).
+export function saveSubmissionDeadline(
+  closesAt: string,
+  graceHours: number
+): Promise<{ deadline: SubmissionDeadline | null }> {
+  return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/', {
+    method: 'POST',
+    body: JSON.stringify({ closes_at: closesAt, grace_hours: graceHours })
+  })
+}
+
 // GET /api/v1/grading/groups/{id}/ — composite marking payload for one group.
 export function fetchGroupMarking(groupId: number, year?: number): Promise<GroupMarkingPayload> {
   const qs = year ? `?year=${year}` : ''

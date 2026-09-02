@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     BulkUploadMarksView,
+    CertificatesReleaseView,
+    SubmissionDeadlineView,
     ComponentAnalyticsView,
     ComponentDownloadView,
     ComponentMarkingListView,
@@ -47,8 +49,12 @@ urlpatterns = [
     # PATCH a single grade — used by inline edits and quick amendments.
     path("grades/<int:pk>/", GradeUpdateView.as_view(), name="grade-detail"),
 
-    # M6 — release toggle + configurable director/template settings.
+    # Submission deadline: view + set the window students can submit in.
+    path("deadline/", SubmissionDeadlineView.as_view(), name="deadline"),
+
+    # M6 — release toggles + configurable director/template settings.
     path("release/", MarksReleaseView.as_view(), name="release"),
+    path("certificates-release/", CertificatesReleaseView.as_view(), name="certificates-release"),
     path("settings/", GradingSettingsView.as_view(), name="settings"),
 
     # Student-facing read views (gated on MarksRelease.released_at).

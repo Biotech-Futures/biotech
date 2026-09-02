@@ -17,7 +17,7 @@ from apps.groups.models.group_members import GroupMembership
 from apps.users.models import StudentProfile
 
 from ..models import GradingJob
-from ..permissions import MarksReleased
+from ..permissions import AnythingReleased, MarksReleased
 from ..services.dispatch import dispatch_job
 from .student import _grades_payload
 
@@ -76,12 +76,16 @@ class SupervisorGradesView(APIView):
 
 class SupervisorDownloadView(APIView):
     """POST /api/v1/grading/supervisor/download/ — kick off a zip of every
-    supervised student's marks summary + certificate. Reuses the M4 job
-    infrastructure so the download UX is identical to the admin's bulk
-    exports (poll ``/jobs/<id>/``, then stream via the Django proxy).
+    supervised student's released documents. Reuses the M4 job infrastructure
+    so the download UX is identical to the admin's bulk exports (poll
+    ``/jobs/<id>/``, then stream via the Django proxy).
+
+    Adaptive to the two release gates: marks summaries appear only once marks
+    are released, certificates only once certificates are — so the bundle can
+    never hand a supervisor a document students can't see yet.
     """
 
-    permission_classes = [permissions.IsAuthenticated, MarksReleased]
+    permission_classes = [permissions.IsAuthenticated, AnythingReleased]
 
     @transaction.atomic
     def post(self, request):

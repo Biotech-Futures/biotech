@@ -63,15 +63,21 @@ def _run_job(job_id: int) -> None:
         GradingJob.objects.filter(pk=job_id).update(status=GradingJob.STATUS_RUNNING)
 
         kind = job.params.get("kind")
-        component_code = job.params.get("component_code")
-        group_ids = job.params.get("group_ids") or None
-        if not (kind and component_code):
-            raise ValueError(f"job {job_id} missing kind/component_code in params")
+        if not kind:
+            raise ValueError(f"job {job_id} missing kind in params")
 
-        component = SubmissionComponent.objects.get(code=component_code)
-        entries = submission_entries(
-            component_code=component_code, group_ids=group_ids
-        )
+        # Only the per-component exports need a component; the supervisor
+        # bundle spans all of a supervisor's students.
+        component = entries = None
+        if kind in ("component_zip", "component_xlsx"):
+            component_code = job.params.get("component_code")
+            if not component_code:
+                raise ValueError(f"job {job_id} missing component_code in params")
+            group_ids = job.params.get("group_ids") or None
+            component = SubmissionComponent.objects.get(code=component_code)
+            entries = submission_entries(
+                component_code=component_code, group_ids=group_ids
+            )
 
         if kind == "component_zip":
             payload = build_submissions_zip(entries)
@@ -122,15 +128,26 @@ def _run_job(job_id: int) -> None:
 
 
 def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
-    """Bundle marks summary + participation certificate for every student the
-    supervisor supervises. Runs off the `_grades_payload` helper so the docx
-    context matches what a student would get via ``/me/summary/``.
+    """Bundle the RELEASED documents for every supervised student.
+
+    Adapts to the two release gates: marks summaries only once marks are out,
+    certificates only once certificates are — matching exactly what students
+    themselves can download at that moment. Runs off the `_grades_payload`
+    helper so the docx context matches ``/me/summary/``.
     """
     import io
     import zipfile
 
+    from ..models import CertificatesRelease, MarksRelease
     # Local import to avoid a circular between views.student and services.dispatch.
     from ..views.student import _grades_payload
+
+    include_summaries = MarksRelease.load().released_at is not None
+    include_certificates = CertificatesRelease.load().released_at is not None
+    if not (include_summaries or include_certificates):
+        # Both gates closed between request and run (e.g. an emergency
+        # unrelease) — fail the job loudly rather than produce an empty zip.
+        raise ValueError("nothing is released to bundle")
 
     User = get_user_model()
     supervisor = User.objects.filter(pk=supervisor_user_id).first()
@@ -164,22 +181,24 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
             group = student_groups.get(sp.user_id)
             if group is None:
                 continue
-            components = _grades_payload(group, year)
             folder = _safe(sp.user.get_full_name() or sp.user.email)
-            summary_bytes = render_marks_summary(
-                marks_summary_context(group, year, components)
-            )
-            cert_bytes = render_participation_certificate(
-                certificate_context(
-                    sp.user.get_full_name() or sp.user.email,
-                    group.group_name,
-                    year,
-                    first_name=sp.user.first_name,
-                    last_name=sp.user.last_name,
+            if include_summaries:
+                components = _grades_payload(group, year)
+                summary_bytes = render_marks_summary(
+                    marks_summary_context(group, year, components)
                 )
-            )
-            zf.writestr(f"{folder}/marks-summary.docx", summary_bytes)
-            zf.writestr(f"{folder}/certificate.docx", cert_bytes)
+                zf.writestr(f"{folder}/marks-summary.docx", summary_bytes)
+            if include_certificates:
+                cert_bytes = render_participation_certificate(
+                    certificate_context(
+                        sp.user.get_full_name() or sp.user.email,
+                        group.group_name,
+                        year,
+                        first_name=sp.user.first_name,
+                        last_name=sp.user.last_name,
+                    )
+                )
+                zf.writestr(f"{folder}/certificate.docx", cert_bytes)
 
     return buffer.getvalue()
 

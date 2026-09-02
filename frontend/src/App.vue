@@ -75,7 +75,8 @@
               </RouterLink>
             </li>
 
-            <li v-if="auth.isStudent" class="sidebar-item">
+            <!-- Students submit; grading-access admins can open any team's entry. -->
+            <li v-if="auth.isStudent || auth.isAdmin" class="sidebar-item">
               <RouterLink
                 to="/submission"
                 class="sidebar-link"

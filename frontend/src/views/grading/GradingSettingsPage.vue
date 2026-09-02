@@ -16,6 +16,9 @@
 
     <template v-else-if="settings">
       <section class="card">
+        <div class="card-header">
+          <h3 class="card-title">Document Setup</h3>
+        </div>
         <h3 class="grading-settings__section-title">Directors</h3>
         <div class="grading-settings__fields">
           <label class="grading-settings__field">
@@ -188,6 +191,7 @@ const save = async () => {
   flex-direction: column;
   gap: 1rem;
 }
+
 
 .grading-settings__hint {
   color: var(--text-muted);

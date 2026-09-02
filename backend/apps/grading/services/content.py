@@ -266,6 +266,57 @@ def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
     return ""
 
 
+def deadline_status() -> dict | None:
+    """The active submission deadline as the grading UI shows it, or None.
+
+    ``is_open`` uses the enforced cutoff (announced time + quiet grace hours),
+    matching what the portal actually accepts.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.submissions.models import Deadline
+
+    row = (
+        Deadline.objects.filter(is_active=True)
+        .select_related("set_by")
+        .order_by("-created_at")
+        .first()
+    )
+    if row is None:
+        return None
+    enforced_until = row.closes_at + timedelta(hours=row.grace_hours)
+    set_by = None
+    if row.set_by is not None:
+        set_by = (
+            f"{row.set_by.first_name} {row.set_by.last_name}".strip()
+            or row.set_by.email
+        )
+    return {
+        "closes_at": row.closes_at,
+        "grace_hours": row.grace_hours,
+        "is_open": timezone.now() <= enforced_until,
+        "set_by": set_by,
+        "created_at": row.created_at,
+    }
+
+
+def set_submission_deadline(*, closes_at, grace_hours: int, set_by=None) -> dict:
+    """Create a new active deadline row and return the resulting status.
+
+    A new row rather than an edit: old rows are kept as the record of what was
+    announced when, and the newest active row is the one in force (matching
+    the portal's ``active_deadline`` resolution).
+    """
+    from apps.submissions.models import Deadline
+
+    Deadline.objects.create(
+        closes_at=closes_at, grace_hours=grace_hours, is_active=True, set_by=set_by
+    )
+    return deadline_status()
+
+
 def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
     """The announced closing time that applied to each group.
 
