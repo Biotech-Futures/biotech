@@ -13,10 +13,17 @@ from rest_framework.test import APIClient
 
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.grading.models import FinalistFlag, Grade, GradingJob, MarksRelease, Rubric, RubricCriterion
-from apps.submissions.models import Submission
-
-from apps.grading.models import SubmissionComponent
+from apps.grading.models import (
+    ComponentFeedback,
+    FinalistFlag,
+    Grade,
+    GradingJob,
+    MarksRelease,
+    Rubric,
+    RubricCriterion,
+    SubmissionComponent,
+)
+from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import AdminScope, User
 
 
@@ -45,7 +52,13 @@ class GradingURLsMountedTests(TestCase):
 
 
 class _GradingFixture(TestCase):
-    """Shared setup: one group, four seeded components, four active rubrics, one staff user."""
+    """Shared setup: one group with a submitted entry (SAQ answers + a poster),
+    four seeded components, SAQ + POSTER rubrics, one staff user.
+
+    A team's entry is one Submission row; ``saq_submission`` and
+    ``poster_submission`` are kept as aliases of it so the per-component tests
+    read naturally — grades tell components apart via their criterion.
+    """
 
     @classmethod
     def setUpTestData(cls):
@@ -53,7 +66,7 @@ class _GradingFixture(TestCase):
         # data migration never runs there — seed the same rows ourselves, reusing
         # the migration's own COMPONENTS list so the two can't drift.
         seed_components = import_module(
-            "apps.submissions.migrations.0002_seed_components"
+            "apps.grading.migrations.0002_seed_components"
         ).COMPONENTS
         for row in seed_components:
             SubmissionComponent.objects.update_or_create(
@@ -72,13 +85,6 @@ class _GradingFixture(TestCase):
         cls.saq_c2 = RubricCriterion.objects.create(rubric=cls.saq_rubric, name="Clarity", max_mark=Decimal("5.00"), order=20)
         cls.poster_c1 = RubricCriterion.objects.create(rubric=cls.poster_rubric, name="Design", max_mark=Decimal("10.00"), order=10)
 
-        cls.saq_submission = Submission.objects.create(
-            group=cls.group, component=cls.saq, text="Some student answers.",
-        )
-        cls.poster_submission = Submission.objects.create(
-            group=cls.group, component=cls.poster,
-        )
-
         cls.staff = User.objects.create_user(
             email="grader@example.com", first_name="Ada", last_name="Grader",
             password="pw12345!", is_staff=True,
@@ -87,6 +93,22 @@ class _GradingFixture(TestCase):
             email="student@example.com", first_name="Stu", last_name="Dent",
             password="pw12345!", is_staff=False,
         )
+
+        # A question so the SAQ export carries a heading, not a raw key.
+        SubmissionQuestion.objects.create(
+            key="q_answers", prompt="Team answers", order=10,
+        )
+        cls.submission = Submission.objects.create(
+            group=cls.group,
+            answers={"q_answers": "Some student answers."},
+            poster={"storage_key": "2026/01/01/fixture/poster.pdf",
+                    "name": "poster.pdf", "mime": "application/pdf", "size": 42},
+        )
+        cls.submission.snapshot(cls.staff)
+        cls.submission.save()
+        # One row, two component views of it.
+        cls.saq_submission = cls.submission
+        cls.poster_submission = cls.submission
 
 
 class GroupMarkingViewTests(_GradingFixture):
@@ -135,7 +157,9 @@ class GroupMarkingViewTests(_GradingFixture):
         self.assertEqual(sorted(codes), sorted(["SAQ", "POSTER", "REPORT", "PROTOTYPE"]))
         saq_block = next(c for c in data["components"] if c["component"]["code"] == "SAQ")
         self.assertIsNotNone(saq_block["submission"])
-        self.assertEqual(saq_block["submission"]["text"], "Some student answers.")
+        # SAQ text is the answers flattened under their question prompts.
+        self.assertIn("Team answers", saq_block["submission"]["text"])
+        self.assertIn("Some student answers.", saq_block["submission"]["text"])
         self.assertEqual(len(saq_block["criteria"]), 2)
         self.assertEqual(saq_block["grades"], [])
         # REPORT has no submission and no rubric — should still render as an empty slot.
@@ -177,24 +201,43 @@ class GradeBulkViewTests(_GradingFixture):
                 {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "8.00"},
             ],
             "overall_comments": [
-                {"submission": self.poster_submission.id, "comment": "Strong poster overall."},
+                # The entry has SAQ + POSTER content, so the component code is
+                # required to say which comment this is.
+                {"submission": self.poster_submission.id, "component": "POSTER",
+                 "comment": "Strong poster overall."},
             ],
         }
         resp = self.client.post(url, payload, format="json")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.poster_submission.refresh_from_db()
-        self.assertEqual(self.poster_submission.overall_comment, "Strong poster overall.")
+        feedback = ComponentFeedback.objects.get(group=self.group, component=self.poster)
+        self.assertEqual(feedback.comment, "Strong poster overall.")
+        self.assertEqual(feedback.updated_by_id, self.staff.id)
 
         # Unknown submission id in overall_comments is a 400.
         bad = {"items": [], "overall_comments": [{"submission": 99999, "comment": "x"}]}
         self.assertEqual(self.client.post(url, bad, format="json").status_code, status.HTTP_400_BAD_REQUEST)
 
+        # Omitting the component on a multi-component entry is also a 400.
+        ambiguous = {"items": [], "overall_comments": [
+            {"submission": self.submission.id, "comment": "which one?"},
+        ]}
+        self.assertEqual(
+            self.client.post(url, ambiguous, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
     def test_component_mismatch_rejected_atomically(self):
         url = reverse("grading:grade-bulk")
-        # First item is fine; second binds a POSTER criterion to the SAQ submission.
+        # A REPORT criterion exists but the entry has no submitted report, so
+        # binding it to this submission is a client bug and must be rejected.
+        report = SubmissionComponent.objects.get(code="REPORT")
+        report_rubric = Rubric.objects.create(component=report, year=2026, active=True)
+        report_c1 = RubricCriterion.objects.create(
+            rubric=report_rubric, name="Rigour", max_mark=Decimal("10.00"), order=10,
+        )
         payload = {"items": [
             {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "7.00"},
-            {"submission": self.saq_submission.id, "criterion": self.poster_c1.id, "mark": "9.00"},
+            {"submission": self.saq_submission.id, "criterion": report_c1.id, "mark": "9.00"},
         ]}
         resp = self.client.post(url, payload, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -292,11 +335,10 @@ class GroupDownloadViewTests(_GradingFixture):
         self.client.force_authenticate(self.staff)
 
     def test_zip_contains_submission_text_and_link(self):
-        # Add a link submission alongside the SAQ text submission from the fixture.
-        Submission.objects.filter(group=self.group, component=self.poster).delete()
-        Submission.objects.create(
-            group=self.group, component=self.poster, link="https://example.com/prototype",
-        )
+        # Add a prototype link to the entry and resubmit so the snapshot has it.
+        self.submission.prototype_url = "https://example.com/prototype"
+        self.submission.snapshot(self.staff)
+        self.submission.save()
 
         url = reverse("grading:group-download", kwargs={"group_id": self.group.id})
         resp = self.client.get(url)
@@ -308,9 +350,12 @@ class GroupDownloadViewTests(_GradingFixture):
         names = set(zf.namelist())
         # Group folder + component subfolders with the right pseudo-files.
         self.assertIn("BTF-TEST-1/SAQ/text.txt", names)
-        self.assertIn("BTF-TEST-1/POSTER/link.txt", names)
-        self.assertEqual(zf.read("BTF-TEST-1/SAQ/text.txt").decode(), "Some student answers.")
-        self.assertEqual(zf.read("BTF-TEST-1/POSTER/link.txt").decode().strip(), "https://example.com/prototype")
+        self.assertIn("BTF-TEST-1/PROTOTYPE/link.txt", names)
+        # The fixture's poster storage key has no backing blob; the archive
+        # notes it instead of failing.
+        self.assertIn("BTF-TEST-1/POSTER/MISSING.txt", names)
+        self.assertIn("Some student answers.", zf.read("BTF-TEST-1/SAQ/text.txt").decode())
+        self.assertEqual(zf.read("BTF-TEST-1/PROTOTYPE/link.txt").decode().strip(), "https://example.com/prototype")
 
     def test_component_filter(self):
         url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
@@ -827,8 +872,9 @@ class ClientDocxTemplateTests(_GradingFixture):
             submission=self.poster_submission, criterion=self.poster_c1,
             mark=Decimal("3.50"), graded_by=self.staff,
         )
-        self.poster_submission.overall_comment = "Strong poster overall."
-        self.poster_submission.save(update_fields=["overall_comment"])
+        ComponentFeedback.objects.create(
+            group=self.group, component=self.poster, comment="Strong poster overall.",
+        )
         components = _grades_payload(self.group, 2026)
         data = render_marks_summary(marks_summary_context(self.group, 2026, components))
         xml = self._document_xml(data)
