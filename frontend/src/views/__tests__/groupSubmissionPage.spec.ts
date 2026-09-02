@@ -826,3 +826,25 @@ describe('which copy of the entry is shown', () => {
     expect(wrapper!.find('.submission-file').text()).toContain('submitted.pdf')
   })
 })
+
+describe('how the status line is worded', () => {
+  it('does not repeat the deadline date the header already shows', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { stage: 'not_started' } }))
+
+    const text = wrapper!.find('.status-line').text()
+    expect(text).toContain('The deadline passed.')
+    expect(text).not.toMatch(/deadline passed on/i)
+  })
+
+  it('ends the headline with a full stop when a detail follows it', async () => {
+    await mountPage(submittedDetail())
+
+    expect(wrapper!.find('.status-line__state').text()).toBe('Submitted.')
+  })
+
+  it('leaves the headline unpunctuated when it stands alone', async () => {
+    await mountPage(buildDetail({ submission: { stage: 'in_progress', answers: ANSWERED } }))
+
+    expect(wrapper!.find('.status-line__state').text()).toBe('In Progress')
+  })
+})

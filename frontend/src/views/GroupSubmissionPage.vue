@@ -49,7 +49,8 @@
         <span class="status-line__icon" aria-hidden="true">
           <i :class="`fas ${state.icon}`"></i>
         </span>
-        <strong class="status-line__state">{{ state.headline }}</strong>
+        <strong class="status-line__state">{{ state.headline
+          }}{{ state.detail ? '.' : '' }}</strong>
         <span v-if="state.detail" class="status-line__detail">{{ state.detail }}</span>
 
         <button
@@ -668,7 +669,6 @@ const stage = computed<SubmissionStage>(
 const state = computed(() => {
   const closed = !isOpen.value
   const by = submittedLine.value
-  const on = deadlineDate.value
 
   switch (stage.value) {
     case 'submitted':
@@ -696,7 +696,8 @@ const state = computed(() => {
             tone: 'missed',
             icon: 'fa-circle-exclamation',
             headline: 'Not Submitted',
-            detail: `The deadline passed on ${on}. Your saved work is below, but it was never submitted.`,
+            detail:
+              'The deadline passed. Your saved work is below, but it was never submitted.',
           }
         : { tone: 'progress', icon: 'fa-pen', headline: 'In Progress', detail: '' }
     default:
@@ -705,13 +706,13 @@ const state = computed(() => {
             tone: 'missed',
             icon: 'fa-circle-exclamation',
             headline: 'Not Submitted',
-            detail: `The deadline passed on ${on}. No entry was received.`,
+            detail: 'The deadline passed. No entry was received.',
           }
         : {
             tone: 'progress',
             icon: 'fa-pen',
             headline: 'Not Started',
-            detail: `Add your answers and poster before ${on}.`,
+            detail: 'Add your answers and poster before the deadline.',
           }
   }
 })
@@ -721,8 +722,8 @@ const submittedLine = computed(() => {
   if (!submission?.submitted_at) return ''
   const when = formatDate(submission.submitted_at)
   return submission.submitted_by_name
-    ? `by ${submission.submitted_by_name} on ${when}`
-    : `on ${when}`
+    ? `By ${submission.submitted_by_name} on ${when}`
+    : `On ${when}`
 })
 
 const deadlineDate = computed(() => {
@@ -1492,10 +1493,6 @@ onBeforeUnmount(() => {
   font-size: var(--text-body);
   color: var(--body-text);
   letter-spacing: -0.005em;
-}
-
-.status-line__detail::before {
-  content: '· ';
 }
 
 .status-line__action {
