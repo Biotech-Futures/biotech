@@ -1,15 +1,13 @@
 from django.db import transaction
-from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import generics
 
-from apps.submissions.models import Submission
-
-from ..models import Grade, RubricCriterion
+from ..models import ComponentFeedback, Grade, RubricCriterion
 from ..permissions import IsGrader
 from ..serializers import GradeBulkRequestSerializer, GradeSerializer
+from ..services import content
 
 
 class GradeUpdateView(generics.UpdateAPIView):
@@ -30,12 +28,20 @@ class GradeBulkView(APIView):
     """POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
 
     Body: ``{"items": [{"submission": <id>, "criterion": <id>,
-                        "mark": <decimal|null>, "comment": "..."}, ...]}``
+                        "mark": <decimal|null>, "comment": "..."}, ...],
+             "overall_comments": [{"submission": <id>, "component": "POSTER",
+                                   "comment": "..."}, ...]}``
 
     Behavior:
-      - Each item upserts a Grade against ``(submission, criterion)``.
-      - Enforces that the criterion's rubric.component matches the submission's
-        component — a mismatched pair is a bug and would silently corrupt data.
+      - Each item upserts a Grade against ``(submission, criterion)``. A
+        submission id covers the group's whole entry, so the criterion alone
+        decides which component a grade belongs to.
+      - Enforces that the criterion's component actually has submitted content
+        on that entry — grading an absent poster is a client bug and would
+        silently corrupt data.
+      - ``overall_comments`` upsert :class:`ComponentFeedback`. ``component``
+        (a code) is required whenever the entry spans more than one component,
+        since the submission id alone cannot say which comment this is.
       - All-or-nothing: any invalid item rolls the whole batch back.
     """
 
@@ -52,18 +58,18 @@ class GradeBulkView(APIView):
             o["submission"] for o in overall_comments
         }
         criterion_ids = {i["criterion"] for i in items}
-        submissions = {
-            s.id: s for s in Submission.objects.filter(id__in=submission_ids).select_related("component")
-        }
+        entries = content.entries_by_submission(
+            content.submission_entries(submission_ids=list(submission_ids))
+        ) if submission_ids else {}
         criteria = {
             c.id: c for c in RubricCriterion.objects.filter(id__in=criterion_ids).select_related("rubric")
         }
 
         # Validate every item before any write.
         for i, item in enumerate(items):
-            submission = submissions.get(item["submission"])
+            sub_entries = entries.get(item["submission"])
             criterion = criteria.get(item["criterion"])
-            if submission is None:
+            if sub_entries is None:
                 return Response(
                     {"detail": f"items[{i}]: submission {item['submission']} not found"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -73,28 +79,55 @@ class GradeBulkView(APIView):
                     {"detail": f"items[{i}]: criterion {item['criterion']} not found"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if criterion.rubric.component_id != submission.component_id:
+            if not any(
+                e.component_id == criterion.rubric.component_id for e in sub_entries
+            ):
                 return Response(
                     {"detail": (
                         f"items[{i}]: criterion belongs to component "
-                        f"{criterion.rubric.component_id} but submission is for "
-                        f"component {submission.component_id}"
+                        f"{criterion.rubric.component_id} but submission "
+                        f"{item['submission']} has no submitted content for it"
                     )},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        for i, entry in enumerate(overall_comments):
-            if entry["submission"] not in submissions:
+        feedback_targets = []
+        for i, entry_item in enumerate(overall_comments):
+            sub_entries = entries.get(entry_item["submission"])
+            if sub_entries is None:
                 return Response(
-                    {"detail": f"overall_comments[{i}]: submission {entry['submission']} not found"},
+                    {"detail": f"overall_comments[{i}]: submission {entry_item['submission']} not found"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            code = (entry_item.get("component") or "").strip().upper()
+            if code:
+                matches = [e for e in sub_entries if e.component_code == code]
+                if not matches:
+                    return Response(
+                        {"detail": (
+                            f"overall_comments[{i}]: submission has no submitted "
+                            f"content for component {code!r}"
+                        )},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            elif len(sub_entries) == 1:
+                matches = sub_entries
+            else:
+                return Response(
+                    {"detail": (
+                        f"overall_comments[{i}]: 'component' is required — this "
+                        "entry has content for more than one component"
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            feedback_targets.append((matches[0], entry_item["comment"]))
 
-        for entry in overall_comments:
-            submission = submissions[entry["submission"]]
-            if submission.overall_comment != entry["comment"]:
-                submission.overall_comment = entry["comment"]
-                submission.save(update_fields=["overall_comment"])
+        for entry, comment in feedback_targets:
+            ComponentFeedback.objects.update_or_create(
+                group_id=entry.group_id,
+                component_id=entry.component_id,
+                defaults={"comment": comment, "updated_by": request.user},
+            )
 
         saved = []
         for item in items:

@@ -24,7 +24,7 @@ import re
 import zipfile
 from typing import Iterable
 
-from apps.submissions.models import Submission
+from .content import ComponentEntry, open_file
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +40,25 @@ def _safe(name: str) -> str:
     return cleaned or "unnamed"
 
 
-def _read_file_bytes(field) -> bytes | None:
-    """Read a FileField's bytes or return None if the backing blob is gone.
+def _read_entry_bytes(entry: ComponentEntry) -> bytes | None:
+    """Read an entry's stored file or return None if the blob is gone.
 
     Azure Blob returns 404s for deleted objects — we don't want a single bad
     blob to nuke a 180-group export.
     """
     try:
-        with field.open("rb") as fh:
+        with open_file(entry) as fh:
             return fh.read()
     except Exception:  # noqa: BLE001 — narrow logging, broad recovery is the point
-        logger.warning("Missing / unreadable submission blob: %s", getattr(field, "name", "?"))
+        logger.warning(
+            "Missing / unreadable submission blob: %s",
+            (entry.file or {}).get("storage_key", "?"),
+        )
         return None
 
 
-def build_submissions_zip(submissions: Iterable[Submission]) -> bytes:
-    """Materialise a zip archive of the given submissions to memory.
+def build_submissions_zip(entries: Iterable[ComponentEntry]) -> bytes:
+    """Materialise a zip archive of the given component entries to memory.
 
     Callers stream small results directly to the client (per-group endpoint)
     or hand the bytes off to storage for async jobs. For the current cohort
@@ -65,24 +68,25 @@ def build_submissions_zip(submissions: Iterable[Submission]) -> bytes:
     """
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for submission in submissions:
-            group_folder = _safe(submission.group.group_name)
-            component_folder = _safe(submission.component.code)
-            base = f"{group_folder}/{component_folder}"
+        for entry in entries:
+            base = f"{_safe(entry.group_name)}/{_safe(entry.component_code)}"
 
-            if submission.file:
-                data = _read_file_bytes(submission.file)
-                original = submission.file.name.rsplit("/", 1)[-1] or "file.bin"
+            if entry.file:
+                data = _read_entry_bytes(entry)
+                original = entry.file.get("name") or "file.bin"
                 if data is None:
-                    zf.writestr(f"{base}/MISSING.txt", f"Original blob missing: {submission.file.name}\n")
+                    zf.writestr(
+                        f"{base}/MISSING.txt",
+                        f"Original blob missing: {entry.file.get('storage_key', '?')}\n",
+                    )
                 else:
                     zf.writestr(f"{base}/{_safe(original)}", data)
 
-            if submission.text:
-                zf.writestr(f"{base}/text.txt", submission.text)
+            if entry.text:
+                zf.writestr(f"{base}/text.txt", entry.text)
 
-            if submission.link:
-                zf.writestr(f"{base}/link.txt", submission.link + "\n")
+            if entry.link:
+                zf.writestr(f"{base}/link.txt", entry.link + "\n")
 
     return buffer.getvalue()
 

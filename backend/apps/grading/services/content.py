@@ -123,6 +123,7 @@ def submission_entries(
     component_code: str | None = None,
     group_id: int | None = None,
     group_ids: list[int] | None = None,
+    submission_ids: list[int] | None = None,
 ) -> list[ComponentEntry]:
     """Every submitted component entry matching the filters.
 
@@ -144,6 +145,8 @@ def submission_entries(
         qs = qs.filter(group_id=group_id)
     if group_ids:
         qs = qs.filter(group_id__in=group_ids)
+    if submission_ids:
+        qs = qs.filter(id__in=submission_ids)
 
     entries: list[ComponentEntry] = []
     for submission in qs:

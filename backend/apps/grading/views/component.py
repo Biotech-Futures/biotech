@@ -2,20 +2,18 @@ from datetime import date
 
 from decimal import Decimal
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission
 
-from ..models import SubmissionComponent
-
-from ..models import Grade, Rubric
+from ..models import Grade, Rubric, SubmissionComponent
 from ..permissions import IsGrader
 from ..serializers import SubmissionComponentSerializer
+from ..services import content
 
 
 class ComponentMarkingListView(APIView):
@@ -37,6 +35,10 @@ class ComponentMarkingListView(APIView):
 
     Sorted by group_name for predictable table ordering. Rows include groups
     with no submission yet so admins can see the full cohort's progress.
+
+    A submission id spans every component of a group's entry, so all Grade
+    queries here pin ``criterion__rubric__component`` — without it, marks
+    given on other components would leak into this table.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -53,11 +55,9 @@ class ComponentMarkingListView(APIView):
             .order_by("group_name")
             .values("id", "group_name")
         )
-        submissions = {
-            s["group_id"]: s
-            for s in Submission.objects.filter(component=component).values(
-                "id", "group_id", "submitted_at", "is_late"
-            )
+        entries = {
+            e.group_id: e
+            for e in content.submission_entries(component_code=component.code)
         }
         # Count *scored* grades per submission (mark is not null). A Grade row
         # with a null mark exists when a comment was left but the rubric row
@@ -69,10 +69,14 @@ class ComponentMarkingListView(APIView):
         # (insertion order = latest-first) in a single pass.
         last_grader = {}
         graders_by_sub = {}
-        submission_ids = [s["id"] for s in submissions.values()]
+        submission_ids = [e.submission_id for e in entries.values()]
         if submission_ids:
             counts = (
-                Grade.objects.filter(submission_id__in=submission_ids, mark__isnull=False)
+                Grade.objects.filter(
+                    submission_id__in=submission_ids,
+                    mark__isnull=False,
+                    criterion__rubric__component=component,
+                )
                 .values("submission_id")
                 .annotate(cnt=Count("id"), total=Sum("mark"))
             )
@@ -88,6 +92,7 @@ class ComponentMarkingListView(APIView):
                     submission_id__in=submission_ids,
                     mark__isnull=False,
                     graded_by__isnull=False,
+                    criterion__rubric__component=component,
                 )
                 .order_by("submission_id", "-graded_at")
                 .values(
@@ -108,14 +113,14 @@ class ComponentMarkingListView(APIView):
 
         rows = []
         for g in groups:
-            submission = submissions.get(g["id"])
-            sid = submission["id"] if submission else None
+            entry = entries.get(g["id"])
+            sid = entry.submission_id if entry else None
             rows.append({
                 "group_id": g["id"],
                 "group_name": g["group_name"],
                 "submission_id": sid,
-                "submitted_at": submission["submitted_at"] if submission else None,
-                "is_late": submission["is_late"] if submission else False,
+                "submitted_at": entry.submitted_at if entry else None,
+                "is_late": entry.is_late if entry else False,
                 "criteria_graded": graded_counts.get(sid, 0) if sid else 0,
                 "marks_total": mark_totals.get(sid) if sid else None,
                 "last_grader_name": last_grader.get(sid) if sid else None,

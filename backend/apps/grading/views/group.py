@@ -6,18 +6,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission
 
-from ..models import SubmissionComponent
-
-from ..models import Grade, Rubric
+from ..models import Grade, Rubric, SubmissionComponent
 from ..permissions import IsGrader
 from ..serializers import (
     GradeSerializer,
     RubricCriterionSerializer,
     SubmissionComponentSerializer,
-    SubmissionSerializer,
 )
+from ..services import content
 
 
 class GroupMarkingView(APIView):
@@ -38,6 +35,10 @@ class GroupMarkingView(APIView):
             ...
           ]
         }
+
+    Every component block of one group shares the same submission id (a team's
+    entry is one row); grades are split per block by their criterion's
+    component, which is what keeps the blocks distinct.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -47,30 +48,37 @@ class GroupMarkingView(APIView):
         year = int(request.query_params.get("year") or date.today().year)
 
         components = list(SubmissionComponent.objects.all().order_by("order", "id"))
-        submissions_by_component = {
-            s.component_id: s
-            for s in Submission.objects.filter(group=group).select_related("component")
+        entries_by_component = {
+            e.component_id: e for e in content.submission_entries(group_id=group.id)
         }
+        feedback = content.feedback_map([group.id])
         rubrics_by_component = {
             r.component_id: r
             for r in Rubric.objects.filter(year=year, active=True).prefetch_related("criteria")
         }
-        grades_by_submission = {}
-        submission_ids = [s.id for s in submissions_by_component.values()]
+
+        grades_by_component: dict[int, list[Grade]] = {}
+        submission_ids = {e.submission_id for e in entries_by_component.values()}
         if submission_ids:
-            for grade in Grade.objects.filter(submission_id__in=submission_ids):
-                grades_by_submission.setdefault(grade.submission_id, []).append(grade)
+            for grade in Grade.objects.filter(
+                submission_id__in=submission_ids
+            ).select_related("criterion__rubric"):
+                grades_by_component.setdefault(
+                    grade.criterion.rubric.component_id, []
+                ).append(grade)
 
         payload_components = []
         for component in components:
-            submission = submissions_by_component.get(component.id)
+            entry = entries_by_component.get(component.id)
             rubric = rubrics_by_component.get(component.id)
             criteria = list(rubric.criteria.all()) if rubric else []
-            grades = grades_by_submission.get(submission.id, []) if submission else []
+            grades = grades_by_component.get(component.id, []) if entry else []
 
             payload_components.append({
                 "component": SubmissionComponentSerializer(component).data,
-                "submission": SubmissionSerializer(submission).data if submission else None,
+                "submission": content.entry_payload(
+                    entry, feedback.get((group.id, component.id), "")
+                ),
                 "rubric_id": rubric.id if rubric else None,
                 "criteria": RubricCriterionSerializer(criteria, many=True).data,
                 "grades": GradeSerializer(grades, many=True).data,
