@@ -150,6 +150,8 @@ export interface Submission {
   id: number
   component: number
   file_url: string | null
+  /** Attachment-download variant of the submitted file's URL. */
+  file_download_url?: string | null
   /** Original filename of the uploaded file, when the component has one. */
   file_name?: string | null
   text: string

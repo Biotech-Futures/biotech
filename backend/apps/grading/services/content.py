@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from apps.submissions.models import Submission, SubmissionQuestion
-from apps.submissions.storage import SUBMISSION_FILE_SERVICE
+from apps.submissions.storage import submission_file_service
 
 from ..models import ComponentFeedback, SubmissionComponent
 
@@ -39,6 +39,17 @@ _FILE_SLOTS = {
     REPORT: "submitted_report",
     PROTOTYPE: "submitted_prototype",
 }
+
+# Component code -> the storage slot its files live under (one container each).
+_STORAGE_SLOTS = {
+    POSTER: "poster",
+    REPORT: "report",
+    PROTOTYPE: "prototype",
+}
+
+
+def _service_for(entry: ComponentEntry):
+    return submission_file_service(_STORAGE_SLOTS[entry.component_code])
 
 
 @dataclass(frozen=True)
@@ -183,7 +194,7 @@ def file_url(entry: ComponentEntry, *, as_attachment: bool = False) -> str | Non
     """
     if not entry.file:
         return None
-    return SUBMISSION_FILE_SERVICE.resolve_url(
+    return _service_for(entry).resolve_url(
         entry.file.get("storage_key"),
         filename=entry.file.get("name"),
         content_type=entry.file.get("mime"),
@@ -195,7 +206,7 @@ def open_file(entry: ComponentEntry):
     """Open the entry's file for streaming (zip exports). Caller closes."""
     if not entry.file or not entry.file.get("storage_key"):
         raise FileNotFoundError("entry has no stored file")
-    return SUBMISSION_FILE_SERVICE.open(entry.file["storage_key"])
+    return _service_for(entry).open(entry.file["storage_key"])
 
 
 def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> dict | None:
@@ -210,6 +221,10 @@ def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> di
         "id": entry.submission_id,
         "component": entry.component_id,
         "file_url": file_url(entry),
+        # Attachment variant of the SUBMITTED file's URL — deliberately not the
+        # portal's /files/<slot>/download/ endpoint, which serves the editable
+        # draft and could diverge from the snapshot during a reopen.
+        "file_download_url": file_url(entry, as_attachment=True),
         "file_name": (entry.file or {}).get("name"),
         "text": entry.text,
         # SAQ: per-question blocks so the page can box each answer; the flat

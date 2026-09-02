@@ -69,10 +69,12 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
-# Competition entries live in their own container rather than alongside the
-# general resource library, so student submissions are not mixed in with
-# program-wide material.
-AZURE_SUBMISSION_CONTAINER = config("AZURE_SUBMISSION_CONTAINER", default="submissions")
+# Competition entries live apart from the general resource library, with one
+# container per attachment slot, so posters, reports and prototypes are
+# separated at the storage-account level rather than mixed in one namespace.
+AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
+AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
+AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",

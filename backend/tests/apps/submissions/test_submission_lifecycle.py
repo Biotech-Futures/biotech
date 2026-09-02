@@ -16,7 +16,7 @@ from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
-from apps.submissions.storage import SUBMISSION_FILE_SERVICE
+from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
 from .seed_data import install_question_set
@@ -151,7 +151,7 @@ class SubmissionLifecycleTests(TestCase):
         self.assertEqual(submission.submitted_answers, self._answers("Original answer."))
         self.assertEqual(submission.submitted_poster["name"], "original.pdf")
         # And the submitted file itself still exists to be downloaded.
-        self.assertTrue(SUBMISSION_FILE_SERVICE.exists(original_key))
+        self.assertTrue(submission_file_service("poster").exists(original_key))
 
     def test_removing_a_file_during_a_revision_keeps_the_submitted_one(self):
         self._fill_and_submit()
@@ -163,7 +163,7 @@ class SubmissionLifecycleTests(TestCase):
         submission = self._submission()
         self.assertIsNone(submission.poster)
         self.assertIsNotNone(submission.submitted_poster)
-        self.assertTrue(SUBMISSION_FILE_SERVICE.exists(original_key))
+        self.assertTrue(submission_file_service("poster").exists(original_key))
 
     def test_completing_a_revision_replaces_the_submitted_copy(self):
         self._fill_and_submit("Original answer.", "original.pdf")
@@ -181,7 +181,7 @@ class SubmissionLifecycleTests(TestCase):
         self.assertEqual(submission.submitted_poster["name"], "revised.pdf")
         self.assertTrue(submission.is_locked)
         # The superseded file is only cleaned up now that it is genuinely unused.
-        self.assertFalse(SUBMISSION_FILE_SERVICE.exists(original_key))
+        self.assertFalse(submission_file_service("poster").exists(original_key))
 
     def test_only_one_submission_record_exists_throughout(self):
         self._fill_and_submit()

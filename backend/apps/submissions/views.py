@@ -40,7 +40,7 @@ from .serializers import (
     missing_required_answers,
 )
 from .services import current_cohort, deadline_for_group
-from .storage import SUBMISSION_FILE_SERVICE
+from .storage import submission_file_service
 from .uploads import (
     PDF_SLOTS,
     POSTER,
@@ -224,7 +224,7 @@ class GroupSubmissionFileView(APIView):
 
         # Writes the blob first and removes it if anything below raises, so a
         # failed save cannot strand a file with no record pointing at it.
-        with SUBMISSION_FILE_SERVICE.stored_file(
+        with submission_file_service(slot).stored_file(
             uploaded,
             content_type_field="mime",
             size_field="size",
@@ -247,7 +247,7 @@ class GroupSubmissionFileView(APIView):
             and previous_key != file_data.get("storage_key")
             and previous_key not in submission.submitted_storage_keys()
         ):
-            SUBMISSION_FILE_SERVICE.delete(previous_key)
+            submission_file_service(slot).delete(previous_key)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -277,7 +277,7 @@ class GroupSubmissionFileView(APIView):
         # Kept if the submitted copy still references it — see the upload path.
         key = existing.get("storage_key")
         if key and key not in submission.submitted_storage_keys():
-            SUBMISSION_FILE_SERVICE.delete(key)
+            submission_file_service(slot).delete(key)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -294,9 +294,10 @@ def _serve_slot(request, group_id: int, slot: str, *, as_attachment: bool):
     if not stored.get("storage_key"):
         raise FileNotUploadedYet()
 
+    service = submission_file_service(slot)
     return serve_managed_file(
-        resolve_url=SUBMISSION_FILE_SERVICE.resolve_url,
-        open_file=SUBMISSION_FILE_SERVICE.open,
+        resolve_url=service.resolve_url,
+        open_file=service.open,
         storage_key=stored["storage_key"],
         filename=stored.get("name") or f"{slot}",
         mime_type=stored.get("mime"),
@@ -356,8 +357,12 @@ class GroupSubmissionSubmitView(APIView):
                 raise RequiredAnswersMissing(missing)
 
             # Files the previous submission relied on, taken before the
-            # snapshot overwrites them.
-            superseded = submission.submitted_storage_keys()
+            # snapshot overwrites them. Kept per slot: each slot stores into
+            # its own container, so a delete must know where the key lives.
+            superseded = {
+                slot: (getattr(submission, f"submitted_{slot}") or {}).get("storage_key")
+                for slot in Submission.FILE_SLOTS
+            }
 
             submission.snapshot(request.user)
             # Stamped at submit: a draft may predate the deadline row, and the
@@ -370,8 +375,10 @@ class GroupSubmissionSubmitView(APIView):
 
         # Outside the transaction: a blob delete cannot be rolled back, so a
         # later failure would leave the row pointing at a missing file.
-        for key in superseded - submission.submitted_storage_keys():
-            SUBMISSION_FILE_SERVICE.delete(key)
+        still_referenced = submission.submitted_storage_keys()
+        for slot, key in superseded.items():
+            if key and key not in still_referenced:
+                submission_file_service(slot).delete(key)
 
         # After the snapshot, so the email describes what was recorded. Never
         # raises: a failed send must not fail the submission.
