@@ -2,9 +2,37 @@ from django.conf import settings
 from django.db import models
 
 
+class SubmissionComponent(models.Model):
+    """The gradeable parts of a team's entry (SAQ / POSTER / REPORT / PROTOTYPE).
+
+    Owned by grading as pure marking configuration: it says what rubrics attach
+    to, not where student work lives. The student portal stores an entry as one
+    row with per-slot fields; ``services.content`` translates that row into
+    per-component views keyed by this catalogue's codes.
+    """
+
+    code = models.CharField(unique=True, max_length=32)
+    name = models.CharField(max_length=255)
+    is_optional = models.BooleanField(default=False)
+    accepts_file = models.BooleanField(default=True)
+    accepts_text = models.BooleanField(default=False)
+    accepts_link = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "grading_component"
+        ordering = ["order", "id"]
+        indexes = [
+            models.Index(fields=["code"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class Rubric(models.Model):
     component = models.ForeignKey(
-        "submissions.SubmissionComponent",
+        SubmissionComponent,
         on_delete=models.PROTECT,
         related_name="rubrics",
     )
@@ -47,6 +75,12 @@ class RubricCriterion(models.Model):
 
 
 class Grade(models.Model):
+    # One submission row now covers a group's whole entry (all components), so
+    # a single submission id carries grades for every component. The pair
+    # (submission, criterion) is still exact: a criterion belongs to exactly
+    # one rubric, and a rubric to exactly one component. Any per-component
+    # aggregation must therefore filter via criterion__rubric__component,
+    # never assume the submission implies a component.
     submission = models.ForeignKey(
         "submissions.Submission",
         on_delete=models.CASCADE,
@@ -79,6 +113,52 @@ class Grade(models.Model):
 
     def __str__(self):
         return f"{self.submission} — {self.criterion.name}: {self.mark}"
+
+
+class ComponentFeedback(models.Model):
+    """Marker's overall comment on one component of a group's entry.
+
+    Used to live as ``overall_comment`` on the per-component submission row.
+    With one submission row per group that column can't hold four comments, so
+    the comment is keyed (group, component) here instead — a key that is
+    independent of how the submissions app stores the entry. Feeds the marks
+    release docx (e.g. the template's "Overall Poster Comment" block).
+    """
+
+    group = models.ForeignKey(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="component_feedback",
+    )
+    component = models.ForeignKey(
+        SubmissionComponent,
+        on_delete=models.CASCADE,
+        related_name="feedback",
+    )
+    comment = models.TextField(blank=True, default="")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="component_feedback",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "component_feedback"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "component"],
+                name="unique_feedback_per_group_component",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["group", "component"]),
+        ]
+
+    def __str__(self):
+        return f"{self.group} — {self.component.code} feedback"
 
 
 class FinalistFlag(models.Model):
