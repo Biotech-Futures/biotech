@@ -98,8 +98,8 @@ export const adminPatch = <T>(path: string, body?: unknown): Promise<T> =>
 export const adminPut = <T>(path: string, body?: unknown): Promise<T> =>
   adminRequest<T>(path, { method: 'PUT', body })
 
-export const adminDelete = <T>(path: string): Promise<T> =>
-  adminRequest<T>(path, { method: 'DELETE' })
+export const adminDelete = <T>(path: string, body?: unknown): Promise<T> =>
+  adminRequest<T>(path, { method: 'DELETE', body })
 
 // ---------------------------------------------------------------------------
 // Shared list helpers
@@ -273,8 +273,10 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     data: env.data
   }))
 
-export const deleteAdminUser = (userId: string | number) =>
-  adminDelete<AdminEnvelope<null>>(`/user/${userId}/`).then((env) => env.msg)
+export const deleteAdminUser = (userId: string | number, force = false) =>
+  adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
+    (env) => env.msg
+  )
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({

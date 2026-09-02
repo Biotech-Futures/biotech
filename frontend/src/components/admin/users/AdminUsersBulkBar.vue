@@ -26,16 +26,28 @@
       </button>
     </span>
   </template>
-  <button type="button" class="btn btn-sm btn-outline" :disabled="busy" @click="emit('activate')">
+  <button
+    v-if="!isStudentMode"
+    type="button"
+    class="btn btn-sm btn-outline"
+    :disabled="busy"
+    @click="emit('activate')"
+  >
     <i class="fas fa-user-check" aria-hidden="true"></i>
     Activate
   </button>
-  <button type="button" class="btn btn-sm btn-outline" :disabled="busy" @click="emit('deactivate')">
+  <button
+    v-if="!isStudentMode"
+    type="button"
+    class="btn btn-sm btn-outline"
+    :disabled="busy"
+    @click="emit('deactivate')"
+  >
     <i class="fas fa-user-xmark" aria-hidden="true"></i>
     Deactivate
   </button>
   <button
-    v-if="!isSupervisorMode"
+    v-if="!isStudentMode && !isSupervisorMode"
     type="button"
     class="btn btn-sm btn-danger"
     :disabled="busy"
