@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="content-area events-page">
     <div class="page-head">
       <div>
@@ -6,6 +6,17 @@
         <p class="page-subtitle">
           {{ auth.roleLabel }} events available to your program access.
         </p>
+      </div>
+
+      <div v-if="isAdmin" class="page-head__actions">
+        <button
+          type="button"
+          class="btn btn-primary"
+          @click="openCreateEvent"
+        >
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>New Event</span>
+        </button>
       </div>
     </div>
 
@@ -101,6 +112,25 @@
       </form>
     </section>
 
+    <!-- Bulk actions bar for admins -->
+    <BulkActionsBar
+      v-if="isAdmin && selectedEventIds.length && !loading"
+      :count="selectedEventIds.length"
+      noun="event"
+      :disabled="busy"
+      @clear="clearSelection"
+    >
+      <button
+        type="button"
+        class="btn btn-danger btn-sm"
+        :disabled="busy"
+        @click="confirmBulkDelete"
+      >
+        <i class="fas fa-trash-can" aria-hidden="true"></i>
+        <span>Delete</span>
+      </button>
+    </BulkActionsBar>
+
     <Transition name="event-status-fade">
       <p
         v-if="statusVisible && statusMessage"
@@ -170,6 +200,10 @@
         v-for="(ev, idx) in events"
         :key="ev.id"
         class="event-card"
+        :class="{
+          'event-card--selected': isAdmin && selectedEventIds.includes(ev.id),
+          'event-card--menu-open': activeMenuEventId === ev.id
+        }"
         :style="{ '--enter-delay': `${Math.min(idx, 8) * 50}ms` }"
         role="button"
         tabindex="0"
@@ -177,6 +211,21 @@
         @keydown.enter="openDetailsFromCard(ev, $event)"
         @keydown.space="openDetailsFromCard(ev, $event)"
       >
+        <!-- Selection checkbox for bulk operations -->
+        <div
+          v-if="isAdmin"
+          class="event-card-select"
+          @click.stop
+        >
+          <input
+            type="checkbox"
+            class="event-card-checkbox"
+            :checked="selectedEventIds.includes(ev.id)"
+            :aria-label="`Select ${ev.event_name}`"
+            @change="toggleSelectEvent(ev.id)"
+          />
+        </div>
+
         <div class="event-banner">
           <img
             v-if="eventCover(ev)"
@@ -201,13 +250,74 @@
               {{ formatDate(ev.start_datetime, ev) }}
             </span>
 
-            <span
-              v-if="eventStatus(ev)"
-              class="rsvp-badge"
-              :class="`rsvp-badge-${eventStatus(ev)}`"
-            >
-              {{ rsvpLabel(eventStatus(ev)) }}
-            </span>
+            <div class="event-card-topline-right">
+              <span
+                v-if="eventStatus(ev)"
+                class="rsvp-badge"
+                :class="`rsvp-badge-${eventStatus(ev)}`"
+              >
+                {{ rsvpLabel(eventStatus(ev)) }}
+              </span>
+
+              <!-- Admin More Menu Dropdown -->
+              <div v-if="isAdmin" class="event-card-menu" @click.stop>
+                <button
+                  type="button"
+                  class="event-card-more-btn"
+                  :class="{ active: activeMenuEventId === ev.id }"
+                  aria-label="More event actions"
+                  aria-haspopup="true"
+                  :aria-expanded="activeMenuEventId === ev.id"
+                  @click="toggleCardMenu(ev.id, $event)"
+                >
+                  <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+                </button>
+
+                <div
+                  v-if="activeMenuEventId === ev.id"
+                  class="event-card-dropdown"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'view')"
+                  >
+                    <i class="fas fa-eye" aria-hidden="true"></i>
+                    <span>View Details</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'rsvps')"
+                  >
+                    <i class="fas fa-users" aria-hidden="true"></i>
+                    <span>See RSVPs</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'edit')"
+                  >
+                    <i class="fas fa-pen" aria-hidden="true"></i>
+                    <span>Edit</span>
+                  </button>
+                  <div class="event-card-dropdown-divider"></div>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item event-card-dropdown-item--danger"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'delete')"
+                  >
+                    <i class="fas fa-trash-can" aria-hidden="true"></i>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <h3 class="event-title">
@@ -585,6 +695,45 @@
         </div>
       </div>
     </div>
+
+    <!-- Admin Side Panels & Confirm Dialogs -->
+    <AdminEventFormSheet
+      v-if="isAdmin"
+      v-model="formSheetOpen"
+      :event="formEditEvent"
+      :busy="busy"
+      @saved="onEventSaved"
+      @delete="onFormEditorDelete"
+    />
+
+    <AdminEventRsvpsSheet
+      v-if="isAdmin"
+      :open="rsvpsSheetOpen"
+      :event="rsvpsSheetEvent"
+      @close="rsvpsSheetOpen = false"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="singleDeleteConfirm.open"
+      title="Delete Event"
+      :message="singleDeleteConfirm.message"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      @confirm="runSingleDelete"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="bulkDeleteConfirm.open"
+      title="Delete Events"
+      :message="`Delete ${selectedEventIds.length} event${selectedEventIds.length === 1 ? '' : 's'}? All associated RSVPs will also be deleted. This cannot be undone.`"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      @confirm="runBulkDelete"
+    />
   </div>
 </template>
 
@@ -593,6 +742,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { BRAND_NAME } from '@/constants/brand'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import AdminEventFormSheet from '@/components/admin/events/AdminEventFormSheet.vue'
+import AdminEventRsvpsSheet from '@/components/admin/events/AdminEventRsvpsSheet.vue'
+import { deleteAdminEvent } from '@/utils/adminAPI'
 import {
   type BackendEvent,
   type EventFormat,
@@ -615,14 +769,41 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
+const isAdmin = computed(() => auth.isAdmin)
+const busy = ref(false)
+
+// Admin Form Sheet (Create / Edit)
+const formSheetOpen = ref(false)
+const formEditEvent = ref<BackendEvent | null>(null)
+
+// Admin RSVPs Sheet
+const rsvpsSheetOpen = ref(false)
+const rsvpsSheetEvent = ref<BackendEvent | null>(null)
+
+// Card More Dropdown & Bulk Selection
+const activeMenuEventId = ref<number | null>(null)
+const selectedEventIds = ref<number[]>([])
+
+// Confirm Dialogs
+const singleDeleteConfirm = ref<{
+  open: boolean
+  event: BackendEvent | null
+  message: string
+}>({
+  open: false,
+  event: null,
+  message: ''
+})
+const bulkDeleteConfirm = ref({ open: false })
+
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref('')
 const statusMessage = ref('')
 const statusVisible = ref(false)
 const settingRsvpFor = ref<number | null>(null)
-let statusTimer: ReturnType<typeof window.setTimeout> | null = null
-let searchTimer: ReturnType<typeof window.setTimeout> | null = null
+let statusTimer: any = null
+let searchTimer: any = null
 let lastSearchTerm = ''
 
 const events = ref<BackendEvent[]>([])
@@ -824,11 +1005,17 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 const onKeyDown = (e: KeyboardEvent) => {
-  if (!showModal.value) return
   if (e.key === 'Escape') {
-    closeDetails()
-    return
+    if (activeMenuEventId.value !== null) {
+      activeMenuEventId.value = null
+      return
+    }
+    if (showModal.value) {
+      closeDetails()
+      return
+    }
   }
+  if (!showModal.value) return
   if (e.key !== 'Tab' || !modalContentRef.value) return
   const focusables = Array.from(
     modalContentRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
@@ -843,6 +1030,15 @@ const onKeyDown = (e: KeyboardEvent) => {
   } else if (!e.shiftKey && (active === last || !modalContentRef.value.contains(active))) {
     e.preventDefault()
     first.focus()
+  }
+}
+
+const onDocumentClick = (e: MouseEvent) => {
+  if (activeMenuEventId.value !== null) {
+    const target = e.target as HTMLElement | null
+    if (!target?.closest('.event-card-menu')) {
+      activeMenuEventId.value = null
+    }
   }
 }
 
@@ -862,6 +1058,7 @@ onMounted(async () => {
     await openDetailsById(route.params.id)
   }
   window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('click', onDocumentClick)
 
   // Auto-load the next page when the sentinel scrolls into view.
   // rootMargin pre-fetches a bit before the user actually hits the bottom.
@@ -908,6 +1105,7 @@ onBeforeUnmount(() => {
   loadMoreObserver?.disconnect()
   loadMoreObserver = null
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('click', onDocumentClick)
 })
 
 const showStatusMessage = (message: string) => {
@@ -1204,6 +1402,140 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
     settingRsvpFor.value = null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Admin Event Actions & Handlers
+// ---------------------------------------------------------------------------
+
+const openCreateEvent = () => {
+  formEditEvent.value = null
+  formSheetOpen.value = true
+}
+
+const openEditEvent = (ev: BackendEvent) => {
+  formEditEvent.value = ev
+  formSheetOpen.value = true
+}
+
+const openRsvpsSheet = (ev: BackendEvent) => {
+  rsvpsSheetEvent.value = ev
+  rsvpsSheetOpen.value = true
+}
+
+const toggleCardMenu = (eventId: number, event?: Event) => {
+  event?.stopPropagation()
+  activeMenuEventId.value = activeMenuEventId.value === eventId ? null : eventId
+}
+
+const closeCardMenu = () => {
+  activeMenuEventId.value = null
+}
+
+const onMenuAction = (ev: BackendEvent, action: 'view' | 'rsvps' | 'edit' | 'delete') => {
+  closeCardMenu()
+  if (action === 'view') {
+    openDetails(ev)
+  } else if (action === 'rsvps') {
+    openRsvpsSheet(ev)
+  } else if (action === 'edit') {
+    openEditEvent(ev)
+  } else if (action === 'delete') {
+    confirmSingleDelete(ev)
+  }
+}
+
+const toggleSelectEvent = (id: number) => {
+  const idx = selectedEventIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedEventIds.value.splice(idx, 1)
+  } else {
+    selectedEventIds.value.push(id)
+  }
+}
+
+const clearSelection = () => {
+  selectedEventIds.value = []
+}
+
+const confirmSingleDelete = (ev: BackendEvent) => {
+  singleDeleteConfirm.value = {
+    open: true,
+    event: ev,
+    message: `Are you sure you want to delete "${ev.event_name}"? All associated RSVPs will also be deleted. This cannot be undone.`
+  }
+}
+
+const runSingleDelete = async () => {
+  const ev = singleDeleteConfirm.value.event
+  if (!ev?.id) return
+
+  busy.value = true
+  try {
+    await deleteAdminEvent(ev.id)
+    singleDeleteConfirm.value.open = false
+    singleDeleteConfirm.value.event = null
+    selectedEventIds.value = selectedEventIds.value.filter((id) => id !== ev.id)
+    showStatusMessage(`Event "${ev.event_name}" deleted successfully.`)
+    await loadEvents(true)
+  } catch (err: any) {
+    console.error('Failed to delete event:', err)
+    error.value = err?.message || 'Failed to delete event.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const confirmBulkDelete = () => {
+  if (!selectedEventIds.value.length) return
+  bulkDeleteConfirm.value.open = true
+}
+
+const runBulkDelete = async () => {
+  if (!selectedEventIds.value.length) return
+
+  busy.value = true
+  const idsToDelete = [...selectedEventIds.value]
+  let deletedCount = 0
+
+  try {
+    const outcomes = await Promise.allSettled(
+      idsToDelete.map((id) => deleteAdminEvent(id))
+    )
+
+    outcomes.forEach((outcome, idx) => {
+      if (outcome.status === 'fulfilled') {
+        deletedCount++
+        const id = idsToDelete[idx]
+        selectedEventIds.value = selectedEventIds.value.filter((x) => x !== id)
+      }
+    })
+
+    bulkDeleteConfirm.value.open = false
+
+    if (deletedCount > 0) {
+      showStatusMessage(`Deleted ${deletedCount} event${deletedCount === 1 ? '' : 's'}.`)
+      await loadEvents(true)
+    }
+  } catch (err: any) {
+    console.error('Failed to bulk delete events:', err)
+    error.value = err?.message || 'Failed to delete some events.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const onEventSaved = async () => {
+  showStatusMessage('Event saved successfully.')
+  await loadEvents(true)
+}
+
+const onFormEditorDelete = () => {
+  const ev = formEditEvent.value
+  formSheetOpen.value = false
+  if (ev) {
+    confirmSingleDelete(ev)
+  }
+}
 </script>
 
 <style scoped>
@@ -1241,6 +1573,12 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .page-subtitle {
   margin: 0.35rem 0 0;
   color: var(--text-muted);
+}
+
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* Segmented pill tabs */
@@ -1499,6 +1837,157 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px var(--shadow);
   border-color: var(--event-light-green);
+}
+
+.event-card--selected {
+  border-color: var(--event-dark-green) !important;
+  box-shadow: 0 0 0 2px var(--event-dark-green) !important;
+}
+
+.event-card--menu-open {
+  overflow: visible !important;
+  z-index: 15;
+}
+
+/* Card select checkbox */
+.event-card-select {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.25rem;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.event-card-checkbox {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--event-dark-green);
+  cursor: pointer;
+  margin: 0;
+}
+
+/* Card Topline Right */
+.event-card-topline-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  position: relative;
+}
+
+/* Admin Card More Dropdown */
+.event-card-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.event-card-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: var(--white);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.event-card-more-btn:hover,
+.event-card-more-btn.active {
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
+  border-color: var(--event-dark-green);
+}
+
+.event-card-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 155px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 0.35rem 0;
+  z-index: 30;
+  animation: dropdown-fade 0.15s ease-out;
+}
+
+@keyframes dropdown-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.event-card-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--charcoal);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.event-card-dropdown-item i {
+  width: 14px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.event-card-dropdown-item:hover {
+  background-color: var(--bg-light);
+  color: var(--event-dark-green);
+}
+
+.event-card-dropdown-item:hover i {
+  color: var(--event-dark-green);
+}
+
+.event-card-dropdown-item--danger {
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger i {
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger:hover {
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger:hover i {
+  color: var(--danger);
+}
+
+.event-card-dropdown-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.3rem 0;
 }
 
 .event-banner {

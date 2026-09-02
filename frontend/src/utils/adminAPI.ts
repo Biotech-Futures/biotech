@@ -447,6 +447,77 @@ export interface AdminEvent {
   [key: string]: unknown
 }
 
+export interface EventTargetGroupItem {
+  id: number
+  groupName: string
+}
+
+export interface EventTargetRoleItem {
+  id: number
+  roleName: string
+}
+
+export interface AdminEventTargetsData {
+  groupIds: number[]
+  roleIds: number[]
+}
+
+export interface AdminEventRsvpItem {
+  id: number
+  eventId: number
+  userId: number
+  rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
+  respondedAt: string | null
+}
+
+export interface AdminEventDetail {
+  id: number
+  eventName: string
+  description: string | null
+  startDatetime: string
+  endsDatetime: string
+  location: string | null
+  deletedFlag: boolean
+  deletedDatetime: string | null
+  eventImage: string | null
+  eventFormat: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone: string
+  hostUserId: number | null
+  hostName: string | null
+  hostEmail: string | null
+  locationLink: string | null
+}
+
+export interface CreateAdminEventPayload {
+  eventName: string
+  description?: string | null
+  location?: string | null
+  locationLink?: string | null
+  eventFormat?: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone?: string
+  hostUserId?: number | null
+  startAt: string
+  endsAt: string
+  eventImage?: string | null
+  targetGroupIds?: number[]
+  targetRoleIds?: number[]
+}
+
+export interface UpdateAdminEventPayload {
+  eventName?: string
+  description?: string | null
+  location?: string | null
+  locationLink?: string | null
+  eventFormat?: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone?: string
+  hostUserId?: number | null
+  startAt?: string
+  endsAt?: string
+  eventImage?: string | null
+  targetGroupIds?: number[]
+  targetRoleIds?: number[]
+}
+
 export interface AdminEventListParams {
   search?: string
   ordering?: string
@@ -457,8 +528,40 @@ export interface AdminEventListParams {
 export const fetchAdminEvents = (params: AdminEventListParams = {}) =>
   adminGet<PaginatedResult<AdminEvent>>(`/event/${buildAdminQuery(params)}`)
 
-export const fetchAdminEventMetaGroups = () => adminGet<unknown[]>('/event/meta/groups/')
-export const fetchAdminEventMetaRoles = () => adminGet<unknown[]>('/event/meta/roles/')
+export const fetchAdminEvent = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`).then((env) => env.data)
+
+export const createAdminEvent = (payload: CreateAdminEventPayload) =>
+  adminPost<AdminEnvelope<AdminEventDetail>>('/event/', payload).then((env) => env.data)
+
+export const updateAdminEvent = (id: number | string, payload: UpdateAdminEventPayload) =>
+  adminPut<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`, payload).then((env) => env.data)
+
+export const deleteAdminEvent = (id: number | string) =>
+  adminDelete<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`).then((env) => env.data)
+
+export const uploadAdminEventImage = (id: number | string, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminEventDetail>>(`/event/${id}/upload-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+export const fetchAdminEventRsvps = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventRsvpItem[]>>(`/event/${id}/rsvp/`).then((env) => env.data || [])
+
+export const fetchAdminEventTargets = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventTargetsData>>(`/event/${id}/targets/`).then((env) => env.data)
+
+export const fetchAdminEventMetaGroups = () =>
+  adminGet<AdminEnvelope<EventTargetGroupItem[]>>('/event/meta/groups/').then((env) => env.data || [])
+
+export const fetchAdminEventMetaRoles = () =>
+  adminGet<AdminEnvelope<EventTargetRoleItem[]>>('/event/meta/roles/').then((env) => env.data || [])
+
 
 // ---------------------------------------------------------------------------
 // Resources
