@@ -34,9 +34,9 @@ from decimal import Decimal
 from django.shortcuts import get_object_or_404
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission, SubmissionComponent
 
-from ..models import Grade, Rubric
+from ..models import Grade, Rubric, SubmissionComponent
+from .content import submission_entries
 
 
 DEFAULT_TOP_N = 10
@@ -90,16 +90,18 @@ def compute_component_analytics(
     groups_total = len(groups)
 
     submissions = {
-        s.group_id: s
-        for s in Submission.objects.filter(component=component)
+        e.group_id: e
+        for e in submission_entries(component_code=component.code)
     }
     submitted_count = len(submissions)
 
     # Sum of scored marks per submission. Nulls don't count — matches the
     # per-component list view's "graded" definition so both surfaces agree.
+    # The component filter is load-bearing: one submission id carries grades
+    # for every component of the entry.
     grades = list(
         Grade.objects.filter(
-            submission_id__in=[s.id for s in submissions.values()],
+            submission_id__in=[e.submission_id for e in submissions.values()],
             criterion__rubric__component=component,
         ).values("submission_id", "mark")
     )
@@ -111,13 +113,12 @@ def compute_component_analytics(
 
     fully_marked = partially_marked = unmarked = 0
     totals_per_group: list[tuple[int, str, float]] = []
-    submission_to_group = {s.id: gid for gid, s in submissions.items()}
 
     for group in groups:
-        submission = submissions.get(group["id"])
-        if submission is None:
+        entry = submissions.get(group["id"])
+        if entry is None:
             continue
-        marks = marks_by_submission.get(submission.id, [])
+        marks = marks_by_submission.get(entry.submission_id, [])
         if criteria_total > 0 and len(marks) >= criteria_total:
             fully_marked += 1
         elif marks:

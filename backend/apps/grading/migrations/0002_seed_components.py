@@ -1,6 +1,9 @@
 from django.db import migrations
 
 
+# The gradeable parts of an entry. Codes are the stable contract between the
+# rubric catalogue and services.content, which maps each code onto the slot it
+# reads from the student portal's submission row.
 COMPONENTS = [
     {
         "code": "SAQ",
@@ -42,7 +45,7 @@ COMPONENTS = [
 
 
 def seed(apps, schema_editor):
-    SubmissionComponent = apps.get_model("submissions", "SubmissionComponent")
+    SubmissionComponent = apps.get_model("grading", "SubmissionComponent")
     for row in COMPONENTS:
         SubmissionComponent.objects.update_or_create(
             code=row["code"],
@@ -51,14 +54,14 @@ def seed(apps, schema_editor):
 
 
 def unseed(apps, schema_editor):
-    SubmissionComponent = apps.get_model("submissions", "SubmissionComponent")
+    SubmissionComponent = apps.get_model("grading", "SubmissionComponent")
     SubmissionComponent.objects.filter(code__in=[c["code"] for c in COMPONENTS]).delete()
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("submissions", "0001_initial"),
+        ("grading", "0001_initial"),
     ]
 
     operations = [

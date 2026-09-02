@@ -141,11 +141,22 @@ export interface SubmissionComponent {
   order: number
 }
 
+export interface SubmissionAnswer {
+  prompt: string
+  answer: string
+}
+
 export interface Submission {
   id: number
   component: number
   file_url: string | null
+  /** Attachment-download variant of the submitted file's URL. */
+  file_download_url?: string | null
+  /** Original filename of the uploaded file, when the component has one. */
+  file_name?: string | null
   text: string
+  /** SAQ only: per-question blocks; `text` is the same content flattened. */
+  answers?: SubmissionAnswer[] | null
   link: string
   submitted_at: string
   is_late: boolean
@@ -169,6 +180,8 @@ export interface Grade {
   mark: string | null
   comment: string
   graded_by: number | null
+  /** Display name of the last marker of this criterion. */
+  graded_by_name: string | null
   graded_at: string
 }
 
@@ -178,6 +191,8 @@ export interface GroupMarkingComponentBlock {
   rubric_id: number | null
   criteria: RubricCriterion[]
   grades: Grade[]
+  /** Who last scored this component (newest scored grade's author). */
+  last_grader_name: string | null
 }
 
 export interface GroupMarkingPayload {
@@ -201,11 +216,16 @@ export interface ComponentRow {
   submission_id: number | null
   submitted_at: string | null
   is_late: boolean
+  /** How far past the deadline, e.g. "3h 12m"; "" when the amount is unknown;
+   *  null for on-time or unsubmitted rows. */
+  late_by: string | null
   criteria_graded: number
   /** Sum of scored marks for this component (2-dp string), null when ungraded. */
   marks_total: string | null
   last_grader_name: string | null
   grader_names: string[]
+  /** Latest marker per rubric position (1-based); only scored criteria appear. */
+  criterion_markers: { n: number; marker: string }[]
 }
 
 export interface ComponentListPayload {
@@ -312,7 +332,11 @@ export function overallCommentLabel(code: string): string | null {
 
 export function saveGradesBulk(
   items: GradeBulkItem[],
-  overallComments?: { submission: number; comment: string }[]
+  // `component` is the component code the comment belongs to. Required by the
+  // server whenever the entry has content for more than one component: a
+  // submission id covers the group's whole entry, so the id alone cannot say
+  // which component's comment this is.
+  overallComments?: { submission: number; component?: string; comment: string }[]
 ): Promise<Grade[]> {
   return requestJson<Grade[]>('/api/v1/grading/grades/bulk/', {
     method: 'POST',
@@ -424,10 +448,16 @@ export function updateGradingSettings(
 export interface FinalistCandidateRow {
   group_id: number
   group_name: string
+  is_late: boolean
+  /** How far past the deadline, e.g. "3h 12m"; "" when the amount is unknown;
+   *  null for on-time or unsubmitted rows. */
+  late_by: string | null
   /** Component code -> summed marks (decimal string), null when ungraded. */
   marks: Record<string, string | null>
   total: string | null
   markers: string[]
+  /** Latest marker per rubric criterion, e.g. {label: "SAQ 1", marker: "Ada"}. */
+  criterion_markers: { label: string; marker: string }[]
   is_finalist: boolean
   has_submission: boolean
 }

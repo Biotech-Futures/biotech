@@ -1,4 +1,11 @@
 <template>
+  <p
+    v-if="UNDER_CONSTRUCTION"
+    style="background: #fff8e1; border: 1px solid #f5d97e; border-radius: 8px; color: #8a6d1a; font-size: 0.85rem; padding: 0.6rem 0.85rem; margin: 0 0 0.75rem"
+  >
+    <i class="fas fa-hammer" aria-hidden="true"></i>
+    The backend for this page is still being built.
+  </p>
   <div class="notify-finalists">
     <section class="card notify-finalists__email-section">
       <div class="card-header">
@@ -129,6 +136,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { fetchFinalists, notifyFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+
+// Flip to false once the backend flow is signed off.
+const UNDER_CONSTRUCTION = true
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)

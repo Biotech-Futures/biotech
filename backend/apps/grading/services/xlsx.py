@@ -19,20 +19,19 @@ from typing import Iterable
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
-from apps.submissions.models import Submission
-
 from ..models import Grade, RubricCriterion
+from .content import ComponentEntry
 
 
 BASE_HEADERS = ["group_id", "group_name", "submitted_date", "submitted_time", "is_late", "text"]
 
 
 def build_saq_xlsx(
-    submissions: Iterable[Submission],
+    entries: Iterable[ComponentEntry],
     criteria: Iterable[RubricCriterion] = (),
     grades_by_pair: dict[tuple[int, int], Grade] | None = None,
 ) -> bytes:
-    """Return XLSX bytes for the given SAQ submissions.
+    """Return XLSX bytes for the given SAQ component entries.
 
     ``criteria`` is the ordered list of rubric criteria for the component;
     each becomes a (criterion_N_id, criterion_N_mark, criterion_N_comment)
@@ -55,20 +54,20 @@ def build_saq_xlsx(
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
-    for submission in submissions:
-        submitted_at = submission.submitted_at
+    for entry in entries:
+        submitted_at = entry.submitted_at
         submitted_date = submitted_at.date().isoformat() if submitted_at else ""
         submitted_time = submitted_at.time().isoformat(timespec="seconds") if submitted_at else ""
         row = [
-            submission.group_id,
-            submission.group.group_name,
+            entry.group_id,
+            entry.group_name,
             submitted_date,
             submitted_time,
-            "yes" if submission.is_late else "",
-            submission.text or "",
+            "yes" if entry.is_late else "",
+            entry.text or "",
         ]
         for criterion in criteria_list:
-            existing = grades_by_pair.get((submission.id, criterion.id))
+            existing = grades_by_pair.get((entry.submission_id, criterion.id))
             row.extend([
                 criterion.id,
                 float(existing.mark) if existing and existing.mark is not None else None,

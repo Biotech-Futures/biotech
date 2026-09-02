@@ -33,10 +33,10 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
-from apps.submissions.models import Submission, SubmissionComponent
 from apps.users.models import StudentProfile
 
-from ..models import Grade, GradingJob, RubricCriterion
+from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
+from .content import submission_entries
 from .docx import (
     certificate_context,
     marks_summary_context,
@@ -47,17 +47,6 @@ from .xlsx import build_saq_xlsx
 from .zip import _safe, build_submissions_zip
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_submissions(component_code: str, group_ids: list[int] | None):
-    qs = (
-        Submission.objects.filter(component__code=component_code)
-        .select_related("group", "component")
-        .order_by("group__group_name")
-    )
-    if group_ids:
-        qs = qs.filter(group_id__in=group_ids)
-    return list(qs)
 
 
 def _run_job(job_id: int) -> None:
@@ -80,10 +69,12 @@ def _run_job(job_id: int) -> None:
             raise ValueError(f"job {job_id} missing kind/component_code in params")
 
         component = SubmissionComponent.objects.get(code=component_code)
-        submissions = _resolve_submissions(component_code, group_ids)
+        entries = submission_entries(
+            component_code=component_code, group_ids=group_ids
+        )
 
         if kind == "component_zip":
-            payload = build_submissions_zip(submissions)
+            payload = build_submissions_zip(entries)
             filename = f"{component.code}-bundle.zip"
         elif kind == "component_xlsx":
             criteria = list(
@@ -94,11 +85,11 @@ def _run_job(job_id: int) -> None:
             grades_by_pair = {
                 (g.submission_id, g.criterion_id): g
                 for g in Grade.objects.filter(
-                    submission_id__in=[s.id for s in submissions],
+                    submission_id__in=[e.submission_id for e in entries],
                     criterion__rubric__component__code=component_code,
                 )
             }
-            payload = build_saq_xlsx(submissions, criteria, grades_by_pair)
+            payload = build_saq_xlsx(entries, criteria, grades_by_pair)
             filename = f"{component.code}-saq.xlsx"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))

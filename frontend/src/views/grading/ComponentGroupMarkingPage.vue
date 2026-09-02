@@ -75,6 +75,7 @@
             :component="block.component"
             :last-grader-name="currentRow?.last_grader_name"
             :grader-names="currentRow?.grader_names"
+            :criterion-markers="criterionMarkers"
           />
         </template>
         <template #right>
@@ -139,6 +140,20 @@ const block = computed(
 const currentRow = computed(
   () => rows.value?.rows.find((r) => r.group_id === groupId.value) ?? null
 )
+
+// Who last marked each rubric criterion of this section (tooltip lines).
+const criterionMarkers = computed(() => {
+  const b = block.value
+  if (!b) return []
+  const byCriterion = new Map(b.grades.map((g) => [g.criterion, g]))
+  // Numbered by rubric position (1-based), not the full criterion text.
+  return b.criteria.flatMap((c, i) => {
+    const grade = byCriterion.get(c.id)
+    return grade?.mark != null && grade.graded_by_name
+      ? [{ name: String(i + 1), marker: grade.graded_by_name }]
+      : []
+  })
+})
 
 // Prev/next walk the cohort in group-ID order (matching the #id in the
 // heading), skipping groups without a submission — no point navigating to an
@@ -214,7 +229,7 @@ const saveMarks = async (items: GradeBulkItem[], overallComment: string | null) 
     await saveGradesBulk(
       items,
       overallComment !== null && submissionId != null
-        ? [{ submission: submissionId, comment: overallComment }]
+        ? [{ submission: submissionId, component: code.value, comment: overallComment }]
         : undefined
     )
     // Refetch both: grades for the form, rows for progress + marker columns.

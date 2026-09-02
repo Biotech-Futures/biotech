@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.grading.models import Grade, Rubric, RubricCriterion
-from apps.submissions.models import SubmissionComponent
+from ...models import SubmissionComponent
 
 
 FIVE = Decimal("5.00")

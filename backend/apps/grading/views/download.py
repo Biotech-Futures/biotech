@@ -23,10 +23,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission, SubmissionComponent
 
-from ..models import GradingJob
+from ..models import GradingJob, SubmissionComponent
 from ..permissions import IsGrader
+from ..services import content
 from ..services.dispatch import dispatch_job
 from ..services.zip import build_submissions_zip, zip_filename
 
@@ -40,13 +40,12 @@ class GroupDownloadView(APIView):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
         component_code = request.query_params.get("component") or "all"
 
-        submissions = (
-            Submission.objects.filter(group=group).select_related("group", "component")
+        entries = content.submission_entries(
+            group_id=group.id,
+            component_code=None if component_code == "all" else component_code,
         )
-        if component_code != "all":
-            submissions = submissions.filter(component__code=component_code)
 
-        payload = build_submissions_zip(list(submissions))
+        payload = build_submissions_zip(entries)
         prefix = f"group-{group.id}" + ("" if component_code == "all" else f"-{component_code}")
         response = HttpResponse(payload, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{zip_filename(prefix)}"'

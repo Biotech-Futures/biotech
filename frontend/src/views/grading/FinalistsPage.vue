@@ -52,20 +52,34 @@
             <tr>
               <th>ID</th>
               <th>Group</th>
+              <th>Late</th>
               <th v-for="c in candidateComponents" :key="c.code" :title="c.name">{{ c.code }}</th>
               <th>Total</th>
-              <th>Marker</th>
+              <th>
+                Marker
+                <i
+                  class="fas fa-circle-info finalists__marker-info"
+                  data-tip="Hover over a marker's name to see who marked each part."
+                  aria-hidden="true"
+                ></i>
+              </th>
               <th class="finalists__cell--right"></th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 6" class="finalists__empty">No groups.</td>
+              <td :colspan="candidateComponents.length + 7" class="finalists__empty">No groups.</td>
             </tr>
             <tr v-for="r in candidates" :key="r.group_id">
               <td class="finalists__muted">#{{ r.group_id }}</td>
               <td class="finalists__cell--strong">{{ r.group_name }}</td>
+              <td>
+                <span v-if="r.is_late" class="finalists__late">
+                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                </span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
               <td v-for="c in candidateComponents" :key="c.code">
                 <span v-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
                 <span v-else class="finalists__muted">—</span>
@@ -74,7 +88,16 @@
                 <span v-if="r.total != null">{{ r.total }}</span>
                 <span v-else class="finalists__muted">—</span>
               </td>
-              <td>{{ r.markers.length ? r.markers.join(', ') : '—' }}</td>
+              <td>
+                <span
+                  v-if="r.markers.length"
+                  class="finalists__marker"
+                  :title="markerTooltip(r)"
+                >
+                  {{ r.markers.join(', ') }}
+                </span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
               <td class="finalists__cell--right">
                 <button
                   v-if="!r.is_finalist"
@@ -180,6 +203,7 @@ import {
   fetchFinalistCandidates,
   fetchFinalists,
   removeFinalist,
+  type FinalistCandidateRow,
   type FinalistCandidatesResponse,
   type FinalistListResponse
 } from '@/utils/gradingAPI'
@@ -218,6 +242,13 @@ const isLoadingCandidates = ref(false)
 
 const candidates = computed(() => candidatesResp.value?.rows ?? [])
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
+// falls back to the flat marker list when no per-criterion data exists.
+const markerTooltip = (r: FinalistCandidateRow) =>
+  r.criterion_markers?.length
+    ? r.criterion_markers.map((m) => `${m.label}: ${m.marker}`).join('\n')
+    : `Marked by: ${r.markers.join(', ')}`
 
 const loadCandidates = async () => {
   isLoadingCandidates.value = true
@@ -454,6 +485,42 @@ const remove = async (id: number) => {
 .finalists__muted {
   color: var(--text-muted);
   font-weight: 400;
+}
+
+.finalists__late {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.finalists__marker-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.2rem;
+  position: relative;
+}
+
+/* Instant tooltip — native title has an uncontrollable hover delay. */
+.finalists__marker-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 1.4rem;
+  z-index: 20;
+  display: none;
+  background: #333;
+  color: #fff;
+  font: 400 10px/1.4 var(--font-family, sans-serif);
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  white-space: normal;
+  width: max-content;
+  max-width: 10rem;
+}
+
+.finalists__marker-info:hover::after {
+  display: block;
 }
 
 .finalists__notified {

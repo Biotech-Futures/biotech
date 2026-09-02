@@ -21,10 +21,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission, SubmissionComponent
 
-from ..models import FinalistFlag, Grade
+from ..models import FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import IsGrader
+from ..services import content
 from ..services.finalist_notify import notify_finalist
 
 
@@ -90,63 +90,125 @@ class FinalistCandidatesView(APIView):
         return str(Decimal(value).quantize(Decimal("0.01")))
 
     def get(self, request):
-        components = list(SubmissionComponent.objects.order_by("order", "id"))
+        # Only components that can actually carry marks appear as columns.
+        # REPORT and PROTOTYPE have rubrics but no criteria (their marks are
+        # never released), so a marks column for them would always be empty.
+        markable_ids = set(
+            Rubric.objects.filter(active=True, criteria__isnull=False)
+            .values_list("component_id", flat=True)
+        )
+        components = [
+            c for c in SubmissionComponent.objects.order_by("order", "id")
+            if c.id in markable_ids
+        ]
         code_by_component = {c.id: c.code for c in components}
         groups = list(
             Groups.objects.filter(deleted_at__isnull=True)
             .order_by("group_name")
             .values("id", "group_name")
         )
-        submissions = list(Submission.objects.values("id", "group_id", "component_id"))
-        sub_meta = {s["id"]: s for s in submissions}
+        entries = content.submission_entries()
+        group_by_submission = {e.submission_id: e.group_id for e in entries}
 
-        totals_by_sub = {
-            row["submission_id"]: row["total"]
+        # One (submitted_at, is_late) per group — shared by all its entries.
+        submit_meta = {e.group_id: (e.submitted_at, e.is_late) for e in entries}
+        deadlines = content.group_deadline_map(list(submit_meta)) if submit_meta else {}
+
+        # One submission id spans an entry's components, so totals must split
+        # by the criterion's component or every column would show the same sum.
+        totals = {
+            (row["submission_id"], row["criterion__rubric__component_id"]): row["total"]
             for row in Grade.objects.filter(mark__isnull=False)
-            .values("submission_id")
+            .values("submission_id", "criterion__rubric__component_id")
             .annotate(total=Sum("mark"))
         }
 
+        # "SAQ 1" / "POSTER 3" labels: rubric position per criterion, prefixed
+        # with the component code since this table spans several components.
+        criterion_labels: dict[int, tuple[str, int, int]] = {}
+        for component_index, component in enumerate(components):
+            rubric = (
+                Rubric.objects.filter(component=component, active=True)
+                .prefetch_related("criteria")
+                .first()
+            )
+            if rubric is None:
+                continue
+            for i, criterion in enumerate(rubric.criteria.all(), start=1):
+                criterion_labels[criterion.id] = (component.code, component_index, i)
+
         markers_by_group: dict[int, list[str]] = {}
+        criterion_markers_by_group: dict[int, list[dict]] = {}
         grader_rows = (
             Grade.objects.filter(mark__isnull=False, graded_by__isnull=False)
             .order_by("-graded_at")
-            .values("submission_id", "graded_by__first_name", "graded_by__last_name")
+            .values(
+                "submission_id",
+                "criterion_id",
+                "graded_by__first_name",
+                "graded_by__last_name",
+            )
         )
         for row in grader_rows:
-            meta = sub_meta.get(row["submission_id"])
-            if meta is None:
+            group_id = group_by_submission.get(row["submission_id"])
+            if group_id is None:
                 continue
             name = f'{row["graded_by__first_name"]} {row["graded_by__last_name"]}'.strip()
             if not name:
                 continue
-            names = markers_by_group.setdefault(meta["group_id"], [])
+            names = markers_by_group.setdefault(group_id, [])
             if name not in names:
                 names.append(name)
+            labeled = criterion_labels.get(row["criterion_id"])
+            if labeled is not None:
+                code, component_index, position = labeled
+                criterion_markers_by_group.setdefault(group_id, []).append(
+                    {"label": f"{code} {position}", "marker": name,
+                     "_sort": (component_index, position)}
+                )
+        for markers in criterion_markers_by_group.values():
+            markers.sort(key=lambda m: m.pop("_sort"))
 
         marks_by_group: dict[int, dict[str, object]] = {}
-        for s in submissions:
-            total = totals_by_sub.get(s["id"])
-            if total is None:
+        for (submission_id, component_id), total in totals.items():
+            group_id = group_by_submission.get(submission_id)
+            code = code_by_component.get(component_id)
+            if group_id is None or code is None:
                 continue
-            marks_by_group.setdefault(s["group_id"], {})[code_by_component[s["component_id"]]] = total
+            marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
-        submitted_group_ids = {s["group_id"] for s in submissions}
+        submitted_group_ids = {e.group_id for e in entries}
 
         rows = []
         for g in groups:
             marks = marks_by_group.get(g["id"], {})
             overall = sum(marks.values()) if marks else None
+            submitted_at, is_late = submit_meta.get(g["id"], (None, False))
+            late_by = None
+            if is_late and submitted_at is not None:
+                closes_at = deadlines.get(g["id"])
+                if closes_at is not None and submitted_at > closes_at:
+                    late_by = content.late_by_label(submitted_at - closes_at)
+                else:
+                    # is_late was recorded at submit; if the deadline has been
+                    # edited since, say "late" without inventing a duration.
+                    late_by = ""
             rows.append({
                 "group_id": g["id"],
                 "group_name": g["group_name"],
+                "is_late": is_late,
+                # e.g. "3h 12m"; "" when the amount can't be derived any more;
+                # null for on-time or unsubmitted rows.
+                "late_by": late_by,
                 "marks": {
                     c.code: (self._fmt(marks[c.code]) if c.code in marks else None)
                     for c in components
                 },
                 "total": self._fmt(overall) if overall is not None else None,
                 "markers": markers_by_group.get(g["id"], []),
+                # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
+                "criterion_markers": criterion_markers_by_group.get(g["id"], []),
                 "is_finalist": g["id"] in finalist_ids,
                 "has_submission": g["id"] in submitted_group_ids,
             })

@@ -15,7 +15,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.submissions.models import SubmissionComponent
+from ..models import SubmissionComponent
 
 from ..permissions import IsGrader
 from ..services.upload import commit_marks_upload, parse_marks_upload

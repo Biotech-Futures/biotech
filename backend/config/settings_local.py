@@ -15,7 +15,13 @@ SECRET_KEY = "dev-only-not-for-production"
 DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
-# Database configuration is safely inherited from settings.py mapping to .env
+# Database configuration is safely inherited from settings.py mapping to .env,
+# except for TLS: settings.py pins ``sslmode=require`` because Azure Postgres
+# mandates it, but the local docker-compose.dev.yml container serves plain TCP
+# and rejects the handshake with "server does not support SSL". Note that
+# ``DB_SSLMODE`` in .env is *not* consulted by settings.py, so the override has
+# to happen here rather than in the environment.
+DATABASES["default"]["OPTIONS"]["sslmode"] = os.environ.get("DB_SSLMODE", "disable")
 
 # Use local file storage instead of Azure Blob
 USE_AZURE_BLOB_STORAGE = False
@@ -25,6 +31,17 @@ MEDIA_URL = "/media/"
 
 # Use proper email backend, falling back to what's mapped in settings.py (which uses SMTP)
 # EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+# Write outgoing mail to disk instead of dialling a relay. settings.py points
+# at Mailtrap over real SMTP, and a fresh clone has no credentials for it, so
+# locally every send fails — silently, because a failed confirmation must never
+# fail the submission that triggered it. Writing to a file keeps the whole path
+# exercised (recipients, rendering, dispatch) while leaving something readable.
+#
+# Django creates this directory on first send. `.log` is already covered by
+# .gitignore, so messages cannot be committed by accident.
+EMAIL_BACKEND = "django.core.mail.backends.filebased.EmailBackend"
+EMAIL_FILE_PATH = BASE_DIR / "sent_emails"
 
 # conftest.py pins pytest to this module, and the backend above is real SMTP —
 # send inline so a test can never leave a pool thread dialling the relay.

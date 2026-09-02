@@ -1,8 +1,6 @@
 from rest_framework import serializers
 
-from apps.submissions.models import Submission, SubmissionComponent
-
-from .models import Grade, Rubric, RubricCriterion
+from .models import Grade, Rubric, RubricCriterion, SubmissionComponent
 
 
 class SubmissionComponentSerializer(serializers.ModelSerializer):
@@ -21,35 +19,9 @@ class SubmissionComponentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class SubmissionSerializer(serializers.ModelSerializer):
-    # `file.url` on an Azure Blob-backed FileField returns a SAS-signed URL
-    # whose expiry is controlled by settings.AZURE_URL_EXPIRATION_SECS.
-    file_url = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Submission
-        fields = [
-            "id",
-            "component",
-            "file_url",
-            "text",
-            "link",
-            "submitted_at",
-            "is_late",
-            "overall_comment",
-        ]
-        read_only_fields = fields
-
-    @staticmethod
-    def get_file_url(obj) -> str | None:
-        if not obj.file:
-            return None
-        try:
-            return obj.file.url
-        except Exception:
-            # Missing blob / mis-configured storage shouldn't 500 the whole
-            # marking payload — surface as null and let the UI say "unavailable".
-            return None
+# The per-component "submission" block of the marking payload is built by
+# services.content.entry_payload — the submissions app no longer has a
+# per-component model for a ModelSerializer to wrap.
 
 
 class RubricCriterionSerializer(serializers.ModelSerializer):
@@ -84,6 +56,10 @@ class RubricSerializer(serializers.ModelSerializer):
 class GradeSerializer(serializers.ModelSerializer):
     """Read + PATCH single grade. Only ``mark`` and ``comment`` are writable."""
 
+    # Display name of the last marker, so the marking page can say who last
+    # touched each criterion without a second lookup.
+    graded_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Grade
         fields = [
@@ -93,9 +69,17 @@ class GradeSerializer(serializers.ModelSerializer):
             "mark",
             "comment",
             "graded_by",
+            "graded_by_name",
             "graded_at",
         ]
-        read_only_fields = ["id", "submission", "criterion", "graded_by", "graded_at"]
+        read_only_fields = ["id", "submission", "criterion", "graded_by", "graded_by_name", "graded_at"]
+
+    @staticmethod
+    def get_graded_by_name(obj) -> str | None:
+        user = obj.graded_by
+        if user is None:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or user.email
 
 
 class GradeBulkItemSerializer(serializers.Serializer):
@@ -115,9 +99,15 @@ class GradeBulkItemSerializer(serializers.Serializer):
 
 
 class OverallCommentItemSerializer(serializers.Serializer):
-    """Optional per-submission overall comment saved alongside the grades."""
+    """Optional per-component overall comment saved alongside the grades.
+
+    ``component`` is the component code (e.g. "POSTER"). Required whenever the
+    entry has submitted content for more than one component — one submission id
+    covers the whole entry, so the id alone cannot say which comment this is.
+    """
 
     submission = serializers.IntegerField()
+    component = serializers.CharField(allow_blank=True, required=False, default="")
     comment = serializers.CharField(allow_blank=True, default="")
 
 

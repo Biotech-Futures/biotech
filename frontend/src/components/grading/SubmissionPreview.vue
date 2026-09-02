@@ -19,31 +19,72 @@
           </span>
         </template>
       </p>
+      <span v-if="fileUrl && isPreviewable" class="submission-preview__actions">
+        <a :href="fileUrl" target="_blank" rel="noreferrer" class="btn btn-outline btn-sm">
+          Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+        </a>
+        <a
+          v-if="downloadUrl"
+          :href="downloadUrl"
+          class="btn btn-outline btn-sm"
+          :download="submission?.file_name ?? ''"
+        >
+          Download <i class="fas fa-download" aria-hidden="true"></i>
+        </a>
+      </span>
+    </div>
+
+    <div v-if="submission.answers?.length" class="submission-preview__answers">
+      <section
+        v-for="(block, i) in submission.answers"
+        :key="i"
+        class="submission-preview__answer"
+      >
+        <h4 class="submission-preview__question">{{ block.prompt }}</h4>
+        <p class="submission-preview__answer-text">{{ block.answer }}</p>
+      </section>
+    </div>
+    <pre v-else-if="submission.text" class="submission-preview__text">{{ submission.text }}</pre>
+
+    <p v-if="submission.link" class="submission-preview__link-box">
+      <span class="submission-preview__link-text">
+        <span class="submission-preview__link-label">Link:</span>
+        <a
+          :href="submission.link"
+          class="submission-preview__link"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {{ submission.link }}
+        </a>
+      </span>
       <a
-        v-if="fileUrl"
-        :href="fileUrl"
+        :href="submission.link"
         target="_blank"
         rel="noreferrer"
         class="btn btn-outline btn-sm"
       >
         Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
       </a>
-    </div>
+    </p>
 
-    <pre v-if="submission.text" class="submission-preview__text">{{ submission.text }}</pre>
-
-    <a
-      v-if="submission.link"
-      :href="submission.link"
-      class="submission-preview__link"
-      target="_blank"
-      rel="noreferrer"
-    >
-      {{ submission.link }}
-    </a>
+    <p v-if="fileUrl && !isPreviewable" class="submission-preview__no-preview">
+      <span>
+        <i class="fas fa-file" aria-hidden="true"></i>
+        {{ submission?.file_name || 'This file' }}
+      </span>
+      <a
+        v-if="downloadUrl"
+        :href="downloadUrl"
+        class="btn btn-outline btn-sm"
+        :download="submission?.file_name ?? ''"
+      >
+        Download <i class="fas fa-download" aria-hidden="true"></i>
+      </a>
+    </p>
 
     <iframe
-      v-if="fileUrl"
+      v-if="fileUrl && isPreviewable"
       ref="frameEl"
       :src="frameUrl ?? undefined"
       :title="`${component.name} preview`"
@@ -52,7 +93,7 @@
       :style="frameHeight != null ? { height: `${frameHeight}px` } : undefined"
     ></iframe>
     <div
-      v-if="fileUrl"
+      v-if="fileUrl && isPreviewable"
       class="submission-preview__resize"
       role="separator"
       aria-orientation="horizontal"
@@ -73,9 +114,26 @@ const props = defineProps<{
   component: SubmissionComponent
   lastGraderName?: string | null
   graderNames?: string[]
+  /** Latest marker per rubric criterion — one tooltip line per part. */
+  criterionMarkers?: { name: string; marker: string }[]
 }>()
 
 const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? null))
+const downloadUrl = computed(() =>
+  resolveApiFileUrl(props.submission?.file_download_url ?? props.submission?.file_url ?? null)
+)
+
+// Only PDFs render usefully in the iframe; anything else (a zip, an STL, a
+// video) would show a blank frame or trigger an unlabelled download.
+const isPreviewable = computed(() => {
+  const url = fileUrl.value
+  if (!url) return false
+  try {
+    return new URL(url, window.location.origin).pathname.toLowerCase().endsWith('.pdf')
+  } catch {
+    return false
+  }
+})
 
 // Ask the browser's PDF viewer to start with the thumbnail sidebar closed.
 // Fragment params are viewer hints: Chromium/Adobe honour navpanes=0, pdf.js
@@ -84,14 +142,7 @@ const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? n
 const frameUrl = computed(() => {
   const url = fileUrl.value
   if (!url) return null
-  const isPdf = (() => {
-    try {
-      return new URL(url, window.location.origin).pathname.toLowerCase().endsWith('.pdf')
-    } catch {
-      return false
-    }
-  })()
-  return isPdf ? `${url}#navpanes=0&pagemode=none` : url
+  return isPreviewable.value ? `${url}#navpanes=0&pagemode=none` : url
 })
 
 // Drag the bar under the preview to change its height. null = default 80vh.
@@ -140,6 +191,10 @@ const submittedLabel = computed(() =>
 )
 
 const markerTooltip = computed(() => {
+  // One line per rubric criterion with whoever last marked it.
+  if (props.criterionMarkers?.length) {
+    return props.criterionMarkers.map((c) => `${c.name}: ${c.marker}`).join('\n')
+  }
   const names = props.graderNames?.length
     ? props.graderNames
     : props.lastGraderName
@@ -200,6 +255,85 @@ const markerTooltip = computed(() => {
   word-break: break-word;
   max-height: 60vh;
   overflow: auto;
+}
+
+/* One continuous white sheet behind every answer; the gaps between the
+   outlined blocks stay white instead of showing the page background. */
+.submission-preview__answers {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  background: #fff;
+  padding: 0.85rem;
+  border-radius: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.submission-preview__question {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #000;
+}
+
+/* Only the answer is outlined — like the Mark/Comment inputs beside it —
+   while the question sits on the white sheet above the box. */
+.submission-preview__answer-text {
+  margin: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-primary, #1f2937);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.submission-preview__link-box {
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.submission-preview__link-text {
+  min-width: 0;
+}
+
+.submission-preview__link-label {
+  font-weight: 600;
+  margin-right: 1rem;
+}
+
+.submission-preview__actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.submission-preview__no-preview {
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .submission-preview__link {
