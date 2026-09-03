@@ -599,18 +599,111 @@ export const setAdminMentorActive = (mentorId: number, isActive: boolean) =>
 // ---------------------------------------------------------------------------
 
 export interface AdminTask {
-  id?: number | string
-  task_id?: number
-  title?: string | null
-  is_active?: boolean
-  [key: string]: unknown
+  id: number
+  name: string
+  description: string
+  due_date: string | null
+  status: AdminTaskStatus
+  completed: boolean
+  parent: number | null
+  task_type: AdminTaskType
+  group: number | null
+  assigned_user: number | null
+  created_by: AdminTaskUserMini | null
+  creator_role: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
 }
 
-export const fetchAdminTasks = (params: Record<string, unknown> = {}) =>
-  adminGet<PaginatedResult<AdminTask>>(`/task/${buildAdminQuery(params)}`)
+export type AdminTaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked'
+export type AdminTaskType = 'group' | 'individual'
+export type AdminTaskSortBy = 'completed' | 'name' | 'type' | 'target' | 'status' | 'due' | 'createdAt'
 
-export const fetchTaskRoleRecipients = () =>
-  adminGet<unknown[]>(`/task/role-recipients/`)
+export interface AdminTaskUserMini {
+  id: number
+  name: string | null
+}
+
+export interface AdminTaskListParams {
+  page?: number
+  limit?: number
+  task_type?: AdminTaskType | ''
+  sortBy?: AdminTaskSortBy
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface AdminTaskListData {
+  items: AdminTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface CreateAdminTaskPayload {
+  name: string
+  description?: string
+  due_date?: string | null
+  status?: AdminTaskStatus
+  parent?: number | null
+  task_type: AdminTaskType
+  group?: number | null
+  assigned_user?: number | null
+  assigned_role?: string | null
+}
+
+export interface UpdateAdminTaskPayload {
+  name?: string
+  description?: string
+  due_date?: string | null
+  status?: AdminTaskStatus
+  parent?: number | null
+}
+
+export interface AdminTaskFanoutResult {
+  created_count: number
+  assigned_role: string
+}
+
+export interface AdminTaskRoleRecipientsData {
+  role: string
+  count: number
+}
+
+export type AdminTaskMutationResult<T = AdminTask | AdminTaskFanoutResult | null> = AdminEnvelope<T>
+
+export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<AdminTaskListData> =>
+  adminGet<AdminEnvelope<AdminTaskListData>>(`/task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const createAdminTask = (
+  payload: CreateAdminTaskPayload
+): Promise<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>>('/task/', payload)
+
+export const updateAdminTask = (
+  taskId: number | string,
+  payload: UpdateAdminTaskPayload
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPatch<AdminTaskMutationResult<AdminTask | null>>(`/task/${taskId}/`, payload)
+
+export const deleteAdminTask = (taskId: number | string): Promise<void> =>
+  adminDelete<void>(`/task/${taskId}/`)
+
+export const toggleAdminTask = (
+  taskId: number | string,
+  completed: boolean
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | null>>(`/task/${taskId}/toggle/`, { completed })
+
+export const fetchTaskRoleRecipients = (
+  role: string
+): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>
+  adminGet<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>>(
+    `/task/role-recipients/${buildAdminQuery({ role })}`
+  )
 
 // ---------------------------------------------------------------------------
 // Matching / mentor-match
