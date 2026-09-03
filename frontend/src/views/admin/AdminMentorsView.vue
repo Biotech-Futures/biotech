@@ -88,35 +88,46 @@
               <th class="admin-mentors__expand" aria-hidden="true"></th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('name')" @click="setSort('name')">
-                  Name
+                  <span>Name</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('name')" aria-hidden="true"></i>
                 </button>
               </th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('country')" @click="setSort('country')">
-                  Country
+                  <span>Country</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('country')" aria-hidden="true"></i>
                 </button>
               </th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('institution')" @click="setSort('institution')">
-                  Institution
+                  <span>Institution</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('institution')" aria-hidden="true"></i>
                 </button>
               </th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('capacity')" @click="setSort('capacity')">
-                  Capacity
+                  <span>Capacity</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('capacity')" aria-hidden="true"></i>
                 </button>
               </th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('lastMessage')" @click="setSort('lastMessage')">
-                  Last Message
+                  <span>Last Message</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('lastMessage')" aria-hidden="true"></i>
                 </button>
               </th>
               <th class="admin-mentors__head">
                 <button type="button" class="admin-mentors__sort" :class="sortClass('status')" @click="setSort('status')">
-                  Status
+                  <span>Status</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('status')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th class="admin-mentors__head">Logged In</th>
+              <th class="admin-mentors__head">
+                <button type="button" class="admin-mentors__sort" :class="sortClass('loggedIn')" @click="setSort('loggedIn')">
+                  <span>Logged In</span>
+                  <i class="fas admin-mentors__sort-icon" :class="sortIcon('loggedIn')" aria-hidden="true"></i>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -194,6 +205,7 @@ const {
   runBulkStatus,
   onReplaceConfirmed,
   sortClass,
+  sortIcon,
   load
 } = useAdminMentorsView()
 
@@ -331,6 +343,9 @@ onMounted(() => {
 }
 
 .admin-mentors__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0;
   border: none;
   background: transparent;
@@ -343,6 +358,15 @@ onMounted(() => {
 
 .admin-mentors__sort:hover,
 .admin-mentors__sort--active {
+  color: var(--dark-green);
+}
+
+.admin-mentors__sort-icon {
+  font-size: 0.8rem;
+  color: #c0c8c4;
+}
+
+.admin-mentors__sort--active .admin-mentors__sort-icon {
   color: var(--dark-green);
 }
 
