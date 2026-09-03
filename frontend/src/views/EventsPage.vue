@@ -183,8 +183,8 @@
             :src="eventCover(ev)"
             :alt="`${ev.event_name} banner`"
             class="event-banner-img"
-            width="640"
-            height="220"
+            width="1280" 
+            height="320"
             loading="lazy"
             decoding="async"
             @error="markEventImageFailed(ev)"
@@ -1524,15 +1524,13 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-banner {
-  position: relative;
-  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--white);
   background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
-  overflow: hidden;
 }
+
 
 .event-banner-img {
   position: absolute;
@@ -1981,8 +1979,8 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-skeleton-banner {
-  height: 110px;
-  border-radius: 0;
+  aspect-ratio: 4 / 1;
+  height: auto;
 }
 
 .event-skeleton-card--featured .event-skeleton-banner {
@@ -2189,9 +2187,15 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   }
 }
 
+.event-banner,
 .detail-banner {
   position: relative;
-  height: 180px;
+  aspect-ratio: 4 / 1;
+  height: auto;
+  overflow: hidden;
+}
+
+.detail-banner {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2199,7 +2203,6 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
   border-radius: 8px;
   margin-bottom: 1rem;
-  overflow: hidden;
 }
 
 .detail-banner .event-banner-img {
