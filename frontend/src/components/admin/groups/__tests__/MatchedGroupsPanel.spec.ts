@@ -33,9 +33,10 @@ const mentorPool = [
 
 const fetchMockFor = (
   groups: unknown[],
-  opts: { replaceStatus?: number; replaceBody?: unknown } = {}
-) =>
-  vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+  opts: { replaceStatus?: number; replaceBody?: unknown; failGroupsRefetch?: boolean } = {}
+) => {
+  let matchedGroupsGets = 0
+  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const method = (init?.method || 'GET').toUpperCase()
     const u = String(url)
 
@@ -77,6 +78,11 @@ const fetchMockFor = (
       )
     }
     if (method === 'GET' && u.includes('/mentor-match/matched-groups/')) {
+      matchedGroupsGets += 1
+      // First GET is the initial load; a later one is a post-action refresh.
+      if (opts.failGroupsRefetch && matchedGroupsGets > 1) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'Server error', data: null }), { status: 500 }))
+      }
       return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: groups }), { status: 200 }))
     }
     if (method === 'GET' && u.includes('/mentor-match/mentors/')) {
@@ -84,6 +90,7 @@ const fetchMockFor = (
     }
     return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
   })
+}
 
 let wrapper: VueWrapper | null = null
 
@@ -187,6 +194,28 @@ describe('MatchedGroupsPanel', () => {
       groupId: 1,
       newMentorUserId: 23
     })
+  })
+
+  it('reports a post-replace refresh failure as a stale list, not a failed replace', async () => {
+    const fetchMock = fetchMockFor([activeGroup], { failGroupsRefetch: true })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')!.trigger('click')
+    await wrapper.find('select').setValue('23')
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')!.trigger('click')
+    await flushPromises()
+
+    // The replace POST did go through...
+    expect(
+      fetchMock.mock.calls.some(
+        ([u, i]) => String(u).includes('/mentor-match/replace/') && (i as RequestInit | undefined)?.method === 'POST'
+      )
+    ).toBe(true)
+    // ...so the message must not blame the replace.
+    expect(wrapper.text()).toContain('Mentor updated, but the list could not be refreshed')
+    expect(wrapper.text()).not.toContain('Action failed')
   })
 
   it('sorts by clicking a column header', async () => {

@@ -180,13 +180,18 @@ const mentors = ref<MentorListItem[]>([])
 const loading = ref(false)
 const error = ref('')
 
+// Fetches into state; throws on failure so callers can decide how to report it.
+const fetchData = async () => {
+  const [groupsData, mentorsData] = await Promise.all([fetchMatchedGroups(), fetchMentorMatchMentorList()])
+  groups.value = groupsData
+  mentors.value = mentorsData
+}
+
 const load = async () => {
   loading.value = true
   error.value = ''
   try {
-    const [groupsData, mentorsData] = await Promise.all([fetchMatchedGroups(), fetchMentorMatchMentorList()])
-    groups.value = groupsData
-    mentors.value = mentorsData
+    await fetchData()
   } catch (err) {
     logApiError('admin.matched-groups.load', err)
     error.value = err instanceof Error ? err.message : 'Matched groups could not be loaded right now.'
@@ -314,14 +319,23 @@ const confirmReplace = async (group: MatchedGroup) => {
         newMentorUserId: Number(selectedMentorId.value)
       })
     }
-    replacingId.value = null
-    selectedMentorId.value = ''
-    await load()
   } catch (err) {
     logApiError('admin.matched-groups.replace', err)
     error.value = err instanceof Error ? err.message : 'Action failed. Please try again.'
-  } finally {
     replaceBusy.value = false
+    return
+  }
+
+  // The mentor change went through. A failure past this point is a stale list,
+  // not a failed replace — report it as its own thing.
+  replacingId.value = null
+  selectedMentorId.value = ''
+  replaceBusy.value = false
+  try {
+    await fetchData()
+  } catch (err) {
+    logApiError('admin.matched-groups.load', err)
+    error.value = 'Mentor updated, but the list could not be refreshed. Reload the page to see the latest.'
   }
 }
 
