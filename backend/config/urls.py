@@ -18,6 +18,7 @@ it still keeps a legacy in-app ``v1/`` alias; only its canonical app-root
 patterns are exposed under ``/api/v1/events/...``.
 """
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
@@ -115,3 +116,6 @@ if settings.DEBUG:
         path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
         path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     ]
+    # Local managed storage returns /media/... URLs. Development servers must
+    # expose those files so event banners and other uploaded media can render.
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
