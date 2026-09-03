@@ -378,21 +378,36 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   }
 
   // -- Single delete ---------------------------------------------------------
-  const singleDelete = ref({ open: false, userId: 0, message: '' })
+  const singleDelete = ref<{
+    open: boolean
+    userId: number
+    message: string
+    force: boolean
+  }>({ open: false, userId: 0, message: '', force: false })
+
+  const singleDeleteConfirmBlocked = computed(
+    () => singleDelete.value.force && singleDeleteConfirmText.value !== 'DELETE'
+  )
+  const singleDeleteConfirmText = ref('')
 
   const runSingleDelete = async () => {
     const userId = singleDelete.value.userId
     if (!userId) return
     busy.value = true
     try {
-      await deleteAdminUser(userId)
-      singleDelete.value = { open: false, userId: 0, message: '' }
+      await deleteAdminUser(userId, singleDelete.value.force)
+      singleDelete.value = { open: false, userId: 0, message: '', force: false }
+      singleDeleteConfirmText.value = ''
       viewOpen.value = false
       detailUser.value = null
       clearSelection()
       void load()
     } catch (deleteError) {
       logApiError('admin.users.delete', deleteError)
+      error.value =
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Unable to delete the user right now.'
     } finally {
       busy.value = false
     }
@@ -475,8 +490,9 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   const runBulkDelete = async () => {
     busy.value = true
     try {
+      let result
       if (selectAllMatching.value) {
-        await bulkDeleteUsers({
+        result = await bulkDeleteUsers({
           userIds: [],
           force: bulkForce.value,
           selectAll: true,
@@ -485,7 +501,7 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
           expectedCount: bulkCount.value
         })
       } else {
-        await bulkDeleteUsers({
+        result = await bulkDeleteUsers({
           userIds: selectedIds.value,
           force: bulkForce.value
         })
@@ -493,8 +509,15 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
       bulkDelete.value = { open: false }
       clearSelection()
       void load()
+      if (result?.msg) {
+        error.value = result.msg
+      }
     } catch (bulkError) {
       logApiError('admin.users.bulk-delete', bulkError)
+      error.value =
+        bulkError instanceof Error
+          ? bulkError.message
+          : 'Unable to delete the selected users right now.'
     } finally {
       busy.value = false
     }
@@ -692,7 +715,6 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
     selectionBanner,
     pageRows,
     singleToggle,
-    singleDelete,
     bulkStatus,
     bulkDelete,
     bulkForce,
@@ -729,6 +751,9 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
     onViewClose,
     onToggleActive,
     runSingleToggle,
+    singleDelete,
+    singleDeleteConfirmText,
+    singleDeleteConfirmBlocked,
     runSingleDelete,
     confirmBulkStatus,
     runBulkStatus,

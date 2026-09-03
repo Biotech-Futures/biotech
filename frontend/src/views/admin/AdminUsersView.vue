@@ -157,8 +157,32 @@
       confirm-label="Delete"
       variant="danger"
       :busy="busy"
+      :disabled="singleDeleteConfirmBlocked"
       @confirm="onSingleDeleteConfirmed"
-    />
+    >
+      <label class="admin-users__force-toggle">
+        <input v-model="singleDelete.force" type="checkbox" />
+        <span>
+          Force delete — also permanently delete this user's chat messages, uploaded resources,
+          workshops, and match runs. Required to remove accounts that have any activity.
+        </span>
+      </label>
+      <p v-if="singleDelete.force" class="admin-users__force-warning">
+        This destroys their content for everyone, not just the account, and cannot be undone.
+      </p>
+      <div v-if="singleDelete.force" class="admin-users__delete-type">
+        <label class="admin-users__filter-label" for="single-delete-confirm">
+          Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
+        </label>
+        <input
+          id="single-delete-confirm"
+          v-model="singleDeleteConfirmText"
+          class="form-input"
+          autocomplete="off"
+          placeholder="DELETE"
+        />
+      </div>
+    </ConfirmDialog>
 
     <!-- Single deactivate confirm -->
     <ConfirmDialog
@@ -285,6 +309,8 @@ const {
   pageRows,
   singleToggle,
   singleDelete,
+  singleDeleteConfirmText,
+  singleDeleteConfirmBlocked,
   bulkStatus,
   bulkDelete,
   bulkForce,
@@ -382,8 +408,10 @@ const confirmEditorDelete = () => {
   singleDelete.value = {
     open: true,
     userId: user.id,
-    message: 'This permanently removes the account and all related data. This cannot be undone.'
+    message: 'This permanently removes the account and all related data. This cannot be undone.',
+    force: false
   }
+  singleDeleteConfirmText.value = ''
 }
 
 const onSingleDeleteConfirmed = () => {
