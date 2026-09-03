@@ -577,11 +577,127 @@ export interface AdminResource {
   [key: string]: unknown
 }
 
+export interface AdminResourceRoleItem {
+  id: number
+  slug: string
+  type_name: string
+}
+
+export interface AdminResourceTypeOption {
+  value: string
+  label: string
+}
+
+export interface AdminResourceDetail {
+  id: number
+  resource_name: string
+  resource_description: string | null
+  resource_kind: 'file' | 'attachment' | 'page' | string
+  resource_type: string | null
+  resource_type_id: number | null
+  visibility_scope: 'global' | 'role_based' | string
+  uploaded_at: string
+  deleted_at: string | null
+  file_name: string | null
+  file_mime_type: string | null
+  file_size: number | null
+  content_html?: string | null
+  storage_key?: string | null
+  labels?: Array<{ id: number; name: string }>
+  audiences?: Array<{
+    id: number
+    role_id: number | null
+    role?: { id: number; slug: string; type_name: string }
+  }>
+  uploader?: {
+    id: number | string
+    first_name: string
+    last_name: string
+    email: string
+  }
+}
+
+export interface CreateAdminResourcePayload {
+  resource_name: string
+  resource_description: string
+  resource_kind: 'file' | 'attachment' | 'page'
+  visibility_scope: 'global' | 'role_based'
+  role_ids?: number[]
+  resource_type_id?: number | null
+  resource_type?: string | null
+  label_names?: string[]
+  content_html?: string
+  group_id?: number | null
+}
+
+export interface UpdateAdminResourcePayload {
+  resource_name?: string
+  resource_description?: string | null
+  visibility_scope?: 'global' | 'role_based'
+  role_ids?: number[]
+  resource_type_id?: number | null
+  resource_type?: string | null
+  label_names?: string[]
+  content_html?: string | null
+}
+
 export const fetchAdminResources = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<AdminResource>>(`/resource/${buildAdminQuery(params)}`)
 
-export const fetchResourceRoles = () => adminGet<unknown[]>('/resource/roles/')
-export const fetchResourceTypes = () => adminGet<unknown[]>('/resource/types/')
+export const fetchAdminResource = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/`).then((env) => env.data)
+
+export const createAdminResource = (payload: CreateAdminResourcePayload) =>
+  adminPost<AdminEnvelope<AdminResourceDetail>>('/resource/', payload).then((env) => env.data)
+
+export const uploadAdminResource = (formData: FormData) =>
+  adminRequest<AdminEnvelope<AdminResourceDetail>>('/resource/upload/', {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+
+export const updateAdminResource = (id: number | string, payload: UpdateAdminResourcePayload) =>
+  adminPut<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/`, payload).then((env) => env.data)
+
+export const deleteAdminResource = (id: number | string) =>
+  adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
+
+export const replaceAdminResourceFile = (id: number | string, file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+export const fetchAdminResourceRoles = () =>
+  adminGet<AdminEnvelope<AdminResourceRoleItem[]>>('/resource/roles/').then((env) => env.data || [])
+
+export const fetchAdminResourceTypes = () =>
+  adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
+
+export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include'
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to download resource: ${res.statusText}`)
+  }
+  const blob = await res.blob()
+  const blobUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = fileName || 'download'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}
 
 // ---------------------------------------------------------------------------
 // Announcements
