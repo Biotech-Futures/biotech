@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
+from django.conf import settings
 from django.utils import timezone
 
 from apps.chat.models import MessageScreening, MessageScreeningStatus, Messages
+from apps.common.text import DEFAULT_REPLACEMENT
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +16,13 @@ logger = logging.getLogger(__name__)
 SCREENING_PROVIDER = "local_stub"
 
 _FLAGGED_KEYWORDS = {
-    "badword": ("inappropriate_language", Decimal("0.8000")),
     "hate": ("harassment", Decimal("0.9000")),
     "threat": ("threat", Decimal("0.9500")),
     "kill": ("threat", Decimal("0.9500")),
 }
+
+MASKED_PROFANITY_CATEGORY = "masked_profanity"
+MASKED_PROFANITY_SCORE = Decimal("0.8000")
 
 
 @dataclass(frozen=True)
@@ -43,8 +47,21 @@ def should_screen_message(message: Messages) -> bool:
     ).exists()
 
 
+def sanitizer_replacement_token() -> str:
+    return getattr(settings, "CHAT_SANITIZER_REPLACEMENT", DEFAULT_REPLACEMENT)
+
+
 def run_local_screening_stub(text: str) -> ScreeningResult:
     normalized = (text or "").lower()
+    replacement = sanitizer_replacement_token()
+    if replacement and replacement in (text or ""):
+        return ScreeningResult(
+            status=MessageScreeningStatus.FLAGGED,
+            risk_score=MASKED_PROFANITY_SCORE,
+            category=MASKED_PROFANITY_CATEGORY,
+            reason=f"Matched sanitizer replacement token: {replacement}",
+        )
+
     for keyword, (category, score) in _FLAGGED_KEYWORDS.items():
         if keyword in normalized:
             return ScreeningResult(

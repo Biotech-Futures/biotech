@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.chat.models import MessageScreening, MessageScreeningStatus, Messages
 from apps.chat.services.screening import dispatch_message_screening
+from apps.common.text import sanitize_text
 from apps.groups.models import Groups
 
 
@@ -36,15 +37,25 @@ class MessageScreeningServiceTests(TestCase):
         self.assertEqual(screening.group_id, self.group.id)
         self.assertEqual(screening.sender_user_id, self.user.id)
 
-    def test_flagged_message_creates_flagged_screening_record(self):
-        message = self._message("This contains a badword for testing.")
+    def test_masked_profanity_creates_flagged_screening_record(self):
+        message = self._message("This contains *** for testing.")
 
         screening = dispatch_message_screening(message)
 
         self.assertEqual(screening.status, MessageScreeningStatus.FLAGGED)
         self.assertGreater(screening.risk_score, 0)
-        self.assertEqual(screening.category, "inappropriate_language")
-        self.assertIn("badword", screening.reason)
+        self.assertEqual(screening.category, "masked_profanity")
+        self.assertIn("***", screening.reason)
+
+    def test_sanitized_blacklisted_word_is_flagged_by_replacement_token(self):
+        sanitized = sanitize_text("This contains shit for testing.")
+        message = self._message(sanitized)
+
+        screening = dispatch_message_screening(message)
+
+        self.assertEqual(message.message_text, "This contains *** for testing.")
+        self.assertEqual(screening.status, MessageScreeningStatus.FLAGGED)
+        self.assertEqual(screening.category, "masked_profanity")
 
     def test_same_message_text_is_not_screened_twice(self):
         message = self._message("No problems here.")
