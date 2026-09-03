@@ -5,12 +5,9 @@
         <h1>Groups</h1>
         <p class="page-subtitle">Manage student groups and mentor assignments.</p>
       </div>
-      <button v-if="activeTab === 'groups'" type="button" class="btn btn-outline" @click="openCreate">
-        <i class="fas fa-plus" aria-hidden="true"></i> New group
-      </button>
     </div>
 
-    <div class="admin-groups__tabs" role="tablist">
+    <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
       <button
         type="button"
         class="admin-groups__tab"
@@ -36,16 +33,28 @@
     <MatchedGroupsPanel v-if="activeTab === 'matched'" />
 
     <template v-else>
-    <div class="admin-groups__filters">
-      <label class="admin-groups__search">
-        <span class="sr-only">Search groups</span>
-        <i class="fas fa-search admin-groups__search-icon" aria-hidden="true"></i>
-        <input
-          v-model="searchInput"
-          type="search"
-          placeholder="Search by group name..."
-        />
-      </label>
+    <div class="admin-groups__actions">
+      <button type="button" class="btn btn-primary" @click="openCreate">
+        <i class="fas fa-plus" aria-hidden="true"></i>
+        <span>Add group</span>
+      </button>
+    </div>
+
+    <div class="admin-groups__filters card">
+      <div class="admin-groups__filter-field admin-groups__search-field">
+        <label class="admin-groups__filter-label" for="group-search">Search</label>
+        <div class="admin-groups__search">
+          <i class="fas fa-magnifying-glass admin-groups__search-icon" aria-hidden="true"></i>
+          <input
+            id="group-search"
+            v-model="searchInput"
+            type="search"
+            class="admin-groups__search-input"
+            placeholder="Search by group name..."
+            aria-label="Search groups"
+          />
+        </div>
+      </div>
 
       <label class="admin-groups__filter-field">
         <span class="admin-groups__filter-label">Mentor status</span>
@@ -205,14 +214,14 @@
 
     <FormSheet
       v-model="formOpen"
-      :title="formMode === 'create' ? 'New group' : 'Rename group'"
+      :title="formMode === 'create' ? 'Add group' : 'Rename group'"
       :description="formMode === 'create'
         ? 'Leave the name blank to auto-generate the next group name.'
         : undefined"
     >
       <form class="admin-groups__form" @submit.prevent="submitForm">
         <label class="admin-groups__form-field">
-          <span class="admin-groups__filter-label">Group name</span>
+          <span class="admin-groups__form-label">Group name</span>
           <input
             v-model="formName"
             type="text"
@@ -645,6 +654,22 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
+/* "Add group" action row — mirrors .admin-users__actions on the People page so
+   the button sits in the same place with the same styling. */
+.admin-groups__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-groups__actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .admin-groups__selection-banner {
   display: flex;
   align-items: center;
@@ -735,62 +760,86 @@ const submitForm = async () => {
   font-size: 0.8rem;
 }
 
+/* Segmented pill tabs, matching the People page. */
 .admin-groups__tabs {
-  display: flex;
+  display: inline-flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
+  padding: 0.3rem;
   margin-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .admin-groups__tab {
-  padding: 0.6rem 1rem;
   border: none;
-  border-bottom: 2px solid transparent;
   background: transparent;
-  font: inherit;
-  font-weight: 600;
   color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
   cursor: pointer;
+  transition: color 0.18s ease, background-color 0.18s ease;
 }
 
-.admin-groups__tab:hover {
+.admin-groups__tab:hover:not(.admin-groups__tab--active) {
   color: var(--charcoal);
+  background: var(--light-green);
 }
 
 .admin-groups__tab--active {
-  color: var(--dark-green);
-  border-bottom-color: var(--dark-green);
+  background: var(--dark-green);
+  color: var(--white);
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
+.admin-groups__tab:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
+}
+
+/* White filter panel, matching .admin-users__filters on the People page. */
 .admin-groups__filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
 
-.admin-groups__search {
-  position: relative;
+/* Search field — same treatment as the People page's user search. */
+.admin-groups__search-field {
   flex: 1 1 260px;
   max-width: 360px;
 }
 
+.admin-groups__search {
+  position: relative;
+  width: 100%;
+}
+
 .admin-groups__search-icon {
   position: absolute;
+  left: 0.75rem;
   top: 50%;
-  left: 0.9rem;
   transform: translateY(-50%);
   color: var(--text-muted);
   font-size: 0.85rem;
+  pointer-events: none;
 }
 
-.admin-groups__search input {
+.admin-groups__search-input {
   width: 100%;
-  padding: 0.55rem 0.75rem 0.55rem 2.25rem;
+  height: 40px;
+  padding: 0.5rem 0.75rem 0.5rem 2rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  font-size: 0.9rem;
+  background-color: var(--white);
+  color: var(--charcoal);
 }
 
 .admin-groups__filter-field {
@@ -800,17 +849,27 @@ const submitForm = async () => {
 }
 
 .admin-groups__filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Dialog form labels stay sentence-case (like .form-label on the user form). */
+.admin-groups__form-label {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .admin-groups__filter-field select {
-  padding: 0.5rem 0.75rem;
+  height: 40px;
+  padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  font-size: 0.9rem;
   background-color: var(--white);
+  color: var(--charcoal);
 }
 
 .admin-groups__error {

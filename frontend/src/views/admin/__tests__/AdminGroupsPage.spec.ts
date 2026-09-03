@@ -107,7 +107,7 @@ describe('AdminGroupsPage', () => {
 
     expect(wrapper.text()).toContain('No confirmed mentor assignments yet.')
     expect(wrapper.text()).not.toContain('BTF1')
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))).toBeUndefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
   })
 
   it('searches by group name after the debounce', async () => {
@@ -172,12 +172,12 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
     expect(newGroupButton).toBeDefined()
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('New group'))
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))
     expect(dialog).toBeDefined()
 
     const createButton = Array.from(dialog!.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')
@@ -189,7 +189,7 @@ describe('AdminGroupsPage', () => {
       ([u, i]) => String(u).includes('/api/v1/admin/group/') && (i as RequestInit | undefined)?.method === 'POST'
     ) as [string, RequestInit]
     expect(JSON.parse(String(init.body)).name).toBeUndefined()
-    expect(dialogs().find((d) => d.textContent!.includes('New group'))).toBeUndefined()
+    expect(dialogs().find((d) => d.textContent!.includes('Add group'))).toBeUndefined()
   })
 
   it('shows the duplicate-name error inside the dialog and keeps it open', async () => {
@@ -222,11 +222,11 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('New group'))!
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))!
     const nameInput = dialog.querySelector('input[type="text"]') as HTMLInputElement
     nameInput.value = 'BTF1'
     nameInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -235,7 +235,7 @@ describe('AdminGroupsPage', () => {
     createButton.dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
 
-    expect(dialogs().find((d) => d.textContent!.includes('New group'))).toBeDefined()
+    expect(dialogs().find((d) => d.textContent!.includes('Add group'))).toBeDefined()
     expect(dialog.textContent).toContain('A group with this name already exists')
   })
 
@@ -749,11 +749,11 @@ describe('AdminGroupsPage integration', () => {
 
     expect(wrapper.text()).not.toContain('BTF41')
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('New group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('New group'))!
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))!
     const createButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')!
     createButton.dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
