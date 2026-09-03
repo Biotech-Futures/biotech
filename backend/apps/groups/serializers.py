@@ -89,8 +89,8 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at']
     validators = []
     # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
     # check flows through validate() and surfaces as non_field_errors (the shape
