@@ -599,12 +599,14 @@ describe('AdminGroupsPage bulk delete', () => {
   })
 
   it('loops chunked requests for select-all-matching until nothing remains, requiring force + typed DELETE', async () => {
+    const range = (start: number, end: number) => Array.from({ length: end - start }, (_, i) => start + i)
     const fetchMock = bulkDeleteMockFor({
       groups: [groupA, groupB],
       totalCount: 60,
       chunks: [
-        { deletedIds: [101, 102], failedIds: [], notFoundIds: [], remaining: 35 },
-        { deletedIds: [201, 202], failedIds: [], notFoundIds: [], remaining: 0 }
+        { deletedIds: range(1, 26), failedIds: [], notFoundIds: [], remaining: 35 },
+        { deletedIds: range(26, 51), failedIds: [], notFoundIds: [], remaining: 10 },
+        { deletedIds: range(51, 61), failedIds: [], notFoundIds: [], remaining: 0 }
       ]
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -647,7 +649,7 @@ describe('AdminGroupsPage bulk delete', () => {
     const bulkCalls = fetchMock.mock.calls.filter(
       ([u, i]) => String(u).includes('/group/bulk-delete/') && (i as RequestInit | undefined)?.method === 'POST'
     )
-    expect(bulkCalls.length).toBe(2)
+    expect(bulkCalls.length).toBe(3)
 
     const firstBody = JSON.parse(String((bulkCalls[0][1] as RequestInit).body))
     expect(firstBody).toMatchObject({
@@ -659,9 +661,49 @@ describe('AdminGroupsPage bulk delete', () => {
     })
 
     const secondBody = JSON.parse(String((bulkCalls[1][1] as RequestInit).body))
-    expect(secondBody.excludeIds).toEqual([101, 102])
+    expect(secondBody.excludeIds).toEqual(range(1, 26))
 
+    // All 60 accounted for, so the dialog closes.
     expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeUndefined()
+  })
+
+  it('keeps the dialog open and reports the shortfall when the matching set shrank', async () => {
+    const range = (start: number, end: number) => Array.from({ length: end - start }, (_, i) => start + i)
+    const fetchMock = bulkDeleteMockFor({
+      groups: [groupA, groupB],
+      totalCount: 60,
+      // Only 55 actually match at delete time — the loop finishes (remaining 0)
+      // having deleted fewer than the 60 the admin reviewed.
+      chunks: [
+        { deletedIds: range(1, 26), failedIds: [], notFoundIds: [], remaining: 30 },
+        { deletedIds: range(26, 56), failedIds: [], notFoundIds: [], remaining: 0 }
+      ]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    await wrapper.find('thead input[type="checkbox"]').setValue(true)
+    await wrapper.findAll('button').find((b) => b.text().includes('Select all 60 groups'))!.trigger('click')
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Delete')!.trigger('click')
+    await flushPromises()
+
+    const dialog = dialogs().find((d) => d.textContent!.includes('Delete groups'))!
+    const forceCheckbox = dialog.querySelector('input[type="checkbox"]') as HTMLInputElement
+    forceCheckbox.checked = true
+    forceCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+    const deleteInput = dialog.querySelector('#bulk-delete-confirm') as HTMLInputElement
+    deleteInput.value = 'DELETE'
+    deleteInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    Array.from(dialog.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Delete')!
+      .dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(dialogs().find((d) => d.textContent!.includes('Delete groups'))).toBeDefined()
+    expect(dialog.textContent).toContain('Deleted 55 of 60 groups')
   })
 })
 

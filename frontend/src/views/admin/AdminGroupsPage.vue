@@ -476,12 +476,16 @@ const describeBulkDeleteFailure = (failed: number, notFound: number): string => 
 const runBulkDelete = async () => {
   busy.value = true
   bulkDeleteError.value = ''
+  const isSelectAll = selectAllMatching.value
+  const expectedCount = bulkCount.value
   const deletedIds: number[] = []
   const failedIds: number[] = []
   const notFoundIds: number[] = []
+  // A 200 with `data: null` means the request couldn't be resolved (the matching
+  // set changed, or nothing matched) — don't treat that as a clean finish.
+  let stalled = false
   try {
-    if (selectAllMatching.value) {
-      const expectedCount = bulkCount.value
+    if (isSelectAll) {
       let excludeIds = [...excludedIds.value].map(Number)
       let done = 0
       bulkDeleteProgress.value = { done: 0, total: expectedCount }
@@ -495,7 +499,10 @@ const runBulkDelete = async () => {
           force: bulkForce.value,
           limit: BULK_DELETE_CHUNK
         })
-        if (!data) break
+        if (!data) {
+          stalled = true
+          break
+        }
         done += data.deletedIds.length
         deletedIds.push(...data.deletedIds)
         failedIds.push(...data.failedIds)
@@ -509,11 +516,10 @@ const runBulkDelete = async () => {
         groupIds: [...selectedIds.value],
         force: bulkForce.value
       })
-      if (data) {
-        deletedIds.push(...data.deletedIds)
-        failedIds.push(...data.failedIds)
-        notFoundIds.push(...data.notFoundIds)
-      }
+      if (!data) throw new Error('Bulk delete could not be completed. Please refresh and try again.')
+      deletedIds.push(...data.deletedIds)
+      failedIds.push(...data.failedIds)
+      notFoundIds.push(...data.notFoundIds)
     }
 
     await loadGroups()
@@ -526,9 +532,23 @@ const runBulkDelete = async () => {
       selectedIds.value = new Set([...selectedIds.value].filter((id) => !gone.has(Number(id))))
     }
 
+    const reasons: string[] = []
     if (failedIds.length || notFoundIds.length) {
-      // Keep the dialog open with the reason so the admin can retry with force.
-      bulkDeleteError.value = describeBulkDeleteFailure(failedIds.length, notFoundIds.length)
+      reasons.push(describeBulkDeleteFailure(failedIds.length, notFoundIds.length))
+    }
+    // The select-all loop can finish short if the matching set changed between
+    // review and confirm (`stalled`), or simply shrank — say how many went.
+    const handled = deletedIds.length + failedIds.length + notFoundIds.length
+    if (isSelectAll && (stalled || handled < expectedCount)) {
+      reasons.push(
+        `Deleted ${deletedIds.length} of ${expectedCount} ${expectedCount === 1 ? 'group' : 'groups'}. ` +
+          'The matching set changed since you reviewed it — close this dialog, refresh, and re-check the rest.'
+      )
+    }
+
+    if (reasons.length) {
+      // Keep the dialog open with the reason so the admin can retry / re-review.
+      bulkDeleteError.value = reasons.join(' ')
       return
     }
 
