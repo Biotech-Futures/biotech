@@ -88,6 +88,7 @@ import type { Event, EventFormat, EventRsvp } from "@/type/event";
 import { EVENT_FORMAT_LABELS } from "@/type/event";
 import { BRAND_NAME } from "@/lib/brand";
 import { resolvePublicUrl } from "@/util/url";
+import { buildEventUpdateWithImageIntent } from "@/lib/event-image-update";
 import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
@@ -734,7 +735,7 @@ function EventPage() {
     register: registerEdit,
     watch: watchEdit,
     setValue: setEditValue,
-    formState: { errors: editErrors, dirtyFields: editDirtyFields },
+    formState: { errors: editErrors },
   } = useForm<UpdateEventInput, undefined, UpdateEvent>({
     resolver: zodResolver(updateEventSchema),
   });
@@ -1039,13 +1040,10 @@ function EventPage() {
 
   const onEditSubmit = async (formData: UpdateEvent) => {
     if (!editingEvent) return;
-    const updateData = { ...formData };
-    // Preserve the existing uploaded image unless the administrator explicitly
-    // edits the Image URL field. In particular, never round-trip a generated
-    // /media path through URL validation or overwrite it with null.
-    if (!editDirtyFields.eventImage) {
-      delete updateData.eventImage;
-    }
+    const updateData = buildEventUpdateWithImageIntent(
+      formData,
+      editImageRemoved,
+    );
     updateEvent(
       { id: editingEvent.id, data: updateData },
       {
