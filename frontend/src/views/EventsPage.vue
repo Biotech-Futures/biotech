@@ -187,6 +187,7 @@
             height="320"
             loading="lazy"
             decoding="async"
+            @error="markEventImageFailed(ev)"
           />
           <i
             v-else
@@ -225,9 +226,10 @@
             </span>
           </div>
 
-          <p class="event-description">
-            {{ eventDescriptionText(ev.description) }}
-          </p>
+          <div
+            class="event-description event-description-rich event-description-preview"
+            v-html="eventDescriptionPreviewHtml(ev.description)"
+          ></div>
 
           <div class="event-meta">
             <div class="event-meta-item">
@@ -398,6 +400,7 @@
               width="1280"
               height="320"
               decoding="async"
+              @error="markEventImageFailed(selected)"
             />
             <i
               v-else-if="selected"
@@ -653,17 +656,11 @@ const defaultShort = `Join us for this ${BRAND_NAME} session.`
 const defaultLong =
   `This session is part of the ${BRAND_NAME} program. Learn, collaborate, and build your project with mentors and peers.`
 
-const eventDescriptionText = (value?: string | null) => {
-  const source = String(value || '').trim()
-  if (!source) return defaultShort
-
-  const template = document.createElement('template')
-  template.innerHTML = source
-  return (template.content.textContent || '').replace(/\s+/g, ' ').trim() || defaultShort
-}
-
 const eventDescriptionHtml = (value?: string | null) =>
   sanitizeRichText(String(value || '').trim() || defaultLong)
+
+const eventDescriptionPreviewHtml = (value?: string | null) =>
+  sanitizeRichText(String(value || '').trim() || defaultShort)
 const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
   in_person: 'In-person',
   virtual: 'Virtual',
@@ -1028,7 +1025,18 @@ const prettyType = (type?: string | null) => {
   return type.charAt(0).toUpperCase() + type.slice(1)
 }
 
-const eventCover = (ev?: BackendEvent | null) => resolveEventUrl(ev?.event_image)
+const failedEventImages = ref<Set<string>>(new Set())
+
+const eventCover = (ev?: BackendEvent | null) => {
+  const url = resolveEventUrl(ev?.event_image)
+  return url && !failedEventImages.value.has(url) ? url : ''
+}
+
+const markEventImageFailed = (ev?: BackendEvent | null) => {
+  const url = resolveEventUrl(ev?.event_image)
+  if (!url) return
+  failedEventImages.value = new Set([...failedEventImages.value, url])
+}
 
 const eventModeLabel = (ev?: BackendEvent | null) => EVENT_FORMAT_LABELS[eventFormat(ev)]
 
@@ -1695,11 +1703,143 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+  max-height: 8rem;
   overflow: hidden;
+}
+
+.event-description-preview :deep(*) {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.event-description-preview :deep(p),
+.event-description-preview :deep(h1),
+.event-description-preview :deep(h2),
+.event-description-preview :deep(h3),
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6),
+.event-description-preview :deep(blockquote),
+.event-description-preview :deep(pre),
+.event-description-preview :deep(ul),
+.event-description-preview :deep(ol) {
+  margin: 0;
+}
+
+.event-description-preview :deep(h1),
+.event-description-preview :deep(h2),
+.event-description-preview :deep(h3),
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6) {
+  color: var(--charcoal);
+  font-weight: 700;
+}
+
+.event-description-preview :deep(h1) { font-size: 1.3rem; }
+.event-description-preview :deep(h2) { font-size: 1.2rem; }
+.event-description-preview :deep(h3) { font-size: 1.1rem; }
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6) { font-size: 1rem; }
+
+.event-description-preview :deep(strong),
+.event-description-preview :deep(b) {
+  font-weight: 700;
+}
+
+.event-description-preview :deep(em),
+.event-description-preview :deep(i) {
+  font-style: italic;
+}
+
+.event-description-preview :deep(u) {
+  text-decoration: underline;
+}
+
+.event-description-preview :deep(s) {
+  text-decoration: line-through;
+}
+
+.event-description-preview :deep(code) {
+  padding: 0.05rem 0.2rem;
+  border-radius: 3px;
+  background: var(--bg-light);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.event-description-preview :deep(pre) {
+  overflow: hidden;
+  padding: 0.4rem;
+  border-radius: 5px;
+  background: var(--charcoal);
+  color: var(--white);
+  white-space: pre-wrap;
+}
+
+.event-description-preview :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.event-description-preview :deep(ul),
+.event-description-preview :deep(ol) {
+  padding-left: 1.2rem;
+}
+
+.event-description-preview :deep(ul) {
+  list-style: disc;
+}
+
+.event-description-preview :deep(ol) {
+  list-style: decimal;
+}
+
+.event-description-preview :deep(a) {
+  color: var(--event-dark-green);
+  text-decoration: underline;
+}
+
+.event-description-preview :deep(blockquote) {
+  padding-left: 0.65rem;
+  border-left: 3px solid var(--event-mint-green);
+}
+
+.event-description-preview :deep(img),
+.event-description-preview :deep(figure img) {
+  display: block;
+  max-width: 100%;
+  max-height: 5rem;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.event-description-preview :deep(figure) {
+  margin: 0;
+}
+
+.event-description-preview :deep(figcaption) {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.event-description-preview :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.event-description-preview :deep(th),
+.event-description-preview :deep(td) {
+  border: 1px solid var(--border-light);
+  padding: 0.15rem 0.25rem;
+  text-align: left;
+}
+
+.event-description-preview :deep(hr) {
+  margin: 0.35rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-light);
 }
 
 .event-meta {
@@ -2105,10 +2245,98 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   margin: 0.65rem 0;
 }
 
+.detail-description-rich :deep(h1),
+.detail-description-rich :deep(h2),
+.detail-description-rich :deep(h3),
+.detail-description-rich :deep(h4),
+.detail-description-rich :deep(h5),
+.detail-description-rich :deep(h6) {
+  margin: 0.9rem 0 0.45rem;
+  color: var(--charcoal);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.detail-description-rich :deep(h1) { font-size: 2rem; }
+.detail-description-rich :deep(h2) { font-size: 1.65rem; }
+.detail-description-rich :deep(h3) { font-size: 1.4rem; }
+.detail-description-rich :deep(h4) { font-size: 1.2rem; }
+.detail-description-rich :deep(h5) { font-size: 1.05rem; }
+.detail-description-rich :deep(h6) { font-size: 1rem; }
+
+.detail-description-rich :deep(strong),
+.detail-description-rich :deep(b) {
+  font-weight: 700;
+}
+
+.detail-description-rich :deep(em),
+.detail-description-rich :deep(i) {
+  font-style: italic;
+}
+
+.detail-description-rich :deep(u) {
+  text-decoration: underline;
+}
+
+.detail-description-rich :deep(s) {
+  text-decoration: line-through;
+}
+
+.detail-description-rich :deep(blockquote) {
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.9rem;
+  border-left: 4px solid var(--event-dark-green);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-light);
+  color: var(--text-muted);
+}
+
+.detail-description-rich :deep(blockquote p) {
+  margin: 0;
+}
+
+.detail-description-rich :deep(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--charcoal);
+  color: var(--white);
+  white-space: pre-wrap;
+}
+
+.detail-description-rich :deep(code) {
+  padding: 0.08rem 0.25rem;
+  border-radius: 4px;
+  background: var(--bg-light);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.detail-description-rich :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.detail-description-rich :deep(hr) {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-light);
+}
+
 .detail-description-rich :deep(ul),
 .detail-description-rich :deep(ol) {
   margin: 0.65rem 0;
   padding-left: 1.5rem;
+}
+
+.detail-description-rich :deep(ul) {
+  list-style: disc;
+}
+
+.detail-description-rich :deep(ol) {
+  list-style: decimal;
 }
 
 .detail-description-rich :deep(a) {
@@ -2122,6 +2350,16 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   height: auto;
   margin: 0.75rem 0;
   border-radius: 8px;
+}
+
+.detail-description-rich :deep(figure) {
+  margin: 0.75rem 0;
+}
+
+.detail-description-rich :deep(figcaption) {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .detail-description-rich :deep(table) {

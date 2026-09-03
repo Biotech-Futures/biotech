@@ -116,6 +116,9 @@ if settings.DEBUG:
         path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
         path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     ]
+    
+    # Local managed storage returns /media/... URLs. Development servers must
+    # expose those files so event banners and other uploaded media can render.
     # Local development stores uploaded event banners under MEDIA_ROOT instead
     # of Azure Blob Storage. Django does not serve those files automatically,
     # so expose MEDIA_URL while DEBUG is enabled. Production remains unchanged.
