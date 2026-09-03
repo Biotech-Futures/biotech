@@ -12,6 +12,7 @@
 
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
+import type { StudentImportRow } from './adminStudentCsv'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -259,26 +260,6 @@ export type CreateUserPayload = Record<string, unknown> & {
   firstName: string
   lastName: string
   role: string
-}
-
-export interface StudentImportRow {
-  firstName: string
-  lastName: string
-  email: string
-  country: string
-  state: string | null
-  schoolName: string
-  yearLevel: number
-  interests: string[]
-  guardianFirstName: string
-  guardianLastName: string
-  guardianEmail: string
-  supervisorFirstName: string
-  supervisorLastName: string
-  supervisorEmail: string
-  joinpermResponseId: string
-  active: boolean
-  groupNumber?: string
 }
 
 export interface StudentImportSkippedRow {

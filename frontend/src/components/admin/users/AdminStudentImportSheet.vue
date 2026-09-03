@@ -4,7 +4,6 @@
     title="Import Students CSV"
     description="Upload a student registration export, review valid and skipped rows, then import students."
     width="min(100vw, 720px)"
-    @update:model-value="onOpenChange"
     @close="onDismiss"
   >
     <div class="student-import">
@@ -43,8 +42,11 @@
       </p>
 
       <section v-if="hasParsedRows" class="student-import__summary" aria-live="polite">
-        <span class="student-import__badge student-import__badge--ready">
+        <span v-if="validRows.length > 0" class="student-import__badge student-import__badge--ready">
           {{ validRows.length }} ready
+        </span>
+        <span v-else class="student-import__summary-message">
+          No valid rows to import — check the skipped list below.
         </span>
         <span v-if="invalidRows.length" class="student-import__badge">
           {{ invalidRows.length }} skipped
@@ -58,8 +60,8 @@
         </div>
         <div class="student-import__preview-list">
           <article
-            v-for="row in previewRows"
-            :key="row.email"
+            v-for="(row, index) in previewRows"
+            :key="`${row.email}-${index}`"
             class="student-import__preview-row"
           >
             <div class="student-import__primary">
@@ -216,14 +218,6 @@ const onDismiss = () => {
   emit('update:modelValue', false)
 }
 
-const onOpenChange = (open: boolean) => {
-  if (!open) {
-    onDismiss()
-    return
-  }
-  emit('update:modelValue', true)
-}
-
 watch(
   () => props.modelValue,
   (open) => {
@@ -354,6 +348,7 @@ const runImport = async () => {
 
 .student-import__section-head span,
 .student-import__hint,
+.student-import__summary-message,
 .student-import__primary span,
 .student-import__co-registration-row span {
   color: var(--text-muted);
