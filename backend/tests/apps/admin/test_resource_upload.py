@@ -476,20 +476,25 @@ class AdminResourceUploadTests(TestCase):
             matching_resource.id,
         )
 
-    @patch("apps.admin.services.resource.upload_file")
-    def test_admin_can_replace_resource_file_with_new_content(self, upload_file_mock):
-        # Regression test for the bug where replacing a resource's file
-        # silently uploaded an empty file: the view was reading `file_bytes`
-        # from request.data (which never contains the raw multipart file),
-        # instead of pulling the actual uploaded file from request.FILES.
+    @patch("apps.admin.services.resource.get_resource_storage")
+    def test_admin_can_replace_resource_file_with_new_content(self, get_resource_storage_mock):
+        # Regression test for two bugs: (1) replacing a resource's file
+        # silently uploaded an empty file, because the view read `file_bytes`
+        # from request.data (which never contains the raw multipart file)
+        # instead of request.FILES; (2) the replace path uploaded to
+        # AZURE_CONTAINER via azure_blob_utils, a different container than
+        # AZURE_RESOURCE_CONTAINER which the resources app reads from,
+        # making replaced files silently unreachable on download.
         captured_content = {}
 
-        def fake_upload(local_path, blob_name):
-            with open(local_path, "rb") as f:
-                captured_content["bytes"] = f.read()
-            return blob_name
+        mock_storage = Mock()
 
-        upload_file_mock.side_effect = fake_upload
+        def fake_save(name, content):
+            captured_content["bytes"] = content.read()
+            return name
+
+        mock_storage.save.side_effect = fake_save
+        get_resource_storage_mock.return_value = mock_storage
 
         original_upload = SimpleUploadedFile(
             "original.pdf",

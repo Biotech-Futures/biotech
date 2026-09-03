@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
-from apps.resources.services.storage import RESOURCE_FILE_SERVICE
+from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
 from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -702,21 +702,15 @@ def replace_resource_file(
     resource = Resources.objects.get(id=resource_id)
     next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
     
-    # Upload new file. The temp file must be closed (with-block exited)
-    # before upload_file()/os.unlink() run — Windows refuses to delete a
-    # file that's still open, unlike Mac/Linux which allows it.
+    # Upload new file via the shared ManagedContainerStorage, so replaced
+    # files land in the same AZURE_RESOURCE_CONTAINER that the resources
+    # app reads from — azure_blob_utils.upload_file() was writing to
+    # AZURE_CONTAINER instead, a different container, which made replaced
+    # files silently unreachable on download.
     file_bytes = payload.get('file_bytes', b'')
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        if isinstance(file_bytes, bytes):
-            tmp.write(file_bytes)
-        else:
-            tmp.write(bytes(file_bytes))
-        tmp_path = tmp.name
-
-    try:
-        upload_file(tmp_path, next_storage_key)
-    finally:
-        os.unlink(tmp_path)
+    if not isinstance(file_bytes, bytes):
+        file_bytes = bytes(file_bytes)
+    get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
     
     resource.storage_key = next_storage_key
     resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
