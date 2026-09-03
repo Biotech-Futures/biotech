@@ -108,6 +108,12 @@ const clickButton = (root: HTMLElement, label: string) => {
   button.dispatchEvent(new Event('click', { bubbles: true }))
 }
 
+// Messages live behind a "View Messages" button now, not on the initial view.
+const openMessages = async () => {
+  clickButton(dialog()!, 'View Messages')
+  await flushPromises()
+}
+
 let wrapper: VueWrapper | null = null
 
 const mountModal = async (fetchMock: ReturnType<typeof vi.fn>, group = groupFixture()) => {
@@ -131,21 +137,46 @@ afterEach(() => {
 })
 
 describe('GroupDetailModal', () => {
-  it('renders the mentor, members, and messages once opened', async () => {
+  it('shows mentor and members on open, and messages only after clicking through', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage, gifMessage], total: 2 })
     await mountModal(fetchMock)
 
-    const text = dialog()!.textContent!
-    expect(text).toContain('Marie Curie')
-    expect(text).toContain('Ada Lovelace')
-    expect(text).toContain('Grace Hopper')
-    expect(text).toContain('Hey team, how is everyone?')
-    expect(text).toContain('[GIF]')
+    const infoText = dialog()!.textContent!
+    expect(infoText).toContain('Marie Curie')
+    expect(infoText).toContain('Ada Lovelace')
+    expect(infoText).toContain('Grace Hopper')
+    expect(infoText).not.toContain('Hey team, how is everyone?')
+
+    await openMessages()
+    const msgText = dialog()!.textContent!
+    expect(msgText).toContain('Hey team, how is everyone?')
+    expect(msgText).toContain('[GIF]')
+
+    // "Back" returns to the group-information view.
+    clickButton(dialog()!, 'Back to group information')
+    await flushPromises()
+    expect(dialog()!.textContent).toContain('Marie Curie')
+    expect(dialog()!.textContent).not.toContain('Hey team, how is everyone?')
+  })
+
+  it('does not fetch messages until the Messages view is opened', async () => {
+    const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
+    await mountModal(fetchMock)
+
+    const messageGets = () =>
+      fetchMock.mock.calls.filter(
+        ([u, i]) => String(u).includes('/messages/') && (i as RequestInit | undefined)?.method === 'GET'
+      )
+    expect(messageGets()).toHaveLength(0)
+
+    await openMessages()
+    expect(messageGets().length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders no timestamp instead of "Invalid Date" for a malformed sent_at', async () => {
     const fetchMock = fetchMockFor({ page1: [{ ...textMessage, sent_at: 'not-a-date' }], total: 1 })
     await mountModal(fetchMock)
+    await openMessages()
 
     expect(dialog()!.textContent).toContain('Hey team, how is everyone?')
     expect(dialog()!.textContent).not.toContain('Invalid Date')
@@ -214,6 +245,7 @@ describe('GroupDetailModal', () => {
   it('removes a message after confirmation and decrements the total', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
     await mountModal(fetchMock)
+    await openMessages()
 
     expect(dialog()!.textContent).toContain('Messages (1)')
 
@@ -238,6 +270,7 @@ describe('GroupDetailModal', () => {
     const page1 = Array.from({ length: 50 }, (_, i) => ({ ...textMessage, id: `p1-${i}`, text: `msg ${i}` }))
     const fetchMock = fetchMockFor({ page1, page2: [{ ...textMessage, id: 'p2-0' }], total: 51 })
     await mountModal(fetchMock)
+    await openMessages()
 
     const nextButton = () =>
       Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Next') as
@@ -265,6 +298,7 @@ describe('GroupDetailModal', () => {
     vi.stubGlobal('alert', alertSpy)
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1, deleteError: 'Message already removed.' })
     await mountModal(fetchMock)
+    await openMessages()
 
     const removeMessageButton = dialog()!.querySelector('[aria-label="Remove message"]') as HTMLButtonElement | null
     removeMessageButton!.dispatchEvent(new Event('click', { bubbles: true }))
@@ -282,6 +316,7 @@ describe('GroupDetailModal', () => {
   it('requests the next page of messages when the pager is used', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage], page2: [gifMessage], total: 60 })
     await mountModal(fetchMock)
+    await openMessages()
 
     const nextButton = Array.from(dialog()!.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === 'Next'

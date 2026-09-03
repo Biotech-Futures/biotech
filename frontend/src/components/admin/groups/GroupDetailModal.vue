@@ -8,89 +8,106 @@
     @close="onDismiss"
   >
     <div v-if="group" class="group-detail">
-      <section class="group-detail__section">
-        <h3>Mentor</h3>
-        <p v-if="group.mentor" class="group-detail__mentor">{{ group.mentor.name }}</p>
-        <p v-else class="group-detail__muted">Unassigned</p>
-      </section>
+      <!-- Group Information view: mentor + members. Messages live behind a
+           dedicated view so they don't pile up here and don't load until asked. -->
+      <template v-if="view === 'info'">
+        <section class="group-detail__section">
+          <h3>Mentor</h3>
+          <p v-if="group.mentor" class="group-detail__mentor">{{ group.mentor.name }}</p>
+          <p v-else class="group-detail__muted">Unassigned</p>
+        </section>
 
-      <section class="group-detail__section">
-        <h3>Members ({{ members.length }})</h3>
-        <p v-if="!members.length" class="group-detail__muted">No students in this group yet.</p>
-        <ul v-else class="group-detail__members">
-          <li v-for="member in members" :key="member.id" class="group-detail__member">
-            <div class="group-detail__member-info">
-              <span class="group-detail__member-name">{{ member.name }}</span>
-              <span class="group-detail__member-email">{{ member.email }}</span>
-            </div>
+        <section class="group-detail__section">
+          <h3>Members ({{ members.length }})</h3>
+          <p v-if="!members.length" class="group-detail__muted">No students in this group yet.</p>
+          <ul v-else class="group-detail__members">
+            <li v-for="member in members" :key="member.id" class="group-detail__member">
+              <div class="group-detail__member-info">
+                <span class="group-detail__member-name">{{ member.name }}</span>
+                <span class="group-detail__member-email">{{ member.email }}</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline"
+                @click="requestRemoveMember(member)"
+              >
+                Remove
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <button type="button" class="btn btn-outline group-detail__view-messages" @click="showMessages">
+          <i class="fas fa-comments" aria-hidden="true"></i>
+          View Messages<span v-if="messagesTotal !== null"> ({{ messagesTotal }})</span>
+        </button>
+      </template>
+
+      <!-- Messages view -->
+      <template v-else>
+        <button type="button" class="group-detail__back" @click="backToInfo">
+          <i class="fas fa-arrow-left" aria-hidden="true"></i>
+          Back to group information
+        </button>
+
+        <section class="group-detail__section">
+          <div class="group-detail__messages-head">
+            <h3>Messages{{ messagesTotal !== null ? ` (${messagesTotal})` : '' }}</h3>
+          </div>
+
+          <p v-if="messagesLoading" class="group-detail__muted">Loading messages...</p>
+          <p v-else-if="messagesError" class="group-detail__error" role="alert">{{ messagesError }}</p>
+          <p v-else-if="!messages.length" class="group-detail__muted">No messages in this group yet.</p>
+
+          <ul v-else class="group-detail__messages">
+            <li v-for="message in messages" :key="message.id" class="group-detail__message">
+              <div class="group-detail__message-head">
+                <div class="group-detail__message-sender">
+                  <span class="group-detail__member-name">{{ message.sender.name || message.sender.email }}</span>
+                  <span class="group-detail__member-email">{{ message.sender.email }}</span>
+                </div>
+                <div class="group-detail__message-meta">
+                  <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
+                  <span class="group-detail__muted">{{ formatMessageTime(message.sent_at) }}</span>
+                  <button
+                    type="button"
+                    class="group-detail__message-remove"
+                    aria-label="Remove message"
+                    title="Remove message"
+                    @click="requestRemoveMessage(message)"
+                  >
+                    <i class="fas fa-trash" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+              <p class="group-detail__message-text">{{ messageBody(message) }}</p>
+              <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatMessageTime(message.edited_at) }}</p>
+            </li>
+          </ul>
+
+          <div v-if="messagesTotal && messagesTotal > messagesLimit" class="group-detail__pager">
             <button
               type="button"
               class="btn btn-sm btn-outline"
-              @click="requestRemoveMember(member)"
+              :disabled="messagesPage <= 1 || messagesLoading"
+              @click="changeMessagesPage(messagesPage - 1)"
             >
-              Remove
+              Previous
             </button>
-          </li>
-        </ul>
-      </section>
-
-      <section class="group-detail__section">
-        <div class="group-detail__messages-head">
-          <h3>Messages{{ messagesTotal !== null ? ` (${messagesTotal})` : '' }}</h3>
-        </div>
-
-        <p v-if="messagesLoading" class="group-detail__muted">Loading messages...</p>
-        <p v-else-if="messagesError" class="group-detail__error" role="alert">{{ messagesError }}</p>
-        <p v-else-if="!messages.length" class="group-detail__muted">No messages in this group yet.</p>
-
-        <ul v-else class="group-detail__messages">
-          <li v-for="message in messages" :key="message.id" class="group-detail__message">
-            <div class="group-detail__message-head">
-              <div class="group-detail__message-sender">
-                <span class="group-detail__member-name">{{ message.sender.name || message.sender.email }}</span>
-                <span class="group-detail__member-email">{{ message.sender.email }}</span>
-              </div>
-              <div class="group-detail__message-meta">
-                <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
-                <span class="group-detail__muted">{{ formatMessageTime(message.sent_at) }}</span>
-                <button
-                  type="button"
-                  class="group-detail__message-remove"
-                  aria-label="Remove message"
-                  title="Remove message"
-                  @click="requestRemoveMessage(message)"
-                >
-                  <i class="fas fa-trash" aria-hidden="true"></i>
-                </button>
-              </div>
-            </div>
-            <p class="group-detail__message-text">{{ messageBody(message) }}</p>
-            <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatMessageTime(message.edited_at) }}</p>
-          </li>
-        </ul>
-
-        <div v-if="messagesTotal && messagesTotal > messagesLimit" class="group-detail__pager">
-          <button
-            type="button"
-            class="btn btn-sm btn-outline"
-            :disabled="messagesPage <= 1 || messagesLoading"
-            @click="changeMessagesPage(messagesPage - 1)"
-          >
-            Previous
-          </button>
-          <span class="group-detail__muted">
-            Page {{ messagesPage }} of {{ Math.max(1, Math.ceil(messagesTotal / messagesLimit)) }}
-          </span>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline"
-            :disabled="!messagesHasMore || messagesLoading"
-            @click="changeMessagesPage(messagesPage + 1)"
-          >
-            Next
-          </button>
-        </div>
-      </section>
+            <span class="group-detail__muted">
+              Page {{ messagesPage }} of {{ Math.max(1, Math.ceil(messagesTotal / messagesLimit)) }}
+            </span>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              :disabled="!messagesHasMore || messagesLoading"
+              @click="changeMessagesPage(messagesPage + 1)"
+            >
+              Next
+            </button>
+          </div>
+        </section>
+      </template>
     </div>
   </FormSheet>
 
@@ -147,6 +164,10 @@ const emit = defineEmits<{
 }>()
 
 const onDismiss = () => emit('update:modelValue', false)
+
+// The panel opens on the group-information view (mentor + members); messages are
+// a separate view reached via "View Messages" (see below) and loaded only then.
+const view = ref<'info' | 'messages'>('info')
 
 // --- Members -------------------------------------------------------------
 
@@ -214,6 +235,9 @@ const messagesLimit = ref(50)
 const messagesHasMore = ref(false)
 const messagesLoading = ref(false)
 const messagesError = ref('')
+// Whether the current group's messages have been fetched at least once, so
+// re-entering the Messages view doesn't refetch needlessly.
+const messagesLoaded = ref(false)
 
 const loadMessages = async () => {
   if (!props.group) return
@@ -227,6 +251,7 @@ const loadMessages = async () => {
     messages.value = data.items
     messagesTotal.value = data.total
     messagesHasMore.value = data.has_more
+    messagesLoaded.value = true
   } catch (err) {
     messagesError.value = err instanceof Error ? err.message : 'Failed to load messages.'
   } finally {
@@ -239,12 +264,28 @@ const changeMessagesPage = (page: number) => {
   loadMessages()
 }
 
+const showMessages = () => {
+  view.value = 'messages'
+  if (!messagesLoaded.value && !messagesLoading.value) loadMessages()
+}
+
+const backToInfo = () => {
+  view.value = 'info'
+}
+
+// Opening the panel (or switching group) resets to the info view and clears the
+// message state so the next "View Messages" fetches fresh.
 watch(
   () => [props.modelValue, props.group?.id],
   ([open]) => {
     if (open && props.group) {
+      view.value = 'info'
       messagesPage.value = 1
-      loadMessages()
+      messages.value = []
+      messagesTotal.value = null
+      messagesHasMore.value = false
+      messagesError.value = ''
+      messagesLoaded.value = false
     }
   }
 )
@@ -435,5 +476,31 @@ const formatMessageTime = (value: string): string => {
   justify-content: center;
   gap: 0.75rem;
   margin-top: 0.5rem;
+}
+
+.group-detail__view-messages {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  align-self: flex-start;
+}
+
+.group-detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dark-green);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.group-detail__back:hover {
+  text-decoration: underline;
 }
 </style>
