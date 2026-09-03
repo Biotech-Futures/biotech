@@ -96,6 +96,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   document.body.innerHTML = ''
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -378,6 +379,21 @@ describe('AdminUsersView', () => {
       'Actions'
     ])
 
+    const sortableHeaders = wrapper
+      .findAll('.admin-table__sort-btn')
+      .map((button) => button.text().replace(/[^\w ]/g, '').trim())
+    expect(sortableHeaders).toEqual([
+      'Student',
+      'School',
+      'Year',
+      'Country',
+      'State',
+      'Group',
+      'Logged In'
+    ])
+    expect(sortableHeaders).not.toContain('Interests')
+    expect(sortableHeaders).not.toContain('Actions')
+
     // Name and email share one Student cell; no separate Email column.
     expect(wrapper.findAll('.admin-table__head').some((h) => h.text().includes('Email'))).toBe(false)
     const studentCell = wrapper.find('.admin-users__student-cell')
@@ -392,6 +408,148 @@ describe('AdminUsersView', () => {
     expect(firstRow.text()).toContain('Science')
     expect(firstRow.text()).toContain('Maths')
     expect(firstRow.text()).toContain('No')
+  })
+
+  it('maps student sortable columns to the supported backend sort fields', async () => {
+    const fetchMock = fetchMockFor([buildUser()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    expect(String(listCall(fetchMock)?.[0])).toContain('sortBy=name')
+    expect(String(listCall(fetchMock)?.[0])).toContain('sortOrder=asc')
+
+    const expectedSorts = [
+      ['School', 'school'],
+      ['Year', 'yearLevel'],
+      ['Country', 'country'],
+      ['State', 'state'],
+      ['Group', 'group'],
+      ['Logged In', 'hasLoggedIn']
+    ] as const
+
+    for (const [label, sortBy] of expectedSorts) {
+      const button = wrapper
+        .findAll('.admin-table__sort-btn')
+        .find((candidate) => candidate.text().replace(/[^\w ]/g, '').trim() === label)
+      expect(button, `${label} sort button`).toBeDefined()
+      await button!.trigger('click')
+      await flushPromises()
+
+      const url = String(listCall(fetchMock)?.[0])
+      expect(url).toContain(`sortBy=${sortBy}`)
+      expect(url).toContain('sortOrder=asc')
+      expect(url).toContain('role=student')
+    }
+  })
+
+  it('toggles student sort direction when clicking the same sortable column twice', async () => {
+    const fetchMock = fetchMockFor([buildUser()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    const schoolSort = wrapper
+      .findAll('.admin-table__sort-btn')
+      .find((candidate) => candidate.text().replace(/[^\w ]/g, '').trim() === 'School')
+    expect(schoolSort).toBeDefined()
+
+    await schoolSort!.trigger('click')
+    await flushPromises()
+    let params = new URL(String(listCall(fetchMock)?.[0])).searchParams
+    expect(params.get('sortBy')).toBe('school')
+    expect(params.get('sortOrder')).toBe('asc')
+
+    await schoolSort!.trigger('click')
+    await flushPromises()
+    params = new URL(String(listCall(fetchMock)?.[0])).searchParams
+    expect(params.get('sortBy')).toBe('school')
+    expect(params.get('sortOrder')).toBe('desc')
+  })
+
+  it('preserves active student search and filters when sorting', async () => {
+    vi.useFakeTimers()
+    const fetchMock = fetchMockFor([buildUser()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    await wrapper.find<HTMLInputElement>('#user-search').setValue('Ada')
+    vi.advanceTimersByTime(350)
+    await flushPromises()
+    await wrapper.find<HTMLSelectElement>('#country-filter').setValue('Australia')
+    await flushPromises()
+    await wrapper.find<HTMLSelectElement>('#state-filter').setValue('NSW')
+    await flushPromises()
+    await wrapper.find<HTMLSelectElement>('#in-group-filter').setValue('yes')
+    await flushPromises()
+    await wrapper.find<HTMLSelectElement>('#status-filter').setValue('active')
+    await flushPromises()
+
+    const yearSort = wrapper
+      .findAll('.admin-table__sort-btn')
+      .find((candidate) => candidate.text().replace(/[^\w ]/g, '').trim() === 'Year')
+    expect(yearSort).toBeDefined()
+    await yearSort!.trigger('click')
+    await flushPromises()
+
+    const params = new URL(String(listCall(fetchMock)?.[0])).searchParams
+    expect(params.get('sortBy')).toBe('yearLevel')
+    expect(params.get('sortOrder')).toBe('asc')
+    expect(params.get('role')).toBe('student')
+    expect(params.get('search')).toBe('Ada')
+    expect(params.get('country')).toBe('Australia')
+    expect(params.get('state')).toBe('NSW')
+    expect(params.get('inGroup')).toBe('yes')
+    expect(params.get('active')).toBe('true')
+  })
+
+  it('resets student sorting to page one and clears row selection', async () => {
+    const fetchMock = fetchMockFor(
+      Array.from({ length: 26 }, (_, index) =>
+        buildUser({
+          id: index + 1,
+          firstName: `Student${index + 1}`,
+          email: `student${index + 1}@example.com`
+        })
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    const nextPageButton = wrapper.find('button[aria-label="Next page"]')
+    expect(nextPageButton.exists()).toBe(true)
+    await nextPageButton.trigger('click')
+    await flushPromises()
+    let params = new URL(String(listCall(fetchMock)?.[0])).searchParams
+    expect(params.get('page')).toBe('2')
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 student selected')
+
+    const groupSort = wrapper
+      .findAll('.admin-table__sort-btn')
+      .find((candidate) => candidate.text().replace(/[^\w ]/g, '').trim() === 'Group')
+    expect(groupSort).toBeDefined()
+    await groupSort!.trigger('click')
+    await flushPromises()
+
+    params = new URL(String(listCall(fetchMock)?.[0])).searchParams
+    expect(params.get('page')).toBe('1')
+    expect(params.get('sortBy')).toBe('group')
+    expect(params.get('sortOrder')).toBe('asc')
+    expect(wrapper.text()).not.toContain('1 student selected')
   })
 
   it('opens the student CSV import sheet from the Students toolbar only', async () => {
