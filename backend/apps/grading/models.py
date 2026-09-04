@@ -248,6 +248,10 @@ class CertificatesRelease(SingletonModel):
         blank=True,
         related_name="certificates_releases",
     )
+    # Finalist teams get merit certificates handed out separately, so admins
+    # can keep their participation certificates locked while releasing to
+    # everyone else.
+    exclude_finalists = models.BooleanField(default=False)
 
     class Meta:
         db_table = "certificates_release"

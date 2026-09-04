@@ -116,7 +116,9 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/grading/ManagementPage.vue'),
         children: [
           { path: '', redirect: '/grading/management/submission-deadline' },
-          { path: 'new-season', name: 'grading-new-season', component: () => import('@/views/grading/SeasonPage.vue') },
+          { path: 'new-year', name: 'grading-new-year', component: () => import('@/views/grading/YearPage.vue') },
+          // Legacy path from before the Season → Year rename.
+          { path: 'new-season', redirect: '/grading/management/new-year' },
           { path: 'submission-deadline', name: 'grading-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
           { path: 'extend-deadline', name: 'grading-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
           { path: 'release-marks', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },

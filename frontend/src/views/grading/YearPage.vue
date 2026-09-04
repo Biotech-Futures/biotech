@@ -7,32 +7,32 @@
     The backend for this page is still being built.
   </p>
 
-  <div class="season">
+  <div class="year">
     <section class="card">
       <div class="card-header">
-        <h3 class="card-title">Current Season</h3>
+        <h3 class="card-title">Current Year</h3>
       </div>
-      <p class="season__year">{{ seasonYear }}</p>
-      <p class="season__hint">
-        The season follows the active submission deadline's year — setting next year's
-        deadline starts the new season.
+      <p class="year__value">{{ currentYear }}</p>
+      <p class="year__hint">
+        The competition year follows the active submission deadline's year — setting next
+        year's deadline starts the new year.
       </p>
 
-      <ul class="season__facts">
+      <ul class="year__facts">
         <li>
-          <span class="season__fact-label">Submission deadline</span>
+          <span class="year__fact-label">Submission deadline</span>
           <span v-if="deadline">{{ new Date(deadline.closes_at).toLocaleString() }}</span>
-          <span v-else class="season__muted">not set</span>
+          <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="season__fact-label">Marks</span>
-          <span :class="marksReleased ? 'season__ok' : 'season__muted'">
+          <span class="year__fact-label">Marks</span>
+          <span :class="marksReleased ? 'year__ok' : 'year__muted'">
             {{ marksReleased ? 'released' : 'not released' }}
           </span>
         </li>
         <li>
-          <span class="season__fact-label">Certificates</span>
-          <span :class="certsReleased ? 'season__ok' : 'season__muted'">
+          <span class="year__fact-label">Certificates</span>
+          <span :class="certsReleased ? 'year__ok' : 'year__muted'">
             {{ certsReleased ? 'released' : 'not released' }}
           </span>
         </li>
@@ -41,9 +41,9 @@
 
     <section class="card">
       <div class="card-header">
-        <h3 class="card-title">Prepare New Season</h3>
+        <h3 class="card-title">Prepare New Year</h3>
       </div>
-      <ol class="season__steps">
+      <ol class="year__steps">
         <li>
           Grading shows only the new year's submissions and finalists — previous years
           stay on record.
@@ -55,12 +55,12 @@
         </li>
         <li>Resets marks and certificates from their tabs.</li>
       </ol>
-      <p class="season__hint">
-        These steps are instructions for the backend — the Start new season button will
+      <p class="year__hint">
+        These steps are instructions for the backend — the Start new year button will
         run them automatically once it's built.
       </p>
       <button type="button" class="btn btn-outline btn-sm" disabled title="Coming soon">
-        Start new season <i class="fas fa-rotate" aria-hidden="true"></i>
+        Start new year <i class="fas fa-rotate" aria-hidden="true"></i>
       </button>
     </section>
   </div>
@@ -86,9 +86,9 @@ const certs = ref<ReleaseStatus | null>(null)
 const marksReleased = computed(() => marks.value?.released_at != null)
 const certsReleased = computed(() => certs.value?.released_at != null)
 
-// Season year mirrors the backend's current_cohort: the deadline's year, or
-// the calendar year while no deadline exists.
-const seasonYear = computed(() =>
+// Mirrors the backend's current_cohort: the deadline's year, or the calendar
+// year while no deadline exists.
+const currentYear = computed(() =>
   deadline.value ? new Date(deadline.value.closes_at).getFullYear() : new Date().getFullYear()
 )
 
@@ -113,27 +113,27 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.season {
+.year {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   max-width: 36rem;
 }
 
-.season__year {
+.year__value {
   font-size: 2.4rem;
   font-weight: 700;
   color: var(--dark-green);
   margin: 0 0 0.25rem;
 }
 
-.season__hint {
+.year__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0 0 0.9rem;
 }
 
-.season__facts {
+.year__facts {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -143,23 +143,23 @@ onMounted(async () => {
   font-size: 0.92rem;
 }
 
-.season__fact-label {
+.year__fact-label {
   display: inline-block;
   min-width: 11rem;
   color: var(--charcoal);
   font-weight: 600;
 }
 
-.season__ok {
+.year__ok {
   color: var(--dark-green);
   font-weight: 600;
 }
 
-.season__muted {
+.year__muted {
   color: var(--text-muted);
 }
 
-.season__steps {
+.year__steps {
   margin: 0 0 1rem;
   padding-left: 1.2rem;
   font-size: 0.92rem;
@@ -169,7 +169,7 @@ onMounted(async () => {
   gap: 0.35rem;
 }
 
-.season__steps a {
+.year__steps a {
   color: var(--dark-green);
 }
 

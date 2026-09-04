@@ -30,6 +30,8 @@ export interface MyGradesPayload {
 export interface ReleaseStatus {
   released_at: string | null
   released_by: string | null
+  /** Certificates gate only: finalist teams are held out of the release. */
+  exclude_finalists?: boolean
 }
 
 async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Promise<T> {
@@ -322,6 +324,14 @@ export function toggleCertificatesRelease(release: boolean): Promise<ReleaseStat
   return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/', {
     method: 'POST',
     body: JSON.stringify({ release })
+  })
+}
+
+// POST — change only the finalist exclusion; the release stamp stays put.
+export function setCertificatesFinalistExclusion(exclude: boolean): Promise<ReleaseStatus> {
+  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/', {
+    method: 'POST',
+    body: JSON.stringify({ exclude_finalists: exclude })
   })
 }
 

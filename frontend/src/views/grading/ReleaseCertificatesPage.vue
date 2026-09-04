@@ -37,6 +37,18 @@
         </div>
       </div>
 
+      <div class="release__finalists">
+        <label class="release__finalists-toggle">
+          <input
+            type="checkbox"
+            :checked="excludeFinalists"
+            :disabled="isTogglingExclusion"
+            @change="onExclusionChange"
+          />
+          <span>Exclude finalists from this release</span>
+        </label>
+      </div>
+
       <p v-if="actionError" class="release__banner release__banner--error">{{ actionError }}</p>
 
       <div class="release__actions">
@@ -97,6 +109,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   fetchCertificatesRelease,
+  setCertificatesFinalistExclusion,
   toggleCertificatesRelease,
   type ReleaseStatus
 } from '@/utils/gradingAPI'
@@ -112,6 +125,22 @@ const actionError = ref('')
 const isToggling = ref(false)
 
 const released = computed(() => status.value?.released_at != null)
+
+const excludeFinalists = computed(() => status.value?.exclude_finalists === true)
+const isTogglingExclusion = ref(false)
+
+const onExclusionChange = async (event: Event) => {
+  const exclude = (event.target as HTMLInputElement).checked
+  isTogglingExclusion.value = true
+  actionError.value = ''
+  try {
+    status.value = await setCertificatesFinalistExclusion(exclude)
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    isTogglingExclusion.value = false
+  }
+}
 
 const releasedAtLabel = computed(() =>
   status.value?.released_at ? new Date(status.value.released_at).toLocaleString() : ''
@@ -245,6 +274,26 @@ const confirmRelease = async () => {
 .release__banner--error {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
+}
+
+.release__finalists {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+
+.release__finalists-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.release__finalists-toggle input {
+  accent-color: var(--dark-green);
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .release__actions {

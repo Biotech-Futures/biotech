@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from apps.groups.models.group_members import GroupMembership
 
-from ..models import Grade, Rubric, SubmissionComponent
+from ..models import CertificatesRelease, FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import CertificatesReleased, MarksReleased
 from ..services import content
 from ..services.docx import (
@@ -142,6 +142,14 @@ class MyCertificateView(APIView):
         group = _active_group_for(request.user)
         if group is None:
             return Response({"detail": "not a member of any group"}, status=404)
+        # Finalists can be held back from the participation-certificate
+        # release — they get merit certificates through a separate channel.
+        release = CertificatesRelease.load()
+        if release.exclude_finalists and FinalistFlag.objects.filter(group=group).exists():
+            return Response(
+                {"detail": "Finalist certificates are issued separately."},
+                status=403,
+            )
         year = int(request.query_params.get("year") or date.today().year)
         student_full_name = (
             request.user.get_full_name() if hasattr(request.user, "get_full_name") else ""

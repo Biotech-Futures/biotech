@@ -143,7 +143,8 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
     from ..views.student import _grades_payload
 
     include_summaries = MarksRelease.load().released_at is not None
-    include_certificates = CertificatesRelease.load().released_at is not None
+    certificates_release = CertificatesRelease.load()
+    include_certificates = certificates_release.released_at is not None
     if not (include_summaries or include_certificates):
         # Both gates closed between request and run (e.g. an emergency
         # unrelease) — fail the job loudly rather than produce an empty zip.
@@ -175,6 +176,18 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
         ):
             student_groups.setdefault(m.user_id, m.group)
 
+    # Mirrors the student endpoint: excluded finalists get no participation
+    # certificate in the bundle either, so the two downloads never disagree.
+    excluded_group_ids: set[int] = set()
+    if include_certificates and certificates_release.exclude_finalists:
+        from ..models import FinalistFlag
+
+        excluded_group_ids = set(
+            FinalistFlag.objects.filter(
+                group__in=[g.id for g in student_groups.values()]
+            ).values_list("group_id", flat=True)
+        )
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for sp in students:
@@ -188,7 +201,7 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
                     marks_summary_context(group, year, components)
                 )
                 zf.writestr(f"{folder}/marks-summary.docx", summary_bytes)
-            if include_certificates:
+            if include_certificates and group.id not in excluded_group_ids:
                 cert_bytes = render_participation_certificate(
                     certificate_context(
                         sp.user.get_full_name() or sp.user.email,

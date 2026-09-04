@@ -63,6 +63,40 @@ class CertificatesReleaseView(_SingletonReleaseView):
 
     Separate from marks so certificates can go out on a different day (e.g. at
     the ceremony) than the grades. Checked by ``CertificatesReleased``.
+
+    Also carries ``exclude_finalists``: finalist teams receive merit
+    certificates separately, so their participation certificates can stay
+    locked while everyone else's are released. ``release`` only flips the gate
+    when present, so the exclusion can be changed without restamping
+    ``released_at``.
     """
 
     model = CertificatesRelease
+
+    def _payload(self, rel):
+        return {
+            "released_at": rel.released_at,
+            "released_by": _released_by_label(rel),
+            "exclude_finalists": rel.exclude_finalists,
+        }
+
+    def get(self, request):
+        return Response(self._payload(self.model.load()))
+
+    def post(self, request):
+        rel = self.model.load()
+        # ``release`` defaults to true (matching the base view) except when the
+        # request only adjusts the exclusion — that must not restamp the gate.
+        if "release" in request.data or "exclude_finalists" not in request.data:
+            if str(request.data.get("release", "true")).lower() != "false":
+                rel.released_at = timezone.now()
+                rel.released_by = request.user
+            else:
+                rel.released_at = None
+                rel.released_by = None
+        if "exclude_finalists" in request.data:
+            rel.exclude_finalists = (
+                str(request.data.get("exclude_finalists")).lower() == "true"
+            )
+        rel.save()
+        return Response(self._payload(rel))

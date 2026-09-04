@@ -832,6 +832,36 @@ class StudentReadViewsTests(_GradingFixture):
         r = self.client.post(url, {"release": "false"}, format="json")
         self.assertIsNone(r.json()["released_at"])
 
+    def test_exclusion_only_post_does_not_restamp_release(self):
+        self.client.force_authenticate(self.staff)
+        url = reverse("grading:certificates-release")
+        released_at = self.client.post(url, {}, format="json").json()["released_at"]
+
+        r = self.client.post(url, {"exclude_finalists": "true"}, format="json")
+        self.assertTrue(r.json()["exclude_finalists"])
+        self.assertEqual(r.json()["released_at"], released_at)
+
+        r = self.client.post(url, {"exclude_finalists": "false"}, format="json")
+        self.assertFalse(r.json()["exclude_finalists"])
+        self.assertEqual(r.json()["released_at"], released_at)
+
+    def test_excluded_finalist_cannot_download_certificate(self):
+        self._release_certificates_now()
+        rel = CertificatesRelease.load()
+        rel.exclude_finalists = True
+        rel.save()
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-certificate"))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Dropping the exclusion (finalist flag intact) reopens the download.
+        rel.exclude_finalists = False
+        rel.save()
+        r = self.client.get(reverse("grading:me-certificate"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
 
 class FinalistToggleTests(_GradingFixture):
     def setUp(self):

@@ -30,7 +30,7 @@ const tabs = [
   { label: 'Release Certificates', to: '/grading/management/release-certificates' },
   { label: 'Document Setup', to: '/grading/management/document-setup' },
   { label: 'Notify Finalists', to: '/grading/management/notify-finalists' },
-  { label: 'New Season', to: '/grading/management/new-season' }
+  { label: 'New Year', to: '/grading/management/new-year' }
 ]
 </script>
 
