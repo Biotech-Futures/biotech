@@ -83,12 +83,19 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
-  // Deliberately NOT nested under /groups. Submission is its own section that
-  // references a team, rather than a sub-page of one — which also keeps the
-  // Groups sidebar item from highlighting here, since it matches on '/groups'
-  // appearing anywhere in the path.
-  { path: '/submission', name: 'submission', component: () => import('@/views/SubmissionLandingPage.vue') },
-  { path: '/submission/:id', name: 'group-submission', component: () => import('@/views/GroupSubmissionPage.vue') },
+  // The submission portal, which is a section of the group page. A route of its
+  // own rather than component state so a refresh keeps its place and an emailed
+  // link can point straight at it. Added beside group-detail rather than
+  // turning that into '/groups/:id/:section?', which would leave several
+  // existing pushes matching a catch-all.
+  { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
+  // The portal used to be a page of its own here. Both submission emails link
+  // to '/#/submission/{group.id}', including reminders that have already been
+  // delivered, so these paths have to keep working — deleting them would break
+  // links we cannot reach. Left unnamed so nothing can navigate to them by
+  // name; they exist only to forward old links on.
+  { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
+  { path: '/submission', redirect: '/groups' },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },

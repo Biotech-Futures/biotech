@@ -140,6 +140,11 @@
         </section>
       </div>
 
+      <!-- Tasks and Submission. The section switcher owns the tabs, the
+           permission check and the embedded portal; everything below is
+           unchanged and is passed through as its default slot. -->
+      <GroupSubmissionSection>
+
       <!-- Mobile tabs (hidden on desktop) -->
       <nav class="mobile-tabs">
         <button
@@ -1746,6 +1751,7 @@
           </div>
         </section>
       </div>
+      </GroupSubmissionSection>
     </template>
   </div>
 </template>
@@ -1755,6 +1761,7 @@ import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
+import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
