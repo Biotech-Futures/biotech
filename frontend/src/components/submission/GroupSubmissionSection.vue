@@ -1,8 +1,6 @@
 <template>
-  <!-- Tabs appear only when there is a choice to make. Submissions are a
-       student matter and the server refuses mentors and supervisors outright,
-       so showing them a tab would only lead somewhere they cannot go. For
-       everyone else this page is exactly what it was. -->
+  <!-- Only when there is a choice: the server refuses mentors and supervisors, so
+       a tab would lead somewhere they cannot go. -->
   <nav v-if="canSeeSubmission" class="group-sections" aria-label="Group sections">
     <button
       type="button"
@@ -26,9 +24,8 @@
     </button>
   </nav>
 
-  <!-- The host page's own content. Hidden rather than destroyed: the group page
-       keeps live task and chat state that a v-if would tear down and rebuild
-       every time the tab changes. -->
+  <!-- Hidden, not destroyed: the group page keeps live task and chat state that a
+       v-if would tear down on every tab change. -->
   <div
     class="group-section-slot"
     :class="{ 'is-hidden': section !== 'tasks' }"
@@ -49,23 +46,13 @@
 </template>
 
 <script setup lang="ts">
-/**
- * The group page's section switcher: Tasks (the page's own content, passed in
- * as the default slot) and Submission (the portal, embedded).
- *
- * This lives in its own component so that adding the submission tab costs
- * GroupDetailPage.vue an import and a pair of tags rather than a block of
- * markup, state and CSS. That file is ten thousand lines and shared with the
- * teams who own tasks and discussion, so every line we put in it is a line
- * they have to read and a place a merge can conflict.
- */
+/** The group page's section switcher: Tasks (the default slot) and Submission. */
 import { computed, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Must stay unique across the whole route table. Two records sharing a name is
-// not a warning in vue-router — registering the second deletes the first, so
-// this path would stop matching at all.
+// Must stay unique across the route table: vue-router does not warn on a
+// duplicate name, it deletes the earlier record.
 const SUBMISSION_ROUTE = 'group-submission'
 
 const GroupSubmissionPage = defineAsyncComponent(
@@ -80,14 +67,7 @@ const canSeeSubmission = computed(() => auth.isStudent)
 
 const groupId = computed(() => String(route.params.id ?? ''))
 
-/**
- * Which section is showing, derived from the route rather than held in a ref.
- *
- * Keeping it in the URL is what lets a refresh hold its place and an emailed
- * link point straight at the submission. The permission check is repeated here
- * so that a mentor who types the submission URL by hand gets the tasks view
- * rather than an empty page.
- */
+/** Which section is showing, from the route so a refresh holds its place. */
 const section = computed(() =>
   route.name === SUBMISSION_ROUTE && canSeeSubmission.value ? 'submission' : 'tasks',
 )
@@ -124,10 +104,8 @@ function goToSection(next: 'tasks' | 'submission') {
   border-bottom-color: var(--dark-green);
 }
 
-/* `contents` removes this wrapper from the box tree, so the page's own panes
-   stay direct flex children of .group-detail. Without it the desktop layout
-   breaks: .split is `flex: 1 1 auto` inside a fixed-height container, and a
-   real box here would leave it sizing against this div instead. */
+/* `contents` keeps the page's panes as direct flex children of .group-detail;
+   a real box would break .split's `flex: 1 1 auto` sizing. */
 .group-section-slot {
   display: contents;
 }
@@ -136,9 +114,8 @@ function goToSection(next: 'tasks' | 'submission') {
   display: none;
 }
 
-/* On desktop .group-detail is a fixed height with overflow hidden, sized for
-   panes that scroll internally. The portal is a long form, so it has to do its
-   own scrolling here or it would simply be cut off at the fold. */
+/* .group-detail is a fixed height with overflow hidden on desktop, so this long
+   form has to do its own scrolling. */
 .group-section-body {
   flex: 1 1 auto;
   min-height: 0;

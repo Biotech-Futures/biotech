@@ -6,23 +6,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-/**
- * Behaviour tests for the group page's section switcher.
- *
- * Three things here are load-bearing and easy to break silently, so each has
- * its own spec: that mentors and supervisors are never offered the tab, that
- * the host page's own content is hidden rather than destroyed when the tab
- * changes, and that the Submission tab actually lands on the group page's own
- * route rather than the standalone portal.
- */
+// Behaviour tests for the section switcher: who is offered the tab, that host
+// content is hidden not destroyed, and where the tab lands.
 
-// The portal is a large component that fetches on mount. None of these specs
-// are about what it renders, only about whether it is mounted at all.
-//
-// `__esModule` matters: defineAsyncComponent unwraps `.default` only from
-// something it recognises as a module. Without it Vue passes the namespace
-// object itself along as the component, and the first unknown property read
-// off a mocked module throws.
+// Stubbed: these specs are about whether the portal is mounted, not what it
+// renders. `__esModule` is required or defineAsyncComponent will not unwrap it.
 vi.mock('@/views/GroupSubmissionPage.vue', () => ({
   __esModule: true,
   default: { name: 'GroupSubmissionPageStub', template: '<div data-testid="portal-stub" />' },
@@ -65,24 +53,15 @@ const mountAt = async (path: string, role: string | null = null) => {
 }
 
 describe('the real route table', () => {
-  // The specs below declare their own routes, so they cannot notice a name
-  // colliding in the application's actual table. This one can, and that is the
-  // mistake worth guarding: vue-router does not warn on a duplicate name, it
-  // deletes the earlier record, and the tab's path then matches nothing.
-  //
-  // Read as text rather than imported. Importing it would pull every view in
-  // the application into the Vitest TypeScript project, which compiles with
-  // Node's types rather than the DOM's — and two unrelated pages then fail to
-  // typecheck on their timer declarations. Reading the source keeps this guard
-  // from making the whole suite's typecheck depend on files we do not own.
+  // Read as text, not imported: importing the table pulls every view into the
+  // Vitest TS project, where Node's types break two unrelated pages.
   const source = readFileSync(resolve(process.cwd(), 'src/router/routes.ts'), 'utf8')
   const records = [...source.matchAll(/path:\s*'([^']*)',\s*name:\s*'([^']+)'/g)]
   const names = records.map(([, , name]) => name)
 
   it('found the route records it means to check', () => {
-    // Guards the regex above: if the table is ever reformatted so these stop
-    // matching, this fails loudly rather than leaving the checks below passing
-    // over an empty list.
+    // Guards the regex above: a reformatted table fails loudly here rather than
+    // leaving the checks below passing over an empty list.
     expect(names.length).toBeGreaterThanOrEqual(15)
   })
 
@@ -99,9 +78,8 @@ describe('the real route table', () => {
   })
 
   it('still answers the old path the emails link to', () => {
-    // Both submission emails send students to '/#/submission/{group.id}', and
-    // reminders already delivered cannot be changed. The path has to keep
-    // resolving even though the page behind it is gone.
+    // Both emails send students to '/#/submission/{group.id}', and reminders
+    // already delivered cannot be changed.
     expect(source).toMatch(/path:\s*'\/submission\/:id'/)
     expect(source).toMatch(/\/groups\/\$\{to\.params\.id\}\/submission/)
   })
@@ -116,9 +94,8 @@ describe('who is offered the Submission tab', () => {
   })
 
   it.each(['mentor', 'supervisor'])('hides the whole strip from a %s', async (role) => {
-    // The server refuses them, so nothing leaks either way. A visible tab that
-    // 403s is simply a dead end, and for these roles the page should look
-    // exactly as it did before the tab existed.
+    // The server refuses them, so nothing leaks. A visible tab that 403s is a dead
+    // end, and for these roles the page should look as it did before.
     const { wrapper } = await mountAt('/groups/1', role)
 
     expect(wrapper.find('[data-testid="section-tab-submission"]').exists()).toBe(false)
@@ -161,8 +138,7 @@ describe('switching between the sections', () => {
 
   it('lands on the group page route', async () => {
     // The regression this pins: this route once shared its name with the old
-    // standalone portal route, and registering the second deleted the first,
-    // so pressing the tab navigated away to /submission/1 instead.
+    // standalone portal route, and the second registration deleted the first.
     const { wrapper, router } = await mountAt('/groups/1', 'student')
 
     await wrapper.find('[data-testid="section-tab-submission"]').trigger('click')

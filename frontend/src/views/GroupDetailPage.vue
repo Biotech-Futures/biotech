@@ -140,9 +140,6 @@
         </section>
       </div>
 
-      <!-- Tasks and Submission. The section switcher owns the tabs, the
-           permission check and the embedded portal; everything below is
-           unchanged and is passed through as its default slot. -->
       <GroupSubmissionSection>
 
       <!-- Mobile tabs (hidden on desktop) -->
