@@ -5,14 +5,26 @@
         <h1>Resource Library</h1>
         <p class="resource-subtitle">Browse available files and pages.</p>
       </div>
-      <button
-        v-if="isAdmin"
-        class="btn btn-primary"
-        type="button"
-        @click="openCreateResource"
-      >
-        <i class="fas fa-upload"></i> Upload Resource
-      </button>
+      <div v-if="isAdmin" class="resource-header__actions">
+        <button
+          type="button"
+          class="btn"
+          :class="batchMode ? 'btn-primary' : 'btn-outline'"
+          @click="toggleBatchMode"
+        >
+          <i :class="batchMode ? 'fas fa-check-square' : 'fas fa-list-check'" aria-hidden="true"></i>
+          <span>{{ batchMode ? 'Exit Batch Mode' : 'Batch Mode' }}</span>
+        </button>
+
+        <button
+          class="btn btn-primary"
+          type="button"
+          @click="openCreateResource"
+        >
+          <i class="fas fa-upload"></i>
+          <span>Upload Resource</span>
+        </button>
+      </div>
     </div>
 
     <section class="resource-toolbar" aria-label="Resource filters">
@@ -109,10 +121,47 @@
           <p>Try changing your search or filters.</p>
         </div>
 
-        <div v-else class="resource-list card">
+        <!-- Bulk Actions Bar for Admins -->
+        <BulkActionsBar
+          v-if="isAdmin && batchMode && selectedResourceIds.length && !loading"
+          :count="selectedResourceIds.length"
+          noun="resource"
+          :disabled="batchBusy"
+          @clear="clearSelection"
+        >
+          <button
+            type="button"
+            class="btn btn-sm btn-outline"
+            :disabled="batchBusy"
+            @click="openBatchAccessModal"
+          >
+            <i class="fas fa-user-shield" aria-hidden="true"></i>
+            <span>Edit Access</span>
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-danger"
+            :disabled="batchBusy"
+            @click="confirmBulkDelete"
+          >
+            <i class="fas fa-trash-can" aria-hidden="true"></i>
+            <span>Delete</span>
+          </button>
+        </BulkActionsBar>
+
+        <div v-if="resources.length > 0" class="resource-list card">
           <table>
             <thead>
               <tr>
+                <th v-if="isAdmin && batchMode" class="th-select">
+                  <input
+                    type="checkbox"
+                    :checked="allOnPageSelected"
+                    :indeterminate.prop="someOnPageSelected && !allOnPageSelected"
+                    aria-label="Select all resources"
+                    @change="toggleSelectAll"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Kind</th>
@@ -126,11 +175,22 @@
                 v-for="resource in resources"
                 :key="resource.id"
                 class="resource-row"
-                :class="{ 'resource-row--menu-open': activeMenuResourceId === resource.id }"
+                :class="{
+                  'resource-row--menu-open': activeMenuResourceId === resource.id,
+                  'resource-row--selected': isAdmin && batchMode && selectedResourceIds.includes(resource.id)
+                }"
                 tabindex="0"
-                @click="openResourceDetailFromRow(resource.id, $event)"
-                @keydown.enter="openResourceDetailFromRow(resource.id, $event)"
+                @click="onRowClick(resource.id, $event)"
+                @keydown.enter="onRowClick(resource.id, $event)"
               >
+                <td v-if="isAdmin && batchMode" class="td-select" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="selectedResourceIds.includes(resource.id)"
+                    :aria-label="`Select ${resource.name}`"
+                    @change="toggleResourceSelection(resource.id)"
+                  />
+                </td>
                 <td>
                   <div class="resource-name-cell">
                     <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
@@ -225,6 +285,14 @@
       @delete="onFormEditorDelete"
     />
 
+    <AdminResourceBatchAccessModal
+      v-if="isAdmin"
+      v-model="batchAccessModalOpen"
+      :count="selectedResourceIds.length"
+      :busy="batchBusy"
+      @apply="onApplyBatchAccess"
+    />
+
     <ConfirmDialog
       v-if="isAdmin"
       v-model="deleteConfirm.open"
@@ -235,15 +303,32 @@
       :busy="busy"
       @confirm="runDeleteResource"
     />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="bulkDeleteConfirm.open"
+      title="Delete Resources"
+      :message="bulkDeleteConfirm.message"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="batchBusy"
+      @confirm="runBulkDeleteResources"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import AdminResourceBatchAccessModal from '@/components/admin/resources/AdminResourceBatchAccessModal.vue'
 import AdminResourceFormSheet from '@/components/admin/resources/AdminResourceFormSheet.vue'
-import { deleteAdminResource, downloadAdminResourceFile } from '@/utils/adminAPI'
+import {
+  deleteAdminResource,
+  downloadAdminResourceFile,
+  updateAdminResource
+} from '@/utils/adminAPI'
 import {
   fetchResources,
   fetchResourceLabels,
@@ -271,6 +356,18 @@ const deleteConfirm = ref<{
 }>({
   open: false,
   resource: null,
+  message: ''
+})
+
+const batchMode = ref(false)
+const selectedResourceIds = ref<number[]>([])
+const batchBusy = ref(false)
+const batchAccessModalOpen = ref(false)
+const bulkDeleteConfirm = ref<{
+  open: boolean
+  message: string
+}>({
+  open: false,
   message: ''
 })
 
@@ -507,6 +604,135 @@ const onFormEditorDelete = () => {
   }
 }
 
+const allOnPageSelected = computed(() => {
+  if (!resources.value.length) return false
+  return resources.value.every((r) => selectedResourceIds.value.includes(r.id))
+})
+
+const someOnPageSelected = computed(() => {
+  return resources.value.some((r) => selectedResourceIds.value.includes(r.id))
+})
+
+const toggleBatchMode = () => {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    clearSelection()
+  }
+}
+
+const toggleResourceSelection = (id: number) => {
+  const idx = selectedResourceIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedResourceIds.value.splice(idx, 1)
+  } else {
+    selectedResourceIds.value.push(id)
+  }
+}
+
+const toggleSelectAll = () => {
+  if (allOnPageSelected.value) {
+    const pageIds = new Set(resources.value.map((r) => r.id))
+    selectedResourceIds.value = selectedResourceIds.value.filter((id) => !pageIds.has(id))
+  } else {
+    const set = new Set(selectedResourceIds.value)
+    for (const r of resources.value) {
+      set.add(r.id)
+    }
+    selectedResourceIds.value = Array.from(set)
+  }
+}
+
+const clearSelection = () => {
+  selectedResourceIds.value = []
+}
+
+const onRowClick = (resourceId: number, event?: Event) => {
+  const target = event?.target
+  if (target instanceof Element && target.closest('a, button, [data-row-ignore], .resource-menu')) {
+    return
+  }
+  if (isAdmin.value && batchMode.value) {
+    toggleResourceSelection(resourceId)
+    return
+  }
+  openResourceDetailFromRow(resourceId, event)
+}
+
+const openBatchAccessModal = () => {
+  if (!selectedResourceIds.value.length) return
+  batchAccessModalOpen.value = true
+}
+
+const onApplyBatchAccess = async (payload: { visibilityScope: 'global' | 'role_based'; roleIds: number[] }) => {
+  if (!selectedResourceIds.value.length) return
+  batchBusy.value = true
+  error.value = ''
+
+  try {
+    const ids = [...selectedResourceIds.value]
+    const updates = {
+      visibility_scope: payload.visibilityScope,
+      role_ids: payload.roleIds
+    }
+
+    const results = await Promise.allSettled(
+      ids.map((id) => updateAdminResource(id, updates))
+    )
+
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length > 0) {
+      console.warn(`Batch access update partially failed: ${failed.length} of ${ids.length} failed.`)
+    }
+
+    batchAccessModalOpen.value = false
+    clearSelection()
+    await Promise.all([loadResources(), loadResourceLookups()])
+  } catch (err: any) {
+    console.error('Batch access update failed:', err)
+    error.value = err?.message || 'Failed to update access for selected resources.'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+const confirmBulkDelete = () => {
+  const count = selectedResourceIds.value.length
+  if (!count) return
+
+  bulkDeleteConfirm.value = {
+    open: true,
+    message: `Are you sure you want to delete ${count} selected ${count === 1 ? 'resource' : 'resources'}? This action cannot be undone.`
+  }
+}
+
+const runBulkDeleteResources = async () => {
+  const ids = [...selectedResourceIds.value]
+  if (!ids.length) return
+
+  batchBusy.value = true
+  error.value = ''
+
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => deleteAdminResource(id))
+    )
+
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length > 0) {
+      console.warn(`Bulk delete partially failed: ${failed.length} of ${ids.length} failed.`)
+    }
+
+    bulkDeleteConfirm.value.open = false
+    clearSelection()
+    await Promise.all([loadResources(), loadResourceLookups()])
+  } catch (err: any) {
+    console.error('Failed to bulk delete resources:', err)
+    error.value = err?.message || 'Failed to delete selected resources.'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 const openResourceDetailFromRow = (id: number, event?: Event) => {
   const target = event?.target
   if (target instanceof Element && target.closest('a, button, input, select, textarea, [data-row-ignore]')) {
@@ -687,6 +913,35 @@ onBeforeUnmount(() => {
 
 .resource-row:focus-visible {
   outline-offset: -2px;
+}
+
+.resource-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.th-select,
+.td-select {
+  width: 44px;
+  text-align: center;
+  padding-left: 0.85rem !important;
+  padding-right: 0.85rem !important;
+  vertical-align: middle;
+}
+
+.th-select input[type='checkbox'],
+.td-select input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--dark-green);
+  vertical-align: middle;
+}
+
+.resource-row--selected {
+  background-color: var(--light-green) !important;
 }
 
 .th-actions {

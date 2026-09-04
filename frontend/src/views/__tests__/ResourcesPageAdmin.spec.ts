@@ -312,4 +312,174 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       sheetWrapper.unmount()
     })
   })
+
+  describe('Batch Mode & Multi-Select', () => {
+    it('shows Batch Mode button for admin and hides it for student', async () => {
+      const auth = useAuthStore()
+      auth.user = studentUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage)
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('Batch Mode')
+
+      auth.user = adminUser
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Batch Mode')
+    })
+
+    it('toggles Batch Mode and displays selection checkboxes', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage)
+      await flushPromises()
+
+      expect(wrapper.find('.th-select').exists()).toBe(false)
+
+      const batchToggleBtn = wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))
+      expect(batchToggleBtn).toBeDefined()
+      await batchToggleBtn?.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.th-select').exists()).toBe(true)
+      expect(wrapper.findAll('.td-select')).toHaveLength(2)
+      expect(wrapper.text()).toContain('Exit Batch Mode')
+    })
+
+    it('selects rows via row click in batch mode without navigating', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage)
+      await flushPromises()
+
+      // Enable batch mode
+      const batchToggleBtn = wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))
+      await batchToggleBtn?.trigger('click')
+      await flushPromises()
+
+      const rows = wrapper.findAll('.resource-row')
+      await rows[0].trigger('click')
+      await flushPromises()
+
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(rows[0].classes()).toContain('resource-row--selected')
+
+      // Bulk bar appears showing 1 selected
+      expect(wrapper.find('.bulk-actions-bar').exists()).toBe(true)
+      expect(wrapper.find('.bulk-actions-bar__count').text()).toContain('1 resource selected')
+
+      // Click master checkbox to select all
+      const selectAll = wrapper.find('.th-select input[type="checkbox"]')
+      await selectAll.setValue(true)
+      await flushPromises()
+
+      expect(wrapper.find('.bulk-actions-bar__count').text()).toContain('2 resources selected')
+
+      // Clear selection
+      const clearBtn = wrapper.find('.bulk-actions-bar__clear')
+      await clearBtn.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.bulk-actions-bar').exists()).toBe(false)
+    })
+
+    it('opens Batch Edit Access modal and applies visibility and role changes to selected resources', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage, {
+        attachTo: document.body
+      })
+      await flushPromises()
+
+      // Enable batch mode
+      await wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))?.trigger('click')
+      await flushPromises()
+
+      // Select all
+      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await flushPromises()
+
+      // Click Edit Access in BulkActionsBar
+      const editAccessBtn = wrapper.findAll('.bulk-actions-bar .btn').find((b) => b.text().includes('Edit Access'))
+      expect(editAccessBtn).toBeDefined()
+      await editAccessBtn?.trigger('click')
+      await flushPromises()
+
+      const sheet = document.body.querySelector('.admin-sheet') as HTMLElement
+      expect(sheet).not.toBeNull()
+      expect(sheet.textContent).toContain('Batch Edit Access')
+      expect(sheet.textContent).toContain('2 selected resources')
+
+      // Select student role checkbox
+      const roleCheckboxes = sheet.querySelectorAll('fieldset input[type="checkbox"]')
+      expect(roleCheckboxes.length).toBeGreaterThan(0)
+      ;(roleCheckboxes[0] as HTMLInputElement).checked = true
+      roleCheckboxes[0].dispatchEvent(new Event('change'))
+      await flushPromises()
+
+      // Click Apply
+      const applyBtn = Array.from(sheet.querySelectorAll('.btn')).find((el) =>
+        el.textContent?.includes('Apply Access Changes')
+      ) as HTMLButtonElement
+      expect(applyBtn).toBeDefined()
+      applyBtn.click()
+      await flushPromises()
+
+      expect(adminApi.updateAdminResource).toHaveBeenCalledWith(101, {
+        visibility_scope: 'role_based',
+        role_ids: [1]
+      })
+      expect(adminApi.updateAdminResource).toHaveBeenCalledWith(102, {
+        visibility_scope: 'role_based',
+        role_ids: [1]
+      })
+    })
+
+    it('prompts confirmation and deletes all selected resources in bulk', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage, {
+        attachTo: document.body
+      })
+      await flushPromises()
+
+      // Enable batch mode
+      await wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))?.trigger('click')
+      await flushPromises()
+
+      // Select both
+      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await flushPromises()
+
+      // Click Delete in BulkActionsBar
+      const deleteBtn = wrapper.findAll('.bulk-actions-bar .btn').find((b) => b.text().includes('Delete'))
+      expect(deleteBtn).toBeDefined()
+      await deleteBtn?.trigger('click')
+      await flushPromises()
+
+      const confirmDialog = document.body.querySelector('.admin-modal--confirm') as HTMLElement
+      expect(confirmDialog).not.toBeNull()
+      expect(confirmDialog.textContent).toContain('Delete Resources')
+      expect(confirmDialog.textContent).toContain('Are you sure you want to delete 2 selected resources?')
+
+      // Confirm deletion
+      const confirmActionBtn = confirmDialog.querySelector('.btn-danger') as HTMLButtonElement
+      expect(confirmActionBtn).toBeDefined()
+      confirmActionBtn.click()
+      await flushPromises()
+
+      expect(adminApi.deleteAdminResource).toHaveBeenCalledWith(101)
+      expect(adminApi.deleteAdminResource).toHaveBeenCalledWith(102)
+    })
+  })
 })
