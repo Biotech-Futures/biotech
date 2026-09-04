@@ -20,22 +20,53 @@ class _SingletonReleaseView(APIView):
 
     POST flips ``released_at`` on (or off with ``release=false`` — admins may
     need to redact in an emergency). Idempotent — re-releasing restamps.
+    Releasing is refused while submissions are still open (baseline window or
+    any per-team extension): marks must not go out while entries can change.
+    Turning a gate OFF is always allowed.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
     model = None  # subclasses set the singleton model
+
+    @staticmethod
+    def _blocked_while_open():
+        from ..services import content
+
+        if content.submissions_still_open():
+            return Response(
+                {
+                    "detail": (
+                        "Submissions are still open (including any extensions) — "
+                        "releasing is available once the window has closed."
+                    )
+                },
+                status=400,
+            )
+        return None
+
+    @staticmethod
+    def _submissions_open() -> bool:
+        from ..services import content
+
+        return content.submissions_still_open()
 
     def get(self, request):
         rel = self.model.load()
         return Response({
             "released_at": rel.released_at,
             "released_by": _released_by_label(rel),
+            # Lets the release pages disable the button (and skip the confirm
+            # dialog entirely) instead of failing the POST after the fact.
+            "submissions_open": self._submissions_open(),
         })
 
     def post(self, request):
         want_released = str(request.data.get("release", "true")).lower() != "false"
         rel = self.model.load()
         if want_released:
+            blocked = self._blocked_while_open()
+            if blocked is not None:
+                return blocked
             rel.released_at = timezone.now()
             rel.released_by = request.user
         else:
@@ -45,6 +76,7 @@ class _SingletonReleaseView(APIView):
         return Response({
             "released_at": rel.released_at,
             "released_by": _released_by_label(rel),
+            "submissions_open": self._submissions_open(),
         })
 
 
@@ -78,6 +110,7 @@ class CertificatesReleaseView(_SingletonReleaseView):
             "released_at": rel.released_at,
             "released_by": _released_by_label(rel),
             "exclude_finalists": rel.exclude_finalists,
+            "submissions_open": self._submissions_open(),
         }
 
     def get(self, request):
@@ -89,6 +122,9 @@ class CertificatesReleaseView(_SingletonReleaseView):
         # request only adjusts the exclusion — that must not restamp the gate.
         if "release" in request.data or "exclude_finalists" not in request.data:
             if str(request.data.get("release", "true")).lower() != "false":
+                blocked = self._blocked_while_open()
+                if blocked is not None:
+                    return blocked
                 rel.released_at = timezone.now()
                 rel.released_by = request.user
             else:

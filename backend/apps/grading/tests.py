@@ -1,6 +1,7 @@
 import base64
 import io
 import zipfile
+from datetime import timedelta
 from decimal import Decimal
 from importlib import import_module
 
@@ -27,7 +28,7 @@ from apps.grading.models import (
     RubricCriterion,
     SubmissionComponent,
 )
-from apps.submissions.models import Submission, SubmissionQuestion
+from apps.submissions.models import Deadline, GroupExtension, Submission, SubmissionQuestion
 from apps.users.models import AdminScope, User
 
 
@@ -681,6 +682,54 @@ class MarksReleaseViewTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIsNone(r.json()["released_at"])
 
+    def test_release_blocked_while_submissions_open(self):
+        """Neither gate can be flipped on before the submission window closes."""
+        self.client.force_authenticate(self.staff)
+        Deadline.objects.create(
+            closes_at=timezone.now() + timedelta(days=1), grace_hours=0, is_active=True
+        )
+        for name in ("grading:release", "grading:certificates-release"):
+            r = self.client.post(reverse(name), {}, format="json")
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, name)
+            current = self.client.get(reverse(name)).json()
+            self.assertIsNone(current["released_at"])
+            # The pages use this flag to disable Release before any dialog.
+            self.assertTrue(current["submissions_open"])
+
+    def test_release_blocked_while_an_extension_is_open(self):
+        """A single team's extension keeps the gates shut past the baseline."""
+        self.client.force_authenticate(self.staff)
+        Deadline.objects.create(
+            closes_at=timezone.now() - timedelta(days=1), grace_hours=0, is_active=True
+        )
+        GroupExtension.objects.create(
+            group=self.group, extended_until=timezone.now() + timedelta(hours=2)
+        )
+        r = self.client.post(reverse("grading:release"), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_release_allowed_once_window_has_closed(self):
+        self.client.force_authenticate(self.staff)
+        Deadline.objects.create(
+            closes_at=timezone.now() - timedelta(days=2), grace_hours=24, is_active=True
+        )
+        GroupExtension.objects.create(
+            group=self.group, extended_until=timezone.now() - timedelta(hours=1)
+        )
+        r = self.client.post(reverse("grading:release"), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertIsNotNone(r.json()["released_at"])
+        self.assertFalse(r.json()["submissions_open"])
+
+    def test_unrelease_allowed_even_while_open(self):
+        """Turning a gate OFF is an emergency redaction — never blocked."""
+        self.client.force_authenticate(self.staff)
+        Deadline.objects.create(
+            closes_at=timezone.now() + timedelta(days=1), grace_hours=0, is_active=True
+        )
+        r = self.client.post(reverse("grading:release"), {"release": "false"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
 
 class GradingSettingsViewTests(_GradingFixture):
     def setUp(self):
@@ -997,6 +1046,25 @@ class StudentReadViewsTests(_GradingFixture):
         r = self.client.get(reverse("grading:me-certificate"))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
+
+    def test_no_submission_no_marks_or_certificate(self):
+        """Even after release, teams that never submitted see nothing."""
+        self._release_now()
+        self._release_certificates_now()
+        lurker = User.objects.create_user(
+            email="lurker@example.com", first_name="Lu", last_name="Rker",
+            password="pw12345!",
+        )
+        empty_group = Groups.objects.create(group_name="BTF-EMPTY-1")
+        GroupMembership.objects.create(
+            group=empty_group, user=lurker,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        self.client.force_authenticate(lurker)
+        for name in ("grading:me-grades", "grading:me-summary", "grading:me-certificate"):
+            r = self.client.get(reverse(name))
+            self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN, name)
+            self.assertIn("did not submit", r.json()["detail"])
 
     @override_settings(GRADING_JOB_DISPATCH_SYNC=True)
     def test_supervisor_bundle_adapts_to_release_gates(self):

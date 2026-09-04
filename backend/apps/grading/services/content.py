@@ -302,6 +302,40 @@ def deadline_status() -> dict | None:
     }
 
 
+def submissions_still_open() -> bool:
+    """True while any team can still submit — baseline window or extension.
+
+    Guards the release gates: marks and certificates must not go out while
+    entries can still change. A missing deadline counts as closed, matching
+    the portal (where no configured deadline means nothing is accepted).
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.submissions.models import Deadline, GroupExtension
+
+    now = timezone.now()
+    row = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
+    if row is not None and now <= row.closes_at + timedelta(hours=row.grace_hours):
+        return True
+    # An extension keeps that one team's window open past the baseline, and
+    # applies even when no baseline deadline exists at all.
+    for extended_until, grace_hours in GroupExtension.objects.values_list(
+        "extended_until", "grace_hours"
+    ):
+        if now <= extended_until + timedelta(hours=grace_hours):
+            return True
+    return False
+
+
+def has_submitted(group_id: int) -> bool:
+    """Whether the team's entry was submitted (a frozen snapshot exists)."""
+    return Submission.objects.filter(
+        group_id=group_id, submitted_at__isnull=False
+    ).exists()
+
+
 def set_submission_deadline(*, closes_at, grace_hours: int, set_by=None) -> dict:
     """Create a new active deadline row and return the resulting status.
 

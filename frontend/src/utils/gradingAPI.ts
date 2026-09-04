@@ -32,6 +32,8 @@ export interface ReleaseStatus {
   released_by: string | null
   /** Certificates gate only: finalist teams are held out of the release. */
   exclude_finalists?: boolean
+  /** True while any team can still submit — releasing is refused until closed. */
+  submissions_open?: boolean
 }
 
 async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Promise<T> {

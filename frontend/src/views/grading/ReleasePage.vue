@@ -20,30 +20,29 @@
         <h3 class="card-title">Release Marks</h3>
       </div>
 
-      <div class="release__card" :class="released ? 'release__card--ok' : 'release__card--warn'">
-        <i v-if="released" class="fas fa-circle-check release__icon--ok" aria-hidden="true"></i>
-        <div>
-          <p class="release__headline">
-            {{ released ? 'Marks are released' : 'Marks are NOT released' }}
-          </p>
-          <p class="release__detail">
-            <template v-if="released">
-              Last Released at {{ releasedAtLabel }}<template v-if="status.released_by"> by {{ status.released_by }}</template>.
-            </template>
-            <template v-else>
-              Students and supervisors cannot see their grades until you release.
-            </template>
-          </p>
-        </div>
-      </div>
+      <p class="release__headline" :class="released ? 'release__state--ok' : 'release__state--warn'">
+        <i :class="released ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
+        {{ released ? 'Marks are released' : 'Marks are not released' }}
+      </p>
+      <p v-if="released" class="release__detail">
+        Last Released at {{ releasedAtLabel }}<template v-if="status.released_by"> by {{ status.released_by }}</template>.
+      </p>
 
       <p v-if="actionError" class="release__banner release__banner--error">{{ actionError }}</p>
+
+      <p class="release__hint">
+        Releasing shows marks only to students whose group made a submission.
+      </p>
+      <p v-if="!released && submissionsOpen" class="release__banner release__banner--warn">
+        Submissions are still open (including extensions) — marks can be released once the
+        window has closed.
+      </p>
 
       <div class="release__actions">
         <button
           type="button"
           class="btn btn-primary btn-sm"
-          :disabled="isToggling || released"
+          :disabled="isToggling || released || submissionsOpen"
           @click="showConfirm = true"
         >
           Release
@@ -109,6 +108,10 @@ const actionError = ref('')
 const isToggling = ref(false)
 
 const released = computed(() => status.value?.released_at != null)
+
+// While any team can still submit, the button is disabled outright — the
+// confirm dialog must not even open for a release the server would refuse.
+const submissionsOpen = computed(() => status.value?.submissions_open === true)
 
 const releasedAtLabel = computed(() =>
   status.value?.released_at ? new Date(status.value.released_at).toLocaleString() : ''
@@ -177,10 +180,9 @@ const confirmRelease = async () => {
   gap: 1rem;
 }
 
-/* No divider under the heading — the status card right below is separation enough. */
+/* The panel's flex gap already spaces the content below the heading — the
+   header's own margin would double it. */
 .release__panel .card-header {
-  border-bottom: none;
-  padding-bottom: 0;
   margin-bottom: 0;
 }
 
@@ -193,36 +195,18 @@ const confirmRelease = async () => {
   font-size: 0.85rem;
 }
 
-.release__card {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  border-radius: 8px;
-  padding: 1rem;
-  border: 1px solid;
-}
-
-.release__card--ok {
-  background: var(--surface-elevated);
-  border-color: var(--border-light);
-}
-
-.release__card--warn {
-  background: var(--surface-elevated);
-  border-color: var(--border-light);
-}
-
-.release__card--warn .release__detail {
-  color: #d97706;
-}
-
-.release__icon--ok {
+/* Same look as the deadline page's "Submissions open/closed" state line. */
+.release__state--ok {
   color: var(--dark-green);
-  margin-top: 0.2rem;
+}
+
+.release__state--warn {
+  color: #eab308;
 }
 
 .release__headline {
   font-weight: 600;
+  font-size: 0.9rem;
   margin: 0 0 0.2rem;
 }
 
@@ -242,6 +226,11 @@ const confirmRelease = async () => {
 .release__banner--error {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
+}
+
+.release__banner--warn {
+  background: color-mix(in srgb, #ff8c00 12%, transparent);
+  color: #ff8c00;
 }
 
 .release__actions {

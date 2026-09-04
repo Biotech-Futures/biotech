@@ -94,6 +94,14 @@ def _grades_payload(group, year: int) -> list[dict]:
     return out
 
 
+def _no_submission_response(what: str):
+    """Marks and certificates exist only for teams that actually entered."""
+    return Response(
+        {"detail": f"Your group did not submit an entry, so there is no {what} to view."},
+        status=403,
+    )
+
+
 class MyGradesView(APIView):
     """GET /api/v1/grading/me/grades/ — released marks for the requester's group."""
 
@@ -103,6 +111,8 @@ class MyGradesView(APIView):
         group = _active_group_for(request.user)
         if group is None:
             return Response({"detail": "not a member of any group"}, status=404)
+        if not content.has_submitted(group.id):
+            return _no_submission_response("marks")
         year = int(request.query_params.get("year") or date.today().year)
         return Response({
             "group": {"id": group.id, "group_name": group.group_name},
@@ -120,6 +130,8 @@ class MySummaryView(APIView):
         group = _active_group_for(request.user)
         if group is None:
             return Response({"detail": "not a member of any group"}, status=404)
+        if not content.has_submitted(group.id):
+            return _no_submission_response("marks summary")
         year = int(request.query_params.get("year") or date.today().year)
         components = _grades_payload(group, year)
         # Docx template iterates .criteria (see docx template) so shape mirrors JSON.
@@ -142,6 +154,8 @@ class MyCertificateView(APIView):
         group = _active_group_for(request.user)
         if group is None:
             return Response({"detail": "not a member of any group"}, status=404)
+        if not content.has_submitted(group.id):
+            return _no_submission_response("certificate")
         # Finalists can be held back from the participation-certificate
         # release — they get merit certificates through a separate channel.
         release = CertificatesRelease.load()
