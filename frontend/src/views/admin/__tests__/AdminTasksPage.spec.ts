@@ -1,0 +1,197 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import AdminTasksPage from '@/views/admin/AdminTasksPage.vue'
+
+const baseTask = {
+  id: 1,
+  name: 'Submit reflection',
+  description: 'Write a short weekly update',
+  due_date: '2026-09-15T00:00:00+00:00',
+  status: 'todo',
+  completed: false,
+  parent: null,
+  task_type: 'individual',
+  group: null,
+  assigned_user: 42,
+  created_by: { id: 99, name: 'Admin User' },
+  creator_role: 'global_admin',
+  deleted_at: null,
+  created_at: '2026-09-01T00:00:00+00:00',
+  updated_at: '2026-09-01T00:00:00+00:00'
+}
+
+const buildTask = (overrides: Record<string, unknown> = {}) => ({ ...baseTask, ...overrides })
+
+const fetchMockFor = (tasks: unknown[], total = tasks.length) =>
+  vi.fn().mockImplementation(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          msg: 'Tasks retrieved successfully',
+          data: { items: tasks, total, page: 1, limit: 25, has_more: total > tasks.length }
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+  )
+
+const lastTaskListUrl = (fetchMock: ReturnType<typeof vi.fn>) => {
+  const call = [...fetchMock.mock.calls]
+    .reverse()
+    .find(([url]) => String(url).includes('/api/v1/admin/task/'))
+  return new URL(String(call?.[0]))
+}
+
+const sortableButton = (wrapper: VueWrapper, label: string) =>
+  wrapper
+    .findAll('.admin-table__sort-btn')
+    .find((button) => button.text().replace(/[^\w ]/g, '').trim() === label)
+
+let wrapper: VueWrapper | null = null
+
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = null
+  vi.unstubAllGlobals()
+})
+
+describe('AdminTasksPage', () => {
+  it('loads tasks with the default due ascending sort and renders the table', async () => {
+    const fetchMock = fetchMockFor([
+      buildTask(),
+      buildTask({
+        id: 2,
+        name: 'Prepare slides',
+        description: '',
+        task_type: 'group',
+        group: 7,
+        assigned_user: null,
+        status: 'in_progress'
+      })
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    const url = lastTaskListUrl(fetchMock)
+    expect(url.pathname).toBe('/api/v1/admin/task/')
+    expect(url.searchParams.get('page')).toBe('1')
+    expect(url.searchParams.get('limit')).toBe('25')
+    expect(url.searchParams.get('sortBy')).toBe('due')
+    expect(url.searchParams.get('sortOrder')).toBe('asc')
+    expect(url.searchParams.has('task_type')).toBe(false)
+
+    expect(wrapper.text()).toContain('Submit reflection')
+    expect(wrapper.text()).toContain('Write a short weekly update')
+    expect(wrapper.text()).toContain('Individual')
+    expect(wrapper.text()).toContain('User #42')
+    expect(wrapper.text()).toContain('Prepare slides')
+    expect(wrapper.text()).toContain('Group #7')
+    expect(wrapper.text()).toContain('In Progress')
+
+    const headers = wrapper
+      .findAll('.admin-table__head')
+      .map((header) => header.text().replace(/[^\w ]/g, '').trim())
+    expect(headers).toEqual(['Name', 'Type', 'Target', 'Status', 'Due', 'Actions'])
+    expect(wrapper.findAll('.admin-table__sort-btn').map((button) => button.text().replace(/[^\w ]/g, '').trim()))
+      .toEqual(['Name', 'Type', 'Target', 'Status', 'Due'])
+  })
+
+  it('filters tasks by type and resets to the first page', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('1')
+
+    await wrapper.find<HTMLSelectElement>('#task-type-filter').setValue('group')
+    await flushPromises()
+
+    const params = lastTaskListUrl(fetchMock).searchParams
+    expect(params.get('page')).toBe('1')
+    expect(params.get('task_type')).toBe('group')
+    expect(params.get('sortBy')).toBe('due')
+    expect(params.get('sortOrder')).toBe('asc')
+  })
+
+  it('sorts task columns through server-side query parameters', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    const nameSort = sortableButton(wrapper, 'Name')
+    expect(nameSort).toBeDefined()
+    await nameSort!.trigger('click')
+    await flushPromises()
+
+    let params = lastTaskListUrl(fetchMock).searchParams
+    expect(params.get('sortBy')).toBe('name')
+    expect(params.get('sortOrder')).toBe('asc')
+
+    await nameSort!.trigger('click')
+    await flushPromises()
+
+    params = lastTaskListUrl(fetchMock).searchParams
+    expect(params.get('sortBy')).toBe('name')
+    expect(params.get('sortOrder')).toBe('desc')
+  })
+
+  it('supports page navigation and page-size changes', async () => {
+    const fetchMock = fetchMockFor([buildTask()], 60)
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+
+    let params = lastTaskListUrl(fetchMock).searchParams
+    expect(params.get('page')).toBe('2')
+    expect(params.get('limit')).toBe('25')
+
+    await wrapper.find<HTMLSelectElement>('.admin-table__page-size select').setValue('50')
+    await flushPromises()
+
+    params = lastTaskListUrl(fetchMock).searchParams
+    expect(params.get('page')).toBe('1')
+    expect(params.get('limit')).toBe('50')
+  })
+
+  it('supports row selection with the existing admin table pattern', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    expect(rowCheckboxes.length).toBeGreaterThan(1)
+    await rowCheckboxes[1].setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 task selected')
+  })
+
+  it('shows empty and error states', async () => {
+    const emptyFetch = fetchMockFor([])
+    vi.stubGlobal('fetch', emptyFetch)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No tasks found.')
+    wrapper.unmount()
+
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const errorFetch = vi.fn().mockResolvedValue(new Response('boom', { status: 500 }))
+    vi.stubGlobal('fetch', errorFetch)
+    wrapper = mount(AdminTasksPage)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    consoleSpy.mockRestore()
+  })
+})
