@@ -62,7 +62,7 @@ describe('registration UI test surface', () => {
     }
   })
 
-  it('labels its in-memory behavior and synthetic supervisor context', async () => {
+  it('labels its in-memory behavior and starts supervisor form work immediately', async () => {
     const { wrapper, liveGateway } = await mountPage()
     expect(wrapper.text()).toContain('Development UI test surface')
     expect(wrapper.text()).toContain('No registration data is sent or persisted')
@@ -71,9 +71,8 @@ describe('registration UI test surface', () => {
     await button!.trigger('click')
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.text()).toContain('Synthetic Supervisor')
-    expect(wrapper.text()).toContain('UI test context - no authorization')
-    expect(wrapper.text()).toContain('display-only')
+    expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Confirm the signed-in account')
     expect(liveGateway.submit).not.toHaveBeenCalled()
   })
 })

@@ -248,6 +248,7 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
+import { EMBEDDED_SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
 
 const route = useRoute()
 const router = useRouter()
@@ -299,6 +300,7 @@ const isLoginPage = computed(() =>
     '/register',
     '/registration-demo',
     '/registration-ui-test',
+    EMBEDDED_SUPERVISOR_REGISTRATION_PATH,
     '/auth/callback',
     '/auth/reset-password',
     '/auth/set-password',

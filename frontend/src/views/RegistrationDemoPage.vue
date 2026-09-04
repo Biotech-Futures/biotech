@@ -54,7 +54,11 @@
         <button type="button" class="primary-action" @click="resetRegistration">
           Start another journey
         </button>
-        <RouterLink :to="isSupervisorMode ? '/dashboard' : '/login'" class="secondary-action">
+        <RouterLink
+          v-if="!isEmbeddedSupervisor"
+          :to="isSupervisorMode ? '/dashboard' : '/login'"
+          class="secondary-action"
+        >
           {{ isSupervisorMode ? 'Return to dashboard' : 'Return to sign in' }}
         </RouterLink>
       </div>
@@ -565,10 +569,8 @@
 
             <!-- Supervisor: individual -->
             <template v-else-if="journey === 'supervisor_individual'">
-              <RegistrationAccountContext v-if="currentStep === 0" v-bind="accountContext" />
-
               <RegistrationStudentEditor
-                v-else-if="currentStep === 1"
+                v-if="currentStep === 0"
                 :student="forms.supervisorIndividual.student"
                 prefix="supervisorIndividual.student"
                 section="full"
@@ -577,7 +579,7 @@
                 require-email-confirm
               />
 
-              <div v-else-if="currentStep === 2" class="step-stack">
+              <div v-else-if="currentStep === 1" class="step-stack">
                 <fieldset class="choice-fieldset">
                   <legend>Future group preference</legend>
                   <p class="fieldset-help">
@@ -618,9 +620,7 @@
 
             <!-- Supervisor: group -->
             <template v-else-if="journey === 'supervisor_group'">
-              <RegistrationAccountContext v-if="currentStep === 0" v-bind="accountContext" />
-
-              <div v-else-if="currentStep === 1" class="step-stack">
+              <div v-if="currentStep === 0" class="step-stack">
                 <RegistrationInterestSelector
                   id="supervisor-group-interests"
                   v-model="forms.supervisorGroup.interests"
@@ -629,7 +629,7 @@
                 />
               </div>
 
-              <div v-else-if="currentStep === 2" class="step-stack">
+              <div v-else-if="currentStep === 1" class="step-stack">
                 <div class="section-divider section-divider--with-action section-divider--first">
                   <div>
                     <h3>Students</h3>
@@ -676,9 +676,7 @@
 
             <!-- Supervisor: CSV -->
             <template v-else-if="journey === 'supervisor_csv'">
-              <RegistrationAccountContext v-if="currentStep === 0" v-bind="accountContext" />
-
-              <div v-else-if="currentStep === 1" class="upload-step">
+              <div v-if="currentStep === 0" class="upload-step">
                 <div class="template-download">
                   <div>
                     <h3>Use the prescribed CSV template</h3>
@@ -714,7 +712,7 @@
                 </div>
               </div>
 
-              <div v-else-if="currentStep === 2" class="csv-preview">
+              <div v-else-if="currentStep === 1" class="csv-preview">
                 <div class="csv-totals" aria-label="CSV row totals">
                   <div>
                     <strong>{{ csvCounts.valid }}</strong>
@@ -1305,12 +1303,10 @@ import { computed, inject, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import logo from '@/assets/btf-logo.png'
-import RegistrationAccountContext from '@/components/registration/RegistrationAccountContext.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
-import { useAuthStore } from '@/stores/auth'
 import { developmentRegistrationGateway } from '@/registration/developmentRegistrationGateway'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
@@ -1460,11 +1456,6 @@ const journeyOptions: JourneyOption[] = [
     description: 'Add one ungrouped student and record their future grouping preference.',
     steps: [
       {
-        label: 'Account',
-        title: 'Confirm the signed-in account',
-        description: 'The submitting supervisor is identified from the authenticated session.',
-      },
-      {
         label: 'Student',
         title: 'Add the student',
         description: 'Guardian contact may be supplied now or deferred.',
@@ -1492,11 +1483,6 @@ const journeyOptions: JourneyOption[] = [
     title: 'Register a student group',
     description: 'Create a pre-formed group with 2–5 complete student entries.',
     steps: [
-      {
-        label: 'Account',
-        title: 'Confirm the signed-in account',
-        description: 'The submitting supervisor is identified from the authenticated session.',
-      },
       {
         label: 'Group',
         title: 'Describe the group',
@@ -1526,11 +1512,6 @@ const journeyOptions: JourneyOption[] = [
     description:
       'Use the prescribed template, parse it locally, and resolve row issues before save.',
     steps: [
-      {
-        label: 'Account',
-        title: 'Confirm the signed-in account',
-        description: 'The import owner is identified from the authenticated session.',
-      },
       {
         label: 'Upload',
         title: 'Upload the prescribed CSV',
@@ -1637,15 +1618,17 @@ const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: strin
 
 const props = withDefaults(
   defineProps<{
-    mode?: 'canonical' | 'demo' | 'supervisor' | 'ui-test'
+    mode?: 'canonical' | 'demo' | 'supervisor' | 'embedded-supervisor' | 'ui-test'
     initialJourney?: RegistrationJourney | null
   }>(),
   { mode: 'canonical', initialJourney: null },
 )
 const isDemo = computed(() => props.mode === 'demo')
 const isUiTest = computed(() => props.mode === 'ui-test')
-const isSupervisorMode = computed(() => props.mode === 'supervisor')
-const auth = useAuthStore()
+const isEmbeddedSupervisor = computed(() => props.mode === 'embedded-supervisor')
+const isSupervisorMode = computed(
+  () => props.mode === 'supervisor' || isEmbeddedSupervisor.value,
+)
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
 const unavailableGateway: RegistrationGateway = {
   async submit() {
@@ -1661,22 +1644,6 @@ const usingDevelopmentAdapter =
 const registrationGateway = forceDevelopmentAdapter
   ? developmentRegistrationGateway
   : injectedGateway || (usingDevelopmentAdapter ? developmentRegistrationGateway : unavailableGateway)
-const accountContext = computed(() =>
-  isUiTest.value
-    ? {
-        displayName: 'Synthetic Supervisor',
-        roleLabel: 'UI test context - no authorization',
-        email: 'supervisor.ui-test@example.invalid',
-        organization: 'Synthetic BIOTech Test School',
-      }
-    : {
-        displayName: auth.displayName,
-        roleLabel: auth.roleLabel,
-        email: auth.user?.email,
-        organization:
-          auth.user?.supervisor_school_name || auth.user?.school_name || auth.organizationLabel,
-      },
-)
 const forms = reactive(createRegistrationForms())
 const journey = ref<RegistrationJourney | null>(props.initialJourney)
 const selectionStage = ref<SelectionStage>(
@@ -2124,15 +2091,15 @@ const validateCurrentStep = () => {
       )
     }
   } else if (journey.value === 'supervisor_individual') {
-    if (step === 1)
+    if (step === 0)
       validateStudentFull(forms.supervisorIndividual.student, 'supervisorIndividual.student')
   } else if (journey.value === 'supervisor_group') {
-    if (step === 1) {
+    if (step === 0) {
       if (!forms.supervisorGroup.interests.length) {
         errors['supervisorGroup.interests'] = 'Choose at least one group interest.'
       }
     }
-    if (step === 2) {
+    if (step === 1) {
       if (forms.supervisorGroup.students.length < 2 || forms.supervisorGroup.students.length > 5) {
         errors['supervisorGroup.size'] = 'A supervisor group must include 2–5 students.'
       }
@@ -2141,10 +2108,10 @@ const validateCurrentStep = () => {
       )
     }
   } else if (journey.value === 'supervisor_csv') {
-    if (step === 1 && !forms.supervisorCsv.rows.length) {
+    if (step === 0 && !forms.supervisorCsv.rows.length) {
       errors['supervisorCsv.file'] = 'Upload a CSV that contains at least one student row.'
     }
-    if (step === 2) {
+    if (step === 1) {
       if (!includedCsvRows.value.length) {
         errors['supervisorCsv.rows'] = 'Keep at least one student row in the import.'
       }

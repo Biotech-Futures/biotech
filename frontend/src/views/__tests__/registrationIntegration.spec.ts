@@ -54,12 +54,41 @@ type PageSetup = {
       complianceDeclaration: boolean
       attestation: boolean
     }
+    supervisorIndividual: {
+      student: {
+        firstName: string
+        lastName: string
+        email: string
+        emailConfirm: string
+        school: string
+        yearLevel: string
+        country: string
+        interests: string[]
+        guardianDeferred: boolean
+      }
+    }
   }
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
   mount(RegistrationDemoPage, {
     props: { mode: 'canonical' },
+    attachTo: document.body,
+    global: {
+      plugins: [createPinia()],
+      provide: { [REGISTRATION_GATEWAY_KEY as symbol]: gateway },
+      stubs: {
+        RouterLink: {
+          props: ['to'],
+          template: '<a :href="to"><slot /></a>',
+        },
+      },
+    },
+  })
+
+const mountSupervisorWithGateway = (gateway: RegistrationGateway) =>
+  mount(RegistrationDemoPage, {
+    props: { mode: 'supervisor' },
     attachTo: document.body,
     global: {
       plugins: [createPinia()],
@@ -124,6 +153,24 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     safeguardingJurisdiction: 'Victoria, Australia',
     complianceDeclaration: true,
     attestation: true,
+  })
+  await wrapper.vm.$nextTick()
+}
+
+const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
+  const setup = setupOf(wrapper)
+  setup.journey = 'supervisor_individual'
+  setup.currentStep = 2
+  Object.assign(setup.forms.supervisorIndividual.student, {
+    firstName: 'Alex',
+    lastName: 'Morgan',
+    email: 'alex@example.com',
+    emailConfirm: 'alex@example.com',
+    school: 'Example Secondary College',
+    yearLevel: '10',
+    country: 'Australia',
+    interests: ['Biomedical Innovations'],
+    guardianDeferred: true,
   })
   await wrapper.vm.$nextTick()
 }
@@ -225,6 +272,29 @@ describe('registration gateway UI integration', () => {
     expect(background.attributes('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(background.element)
     expect(wrapper.text()).toContain('Add more detail about your experience.')
+  })
+
+  it('returns supervisor server errors to the visible reindexed student step', async () => {
+    const gateway: RegistrationGateway = {
+      async submit() {
+        return {
+          ok: false,
+          message: 'Review the highlighted information.',
+          fieldErrors: {
+            'supervisorIndividual.student.email': 'This student address is already registered.',
+          },
+        }
+      },
+    }
+    const wrapper = mountSupervisorWithGateway(gateway)
+    await prepareSupervisorStudent(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(setupOf(wrapper).currentStep).toBe(0))
+    const email = wrapper.get('#supervisorIndividual-student-email')
+    expect(email.attributes('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(email.element)
+    expect(wrapper.text()).toContain('This student address is already registered.')
   })
 
   it('keeps unknown server field errors summarized on the review step', async () => {

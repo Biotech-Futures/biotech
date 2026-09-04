@@ -21,16 +21,16 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
     [/^studentTeam\.(interests|teammates|size)(\.|$)/, 2],
   ],
   supervisor_individual: [
-    [/^supervisorIndividual\.student(\.|$)/, 1],
-    [/^supervisorIndividual\.groupingPreference$/, 2],
+    [/^supervisorIndividual\.student(\.|$)/, 0],
+    [/^supervisorIndividual\.groupingPreference$/, 1],
   ],
   supervisor_group: [
-    [/^supervisorGroup\.interests(\.|$)/, 1],
-    [/^supervisorGroup\.(students|size)(\.|$)/, 2],
+    [/^supervisorGroup\.interests(\.|$)/, 0],
+    [/^supervisorGroup\.(students|size)(\.|$)/, 1],
   ],
   supervisor_csv: [
-    [/^supervisorCsv\.(file|fileName)$/, 1],
-    [/^supervisorCsv\.(rows|excludedRowNumbers|invalid)(\.|$)/, 2],
+    [/^supervisorCsv\.(file|fileName)$/, 0],
+    [/^supervisorCsv\.(rows|excludedRowNumbers|invalid)(\.|$)/, 1],
   ],
   mentor: [
     [/^mentor\.(firstName|lastName|email|phone|country|state)$/, 0],

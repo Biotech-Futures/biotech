@@ -55,7 +55,7 @@ import {
   REGISTRATION_UI_TEST_PATH,
   resolveRegistrationUiTestAccess,
 } from './registrationUiTestRoute'
-import { SUPERVISOR_REGISTRATION_PATH } from './supervisorRegistrationRoute'
+import { SUPERVISOR_REGISTRATION_PATHS } from './supervisorRegistrationRoute'
 
 normalizeDirectAuthRedirect()
 
@@ -79,7 +79,9 @@ router.beforeEach((to, from, next) => {
   const isPublicPath =
     publicPaths.includes(to.path) ||
     (isRegistrationUiTestPath && registrationUiTestAccess === true)
-  const isSupervisorRegistrationPath = to.path === SUPERVISOR_REGISTRATION_PATH
+  const isSupervisorRegistrationPath = SUPERVISOR_REGISTRATION_PATHS.some(
+    (path) => path === to.path,
+  )
   const supervisorRegistrationAccess = isSupervisorRegistrationPath
     ? resolveSupervisorRegistrationAccess(auth)
     : true

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RegistrationDemoPage from '@/views/RegistrationDemoPage.vue'
 
-const mountPage = (mode: 'canonical' | 'demo' | 'supervisor' = 'canonical') =>
+const mountPage = (
+  mode: 'canonical' | 'demo' | 'supervisor' | 'embedded-supervisor' = 'canonical',
+) =>
   mount(RegistrationDemoPage, {
     props: { mode },
     global: {
@@ -101,7 +103,7 @@ describe('canonical registration intake', () => {
         issues: ['Student email format is invalid.'],
       },
     ]
-    setup.currentStep = 2
+    setup.currentStep = 1
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('Student email format is invalid.')
@@ -129,15 +131,37 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain('Have a guardian consent invitation?')
   })
 
-  it('shows signed-in account context without editable supervisor identity fields', async () => {
+  it('starts every supervisor flow at its first student, group, or upload field', async () => {
     const wrapper = mountPage('supervisor')
 
     expect(wrapper.find('.registration-header').exists()).toBe(false)
     expect(wrapper.text()).toContain('How are you registering students?')
     await clickButton(wrapper, 'Register one student')
-    expect(wrapper.text()).toContain('Signed-in account')
-    expect(wrapper.find('#supervisor-individual-first').exists()).toBe(false)
-    expect(wrapper.find('#supervisor-individual-email').exists()).toBe(false)
+    expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
+      'Student',
+      'Grouping',
+      'Review',
+    ])
+    expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Confirm the signed-in account')
+
+    const group = mountPage('supervisor')
+    await clickButton(group, 'Register a student group')
+    expect(group.text()).toContain('Group interests')
+
+    const csv = mountPage('supervisor')
+    await clickButton(csv, 'Upload students by CSV')
+    expect(csv.text()).toContain('Choose completed CSV')
+  })
+
+  it('starts embedded supervisor mode at the chooser without a standalone header', () => {
+    const wrapper = mountPage('embedded-supervisor')
+
+    expect(wrapper.find('.registration-header').exists()).toBe(false)
+    expect(wrapper.text()).toContain('How are you registering students?')
+    expect(wrapper.text()).toContain('Register one student')
+    expect(wrapper.text()).toContain('Register a student group')
+    expect(wrapper.text()).toContain('Upload students by CSV')
   })
 
   it('puts creator profile and support before team configuration and removes naming', async () => {
@@ -165,14 +189,14 @@ describe('canonical registration intake', () => {
     const supervisor = mountPage('supervisor')
     await clickButton(supervisor, 'Register one student')
     const supervisorSetup = supervisor.vm as unknown as { currentStep: number }
-    supervisorSetup.currentStep = 1
+    supervisorSetup.currentStep = 0
     await supervisor.vm.$nextTick()
     expect(supervisor.text()).toContain('Confirm student email')
 
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
     const groupSetup = group.vm as unknown as { currentStep: number }
-    groupSetup.currentStep = 2
+    groupSetup.currentStep = 1
     await group.vm.$nextTick()
     expect(group.text().match(/Confirm student email/g)).toHaveLength(2)
     expect(group.text()).not.toContain('group name')
@@ -180,7 +204,7 @@ describe('canonical registration intake', () => {
     const csv = mountPage('supervisor')
     await clickButton(csv, 'Upload students by CSV')
     const csvSetup = csv.vm as unknown as { currentStep: number }
-    csvSetup.currentStep = 1
+    csvSetup.currentStep = 0
     await csv.vm.$nextTick()
     expect(csv.text()).not.toContain('Confirm student email')
   })

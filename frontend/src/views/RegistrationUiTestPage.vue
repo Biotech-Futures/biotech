@@ -15,8 +15,8 @@
       <div class="launcher-copy">
         <h1 id="launcher-title">Open an intake journey</h1>
         <p>
-          Jump directly into any current registration path. Supervisor journeys use a synthetic,
-          display-only account context and do not grant authorization.
+          Jump directly into any current registration path. Supervisor journeys use synthetic form
+          data and do not grant authorization.
         </p>
       </div>
       <div class="journey-launchers">
