@@ -312,6 +312,7 @@ const isLoginPage = computed(() =>
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
+
 const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)
 const sidebarGroupError = ref('')
@@ -322,6 +323,24 @@ const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
 const isSidebarCollapsed = ref(false)
+
+// Marking pages start with the sidebar collapsed (meta.hideSidebar on the
+// route) so the preview/rubric split gets the width — the toggle stays, so
+// it can still be opened. Leaving restores how the user had it.
+const onMarkingPage = computed(() => route.meta.hideSidebar === true)
+let sidebarStateBeforeMarking = false
+watch(
+  onMarkingPage,
+  (entering, was) => {
+    if (entering) {
+      sidebarStateBeforeMarking = isSidebarCollapsed.value
+      isSidebarCollapsed.value = true
+    } else if (was) {
+      isSidebarCollapsed.value = sidebarStateBeforeMarking
+    }
+  },
+  { immediate: true }
+)
 const programSearchQuery = ref('')
 
 const programSearchTargets = [

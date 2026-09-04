@@ -48,7 +48,7 @@
 
       <div class="rubric-form__actions">
         <slot name="actions"></slot>
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">
+        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !isDirty">
           {{ isSaving ? 'Saving…' : criteria.length === 0 ? 'Save Comment' : 'Save marks' }}
         </button>
       </div>

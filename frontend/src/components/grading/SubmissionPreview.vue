@@ -257,13 +257,14 @@ const markerTooltip = computed(() => {
   overflow: auto;
 }
 
-/* One continuous white sheet behind every answer; the gaps between the
-   outlined blocks stay white instead of showing the page background. */
+/* One continuous sheet behind every answer; the gaps between the outlined
+   blocks stay on the sheet instead of showing the page background. Theme
+   variables so dark mode gets a dark sheet like the rest of the page. */
 .submission-preview__answers {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  background: #fff;
+  background: var(--surface-elevated);
   padding: 0.85rem;
   border-radius: 8px;
   max-height: 70vh;
@@ -274,32 +275,32 @@ const markerTooltip = computed(() => {
   margin: 0 0 0.4rem;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #000;
+  color: var(--charcoal);
 }
 
 /* Only the answer is outlined — like the Mark/Comment inputs beside it —
-   while the question sits on the white sheet above the box. */
+   while the question sits on the sheet above the box. */
 .submission-preview__answer-text {
   margin: 0;
   border: 1px solid var(--border-light);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface-elevated);
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
   line-height: 1.55;
-  color: var(--text-primary, #1f2937);
+  color: var(--charcoal);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .submission-preview__link-box {
   margin: 0;
-  background: #fff;
+  background: var(--surface-elevated);
   border: 1px solid var(--border-light);
   border-radius: 10px;
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
-  color: #000;
+  color: var(--charcoal);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -323,12 +324,12 @@ const markerTooltip = computed(() => {
 
 .submission-preview__no-preview {
   margin: 0;
-  background: #fff;
+  background: var(--surface-elevated);
   border: 1px solid var(--border-light);
   border-radius: 10px;
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
-  color: #000;
+  color: var(--charcoal);
   display: flex;
   align-items: center;
   justify-content: space-between;
