@@ -652,8 +652,6 @@ export const buildRegistrationDemoRequest = (
   payload: cleanPayloadValue(payloadForRegistrationJourney(journey, forms)),
 })
 
-/** @deprecated Use RegistrationForms. */
 export type RegistrationDemoForms = RegistrationForms
 
-/** @deprecated Use createRegistrationForms. */
 export const createRegistrationDemoForms = createRegistrationForms

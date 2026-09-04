@@ -287,7 +287,6 @@
               <span>{{ currentStepDefinition.description }}</span>
             </header>
 
-            <!-- Student: individual -->
             <template v-if="journey === 'student_individual'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
@@ -404,7 +403,6 @@
               </div>
             </template>
 
-            <!-- Student: team -->
             <template v-else-if="journey === 'student_team'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
@@ -570,7 +568,6 @@
               </div>
             </template>
 
-            <!-- Supervisor: individual -->
             <template v-else-if="journey === 'supervisor_individual'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
@@ -621,7 +618,6 @@
               </div>
             </template>
 
-            <!-- Supervisor: group -->
             <template v-else-if="journey === 'supervisor_group'">
               <div v-if="currentStep === 0" class="step-stack">
                 <RegistrationInterestSelector
@@ -677,7 +673,6 @@
               </div>
             </template>
 
-            <!-- Supervisor: CSV -->
             <template v-else-if="journey === 'supervisor_csv'">
               <div v-if="currentStep === 0" class="upload-step">
                 <div class="template-download">
@@ -784,7 +779,6 @@
               </div>
             </template>
 
-            <!-- Mentor -->
             <template v-else-if="journey === 'mentor'">
               <div v-if="currentStep === 0" class="field-grid">
                 <RegistrationTextField
@@ -1047,7 +1041,6 @@
               </div>
             </template>
 
-            <!-- Guardian consent remains available only on the explicitly labelled prototype route. -->
             <template v-else-if="isDemo && journey === 'guardian_consent'">
               <div v-if="currentStep === 0" class="step-stack">
                 <div class="invitation-preview">
@@ -1244,7 +1237,6 @@
               </div>
             </template>
 
-            <!-- Shared review -->
             <div v-if="currentStep === steps.length - 1" class="review-step">
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>

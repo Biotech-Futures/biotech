@@ -96,7 +96,6 @@
       </div>
     </section>
 
-    <!-- Right authentication pane. -->
     <section class="auth-pane">
       <div class="auth-shell">
         <!-- Auth card container. -->

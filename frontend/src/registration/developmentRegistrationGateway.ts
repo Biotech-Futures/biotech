@@ -20,10 +20,6 @@ const studentCount = (request: RegistrationRequest) => {
   }
 }
 
-/**
- * Development-only fixture. It exercises canonical request/result states without
- * implying authoritative validation or persistence.
- */
 export const developmentRegistrationGateway: RegistrationGateway = {
   async submit(request): Promise<RegistrationGatewayResult> {
     await new Promise((resolve) => window.setTimeout(resolve, 250))

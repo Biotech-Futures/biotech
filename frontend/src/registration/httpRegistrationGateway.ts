@@ -61,12 +61,6 @@ const normalizeReceipt = (data: unknown): RegistrationReceipt | null => {
   }
 }
 
-/**
- * HTTP contract:
- * - Success: a direct receipt or `{ data: receipt }`, accepting snake_case or camelCase keys.
- * - Error: `{ error, code?, request_id?, fields?: Record<string, string | string[]> }`.
- * Field keys must use the frontend form paths so the page can attach messages to controls.
- */
 export const createHttpRegistrationGateway = ({
   endpoint,
   fetchImpl = fetch,
