@@ -202,4 +202,53 @@ describe('canonical registration intake', () => {
     await csv.vm.$nextTick()
     expect(csv.text()).not.toContain('Confirm student email')
   })
+
+  it('gives every logical radio group a shared native name', async () => {
+    const assertRadioGroup = (wrapper: VueWrapper, expectedName: string) => {
+      const radios = wrapper.findAll('input[type="radio"]')
+      expect(radios.length).toBeGreaterThan(1)
+      expect(new Set(radios.map((radio) => radio.attributes('name')))).toEqual(
+        new Set([expectedName]),
+      )
+    }
+
+    const individual = mountPage()
+    await clickButton(individual, 'Register now')
+    await clickButton(individual, 'Student')
+    await clickButton(individual, 'Register as an individual student')
+    ;(individual.vm as unknown as { currentStep: number }).currentStep = 2
+    await individual.vm.$nextTick()
+    assertRadioGroup(individual, 'student-individual-supervisor-mode')
+
+    const team = mountPage()
+    await clickButton(team, 'Register now')
+    await clickButton(team, 'Student')
+    await clickButton(team, 'Create a student team')
+    ;(team.vm as unknown as { currentStep: number }).currentStep = 1
+    await team.vm.$nextTick()
+    assertRadioGroup(team, 'student-team-supervisor-mode')
+
+    const supervisor = mountPage('supervisor')
+    await clickButton(supervisor, 'Register one student')
+    ;(supervisor.vm as unknown as { currentStep: number }).currentStep = 1
+    await supervisor.vm.$nextTick()
+    assertRadioGroup(supervisor, 'supervisor-grouping-preference')
+
+    const mentor = mountPage()
+    await clickButton(mentor, 'Register now')
+    await clickButton(mentor, 'Mentor')
+    ;(mentor.vm as unknown as { currentStep: number }).currentStep = 1
+    await mentor.vm.$nextTick()
+    assertRadioGroup(mentor, 'mentor-affiliation')
+
+    const guardian = mountPage('demo')
+    const guardianSetup = guardian.vm as unknown as {
+      journey: string
+      currentStep: number
+    }
+    guardianSetup.journey = 'guardian_consent'
+    guardianSetup.currentStep = 2
+    await guardian.vm.$nextTick()
+    assertRadioGroup(guardian, 'guardian-media-consent')
+  })
 })

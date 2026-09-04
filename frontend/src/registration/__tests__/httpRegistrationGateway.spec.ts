@@ -19,7 +19,7 @@ const response = (body: unknown, status = 200) =>
 
 beforeEach(() => {
   resetCsrfToken()
-  setCsrfToken('csrf-test-token')
+  setCsrfToken('csrf-test-token', endpoint)
   ensureCsrf.mockClear()
 })
 

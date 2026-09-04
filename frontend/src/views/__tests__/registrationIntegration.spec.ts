@@ -67,7 +67,17 @@ type PageSetup = {
         guardianDeferred: boolean
       }
     }
+    studentTeam: {
+      teammates: Array<Record<string, unknown>>
+    }
+    supervisorGroup: {
+      students: Array<Record<string, unknown>>
+    }
   }
+  clientErrors: Record<string, string>
+  serverFieldErrors: Record<string, string>
+  removeStudentTeammate: (index: number) => void
+  removeSupervisorGroupStudent: (index: number) => void
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
@@ -253,6 +263,38 @@ describe('registration gateway UI integration', () => {
     expect(wrapper.text()).not.toContain('Registration details received')
   })
 
+  it('preserves later server errors while an earlier step is corrected', async () => {
+    const gateway: RegistrationGateway = {
+      async submit() {
+        return {
+          ok: false,
+          message: 'Review the highlighted information.',
+          fieldErrors: {
+            'studentIndividual.student.email': 'Choose another student email.',
+            'studentIndividual.supervisor.school': 'Choose a recognized school.',
+          },
+        }
+      },
+    }
+    const wrapper = mountWithGateway(gateway)
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+    await vi.waitFor(() => expect(setupOf(wrapper).currentStep).toBe(0))
+
+    setupOf(wrapper).forms.studentIndividual.student.email = 'alex.new@example.com'
+    setupOf(wrapper).forms.studentIndividual.student.emailConfirm = 'alex.new@example.com'
+    await submit(wrapper)
+    expect(setupOf(wrapper).currentStep).toBe(1)
+
+    setupOf(wrapper).currentStep = 2
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Choose a recognized school.')
+    expect(wrapper.get('#student-individual-supervisor-school').attributes('aria-invalid')).toBe(
+      'true',
+    )
+    expect(setupOf(wrapper).serverFieldErrors['studentIndividual.student.email']).toBeUndefined()
+  })
+
   it('returns later-step mentor errors to their rendered contribution field', async () => {
     const gateway: RegistrationGateway = {
       async submit() {
@@ -297,16 +339,21 @@ describe('registration gateway UI integration', () => {
     expect(wrapper.text()).toContain('This student address is already registered.')
   })
 
-  it('keeps unknown server field errors summarized on the review step', async () => {
-    const gateway: RegistrationGateway = {
-      async submit() {
-        return {
-          ok: false,
-          message: 'Review the registration response.',
-          fieldErrors: { 'registration.unmapped': 'The server could not map this field.' },
-        }
-      },
-    }
+  it('summarizes unknown server fields without blocking an authoritative retry', async () => {
+    const submitMock = vi
+      .fn<RegistrationGateway['submit']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        message: 'Review the registration response.',
+        fieldErrors: { 'registration.unmapped': 'The server could not map this field.' },
+      })
+      .mockResolvedValueOnce(
+        await successfulGateway('student_individual').submit({
+          journey: 'student_individual',
+          payload: {},
+        } as never),
+      )
+    const gateway: RegistrationGateway = { submit: submitMock }
     const wrapper = mountWithGateway(gateway)
     await prepareStudent(wrapper)
     await submit(wrapper)
@@ -314,6 +361,46 @@ describe('registration gateway UI integration', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('The server could not map this field.'))
     expect(setupOf(wrapper).currentStep).toBe(3)
     expect(document.activeElement).toBe(wrapper.get('.error-summary').element)
+
+    await submit(wrapper)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration details received'))
+    expect(submitMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reindexes client and server errors when dynamic students are removed', async () => {
+    const wrapper = mountWithGateway(successfulGateway('student_individual'))
+    const setup = setupOf(wrapper)
+    setup.forms.studentTeam.teammates.push({
+      ...setup.forms.studentTeam.teammates[0],
+    })
+    setup.clientErrors['studentTeam.teammates.0.email'] = 'Removed client error.'
+    setup.clientErrors['studentTeam.teammates.1.email'] = 'Remaining client error.'
+    setup.serverFieldErrors['studentTeam.teammates.0.email'] = 'Removed server error.'
+    setup.serverFieldErrors['studentTeam.teammates.1.email'] = 'Remaining server error.'
+
+    setup.removeStudentTeammate(0)
+
+    expect(setup.clientErrors['studentTeam.teammates.0.email']).toBe('Remaining client error.')
+    expect(setup.serverFieldErrors['studentTeam.teammates.0.email']).toBe('Remaining server error.')
+    expect(setup.clientErrors['studentTeam.teammates.1.email']).toBeUndefined()
+    expect(setup.serverFieldErrors['studentTeam.teammates.1.email']).toBeUndefined()
+
+    setup.forms.supervisorGroup.students.push({
+      ...setup.forms.supervisorGroup.students[0],
+    })
+    setup.clientErrors['supervisorGroup.students.2.email'] = 'Remaining group client error.'
+    setup.serverFieldErrors['supervisorGroup.students.2.email'] = 'Remaining group server error.'
+
+    setup.removeSupervisorGroupStudent(0)
+
+    expect(setup.clientErrors['supervisorGroup.students.1.email']).toBe(
+      'Remaining group client error.',
+    )
+    expect(setup.serverFieldErrors['supervisorGroup.students.1.email']).toBe(
+      'Remaining group server error.',
+    )
+    expect(setup.clientErrors['supervisorGroup.students.2.email']).toBeUndefined()
+    expect(setup.serverFieldErrors['supervisorGroup.students.2.email']).toBeUndefined()
   })
 
   it('recovers from a failed submission without losing entered data', async () => {

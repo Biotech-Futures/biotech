@@ -41,49 +41,65 @@
 // cookie blocking). We fetch the CSRF token from a JSON endpoint and cache it in module scope. The browser
 // still attaches the csrftoken cookie automatically (credentials: 'include' + SameSite=None; Secure) so
 // Django's CsrfViewMiddleware can validate the X-CSRFToken header against it.
-let cachedCsrfToken: string | null = null
+const DEFAULT_CSRF_ORIGIN = ''
+const cachedCsrfTokens = new Map<string, string>()
 
-export function getCSRFToken(): string | null {
-  return cachedCsrfToken
+const normalizeApiOrigin = (apiBaseUrl?: string): string => {
+  if (!apiBaseUrl) return DEFAULT_CSRF_ORIGIN
+  return new URL(apiBaseUrl, window.location.origin).origin
 }
 
-export function setCsrfToken(token: unknown): boolean {
+export function getCSRFToken(apiBaseUrl?: string): string | null {
+  return cachedCsrfTokens.get(normalizeApiOrigin(apiBaseUrl)) ?? null
+}
+
+export function setCsrfToken(token: unknown, apiBaseUrl?: string): boolean {
   if (typeof token !== 'string') return false
 
   const trimmedToken = token.trim()
   if (!trimmedToken) return false
 
-  cachedCsrfToken = trimmedToken
+  const apiOrigin = normalizeApiOrigin(apiBaseUrl)
+  cachedCsrfTokens.set(apiOrigin, trimmedToken)
+  if (apiOrigin !== DEFAULT_CSRF_ORIGIN) {
+    cachedCsrfTokens.set(DEFAULT_CSRF_ORIGIN, trimmedToken)
+  }
   return true
 }
 
 export async function ensureCsrfCookie(apiBaseUrl: string): Promise<boolean> {
-  if (cachedCsrfToken) return true
+  const apiOrigin = normalizeApiOrigin(apiBaseUrl)
+  const cachedToken = cachedCsrfTokens.get(apiOrigin)
+  if (cachedToken) {
+    cachedCsrfTokens.set(DEFAULT_CSRF_ORIGIN, cachedToken)
+    return true
+  }
 
   try {
-    const response = await fetch(`${apiBaseUrl}/services/csrf/`, {
+    const response = await fetch(`${apiOrigin}/services/csrf/`, {
       method: 'GET',
       credentials: 'include'
     })
     if (response.ok) {
       const data = await response.json()
-      cachedCsrfToken = data?.csrfToken ?? null
+      setCsrfToken(data?.csrfToken, apiOrigin)
     }
   } catch (error) {
     console.error('Failed to fetch CSRF token:', error)
   }
 
-  return Boolean(cachedCsrfToken)
+  return cachedCsrfTokens.has(apiOrigin)
 }
 
 // Clear the cached token. Call after login (Django rotates the CSRF token on login)
 // and after logout so the next unsafe request re-fetches a fresh value.
 export function resetCsrfToken(): void {
-  cachedCsrfToken = null
+  cachedCsrfTokens.clear()
 }
 
 interface BuildHeadersOptions {
   includeCSRF?: boolean
+  csrfApiBaseUrl?: string
   headers?: HeadersInit
   isFormData?: boolean
 }
@@ -91,6 +107,7 @@ interface BuildHeadersOptions {
 export function buildSessionHeaders(options: BuildHeadersOptions = {}): Headers {
   const {
     includeCSRF = false,
+    csrfApiBaseUrl,
     headers: initHeaders,
     isFormData = false
   } = options
@@ -102,7 +119,7 @@ export function buildSessionHeaders(options: BuildHeadersOptions = {}): Headers 
   }
 
   if (includeCSRF) {
-    const csrfToken = getCSRFToken()
+    const csrfToken = getCSRFToken(csrfApiBaseUrl)
     if (csrfToken) {
       headers.set('X-CSRFToken', csrfToken)
     }

@@ -7,4 +7,5 @@ export const supervisorRegistrationRoute: RouteRecordRaw = {
   name: 'supervisor-registration',
   component: () => import('@/views/RegistrationDemoPage.vue'),
   props: { mode: 'supervisor' },
+  meta: { supervisorRegistration: true },
 }

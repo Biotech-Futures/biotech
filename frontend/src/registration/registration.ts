@@ -427,9 +427,13 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
 
   const headers = matrix[0].map((header) => header.trim())
   const missing = CSV_HEADERS.filter((header) => !headers.includes(header))
+  const duplicate = CSV_HEADERS.filter(
+    (header) => headers.filter((candidate) => candidate === header).length > 1,
+  )
   const unexpected = headers.filter((header) => !CSV_HEADERS.includes(header as CsvHeader))
   const errors: string[] = []
   if (missing.length) errors.push(`Missing columns: ${missing.join(', ')}.`)
+  if (duplicate.length) errors.push(`Duplicate columns: ${duplicate.join(', ')}.`)
   if (unexpected.length) errors.push(`Unexpected columns: ${unexpected.join(', ')}.`)
   if (errors.length) return { rows: [], errors }
 
@@ -628,13 +632,19 @@ export const payloadForRegistrationJourney = (
   }
 }
 
-const cleanPayloadValue = (value: unknown, key = ''): unknown => {
-  if (Array.isArray(value)) return value.map((item) => cleanPayloadValue(item))
+export const sanitizeRegistrationPayload = (value: unknown, key = ''): unknown => {
+  if (Array.isArray(value)) return value.map((item) => sanitizeRegistrationPayload(item))
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([entryKey]) => !['emailConfirm', 'previewUrl'].includes(entryKey))
-        .map(([entryKey, entryValue]) => [entryKey, cleanPayloadValue(entryValue, entryKey)]),
+        .filter(([entryKey, entryValue]) => {
+          if (['emailConfirm', 'previewUrl', 'file'].includes(entryKey)) return false
+          return !(typeof File !== 'undefined' && entryValue instanceof File)
+        })
+        .map(([entryKey, entryValue]) => [
+          entryKey,
+          sanitizeRegistrationPayload(entryValue, entryKey),
+        ]),
     )
   }
   if (typeof value === 'string') {
@@ -649,7 +659,7 @@ export const buildRegistrationDemoRequest = (
   forms: RegistrationForms,
 ) => ({
   journey,
-  payload: cleanPayloadValue(payloadForRegistrationJourney(journey, forms)),
+  payload: sanitizeRegistrationPayload(payloadForRegistrationJourney(journey, forms)),
 })
 
 export type RegistrationDemoForms = RegistrationForms

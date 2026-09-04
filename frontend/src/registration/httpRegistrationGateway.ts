@@ -67,9 +67,10 @@ export const createHttpRegistrationGateway = ({
   ensureCsrf = ensureCsrfCookie,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
   async submit(request): Promise<RegistrationGatewayResult> {
+    const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false
     try {
-      csrfReady = await ensureCsrf(csrfBaseUrl(endpoint))
+      csrfReady = await ensureCsrf(csrfApiBaseUrl)
     } catch {
       csrfReady = false
     }
@@ -87,6 +88,7 @@ export const createHttpRegistrationGateway = ({
         credentials: 'include',
         headers: buildSessionHeaders({
           includeCSRF: true,
+          csrfApiBaseUrl,
           headers: { Accept: 'application/json' },
         }),
         body: JSON.stringify(request),

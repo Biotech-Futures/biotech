@@ -2,6 +2,7 @@ import type { InjectionKey } from 'vue'
 
 import {
   payloadForRegistrationJourney,
+  sanitizeRegistrationPayload,
   type MentorForm,
   type RegistrationForms,
   type RegistrationIntakeJourney,
@@ -83,30 +84,11 @@ export interface RegistrationGateway {
 export const REGISTRATION_GATEWAY_KEY: InjectionKey<RegistrationGateway> =
   Symbol('registration-gateway')
 
-const cleanPayloadValue = (value: unknown, key = ''): unknown => {
-  if (Array.isArray(value)) return value.map((item) => cleanPayloadValue(item))
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([entryKey, entryValue]) => {
-          if (['emailConfirm', 'previewUrl', 'file'].includes(entryKey)) return false
-          return !(typeof File !== 'undefined' && entryValue instanceof File)
-        })
-        .map(([entryKey, entryValue]) => [entryKey, cleanPayloadValue(entryValue, entryKey)]),
-    )
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    return key.toLowerCase().includes('email') ? trimmed.toLowerCase() : trimmed
-  }
-  return value
-}
-
 export const buildRegistrationRequest = (
   journey: RegistrationIntakeJourney,
   forms: RegistrationForms,
 ): RegistrationRequest =>
   ({
     journey,
-    payload: cleanPayloadValue(payloadForRegistrationJourney(journey, forms)),
+    payload: sanitizeRegistrationPayload(payloadForRegistrationJourney(journey, forms)),
   }) as RegistrationRequest

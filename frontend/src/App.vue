@@ -259,7 +259,10 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
-import { shouldShowSupervisorRegistrationNavigation } from '@/router/registrationAccess'
+import {
+  isShellFreeRoute,
+  shouldShowSupervisorRegistrationNavigation,
+} from '@/router/registrationAccess'
 import { SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
 
 const route = useRoute()
@@ -306,16 +309,7 @@ const toggleTheme = () => {
   }
 }
 
-const isLoginPage = computed(() =>
-  [
-    '/login',
-    '/register',
-    '/registration-demo',
-    '/auth/callback',
-    '/auth/reset-password',
-    '/auth/set-password',
-  ].includes(route.path),
-)
+const isLoginPage = computed(() => isShellFreeRoute(route))
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )

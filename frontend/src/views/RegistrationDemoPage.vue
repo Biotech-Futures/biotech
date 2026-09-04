@@ -321,6 +321,7 @@
                       <input
                         v-model="forms.studentIndividual.supervisorMode"
                         type="radio"
+                        name="student-individual-supervisor-mode"
                         value="school"
                       />
                       <span>
@@ -334,6 +335,7 @@
                       <input
                         v-model="forms.studentIndividual.supervisorMode"
                         type="radio"
+                        name="student-individual-supervisor-mode"
                         value="parent"
                       />
                       <span>
@@ -490,6 +492,7 @@
                       <input
                         v-model="forms.studentTeam.supervisorMode"
                         type="radio"
+                        name="student-team-supervisor-mode"
                         value="school"
                       />
                       <span>
@@ -503,6 +506,7 @@
                       <input
                         v-model="forms.studentTeam.supervisorMode"
                         type="radio"
+                        name="student-team-supervisor-mode"
                         value="parent"
                       />
                       <span>
@@ -590,6 +594,7 @@
                       <input
                         v-model="forms.supervisorIndividual.groupingPreference"
                         type="radio"
+                        name="supervisor-grouping-preference"
                         value="school_only"
                       />
                       <span>
@@ -601,6 +606,7 @@
                       <input
                         v-model="forms.supervisorIndividual.groupingPreference"
                         type="radio"
+                        name="supervisor-grouping-preference"
                         value="cross_school"
                       />
                       <span>
@@ -844,6 +850,7 @@
                       <input
                         v-model="forms.mentor.affiliation"
                         type="radio"
+                        name="mentor-affiliation"
                         :value="option.value"
                         :aria-invalid="Boolean(errors['mentor.affiliation'])"
                         required
@@ -1198,6 +1205,7 @@
                       <input
                         v-model="forms.guardianConsent.mediaConsent"
                         type="radio"
+                        name="guardian-media-consent"
                         value="yes"
                         :aria-invalid="Boolean(errors['guardianConsent.mediaConsent'])"
                         required
@@ -1211,6 +1219,7 @@
                       <input
                         v-model="forms.guardianConsent.mediaConsent"
                         type="radio"
+                        name="guardian-media-consent"
                         value="no"
                         :aria-invalid="Boolean(errors['guardianConsent.mediaConsent'])"
                         required
@@ -1640,7 +1649,12 @@ const selectedRole = ref<RegistrationRole | null>(
 )
 const currentStep = ref(0)
 const maxReachedStep = ref(0)
-const errors = reactive<Record<string, string>>({})
+const clientErrors = reactive<Record<string, string>>({})
+const serverFieldErrors = reactive<Record<string, string>>({})
+const errors = computed<Record<string, string>>(() => ({
+  ...serverFieldErrors,
+  ...clientErrors,
+}))
 const csvFileErrors = ref<string[]>([])
 const photoPreviews = reactive<Record<string, string>>({})
 const serverError = ref('')
@@ -1709,7 +1723,7 @@ const currentStepDefinition = computed(
     },
 )
 const stepHeadingId = computed(() => `registration-step-${currentStep.value + 1}`)
-const errorMessages = computed(() => [...new Set(Object.values(errors))])
+const errorMessages = computed(() => [...new Set(Object.values(errors.value))])
 const includedCsvRows = computed(() =>
   forms.supervisorCsv.rows.filter(
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
@@ -1938,24 +1952,28 @@ const reviewSections = computed<ReviewSection[]>(() => {
 })
 
 const clearErrors = () => {
-  Object.keys(errors).forEach((key) => delete errors[key])
+  Object.keys(clientErrors).forEach((key) => delete clientErrors[key])
+}
+
+const clearServerErrors = () => {
+  Object.keys(serverFieldErrors).forEach((key) => delete serverFieldErrors[key])
 }
 
 const requireValue = (key: string, value: string, message: string) => {
   const trimmed = value.trim()
   if (!trimmed) {
-    errors[key] = message
+    clientErrors[key] = message
     return
   }
   if (!key.toLowerCase().includes('email') && emailLikePattern.test(trimmed)) {
-    errors[key] = 'Enter a name or description here, not an email address.'
+    clientErrors[key] = 'Enter a name or description here, not an email address.'
   }
 }
 
 const validateEmail = (key: string, value: string, label: string) => {
   requireValue(key, value, `Enter the ${label.toLowerCase()}.`)
   if (value.trim() && !isValidRegistrationEmail(value))
-    errors[key] = `Enter a valid ${label.toLowerCase()}.`
+    clientErrors[key] = `Enter a valid ${label.toLowerCase()}.`
 }
 
 const validateSupervisor = (
@@ -1980,7 +1998,7 @@ const validateStudentIdentity = (student: StudentDetails, prefix: string, confir
       student.emailConfirm.trim() &&
       student.email.trim().toLowerCase() !== student.emailConfirm.trim().toLowerCase()
     ) {
-      errors[`${prefix}.emailConfirm`] = 'The student email addresses do not match.'
+      clientErrors[`${prefix}.emailConfirm`] = 'The student email addresses do not match.'
     }
   }
 }
@@ -1990,7 +2008,7 @@ const validateStudentProfile = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.yearLevel`, student.yearLevel, 'Select the student year level.')
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
   if (!student.interests.length)
-    errors[`${prefix}.interests`] = 'Choose at least one student interest.'
+    clientErrors[`${prefix}.interests`] = 'Choose at least one student interest.'
   if (student.pronouns === 'Other') {
     requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
   }
@@ -2026,7 +2044,7 @@ const validateCrossRoleEmails = () => {
   if (!journey.value) return
   const conflicts = findCrossRoleEmailConflicts(journey.value, forms)
   conflicts.forEach((message, index) => {
-    errors[`emailConflict.${index}`] = message
+    clientErrors[`emailConflict.${index}`] = message
   })
 }
 
@@ -2061,10 +2079,10 @@ const validateCurrentStep = () => {
     }
     if (step === 2) {
       if (!forms.studentTeam.interests.length) {
-        errors['studentTeam.interests'] = 'Choose at least one team interest.'
+        clientErrors['studentTeam.interests'] = 'Choose at least one team interest.'
       }
       if (forms.studentTeam.teammates.length < 1 || forms.studentTeam.teammates.length > 4) {
-        errors['studentTeam.size'] = 'A student-created team must include 1–4 teammates.'
+        clientErrors['studentTeam.size'] = 'A student-created team must include 1–4 teammates.'
       }
       forms.studentTeam.teammates.forEach((student, index) =>
         validateStudentIdentity(student, `studentTeam.teammates.${index}`, true),
@@ -2076,12 +2094,12 @@ const validateCurrentStep = () => {
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
       if (!forms.supervisorGroup.interests.length) {
-        errors['supervisorGroup.interests'] = 'Choose at least one group interest.'
+        clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
       }
     }
     if (step === 1) {
       if (forms.supervisorGroup.students.length < 2 || forms.supervisorGroup.students.length > 5) {
-        errors['supervisorGroup.size'] = 'A supervisor group must include 2–5 students.'
+        clientErrors['supervisorGroup.size'] = 'A supervisor group must include 2–5 students.'
       }
       forms.supervisorGroup.students.forEach((student, index) =>
         validateStudentFull(student, `supervisorGroup.students.${index}`),
@@ -2089,14 +2107,14 @@ const validateCurrentStep = () => {
     }
   } else if (journey.value === 'supervisor_csv') {
     if (step === 0 && !forms.supervisorCsv.rows.length) {
-      errors['supervisorCsv.file'] = 'Upload a CSV that contains at least one student row.'
+      clientErrors['supervisorCsv.file'] = 'Upload a CSV that contains at least one student row.'
     }
     if (step === 1) {
       if (!includedCsvRows.value.length) {
-        errors['supervisorCsv.rows'] = 'Keep at least one student row in the import.'
+        clientErrors['supervisorCsv.rows'] = 'Keep at least one student row in the import.'
       }
       if (csvCounts.value.invalid) {
-        errors['supervisorCsv.invalid'] =
+        clientErrors['supervisorCsv.invalid'] =
           'Correct and re-upload, or explicitly exclude, every invalid row before continuing.'
       }
     }
@@ -2134,7 +2152,7 @@ const validateCurrentStep = () => {
     }
     if (step === 2) {
       if (!forms.mentor.interests.length)
-        errors['mentor.interests'] = 'Choose at least one relevant interest.'
+        clientErrors['mentor.interests'] = 'Choose at least one relevant interest.'
       requireValue(
         'mentor.capacity',
         forms.mentor.capacity,
@@ -2158,11 +2176,11 @@ const validateCurrentStep = () => {
         'Enter the safeguarding jurisdiction.',
       )
       if (!forms.mentor.complianceDeclaration) {
-        errors['mentor.attestation'] =
+        clientErrors['mentor.attestation'] =
           'Acknowledge the compliance review and complete the attestation.'
       }
       if (!forms.mentor.attestation) {
-        errors['mentor.attestation'] =
+        clientErrors['mentor.attestation'] =
           'Acknowledge the compliance review and complete the attestation.'
       }
     }
@@ -2210,7 +2228,7 @@ const validateCurrentStep = () => {
     }
     if (step === 2) {
       if (!forms.guardianConsent.participationAcknowledged) {
-        errors['guardianConsent.participationAcknowledged'] =
+        clientErrors['guardianConsent.participationAcknowledged'] =
           'Acknowledge participation to continue.'
       }
       requireValue(
@@ -2222,7 +2240,7 @@ const validateCurrentStep = () => {
   }
 
   validateCrossRoleEmails()
-  return !Object.keys(errors).length
+  return !Object.keys(clientErrors).length
 }
 
 const focusErrors = async () => {
@@ -2244,6 +2262,7 @@ const selectJourney = (value: RegistrationJourney) => {
   currentStep.value = 0
   maxReachedStep.value = 0
   clearErrors()
+  clearServerErrors()
   serverError.value = ''
   focusStep()
 }
@@ -2280,6 +2299,7 @@ const changeJourney = () => {
   currentStep.value = 0
   maxReachedStep.value = 0
   clearErrors()
+  clearServerErrors()
   serverError.value = ''
   selectionStage.value =
     isSupervisorMode.value || selectedRole.value === 'student' || selectedRole.value === 'supervisor'
@@ -2313,6 +2333,13 @@ const continueJourney = async () => {
   if (!validateCurrentStep()) {
     await focusErrors()
     return
+  }
+  const currentJourney = journey.value
+  if (currentJourney && currentJourney !== 'guardian_consent') {
+    const currentServerKeys = Object.keys(serverFieldErrors).filter(
+      (key) => earliestRegistrationErrorStep(currentJourney, [key]) === currentStep.value,
+    )
+    currentServerKeys.forEach((key) => delete serverFieldErrors[key])
   }
   currentStep.value += 1
   maxReachedStep.value = Math.max(maxReachedStep.value, currentStep.value)
@@ -2349,7 +2376,10 @@ const addStudentTeammate = () => {
 }
 
 const removeStudentTeammate = (index: number) => {
-  if (forms.studentTeam.teammates.length > 1) forms.studentTeam.teammates.splice(index, 1)
+  if (forms.studentTeam.teammates.length > 1) {
+    forms.studentTeam.teammates.splice(index, 1)
+    reindexStudentErrors('studentTeam.teammates', index)
+  }
 }
 
 const addSupervisorGroupStudent = () => {
@@ -2359,19 +2389,48 @@ const addSupervisorGroupStudent = () => {
 }
 
 const removeSupervisorGroupStudent = (index: number) => {
-  if (forms.supervisorGroup.students.length > 2) forms.supervisorGroup.students.splice(index, 1)
+  if (forms.supervisorGroup.students.length > 2) {
+    forms.supervisorGroup.students.splice(index, 1)
+    reindexStudentErrors('supervisorGroup.students', index)
+  }
+}
+
+const reindexErrorMap = (
+  errorMap: Record<string, string>,
+  prefix: string,
+  removedIndex: number,
+) => {
+  const indexedPrefix = `${prefix}.`
+  Object.entries(errorMap).forEach(([key, message]) => {
+    if (!key.startsWith(indexedPrefix)) return
+    const suffix = key.slice(indexedPrefix.length)
+    const separator = suffix.indexOf('.')
+    const indexText = separator === -1 ? suffix : suffix.slice(0, separator)
+    const fieldIndex = Number(indexText)
+    if (!Number.isInteger(fieldIndex) || fieldIndex < removedIndex) return
+    delete errorMap[key]
+    if (fieldIndex > removedIndex) {
+      errorMap[`${indexedPrefix}${fieldIndex - 1}${separator === -1 ? '' : suffix.slice(separator)}`] =
+        message
+    }
+  })
+}
+
+const reindexStudentErrors = (prefix: string, removedIndex: number) => {
+  reindexErrorMap(clientErrors, prefix, removedIndex)
+  reindexErrorMap(serverFieldErrors, prefix, removedIndex)
 }
 
 const handlePhoto = (student: StudentDetails, prefix: string, file: File) => {
-  delete errors[`${prefix}.profilePhoto`]
+  delete clientErrors[`${prefix}.profilePhoto`]
   if (!allowedPhotoTypes.has(file.type)) {
     removePhoto(student, prefix)
-    errors[`${prefix}.profilePhoto`] = 'Choose a JPG, PNG, or WebP image.'
+    clientErrors[`${prefix}.profilePhoto`] = 'Choose a JPG, PNG, or WebP image.'
     return
   }
   if (file.size > MAX_PHOTO_BYTES) {
     removePhoto(student, prefix)
-    errors[`${prefix}.profilePhoto`] = 'Choose an image no larger than 5 MB.'
+    clientErrors[`${prefix}.profilePhoto`] = 'Choose an image no larger than 5 MB.'
     return
   }
   if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
@@ -2383,7 +2442,7 @@ const removePhoto = (student: StudentDetails, prefix: string) => {
   if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
   delete photoPreviews[prefix]
   student.profilePhoto = null
-  delete errors[`${prefix}.profilePhoto`]
+  delete clientErrors[`${prefix}.profilePhoto`]
 }
 
 const handleCsvUpload = async (event: Event) => {
@@ -2392,10 +2451,10 @@ const handleCsvUpload = async (event: Event) => {
   forms.supervisorCsv.rows = []
   forms.supervisorCsv.excludedRowNumbers = []
   forms.supervisorCsv.fileName = ''
-  delete errors['supervisorCsv.file']
+  delete clientErrors['supervisorCsv.file']
   if (!file) return
   if (file.size > MAX_CSV_BYTES) {
-    errors['supervisorCsv.file'] = 'Choose a CSV no larger than 2 MB.'
+    clientErrors['supervisorCsv.file'] = 'Choose a CSV no larger than 2 MB.'
     return
   }
   try {
@@ -2444,9 +2503,10 @@ const submitRegistration = async () => {
   isSubmitting.value = true
   try {
     const result = await registrationGateway.submit(buildRegistrationRequest(journey.value, forms))
+    clearServerErrors()
     if (!result.ok) {
       const fieldErrors = result.fieldErrors || {}
-      Object.assign(errors, fieldErrors)
+      Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
       if (errorStep !== null) currentStep.value = errorStep
@@ -2483,6 +2543,7 @@ const resetRegistration = () => {
   serverError.value = ''
   csvFileErrors.value = []
   clearErrors()
+  clearServerErrors()
   scrollToTop()
 }
 

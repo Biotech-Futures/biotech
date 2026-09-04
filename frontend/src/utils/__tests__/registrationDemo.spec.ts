@@ -8,6 +8,7 @@ import {
   parseRegistrationCsv,
   registrationCsvTemplate,
 } from '@/utils/registrationDemo'
+import { buildRegistrationRequest } from '@/registration/registrationGateway'
 
 describe('registration demo factories', () => {
   it('starts group journeys at the required two-student minimum', () => {
@@ -90,6 +91,16 @@ describe('parseRegistrationCsv', () => {
     expect(result.rows).toEqual([])
     expect(result.errors[0]).toContain('Missing columns')
   })
+
+  it('rejects duplicate expected headers while allowing flexible header order', () => {
+    const reorderedHeaders = [...CSV_HEADERS].reverse()
+    const duplicateEmailHeaders = [...reorderedHeaders, 'email']
+    const result = parseRegistrationCsv(duplicateEmailHeaders.join(','))
+
+    expect(result.rows).toEqual([])
+    expect(result.errors).toContain('Duplicate columns: email.')
+    expect(result.errors.some((error) => error.startsWith('Missing columns'))).toBe(false)
+  })
 })
 
 describe('registration payload and email rules', () => {
@@ -132,6 +143,30 @@ describe('registration payload and email rules', () => {
     expect(JSON.stringify(request)).not.toContain('data:image')
   })
 
+  it('uses the same sanitizer for gateway and legacy requests', () => {
+    const forms = createRegistrationDemoForms()
+    forms.studentIndividual.student.email = ' Student@Example.com '
+    forms.studentIndividual.student.emailConfirm = ' Student@Example.com '
+    forms.studentIndividual.student.profilePhoto = {
+      name: ' profile.png ',
+      type: ' image/png ',
+      size: 2048,
+      file: new File(['photo'], 'profile.png', { type: 'image/png' }),
+      previewUrl: 'blob:preview',
+    } as typeof forms.studentIndividual.student.profilePhoto & {
+      file: File
+      previewUrl: string
+    }
+
+    const legacyRequest = buildRegistrationDemoRequest('student_individual', forms)
+    const gatewayRequest = buildRegistrationRequest('student_individual', forms)
+
+    expect(gatewayRequest).toEqual(legacyRequest)
+    expect(JSON.stringify(legacyRequest)).not.toContain('emailConfirm')
+    expect(JSON.stringify(legacyRequest)).not.toContain('previewUrl')
+    expect(JSON.stringify(legacyRequest)).not.toContain('"file"')
+  })
+
   it('excludes explicitly removed invalid CSV rows from the request', () => {
     const forms = createRegistrationDemoForms()
     const parsed = parseRegistrationCsv(registrationCsvTemplate())
@@ -139,7 +174,9 @@ describe('registration payload and email rules', () => {
     forms.supervisorCsv.excludedRowNumbers = [2]
 
     const request = buildRegistrationDemoRequest('supervisor_csv', forms)
+    const gatewayRequest = buildRegistrationRequest('supervisor_csv', forms)
     expect((request.payload as { rows: unknown[] }).rows).toEqual([])
+    expect(gatewayRequest).toEqual(request)
   })
 
   it('wraps mentor and guardian submitters in backend-discoverable objects', () => {

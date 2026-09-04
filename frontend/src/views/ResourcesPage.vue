@@ -315,7 +315,7 @@ const formatFileSize = (value?: number | null): string => {
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-let searchTimer: ReturnType<typeof window.setTimeout> | undefined
+let searchTimer: number | undefined
 watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDate], () => {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
