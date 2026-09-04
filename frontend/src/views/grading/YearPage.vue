@@ -14,8 +14,8 @@
       </div>
       <p class="year__value">{{ currentYear }}</p>
       <p class="year__hint">
-        The competition year follows the active submission deadline's year — setting next
-        year's deadline starts the new year.
+        The competition year currently in progress. Once this year's competition wraps
+        up, use Prepare New Year below to roll the platform over.
       </p>
 
       <ul class="year__facts">
@@ -23,6 +23,11 @@
           <span class="year__fact-label">Submission deadline</span>
           <span v-if="deadline">{{ new Date(deadline.closes_at).toLocaleString() }}</span>
           <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Last extension</span>
+          <span v-if="lastExtension">{{ new Date(lastExtension).toLocaleString() }}</span>
+          <span v-else class="year__muted">none granted</span>
         </li>
         <li>
           <span class="year__fact-label">Marks</span>
@@ -36,6 +41,13 @@
             {{ certsReleased ? 'released' : 'not released' }}
           </span>
         </li>
+        <li>
+          <span class="year__fact-label">Notify finalists</span>
+          <span v-if="finalists.length" :class="allNotified ? 'year__ok' : 'year__muted'">
+            {{ notifiedCount }} of {{ finalists.length }} notified
+          </span>
+          <span v-else class="year__muted">no finalists</span>
+        </li>
       </ul>
     </section>
 
@@ -48,12 +60,15 @@
           Grading shows only the new year's submissions and finalists — previous years
           stay on record.
         </li>
-        <li>
-          Sets the last year's deadline on the
-          <RouterLink to="/grading/management/submission-deadline">Submission Deadline</RouterLink>
-          tab.
-        </li>
+        <li>Sets the last year's deadline on the Submission Deadline tab.</li>
         <li>Resets marks and certificates from their tabs.</li>
+        <li>Clears all per-group deadline extensions.</li>
+        <li>Ends all group memberships — students, mentors and supervisors.</li>
+        <li>
+          Deactivates student accounts and signs them out; mentor and supervisor accounts
+          stay active.
+        </li>
+        <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
       </ol>
       <p class="year__hint">
         These steps are instructions for the backend — the Start new year button will
@@ -70,8 +85,12 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   fetchCertificatesRelease,
+  fetchFinalists,
+  fetchGroupExtensions,
   fetchRelease,
   fetchSubmissionDeadline,
+  type FinalistRow,
+  type GroupExtension,
   type ReleaseStatus,
   type SubmissionDeadline
 } from '@/utils/gradingAPI'
@@ -82,9 +101,25 @@ const UNDER_CONSTRUCTION = true
 const deadline = ref<SubmissionDeadline | null>(null)
 const marks = ref<ReleaseStatus | null>(null)
 const certs = ref<ReleaseStatus | null>(null)
+const extensions = ref<GroupExtension[]>([])
+const finalists = ref<FinalistRow[]>([])
 
 const marksReleased = computed(() => marks.value?.released_at != null)
 const certsReleased = computed(() => certs.value?.released_at != null)
+
+const notifiedCount = computed(() => finalists.value.filter((f) => f.notified).length)
+const allNotified = computed(
+  () => finalists.value.length > 0 && notifiedCount.value === finalists.value.length
+)
+
+// The furthest granted extension — the real end of this year's window.
+const lastExtension = computed(() => {
+  if (!extensions.value.length) return null
+  const sorted = extensions.value
+    .map((e) => e.extended_until)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+  return sorted[sorted.length - 1]
+})
 
 // Mirrors the backend's current_cohort: the deadline's year, or the calendar
 // year while no deadline exists.
@@ -108,6 +143,16 @@ onMounted(async () => {
     certs.value = await fetchCertificatesRelease()
   } catch {
     certs.value = null
+  }
+  try {
+    extensions.value = (await fetchGroupExtensions()).extensions
+  } catch {
+    extensions.value = []
+  }
+  try {
+    finalists.value = (await fetchFinalists()).finalists
+  } catch {
+    finalists.value = []
   }
 })
 </script>
