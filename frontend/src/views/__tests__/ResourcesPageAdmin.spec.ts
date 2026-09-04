@@ -311,6 +311,65 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       sheetWrapper.unmount()
     })
+
+    it('fetches admin resource detail and preserves role-based visibility and assigned roles when editing', async () => {
+      const mockDetail: adminApi.AdminResourceDetail = {
+        id: 101,
+        resource_name: 'Mentor Handbook 2026',
+        resource_description: 'Official mentor onboarding handbook.',
+        resource_kind: 'file',
+        resource_type: 'Guide',
+        resource_type_id: 1,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: 'mentor_handbook.pdf',
+        file_mime_type: 'application/pdf',
+        file_size: 102400,
+        audiences: [
+          {
+            id: 1,
+            role_id: 1,
+            role: { id: 1, slug: 'student', type_name: 'Student' }
+          }
+        ],
+        labels: [{ id: 1, name: 'Mentorship' }]
+      }
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(mockDetail)
+
+      const sheetWrapper = mount(AdminResourceFormSheet, {
+        props: {
+          modelValue: true,
+          resource: mockResource1
+        },
+        global: {
+          stubs: {
+            FormSheet: {
+              template: '<div><slot /></div>'
+            }
+          }
+        }
+      })
+      await flushPromises()
+
+      expect(adminApi.fetchAdminResource).toHaveBeenCalledWith(101)
+      const visibilitySelect = sheetWrapper.find('#res-visibility').element as HTMLSelectElement
+      expect(visibilitySelect.value).toBe('role_based')
+
+      // Checkbox for student (value "1") should be checked
+      const studentCheckbox = sheetWrapper
+        .findAll('fieldset input[type="checkbox"]')
+        .find((c) => (c.element as HTMLInputElement).value === '1')
+      expect((studentCheckbox?.element as HTMLInputElement).checked).toBe(true)
+
+      // Checkbox for mentor (value "2") should NOT be checked
+      const mentorCheckbox = sheetWrapper
+        .findAll('fieldset input[type="checkbox"]')
+        .find((c) => (c.element as HTMLInputElement).value === '2')
+      expect((mentorCheckbox?.element as HTMLInputElement).checked).toBe(false)
+
+      sheetWrapper.unmount()
+    })
   })
 
   describe('Batch Mode & Multi-Select', () => {

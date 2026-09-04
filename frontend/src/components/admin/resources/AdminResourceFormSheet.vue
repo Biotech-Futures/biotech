@@ -58,11 +58,18 @@
 
         <!-- Visibility -->
         <div class="form-field form-field--full">
-          <label class="form-label" for="res-visibility">Visibility *</label>
+          <div class="admin-resource-form__label-row">
+            <label class="form-label" for="res-visibility">Visibility *</label>
+            <span v-if="loadingDetail" class="admin-resource-form__detail-loading">
+              <span class="admin-resource-form__spinner" aria-hidden="true"></span>
+              <span>Loading access settings...</span>
+            </span>
+          </div>
           <select
             id="res-visibility"
             v-model="form.visibilityScope"
             class="form-input filter-select"
+            :disabled="loadingDetail || saving"
           >
             <option value="global">Global (All Users)</option>
             <option value="role_based">Role-based</option>
@@ -72,7 +79,11 @@
         <!-- Visible Roles (if role_based) -->
         <div v-if="form.visibilityScope === 'role_based'" class="form-field form-field--full">
           <label class="form-label">Visible Roles *</label>
-          <fieldset class="admin-resource-form__checkbox-grid">
+          <div v-if="loadingDetail" class="admin-resource-form__detail-loading">
+            <span class="admin-resource-form__spinner" aria-hidden="true"></span>
+            <span>Loading roles...</span>
+          </div>
+          <fieldset v-else class="admin-resource-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
               v-for="role in availableRoles"
@@ -83,6 +94,7 @@
                 type="checkbox"
                 :value="role.id"
                 :checked="form.roleIds.includes(role.id)"
+                :disabled="loadingDetail || saving"
                 @change="toggleRole(role.id)"
               />
               <span>{{ formatRoleName(role) }}</span>
@@ -217,7 +229,7 @@
         <button
           type="submit"
           class="btn btn-primary"
-          :disabled="saving || busy"
+          :disabled="saving || busy || loadingDetail"
         >
           <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
           {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
@@ -238,6 +250,7 @@ import type {
 } from '@/utils/adminAPI'
 import {
   createAdminResource,
+  fetchAdminResource,
   fetchAdminResourceRoles,
   replaceAdminResourceFile,
   updateAdminResource,
@@ -291,6 +304,8 @@ const defaultFormState = (): ResourceFormState => ({
 const form = reactive<ResourceFormState>(defaultFormState())
 const formError = ref('')
 const saving = ref(false)
+const loadingDetail = ref(false)
+const adminDetail = ref<AdminResourceDetail | null>(null)
 
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const resourceTypes = ref<ResourceType[]>([])
@@ -299,12 +314,14 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 
 const currentFileName = computed(() => {
+  if (adminDetail.value?.file_name) return adminDetail.value.file_name
   if (!props.resource) return null
   const raw = props.resource as any
   return raw.file_name || null
 })
 
 const currentFileSize = computed(() => {
+  if (adminDetail.value?.file_size) return adminDetail.value.file_size
   if (!props.resource) return null
   const raw = props.resource as any
   return raw.file_size || null
@@ -354,31 +371,18 @@ const parseLabels = (labelInput: string): string[] => {
     .filter(Boolean)
 }
 
-const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
-  formError.value = ''
-  selectedFile.value = null
-  if (fileInputRef.value) {
-    fileInputRef.value.value = ''
-  }
-
-  await loadLookups()
-
-  if (!currentResource) {
-    Object.assign(form, defaultFormState())
-    return
-  }
-
-  const raw = currentResource as any
-
-  // Extract role IDs from audiences or visible_roles
+const applyResourceData = (raw: any) => {
   let roleIds: number[] = []
   if (Array.isArray(raw.audiences)) {
-    roleIds = raw.audiences.map((a: any) => a.role_id || a.role?.id).filter(Boolean)
+    roleIds = raw.audiences
+      .map((a: any) => a.role_id || a.role?.id)
+      .filter((id: any): id is number => typeof id === 'number')
   } else if (Array.isArray(raw.visible_roles)) {
-    roleIds = raw.visible_roles.map((r: any) => r.id).filter(Boolean)
+    roleIds = raw.visible_roles
+      .map((r: any) => r.id)
+      .filter((id: any): id is number => typeof id === 'number')
   }
 
-  // Extract label names
   let labelStr = ''
   if (Array.isArray(raw.labels)) {
     labelStr = raw.labels.map((l: any) => l.name).filter(Boolean).join(', ')
@@ -386,28 +390,87 @@ const initForm = async (currentResource?: Resource | AdminResourceDetail | null)
 
   const rawTypeId = raw.type_id ?? raw.resource_type_id ?? raw.resource_type_detail?.id ?? null
 
-  const isRoleBased =
-    raw.visibility_scope === 'role_based' ||
-    raw.visibility_scope === 'role' ||
-    roleIds.length > 0
+  const hasVisibilityInfo = raw.visibility_scope !== undefined || roleIds.length > 0
+  if (hasVisibilityInfo) {
+    const isRoleBased =
+      raw.visibility_scope === 'role_based' ||
+      raw.visibility_scope === 'role' ||
+      roleIds.length > 0
 
-  Object.assign(form, {
-    name: raw.name || raw.resource_name || '',
-    description: raw.description || raw.resource_description || '',
-    kind: raw.kind || raw.resource_kind || 'file',
-    visibilityScope: isRoleBased ? 'role_based' : 'global',
-    typeId: rawTypeId,
-    roleIds,
-    labelInput: labelStr,
-    contentHtml: raw.content_html || ''
-  })
+    form.visibilityScope = isRoleBased ? 'role_based' : 'global'
+    form.roleIds = roleIds
+  }
+
+  if (raw.name || raw.resource_name) {
+    form.name = raw.name || raw.resource_name || ''
+  }
+  if (raw.description !== undefined || raw.resource_description !== undefined) {
+    form.description = raw.description || raw.resource_description || ''
+  }
+  if (raw.kind || raw.resource_kind) {
+    form.kind = raw.kind || raw.resource_kind || 'file'
+  }
+  if (rawTypeId !== undefined && rawTypeId !== null) {
+    form.typeId = rawTypeId
+  }
+  if (labelStr) {
+    form.labelInput = labelStr
+  }
+  if (raw.content_html !== undefined && raw.content_html !== null) {
+    form.contentHtml = raw.content_html || ''
+  }
+}
+
+const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
+  formError.value = ''
+  selectedFile.value = null
+  adminDetail.value = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+
+  const lookupsPromise = loadLookups()
+
+  if (!currentResource) {
+    await lookupsPromise
+    Object.assign(form, defaultFormState())
+    loadingDetail.value = false
+    return
+  }
+
+  // Pre-fill immediately with known resource fields
+  Object.assign(form, defaultFormState())
+  applyResourceData(currentResource)
+
+  // If editing an existing resource with an ID, fetch authoritative admin detail (visibility scope, audience roles, html content)
+  if (currentResource.id) {
+    loadingDetail.value = true
+    try {
+      const [detail] = await Promise.all([
+        fetchAdminResource(currentResource.id),
+        lookupsPromise
+      ])
+      if (detail && open.value && (!props.resource || props.resource.id === currentResource.id)) {
+        adminDetail.value = detail
+        applyResourceData(detail)
+      }
+    } catch (err) {
+      console.warn('Failed to fetch admin resource detail:', err)
+    } finally {
+      loadingDetail.value = false
+    }
+  } else {
+    await lookupsPromise
+  }
 }
 
 watch(
-  () => props.modelValue,
-  (isOpening) => {
+  [() => props.modelValue, () => props.resource],
+  ([isOpening, res], [wasOpening, prevRes]) => {
     if (isOpening) {
-      void initForm(props.resource)
+      if (!wasOpening || res?.id !== prevRes?.id) {
+        void initForm(res)
+      }
     }
   },
   { immediate: true }
@@ -743,6 +806,32 @@ const submitForm = async () => {
   border-top-color: var(--white);
   border-radius: 50%;
   animation: admin-spin 0.8s linear infinite;
+}
+
+.admin-resource-form__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.admin-resource-form__label-row .form-label {
+  margin-bottom: 0;
+}
+
+.admin-resource-form__detail-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.admin-resource-form__detail-loading .admin-resource-form__spinner {
+  border-color: rgba(1, 113, 81, 0.25);
+  border-top-color: var(--dark-green);
+  margin-right: 0;
 }
 
 @keyframes admin-spin {
