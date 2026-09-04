@@ -564,6 +564,10 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # above: unset means the endpoint answers 503 rather than standing open.
 SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
 
+SUBMISSION_POSTER_CHECKS_ENABLED = config(
+    "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
+)
+
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as

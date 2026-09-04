@@ -206,3 +206,42 @@ class PosterFormatUploadTests(TestCase):
 
         self.assertIn("cohort", payload["submission"])
         self.assertIsInstance(payload["submission"]["cohort"], int)
+
+    # -------------------------------------------------- the check switched off
+    def test_a_wrongly_shaped_poster_is_accepted_when_the_check_is_off(self):
+        # US Letter: refused outright while the check is on. The switch has to
+        # let a real poster through, not merely stop raising.
+        with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
+            response = self._upload(_upload_file(*US_LETTER))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(self._submission().poster)
+
+    def test_a_multi_page_poster_is_accepted_when_the_check_is_off(self):
+        with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
+            response = self._upload(_upload_file(*A2, pages=4))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_nothing_is_recorded_when_the_check_is_off(self):
+        # Not an empty finding, which a marker would read as "inspected and
+        # clean". Nothing at all, which reads as "not inspected".
+        with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
+            self._upload(_upload_file(*A2, text="no code here"))
+
+        self.assertIsNone(self._submission().poster_checks)
+
+    def test_the_page_is_told_nothing_was_checked(self):
+        with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
+            self._upload(_upload_file(*A2, text="no code here"))
+
+        payload = self.client.get(self.detail_url).data
+
+        self.assertIsNone(payload["submission"]["poster_checks"])
+
+    def test_the_check_is_on_unless_it_is_switched_off(self):
+        # The setting defaults on, so an environment that never mentions it
+        # keeps enforcing the format the client asked for.
+        response = self._upload(_upload_file(*US_LETTER))
+
+        self.assertEqual(response.status_code, 400)

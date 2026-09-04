@@ -203,10 +203,10 @@ class GroupSubmissionFileView(APIView):
             raise NoFileUploaded()
         validate_submission_file(uploaded, slot)
 
-        # Checked at upload, not at submit, so a team finds out while the file
-        # is still in front of them.
+        # Checked at upload so a team finds out while the file is in front of them.
+        # Skipped when switched off: no refusal, and nothing recorded.
         poster_flag = None
-        if slot == POSTER:
+        if slot == POSTER and settings.SUBMISSION_POSTER_CHECKS_ENABLED:
             checks = inspect_poster(uploaded, team_code=group.group_name)
             if checks.blocking:
                 # Only findings a student can verify are named; the rest

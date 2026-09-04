@@ -62,3 +62,6 @@ UNREAD_DIGEST_DISPATCH_SYNC = True
 # not have the override.
 USE_AZURE_BLOB_STORAGE = False
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
+# Pinned on, so turning it off in a local .env cannot stop the suite testing it.
+SUBMISSION_POSTER_CHECKS_ENABLED = True
