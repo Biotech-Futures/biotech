@@ -25,12 +25,18 @@ const buildTask = (overrides: Record<string, unknown> = {}) => ({ ...baseTask, .
 const fetchMockFor = (
   tasks: unknown[],
   total = tasks.length,
-  options: { roleRecipientCount?: number } = {}
+  options: {
+    roleRecipientCount?: number
+    failDeleteIds?: number[]
+    failPatchIds?: number[]
+  } = {}
 ) =>
   vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const path = String(url)
     const method = init?.method ?? 'GET'
+    const taskId = Number(path.match(/\/api\/v1\/admin\/task\/(\d+)\//)?.[1])
     let payload: unknown
+    let status = 200
 
     if (path.includes('/services/csrf/')) {
       payload = { csrfToken: 'test-token' }
@@ -41,8 +47,21 @@ const fetchMockFor = (
       }
     } else if (path.includes('/api/v1/admin/task/') && method === 'POST') {
       payload = { msg: 'Task created successfully', data: buildTask({ id: 11 }) }
+    } else if (path.includes('/api/v1/admin/task/') && method === 'DELETE') {
+      if (options.failDeleteIds?.includes(taskId)) {
+        status = 500
+        payload = { msg: 'Task delete failed', data: null }
+      } else {
+        status = 204
+        payload = null
+      }
     } else if (path.includes('/api/v1/admin/task/') && method === 'PATCH') {
-      payload = { msg: 'Task updated successfully', data: buildTask({ id: 1 }) }
+      if (options.failPatchIds?.includes(taskId)) {
+        status = 500
+        payload = { msg: 'Task update failed', data: null }
+      } else {
+        payload = { msg: 'Task updated successfully', data: buildTask({ id: 1 }) }
+      }
     } else if (path.includes('/api/v1/admin/task/')) {
       payload = {
         msg: 'Tasks retrieved successfully',
@@ -107,8 +126,8 @@ const fetchMockFor = (
     }
 
     return Promise.resolve(
-      new Response(JSON.stringify(payload), {
-        status: 200,
+      new Response(status === 204 ? null : JSON.stringify(payload), {
+        status,
         headers: { 'Content-Type': 'application/json' }
       })
     )
@@ -133,6 +152,9 @@ const submitButton = (wrapper: VueWrapper) =>
 
 const buttonByText = (wrapper: VueWrapper, text: string) =>
   wrapper.findAll('button').find((button) => button.text().trim() === text)
+
+const lastButtonByText = (wrapper: VueWrapper, text: string) =>
+  [...wrapper.findAll('button')].reverse().find((button) => button.text().trim() === text)
 
 const lastTaskMutation = (fetchMock: ReturnType<typeof vi.fn>, method: string) =>
   [...fetchMock.mock.calls]
@@ -268,6 +290,88 @@ describe('AdminTasksPage', () => {
     expect(wrapper.text()).toContain('1 task selected')
   })
 
+  it('deletes an individual task after confirmation and refreshes the list', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await buttonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Delete task')
+    expect(wrapper.text()).toContain('Delete "Submit reflection"? This cannot be undone.')
+
+    await lastButtonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    const deleteCall = lastTaskMutation(fetchMock, 'DELETE') as [string, RequestInit]
+    expect(deleteCall[0]).toContain('/api/v1/admin/task/1/')
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/v1/admin/task/')).length)
+      .toBeGreaterThan(1)
+  })
+
+  it('bulk deletes selected tasks and clears successful selections', async () => {
+    const fetchMock = fetchMockFor([
+      buildTask(),
+      buildTask({ id: 2, name: 'Prepare slides', assigned_user: 43 })
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await rowCheckboxes[2].setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2 tasks selected')
+    await buttonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Delete 2 selected tasks? This cannot be undone.')
+
+    await lastButtonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    const deleteCalls = fetchMock.mock.calls.filter(
+      ([url, init]) => String(url).includes('/api/v1/admin/task/') && init?.method === 'DELETE'
+    )
+    expect(deleteCalls.map(([url]) => String(url))).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('/api/v1/admin/task/1/'),
+        expect.stringContaining('/api/v1/admin/task/2/')
+      ])
+    )
+    expect(wrapper.text()).not.toContain('tasks selected')
+  })
+
+  it('bulk status updates selected tasks and reports partial failures', async () => {
+    const fetchMock = fetchMockFor(
+      [buildTask(), buildTask({ id: 2, name: 'Prepare slides', assigned_user: 43 })],
+      2,
+      { failPatchIds: [2] }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await rowCheckboxes[2].setValue(true)
+    await flushPromises()
+
+    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+    await flushPromises()
+
+    const patchCalls = fetchMock.mock.calls.filter(
+      ([url, init]) => String(url).includes('/api/v1/admin/task/') && init?.method === 'PATCH'
+    )
+    expect(patchCalls).toHaveLength(2)
+    expect(patchCalls.map(([, init]) => JSON.parse(String(init?.body)).status)).toEqual(['done', 'done'])
+    expect(wrapper.text()).toContain('Updated 1, but 1 could not be updated.')
+    expect(wrapper.text()).toContain('1 task selected')
+  })
+
   it('shows empty and error states', async () => {
     const emptyFetch = fetchMockFor([])
     vi.stubGlobal('fetch', emptyFetch)
@@ -382,7 +486,9 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Create role tasks')
-    expect(wrapper.text()).toContain('This will create 2 separate tasks.')
+    expect(wrapper.text()).toContain(
+      'Create a separate task for every user with the mentor role? 2 recipients will each receive a separate task. There is no single action to undo this assignment.'
+    )
     await buttonByText(wrapper, 'Create tasks')!.trigger('click')
     await flushPromises()
 

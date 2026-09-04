@@ -31,9 +31,31 @@
         <span>{{ error }}</span>
       </p>
 
-      <p v-if="selectedIds.length" class="admin-tasks__selection" aria-live="polite">
-        {{ selectedIds.length }} task{{ selectedIds.length === 1 ? '' : 's' }} selected
-      </p>
+      <BulkActionsBar
+        v-if="selectedIds.length"
+        :count="selectedIds.length"
+        noun="task"
+        :disabled="taskActionBusy"
+        @clear="clearSelection"
+      >
+        <label class="admin-tasks__bulk-status" for="task-bulk-status">
+          <span class="sr-only">Set selected task status</span>
+          <select
+            id="task-bulk-status"
+            value=""
+            :disabled="taskActionBusy"
+            @change="onBulkStatusChange"
+          >
+            <option value="" disabled>Set status</option>
+            <option v-for="status in TASK_STATUSES" :key="status" :value="status">
+              {{ taskStatusLabel(status) }}
+            </option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-sm btn-danger" :disabled="taskActionBusy" @click="openBulkDelete">
+          Delete
+        </button>
+      </BulkActionsBar>
 
       <AdminDataTable
         :columns="columns"
@@ -85,14 +107,24 @@
         </template>
 
         <template #cell-actions="{ row }">
-          <button
-            type="button"
-            class="btn btn-sm btn-outline"
-            :disabled="loading || saving"
-            @click.stop="openEdit(toTask(row))"
-          >
-            Edit
-          </button>
+          <div class="admin-tasks__row-actions">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              :disabled="loading || saving || taskActionBusy"
+              @click.stop="openEdit(toTask(row))"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-danger"
+              :disabled="loading || saving || taskActionBusy"
+              @click.stop="openSingleDelete(toTask(row))"
+            >
+              Delete
+            </button>
+          </div>
         </template>
       </AdminDataTable>
 
@@ -117,6 +149,28 @@
         @confirm="confirmRoleFanoutCreate"
         @cancel="cancelRoleFanoutCreate"
       />
+
+      <ConfirmDialog
+        v-model="singleDeleteConfirmOpen"
+        title="Delete task"
+        :message="singleDeleteMessage"
+        confirm-label="Delete"
+        variant="danger"
+        :busy="taskActionBusy"
+        @confirm="confirmSingleDelete"
+        @cancel="cancelSingleDelete"
+      />
+
+      <ConfirmDialog
+        v-model="bulkDeleteConfirmOpen"
+        title="Delete selected tasks"
+        :message="bulkDeleteMessage"
+        confirm-label="Delete"
+        variant="danger"
+        :busy="taskActionBusy"
+        @confirm="confirmBulkDelete"
+        @cancel="bulkDeleteConfirmOpen = false"
+      />
     </div>
   </div>
 </template>
@@ -127,10 +181,12 @@ import AdminDataTable, {
   type AdminColumn,
   type SortState
 } from '@/components/admin/AdminDataTable.vue'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
 import {
   createAdminTask,
+  deleteAdminTask,
   fetchAdminEventMetaRoles,
   fetchAdminGroupList,
   fetchAdminTasks,
@@ -159,6 +215,7 @@ const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   done: 'Done',
   blocked: 'Blocked'
 }
+const TASK_STATUSES = Object.keys(TASK_STATUS_LABELS) as AdminTaskStatus[]
 
 const columns: AdminColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
@@ -177,6 +234,7 @@ const taskTypeFilter = ref<TaskTypeFilter>('all')
 const selectedIds = ref<Array<string | number>>([])
 const loading = ref(false)
 const saving = ref(false)
+const taskActionBusy = ref(false)
 const error = ref('')
 const formError = ref('')
 const sortState = ref<SortState>({ key: 'due', direction: 'asc' })
@@ -188,17 +246,37 @@ const roles = ref<RoleOption[]>([])
 const roleFanoutConfirmOpen = ref(false)
 const pendingRoleFanoutPayload = ref<CreateAdminTaskPayload | null>(null)
 const pendingRoleFanoutRecipientCount = ref<number | null>(null)
+const selectedTasks = ref(new Map<string | number, AdminTask>())
+const singleDeleteConfirmOpen = ref(false)
+const taskPendingDelete = ref<AdminTask | null>(null)
+const bulkDeleteConfirmOpen = ref(false)
 
 const tableRows = computed(() => tasks.value as unknown as Record<string, unknown>[])
+const selectedTaskList = computed(() =>
+  selectedIds.value
+    .map((id) => selectedTasks.value.get(id))
+    .filter((task): task is AdminTask => Boolean(task))
+)
 const roleFanoutConfirmMessage = computed(() => {
   const payload = pendingRoleFanoutPayload.value
   const role = payload?.assigned_role ?? 'selected'
   const count = pendingRoleFanoutRecipientCount.value
-  const countText = typeof count === 'number'
-    ? ` This will create ${count} separate task${count === 1 ? '' : 's'}.`
-    : ''
-  return `Create separate tasks for every user with the ${role} role?${countText} This cannot be undone in bulk.`
+  const recipientText = count === 1
+    ? '1 recipient will receive this task.'
+    : typeof count === 'number'
+      ? `${count} recipients will each receive a separate task.`
+      : 'Each recipient will receive a separate task.'
+  return `Create a separate task for every user with the ${role} role? ${recipientText} There is no single action to undo this assignment.`
 })
+const singleDeleteMessage = computed(() => {
+  const task = taskPendingDelete.value
+  return task
+    ? `Delete "${task.name}"? This cannot be undone.`
+    : 'Delete this task? This cannot be undone.'
+})
+const bulkDeleteMessage = computed(() =>
+  `Delete ${selectedIds.value.length} selected task${selectedIds.value.length === 1 ? '' : 's'}? This cannot be undone.`
+)
 
 const toTask = (row: Record<string, unknown>) => row as unknown as AdminTask
 
@@ -215,6 +293,13 @@ const load = async () => {
     })
     tasks.value = data.items
     totalCount.value = data.total
+    if (selectedIds.value.length) {
+      const next = new Map(selectedTasks.value)
+      data.items.forEach((task) => {
+        if (selectedIds.value.includes(task.id)) next.set(task.id, task)
+      })
+      selectedTasks.value = next
+    }
   } catch (loadError) {
     logApiError('admin.tasks.list', loadError)
     error.value = loadError instanceof Error ? loadError.message : 'Tasks could not be loaded right now.'
@@ -232,6 +317,7 @@ const reloadFromFirstPage = () => {
 
 const clearSelection = () => {
   selectedIds.value = []
+  selectedTasks.value = new Map()
 }
 
 const normalizeRoles = (data: unknown): RoleOption[] => {
@@ -296,6 +382,19 @@ const openEdit = (task: AdminTask) => {
   formOpen.value = true
 }
 
+const updateSelectedTaskSnapshots = (ids: Array<string | number>) => {
+  const next = new Map(selectedTasks.value)
+  const visibleTasks = new Map(tasks.value.map((task) => [task.id, task]))
+  ids.forEach((id) => {
+    const task = visibleTasks.get(Number(id)) ?? visibleTasks.get(id as number)
+    if (task) next.set(id, task)
+  })
+  Array.from(next.keys()).forEach((id) => {
+    if (!ids.includes(id)) next.delete(id)
+  })
+  selectedTasks.value = next
+}
+
 const saveTask = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload) => {
   saving.value = true
   formError.value = ''
@@ -345,6 +444,123 @@ const confirmRoleFanoutCreate = async () => {
   await saveTask(payload)
 }
 
+const updateSelectionAfterSuccess = (doneIds: Array<string | number>) => {
+  const done = new Set(doneIds.map(String))
+  selectedIds.value = selectedIds.value.filter((id) => !done.has(String(id)))
+  const next = new Map(selectedTasks.value)
+  Array.from(next.keys()).forEach((id) => {
+    if (done.has(String(id))) next.delete(id)
+  })
+  selectedTasks.value = next
+}
+
+const reportBulkResult = (
+  verb: 'Deleted' | 'Updated',
+  doneCount: number,
+  totalCountForAction: number,
+  fallback: string
+) => {
+  const failed = totalCountForAction - doneCount
+  if (failed === 0) {
+    error.value = ''
+    return
+  }
+  error.value = doneCount
+    ? `${verb} ${doneCount}, but ${failed} could not be ${verb.toLowerCase()}.`
+    : fallback
+}
+
+const openSingleDelete = (task: AdminTask) => {
+  taskPendingDelete.value = task
+  singleDeleteConfirmOpen.value = true
+}
+
+const cancelSingleDelete = () => {
+  taskPendingDelete.value = null
+}
+
+const confirmSingleDelete = async () => {
+  if (!taskPendingDelete.value || taskActionBusy.value) return
+  const task = taskPendingDelete.value
+  taskActionBusy.value = true
+  error.value = ''
+  try {
+    await deleteAdminTask(task.id)
+    singleDeleteConfirmOpen.value = false
+    taskPendingDelete.value = null
+    updateSelectionAfterSuccess([task.id])
+    await load()
+  } catch (deleteError) {
+    logApiError('admin.tasks.delete', deleteError)
+    error.value = deleteError instanceof Error ? deleteError.message : 'Task could not be deleted.'
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
+const openBulkDelete = () => {
+  bulkDeleteConfirmOpen.value = true
+}
+
+const confirmBulkDelete = async () => {
+  const targets = selectedTaskList.value
+  if (!targets.length || taskActionBusy.value) {
+    bulkDeleteConfirmOpen.value = false
+    return
+  }
+  taskActionBusy.value = true
+  error.value = ''
+  try {
+    const outcomes = await Promise.allSettled(
+      targets.map((task) => deleteAdminTask(task.id).then(() => task.id))
+    )
+    const doneIds = outcomes
+      .filter((outcome): outcome is PromiseFulfilledResult<number> => outcome.status === 'fulfilled')
+      .map((outcome) => outcome.value)
+    updateSelectionAfterSuccess(doneIds)
+    bulkDeleteConfirmOpen.value = false
+    await load()
+    reportBulkResult('Deleted', doneIds.length, targets.length, 'Unable to delete the selected tasks.')
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
+const updateTaskStatusPayload = (task: AdminTask, status: AdminTaskStatus): UpdateAdminTaskPayload => ({
+  name: task.name,
+  description: task.description,
+  due_date: task.due_date,
+  status,
+  parent: task.parent
+})
+
+const onBulkStatusChange = async (event: Event) => {
+  const select = event.target as HTMLSelectElement
+  const status = select.value as AdminTaskStatus
+  select.value = ''
+  if (!status || taskActionBusy.value) return
+  const targets = selectedTaskList.value
+  if (!targets.length) return
+
+  taskActionBusy.value = true
+  error.value = ''
+  try {
+    const outcomes = await Promise.allSettled(
+      targets.map((task) =>
+        updateAdminTask(task.id, updateTaskStatusPayload(task, status)).then(() => task.id)
+      )
+    )
+    const doneIds = outcomes
+      .filter((outcome): outcome is PromiseFulfilledResult<number> => outcome.status === 'fulfilled')
+      .map((outcome) => outcome.value)
+    updateSelectionAfterSuccess(doneIds)
+    await load()
+    reportBulkResult('Updated', doneIds.length, targets.length, 'Unable to update the selected tasks.')
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
 const onTaskTypeChange = (event: Event) => {
   taskTypeFilter.value = (event.target as HTMLSelectElement).value as TaskTypeFilter
   clearSelection()
@@ -370,6 +586,7 @@ const onPageSizeChange = (size: number) => {
 
 const onSelectedChange = (value: Array<string | number>) => {
   selectedIds.value = value
+  updateSelectedTaskSnapshots(value)
 }
 
 const taskTypeLabel = (type: AdminTaskType) => type === 'group' ? 'Group' : 'Individual'
@@ -440,6 +657,30 @@ onMounted(() => {
   border-radius: 6px;
   background-color: var(--white);
   color: var(--charcoal);
+}
+
+.admin-tasks__bulk-status select {
+  min-width: 140px;
+  height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+}
+
+.admin-tasks__bulk-status select:disabled {
+  background-color: var(--bg-light);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.admin-tasks__row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 @media (max-width: 640px) {

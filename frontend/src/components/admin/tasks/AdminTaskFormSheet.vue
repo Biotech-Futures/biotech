@@ -2,7 +2,7 @@
   <FormSheet
     v-model="open"
     :title="isEditing ? 'Edit Task' : 'Add Task'"
-    :description="isEditing ? 'Update the task details below.' : 'Create a group task, assign one user, or fan out to every user with a role.'"
+    :description="isEditing ? 'Update the task details below.' : 'Create a group task, assign one user, or assign a task to everyone with a selected role.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-task-form" novalidate @submit.prevent="submitForm">
