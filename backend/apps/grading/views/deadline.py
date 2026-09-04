@@ -25,6 +25,8 @@ class _SetDeadlineSerializer(serializers.Serializer):
 class _SetExtensionSerializer(serializers.Serializer):
     group_id = serializers.IntegerField(min_value=1)
     extended_until = serializers.DateTimeField()
+    # Same quiet buffer as the global deadline, decided per extension.
+    grace_hours = serializers.IntegerField(min_value=0, max_value=72, default=0)
     reason = serializers.CharField(allow_blank=True, required=False, default="")
 
 
@@ -32,8 +34,8 @@ class GroupExtensionListView(APIView):
     """GET/POST /api/v1/grading/deadline/extensions/
 
     Per-team extra time on top of the global deadline. POST upserts (one
-    extension per team); the granted date is enforced exactly as entered —
-    no grace hours are added on top.
+    extension per team); students see the granted date, and the server keeps
+    accepting for the extension's own grace hours after it.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -62,6 +64,7 @@ class GroupExtensionListView(APIView):
         extension = content.set_group_extension(
             group_id=group.id,
             extended_until=payload.validated_data["extended_until"],
+            grace_hours=payload.validated_data["grace_hours"],
             reason=payload.validated_data["reason"],
             granted_by=request.user,
         )

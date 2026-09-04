@@ -115,9 +115,9 @@ class DeadlineRuleTests(TestCase):
         self.assertEqual(info.closes_at, closes)
         self.assertEqual(info.enforced_until, closes + timedelta(hours=24))
 
-    def test_an_extension_gets_no_extra_grace(self):
-        # A granted date is explicit, unlike an announced one, so it applies
-        # exactly as the admin entered it.
+    def test_an_extension_does_not_inherit_the_global_grace(self):
+        # An extension carries its own buffer (default none) rather than
+        # inheriting the global deadline's grace hours.
         Deadline.objects.create(
             closes_at=timezone.now() - timedelta(days=2), grace_hours=24, is_active=True
         )
@@ -127,6 +127,20 @@ class DeadlineRuleTests(TestCase):
         info = deadline_for_group(self.group.id)
         self.assertEqual(info.closes_at, extended)
         self.assertEqual(info.enforced_until, extended)
+
+    def test_an_extension_grace_keeps_submissions_open_past_the_granted_date(self):
+        # The extension's own grace hours work like the global one: students
+        # see extended_until, the server quietly accepts a little longer.
+        extended = timezone.now() - timedelta(hours=2)
+        GroupExtension.objects.create(
+            group=self.group, extended_until=extended, grace_hours=24
+        )
+
+        info = deadline_for_group(self.group.id)
+        self.assertEqual(info.closes_at, extended)
+        self.assertEqual(info.enforced_until, extended + timedelta(hours=24))
+        self.assertTrue(info.is_open)
+        self.assertTrue(info.is_in_grace)
 
     def test_extension_is_applied_exactly_as_entered(self):
         # An earlier extension shortens the window rather than being corrected

@@ -44,8 +44,8 @@
         <h3 class="card-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
       </div>
       <p class="deadline__hint">
-        Times are in your local timezone. Students see the closing time; the server quietly
-        keeps accepting for the grace hours after it.
+        Times are in your local timezone ({{ localTimeZone }}). Students see the closing
+        time; the server quietly keeps accepting for the grace hours after it.
       </p>
 
       <form class="deadline__form" @submit.prevent="confirmOpen = true">
@@ -104,6 +104,9 @@ import {
   type SubmissionDeadline
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { describeBrowserTimeZone } from '@/utils/date'
+
+const localTimeZone = describeBrowserTimeZone()
 
 const deadline = ref<SubmissionDeadline | null>(null)
 const isLoading = ref(false)

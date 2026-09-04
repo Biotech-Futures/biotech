@@ -328,6 +328,7 @@ def _extension_payload(extension) -> dict:
         "group_id": extension.group_id,
         "group_name": extension.group.group_name,
         "extended_until": extension.extended_until,
+        "grace_hours": extension.grace_hours,
         "reason": extension.reason,
         "granted_at": extension.granted_at,
         "granted_by": granted_by,
@@ -347,7 +348,9 @@ def group_extensions() -> list[dict]:
     ]
 
 
-def set_group_extension(*, group_id: int, extended_until, reason: str, granted_by) -> dict:
+def set_group_extension(
+    *, group_id: int, extended_until, grace_hours: int, reason: str, granted_by
+) -> dict:
     """Grant (or update) one team's extension. One per group — newest wins."""
     from django.utils import timezone
 
@@ -357,6 +360,7 @@ def set_group_extension(*, group_id: int, extended_until, reason: str, granted_b
         group_id=group_id,
         defaults={
             "extended_until": extended_until,
+            "grace_hours": grace_hours,
             "reason": reason,
             "granted_at": timezone.now(),
             "granted_by": granted_by,

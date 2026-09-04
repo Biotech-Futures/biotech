@@ -163,6 +163,9 @@ class GroupExtension(models.Model):
         related_name="submission_extension",
     )
     extended_until = models.DateTimeField()
+    # Same quiet buffer as the global deadline: students see extended_until,
+    # the server keeps accepting for these hours after it.
+    grace_hours = models.PositiveIntegerField(default=0)
     reason = models.TextField(blank=True)
     granted_at = models.DateTimeField(default=timezone.now)
     granted_by = models.ForeignKey(

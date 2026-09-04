@@ -5,7 +5,9 @@
         <h3 class="card-title">Extend Deadline</h3>
       </div>
       <p class="extensions__hint">
-        Enter the group's ID to extend their deadline. Times are in your local timezone.
+        Enter the group's ID to extend their deadline. Times are in your local timezone
+        ({{ localTimeZone }}). Students see the closing time; the server quietly keeps
+        accepting for the grace hours after it.
       </p>
       <form class="extensions__form" @submit.prevent="save">
         <label class="extensions__field">
@@ -26,6 +28,16 @@
             :min="minLocal || undefined"
             required
             class="extensions__input"
+          />
+        </label>
+        <label class="extensions__field">
+          <span>Grace hours</span>
+          <input
+            v-model.number="graceHours"
+            type="number"
+            min="0"
+            max="72"
+            class="extensions__input extensions__input--grace"
           />
         </label>
         <label class="extensions__field extensions__field--grow">
@@ -65,6 +77,7 @@
               <th>ID</th>
               <th>Group</th>
               <th>Extended until</th>
+              <th>Grace</th>
               <th>Reason</th>
               <th>Granted by</th>
               <th class="extensions__cell--right"></th>
@@ -72,12 +85,13 @@
           </thead>
           <tbody>
             <tr v-if="extensions.length === 0">
-              <td colspan="6" class="extensions__empty">No extensions granted.</td>
+              <td colspan="7" class="extensions__empty">No extensions granted.</td>
             </tr>
             <tr v-for="e in extensions" :key="e.group_id">
               <td class="extensions__muted">#{{ e.group_id }}</td>
               <td class="extensions__cell--strong">{{ e.group_name }}</td>
               <td>{{ new Date(e.extended_until).toLocaleString() }}</td>
+              <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
               <td>{{ e.reason || '—' }}</td>
               <td>{{ e.granted_by ?? '—' }}</td>
               <td class="extensions__cell--right">
@@ -108,6 +122,9 @@ import {
   type GroupExtension
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { describeBrowserTimeZone } from '@/utils/date'
+
+const localTimeZone = describeBrowserTimeZone()
 
 const extensions = ref<GroupExtension[]>([])
 const isLoading = ref(false)
@@ -118,6 +135,7 @@ const isSaving = ref(false)
 
 const groupId = ref('')
 const untilLocal = ref('')
+const graceHours = ref(0)
 const reason = ref('')
 
 // Picker floor: the calendar refuses anything at or before the current
@@ -157,10 +175,11 @@ const save = async () => {
   isSaving.value = true
   try {
     const iso = new Date(untilLocal.value).toISOString()
-    await saveGroupExtension(Number(groupId.value), iso, reason.value)
+    await saveGroupExtension(Number(groupId.value), iso, graceHours.value || 0, reason.value)
     savedMessage.value = 'Extension granted.'
     groupId.value = ''
     untilLocal.value = ''
+    graceHours.value = 0
     reason.value = ''
     await load()
   } catch (err) {
@@ -241,6 +260,10 @@ onMounted(() => {
 
 .extensions__input--narrow {
   width: 7rem;
+}
+
+.extensions__input--grace {
+  width: 5.5rem;
 }
 
 /* Hide the native number spinners — IDs are typed, not stepped. */

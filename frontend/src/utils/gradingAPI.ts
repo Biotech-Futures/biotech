@@ -330,6 +330,8 @@ export interface GroupExtension {
   group_id: number
   group_name: string
   extended_until: string
+  /** Quiet extra hours the server accepts past the granted time. */
+  grace_hours: number
   reason: string
   granted_at: string
   granted_by: string | null
@@ -344,11 +346,17 @@ export function fetchGroupExtensions(): Promise<{ extensions: GroupExtension[] }
 export function saveGroupExtension(
   groupId: number,
   extendedUntil: string,
+  graceHours: number,
   reason: string
 ): Promise<{ extension: GroupExtension }> {
   return requestJson<{ extension: GroupExtension }>('/api/v1/grading/deadline/extensions/', {
     method: 'POST',
-    body: JSON.stringify({ group_id: groupId, extended_until: extendedUntil, reason })
+    body: JSON.stringify({
+      group_id: groupId,
+      extended_until: extendedUntil,
+      grace_hours: graceHours,
+      reason
+    })
   })
 }
 

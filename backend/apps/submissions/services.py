@@ -83,12 +83,14 @@ def deadline_for_group(group_id: int) -> DeadlineInfo:
     """
     extension = GroupExtension.objects.filter(group_id=group_id).first()
     if extension is not None:
-        # An extension is a granted date, not an announced one, so no further
-        # grace is added on top — what the admin entered is what applies.
+        # An extension carries its own quiet grace hours rather than
+        # inheriting the global deadline's — the admin granting it decides
+        # both the shown date and the buffer.
         return DeadlineInfo(
             closes_at=extension.extended_until,
             is_extended=True,
-            enforced_until=extension.extended_until,
+            enforced_until=extension.extended_until
+            + timedelta(hours=extension.grace_hours),
         )
 
     deadline = active_deadline()
