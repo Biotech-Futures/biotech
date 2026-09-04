@@ -7,7 +7,10 @@ import {
   resolveSupervisorRegistrationRouteAccess,
   shouldShowSupervisorRegistrationNavigation,
 } from '@/router/registrationAccess'
-import routes from '@/router/routes'
+import {
+  PUBLIC_REGISTRATION_PATH,
+  publicRegistrationRoute,
+} from '@/router/publicRegistrationRoute'
 import {
   SUPERVISOR_REGISTRATION_PATH,
   supervisorRegistrationRoute,
@@ -16,7 +19,21 @@ import {
 describe('supervisor registration access', () => {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes,
+    routes: [
+      publicRegistrationRoute,
+      supervisorRegistrationRoute,
+      {
+        path: '/login',
+        name: 'login',
+        component: { template: '<div />' },
+        meta: { public: true, shellFree: true },
+      },
+      {
+        path: '/dashboard',
+        name: 'dashboard',
+        component: { template: '<div />' },
+      },
+    ],
   })
 
   it('declares the supervisor intake as a non-public route', () => {
@@ -127,6 +144,14 @@ describe('supervisor registration access', () => {
       expect(isShellFreeRoute(route)).toBe(true)
     },
   )
+
+  it('declares canonical registration as public and shell-free', () => {
+    expect(PUBLIC_REGISTRATION_PATH).toBe('/register')
+    expect(publicRegistrationRoute.path).toBe(PUBLIC_REGISTRATION_PATH)
+    expect(publicRegistrationRoute.name).toBe('register')
+    expect(publicRegistrationRoute.props).toEqual({ mode: 'canonical' })
+    expect(publicRegistrationRoute.meta).toEqual({ public: true, shellFree: true })
+  })
 
   it('preserves shell treatment for public and authenticated routes', () => {
     expect(isShellFreeRoute(router.resolve('/login'))).toBe(true)

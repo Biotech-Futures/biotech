@@ -621,8 +621,8 @@ const error = ref('')
 const statusMessage = ref('')
 const statusVisible = ref(false)
 const settingRsvpFor = ref<number | null>(null)
-let statusTimer: number | null = null
-let searchTimer: number | null = null
+let statusTimer: ReturnType<typeof window.setTimeout> | null = null
+let searchTimer: ReturnType<typeof window.setTimeout> | null = null
 let lastSearchTerm = ''
 
 const events = ref<BackendEvent[]>([])
