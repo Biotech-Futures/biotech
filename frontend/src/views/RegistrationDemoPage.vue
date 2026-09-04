@@ -1312,6 +1312,7 @@ import RegistrationTextField from '@/components/registration/RegistrationTextFie
 import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
 import { useAuthStore } from '@/stores/auth'
 import { developmentRegistrationGateway } from '@/registration/developmentRegistrationGateway'
+import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -2501,8 +2502,11 @@ const submitRegistration = async () => {
   try {
     const result = await registrationGateway.submit(buildRegistrationRequest(journey.value, forms))
     if (!result.ok) {
-      Object.assign(errors, result.fieldErrors)
+      const fieldErrors = result.fieldErrors || {}
+      Object.assign(errors, fieldErrors)
       serverError.value = result.message
+      const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
+      if (errorStep !== null) currentStep.value = errorStep
       await focusErrors()
       return
     }

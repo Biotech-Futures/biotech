@@ -60,6 +60,7 @@ type PageSetup = {
 const mountWithGateway = (gateway: RegistrationGateway) =>
   mount(RegistrationDemoPage, {
     props: { mode: 'canonical' },
+    attachTo: document.body,
     global: {
       plugins: [createPinia()],
       provide: { [REGISTRATION_GATEWAY_KEY as symbol]: gateway },
@@ -151,6 +152,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  document.body.innerHTML = ''
   vi.unstubAllGlobals()
 })
 
@@ -181,7 +183,7 @@ describe('registration gateway UI integration', () => {
     expect(wrapper.text()).toContain('Guardian consent is still required before full registration')
   })
 
-  it('renders backend-shaped field errors without declaring success', async () => {
+  it('returns student email errors to the rendered first-step field and focuses it', async () => {
     const gateway: RegistrationGateway = {
       async submit() {
         return {
@@ -195,9 +197,53 @@ describe('registration gateway UI integration', () => {
     await prepareStudent(wrapper)
     await submit(wrapper)
 
+    await vi.waitFor(() => expect(setupOf(wrapper).currentStep).toBe(0))
+    const email = wrapper.get('#studentIndividual-student-email')
+    expect(email.attributes('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(email.element)
     expect(wrapper.text()).toContain('This address is already registered.')
     expect(wrapper.text()).toContain('Review the highlighted information.')
     expect(wrapper.text()).not.toContain('Registration details received')
+  })
+
+  it('returns later-step mentor errors to their rendered contribution field', async () => {
+    const gateway: RegistrationGateway = {
+      async submit() {
+        return {
+          ok: false,
+          message: 'Review the highlighted information.',
+          fieldErrors: { 'mentor.background': 'Add more detail about your experience.' },
+        }
+      },
+    }
+    const wrapper = mountWithGateway(gateway)
+    await prepareMentor(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(setupOf(wrapper).currentStep).toBe(2))
+    const background = wrapper.get('#mentor-background')
+    expect(background.attributes('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(background.element)
+    expect(wrapper.text()).toContain('Add more detail about your experience.')
+  })
+
+  it('keeps unknown server field errors summarized on the review step', async () => {
+    const gateway: RegistrationGateway = {
+      async submit() {
+        return {
+          ok: false,
+          message: 'Review the registration response.',
+          fieldErrors: { 'registration.unmapped': 'The server could not map this field.' },
+        }
+      },
+    }
+    const wrapper = mountWithGateway(gateway)
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('The server could not map this field.'))
+    expect(setupOf(wrapper).currentStep).toBe(3)
+    expect(document.activeElement).toBe(wrapper.get('.error-summary').element)
   })
 
   it('recovers from a failed submission without losing entered data', async () => {
