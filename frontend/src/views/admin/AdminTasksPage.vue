@@ -20,6 +20,10 @@
             <option value="individual">Individual</option>
           </select>
         </label>
+        <button type="button" class="btn btn-primary" :disabled="loading || saving" @click="openCreate">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>Add Task</span>
+        </button>
       </div>
 
       <p v-if="error" class="admin-tasks__error" role="alert">
@@ -80,10 +84,39 @@
           {{ formatDueDate(toTask(row).due_date) }}
         </template>
 
-        <template #cell-actions>
-          <span class="admin-tasks__muted">-</span>
+        <template #cell-actions="{ row }">
+          <button
+            type="button"
+            class="btn btn-sm btn-outline"
+            :disabled="loading || saving"
+            @click.stop="openEdit(toTask(row))"
+          >
+            Edit
+          </button>
         </template>
       </AdminDataTable>
+
+      <AdminTaskFormSheet
+        v-model="formOpen"
+        :task="editingTask"
+        :groups="groups"
+        :users="users"
+        :roles="roles"
+        :busy="saving"
+        :submit-error="formError"
+        @save="onFormSave"
+      />
+
+      <ConfirmDialog
+        v-model="roleFanoutConfirmOpen"
+        title="Create role tasks"
+        :message="roleFanoutConfirmMessage"
+        confirm-label="Create tasks"
+        variant="warning"
+        :busy="saving"
+        @confirm="confirmRoleFanoutCreate"
+        @cancel="cancelRoleFanoutCreate"
+      />
     </div>
   </div>
 </template>
@@ -94,12 +127,23 @@ import AdminDataTable, {
   type AdminColumn,
   type SortState
 } from '@/components/admin/AdminDataTable.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
 import {
+  createAdminTask,
+  fetchAdminEventMetaRoles,
+  fetchAdminGroupList,
   fetchAdminTasks,
+  fetchAdminUsers,
+  updateAdminTask,
+  type AdminGroup,
   type AdminTask,
   type AdminTaskSortBy,
   type AdminTaskStatus,
-  type AdminTaskType
+  type AdminTaskType,
+  type AdminUser,
+  type CreateAdminTaskPayload,
+  type UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { formatDateAU } from '@/utils/date'
@@ -107,6 +151,7 @@ import { formatDateAU } from '@/utils/date'
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
 type TaskTypeFilter = 'all' | AdminTaskType
+type RoleOption = { id?: number; roleName: string }
 
 const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   todo: 'To Do',
@@ -131,10 +176,29 @@ const limit = ref(25)
 const taskTypeFilter = ref<TaskTypeFilter>('all')
 const selectedIds = ref<Array<string | number>>([])
 const loading = ref(false)
+const saving = ref(false)
 const error = ref('')
+const formError = ref('')
 const sortState = ref<SortState>({ key: 'due', direction: 'asc' })
+const formOpen = ref(false)
+const editingTask = ref<AdminTask | null>(null)
+const groups = ref<AdminGroup[]>([])
+const users = ref<AdminUser[]>([])
+const roles = ref<RoleOption[]>([])
+const roleFanoutConfirmOpen = ref(false)
+const pendingRoleFanoutPayload = ref<CreateAdminTaskPayload | null>(null)
+const pendingRoleFanoutRecipientCount = ref<number | null>(null)
 
 const tableRows = computed(() => tasks.value as unknown as Record<string, unknown>[])
+const roleFanoutConfirmMessage = computed(() => {
+  const payload = pendingRoleFanoutPayload.value
+  const role = payload?.assigned_role ?? 'selected'
+  const count = pendingRoleFanoutRecipientCount.value
+  const countText = typeof count === 'number'
+    ? ` This will create ${count} separate task${count === 1 ? '' : 's'}.`
+    : ''
+  return `Create separate tasks for every user with the ${role} role?${countText} This cannot be undone in bulk.`
+})
 
 const toTask = (row: Record<string, unknown>) => row as unknown as AdminTask
 
@@ -168,6 +232,117 @@ const reloadFromFirstPage = () => {
 
 const clearSelection = () => {
   selectedIds.value = []
+}
+
+const normalizeRoles = (data: unknown): RoleOption[] => {
+  const rows =
+    Array.isArray(data)
+      ? data
+      : data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data)
+        ? (data as { data: unknown[] }).data
+        : []
+  const result: RoleOption[] = []
+  rows.forEach((role) => {
+    if (!role || typeof role !== 'object') return
+    const value = role as { id?: unknown; roleName?: unknown; role_name?: unknown }
+    const roleName = typeof value.roleName === 'string'
+      ? value.roleName
+      : typeof value.role_name === 'string'
+        ? value.role_name
+        : ''
+    if (!roleName) return
+    result.push({
+      id: typeof value.id === 'number' ? value.id : undefined,
+      roleName
+    })
+  })
+  return result
+}
+
+const loadOptions = async () => {
+  try {
+    const [groupData, userData, roleData] = await Promise.all([
+      fetchAdminGroupList({ page: 1, limit: 200 }),
+      fetchAdminUsers({ page: 1, limit: 200, sortBy: 'name', sortOrder: 'asc' }),
+      fetchAdminEventMetaRoles()
+    ])
+    groups.value = groupData.items.map((group) => ({
+      id: group.id,
+      name: group.name
+    }))
+    users.value = userData.items
+    roles.value = normalizeRoles(roleData)
+  } catch (optionsError) {
+    logApiError('admin.tasks.options', optionsError)
+    error.value =
+      optionsError instanceof Error
+        ? optionsError.message
+        : 'Task assignment options could not be loaded right now.'
+    groups.value = []
+    users.value = []
+    roles.value = []
+  }
+}
+
+const openCreate = () => {
+  editingTask.value = null
+  formError.value = ''
+  formOpen.value = true
+}
+
+const openEdit = (task: AdminTask) => {
+  editingTask.value = task
+  formError.value = ''
+  formOpen.value = true
+}
+
+const saveTask = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload) => {
+  saving.value = true
+  formError.value = ''
+  try {
+    if (editingTask.value) {
+      await updateAdminTask(editingTask.value.id, payload as UpdateAdminTaskPayload)
+    } else {
+      await createAdminTask(payload as CreateAdminTaskPayload)
+    }
+    formOpen.value = false
+    editingTask.value = null
+    await load()
+  } catch (saveError) {
+    logApiError('admin.tasks.save', saveError)
+    formError.value = saveError instanceof Error ? saveError.message : 'Task could not be saved.'
+  } finally {
+    saving.value = false
+  }
+}
+
+const onFormSave = async (
+  payload: CreateAdminTaskPayload | UpdateAdminTaskPayload,
+  recipientCount?: number | null
+) => {
+  if (saving.value) return
+  if (!editingTask.value && 'assigned_role' in payload && payload.assigned_role) {
+    pendingRoleFanoutPayload.value = payload
+    pendingRoleFanoutRecipientCount.value = recipientCount ?? null
+    roleFanoutConfirmOpen.value = true
+    return
+  }
+
+  await saveTask(payload)
+}
+
+const cancelRoleFanoutCreate = () => {
+  pendingRoleFanoutPayload.value = null
+  pendingRoleFanoutRecipientCount.value = null
+}
+
+const confirmRoleFanoutCreate = async () => {
+  if (!pendingRoleFanoutPayload.value) return
+  const payload = pendingRoleFanoutPayload.value
+  pendingRoleFanoutPayload.value = null
+  pendingRoleFanoutRecipientCount.value = null
+  roleFanoutConfirmOpen.value = false
+  await saveTask(payload)
 }
 
 const onTaskTypeChange = (event: Event) => {
@@ -210,6 +385,7 @@ const formatDueDate = (value: string | null) => value ? formatDateAU(value) : '-
 
 onMounted(() => {
   void load()
+  void loadOptions()
 })
 </script>
 
@@ -237,8 +413,14 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.75rem;
+}
+
+.admin-tasks__table-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .admin-tasks__filter {
@@ -258,6 +440,26 @@ onMounted(() => {
   border-radius: 6px;
   background-color: var(--white);
   color: var(--charcoal);
+}
+
+@media (max-width: 640px) {
+  .admin-tasks__table-toolbar {
+    align-items: stretch;
+  }
+
+  .admin-tasks__filter {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .admin-tasks__filter select {
+    flex: 1;
+  }
+
+  .admin-tasks__table-toolbar .btn {
+    justify-content: center;
+    width: 100%;
+  }
 }
 
 .admin-tasks__error {
