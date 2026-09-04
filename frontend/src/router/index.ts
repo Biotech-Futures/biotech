@@ -50,6 +50,12 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 import routes from './routes'
 import { normalizeDirectAuthRedirect } from './normalizeAuthRedirect'
+import { resolveSupervisorRegistrationAccess } from './registrationAccess'
+import {
+  REGISTRATION_UI_TEST_PATH,
+  resolveRegistrationUiTestAccess,
+} from './registrationUiTestRoute'
+import { SUPERVISOR_REGISTRATION_PATH } from './supervisorRegistrationRoute'
 
 normalizeDirectAuthRedirect()
 
@@ -62,13 +68,29 @@ import { useAuthStore } from '../stores/auth'
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/register', '/registration-demo', '/auth/callback', '/auth/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
-  const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
+  const isRegistrationUiTestPath = to.path === REGISTRATION_UI_TEST_PATH
+  const registrationUiTestAccess = isRegistrationUiTestPath
+    ? resolveRegistrationUiTestAccess(import.meta.env.DEV)
+    : true
+  const isPublicPath =
+    publicPaths.includes(to.path) ||
+    (isRegistrationUiTestPath && registrationUiTestAccess === true)
+  const isSupervisorRegistrationPath = to.path === SUPERVISOR_REGISTRATION_PATH
+  const supervisorRegistrationAccess = isSupervisorRegistrationPath
+    ? resolveSupervisorRegistrationAccess(auth)
+    : true
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (registrationUiTestAccess !== true) {
+    next(registrationUiTestAccess)
+
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
@@ -80,7 +102,12 @@ router.beforeEach((to, from, next) => {
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
+  } else if (
+    !isPublicPath &&
+    !isSupervisorRegistrationPath &&
+    auth.isAuthenticated &&
+    auth.isAdmin
+  ) {
     next('/login')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {

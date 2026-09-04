@@ -294,7 +294,15 @@ const toggleTheme = () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
+  [
+    '/login',
+    '/register',
+    '/registration-demo',
+    '/registration-ui-test',
+    '/auth/callback',
+    '/auth/reset-password',
+    '/auth/set-password',
+  ].includes(route.path),
 )
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
