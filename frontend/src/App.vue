@@ -75,6 +75,17 @@
               </RouterLink>
             </li>
 
+            <li v-if="showSupervisorRegistrationNavigation" class="sidebar-item">
+              <RouterLink
+                :to="SUPERVISOR_REGISTRATION_PATH"
+                class="sidebar-link"
+                :class="{ active: route.path === SUPERVISOR_REGISTRATION_PATH }"
+              >
+                <i class="fas fa-user-plus sidebar-icon"></i>
+                <span>Registration</span>
+              </RouterLink>
+            </li>
+
             <li class="sidebar-item">
               <RouterLink
                 to="/events"
@@ -248,7 +259,8 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
-import { EMBEDDED_SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
+import { shouldShowSupervisorRegistrationNavigation } from '@/router/registrationAccess'
+import { SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
 
 const route = useRoute()
 const router = useRouter()
@@ -300,7 +312,6 @@ const isLoginPage = computed(() =>
     '/register',
     '/registration-demo',
     '/registration-ui-test',
-    EMBEDDED_SUPERVISOR_REGISTRATION_PATH,
     '/auth/callback',
     '/auth/reset-password',
     '/auth/set-password',
@@ -308,6 +319,9 @@ const isLoginPage = computed(() =>
 )
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
+)
+const showSupervisorRegistrationNavigation = computed(() =>
+  shouldShowSupervisorRegistrationNavigation(auth),
 )
 const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)

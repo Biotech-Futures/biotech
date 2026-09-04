@@ -4,9 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RegistrationDemoPage from '@/views/RegistrationDemoPage.vue'
 
-const mountPage = (
-  mode: 'canonical' | 'demo' | 'supervisor' | 'embedded-supervisor' = 'canonical',
-) =>
+const mountPage = (mode: 'canonical' | 'demo' | 'supervisor' = 'canonical') =>
   mount(RegistrationDemoPage, {
     props: { mode },
     global: {
@@ -135,7 +133,10 @@ describe('canonical registration intake', () => {
     const wrapper = mountPage('supervisor')
 
     expect(wrapper.find('.registration-header').exists()).toBe(false)
-    expect(wrapper.text()).toContain('How are you registering students?')
+    expect(wrapper.text()).toContain('Register students')
+    expect(wrapper.text()).not.toContain('How are you registering students?')
+    expect(wrapper.text()).not.toContain('Step 2 of 2')
+    expect(wrapper.find('.setup-heading--supervisor').exists()).toBe(true)
     await clickButton(wrapper, 'Register one student')
     expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
       'Student',
@@ -144,6 +145,9 @@ describe('canonical registration intake', () => {
     ])
     expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Confirm the signed-in account')
+    expect(wrapper.find('.form-progress').exists()).toBe(true)
+    expect(wrapper.find('.step-navigation').attributes('aria-label')).toBe('Registration progress')
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(3)
 
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
@@ -152,16 +156,6 @@ describe('canonical registration intake', () => {
     const csv = mountPage('supervisor')
     await clickButton(csv, 'Upload students by CSV')
     expect(csv.text()).toContain('Choose completed CSV')
-  })
-
-  it('starts embedded supervisor mode at the chooser without a standalone header', () => {
-    const wrapper = mountPage('embedded-supervisor')
-
-    expect(wrapper.find('.registration-header').exists()).toBe(false)
-    expect(wrapper.text()).toContain('How are you registering students?')
-    expect(wrapper.text()).toContain('Register one student')
-    expect(wrapper.text()).toContain('Register a student group')
-    expect(wrapper.text()).toContain('Upload students by CSV')
   })
 
   it('puts creator profile and support before team configuration and removes naming', async () => {

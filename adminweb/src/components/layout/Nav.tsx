@@ -20,7 +20,6 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
-  ClipboardPlusIcon,
 } from "lucide-react";
 
 type NavItem = {
@@ -49,11 +48,6 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Users", url: "/people", icon: <UserIcon />, exact: true },
       { title: "Students", url: "/people/students", icon: <GraduationCapIcon /> },
       { title: "Mentors", url: "/people/mentors", icon: <HandshakeIcon /> },
-      {
-        title: "Registration",
-        url: "/people/registration",
-        icon: <ClipboardPlusIcon />,
-      },
     ],
   },
   {

@@ -1,5 +1,8 @@
 <template>
-  <main class="registration-page">
+  <main
+    class="registration-page"
+    :class="{ 'registration-page--supervisor': isSupervisorMode }"
+  >
     <div class="page-atmosphere" aria-hidden="true"></div>
 
     <header v-if="!isSupervisorMode && !isUiTest" class="registration-header">
@@ -54,11 +57,7 @@
         <button type="button" class="primary-action" @click="resetRegistration">
           Start another journey
         </button>
-        <RouterLink
-          v-if="!isEmbeddedSupervisor"
-          :to="isSupervisorMode ? '/dashboard' : '/login'"
-          class="secondary-action"
-        >
+        <RouterLink :to="isSupervisorMode ? '/dashboard' : '/login'" class="secondary-action">
           {{ isSupervisorMode ? 'Return to dashboard' : 'Return to sign in' }}
         </RouterLink>
       </div>
@@ -173,6 +172,7 @@
     <section
       v-else-if="!journey && selectionStage === 'pathway'"
       class="setup-layout"
+      :class="{ 'setup-layout--supervisor': isSupervisorMode }"
       aria-labelledby="pathway-title"
     >
       <button
@@ -183,7 +183,7 @@
       >
         ← Back to roles
       </button>
-      <div class="setup-progress" aria-label="Registration setup progress">
+      <div v-if="!isSupervisorMode" class="setup-progress" aria-label="Registration setup progress">
         <div class="setup-progress__copy">
           <span>Registration setup</span>
           <strong>Step 2 of 2</strong>
@@ -192,7 +192,10 @@
           <span style="width: 100%"></span>
         </div>
       </div>
-      <header class="setup-heading">
+      <header
+        class="setup-heading"
+        :class="{ 'setup-heading--supervisor': isSupervisorMode }"
+      >
         <h1 id="pathway-title">{{ pathwayHeading }}</h1>
         <p>{{ pathwayDescription }}</p>
       </header>
@@ -1618,17 +1621,14 @@ const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: strin
 
 const props = withDefaults(
   defineProps<{
-    mode?: 'canonical' | 'demo' | 'supervisor' | 'embedded-supervisor' | 'ui-test'
+    mode?: 'canonical' | 'demo' | 'supervisor' | 'ui-test'
     initialJourney?: RegistrationJourney | null
   }>(),
   { mode: 'canonical', initialJourney: null },
 )
 const isDemo = computed(() => props.mode === 'demo')
 const isUiTest = computed(() => props.mode === 'ui-test')
-const isEmbeddedSupervisor = computed(() => props.mode === 'embedded-supervisor')
-const isSupervisorMode = computed(
-  () => props.mode === 'supervisor' || isEmbeddedSupervisor.value,
-)
+const isSupervisorMode = computed(() => props.mode === 'supervisor')
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
 const unavailableGateway: RegistrationGateway = {
   async submit() {
@@ -1711,9 +1711,11 @@ const roleJourneyOptions = computed(() => {
   return journeyOptions.filter((option) => option.value === 'mentor')
 })
 const pathwayHeading = computed(() =>
-  selectedRole.value === 'student'
-    ? 'How would you like to register?'
-    : 'How are you registering students?',
+  isSupervisorMode.value
+    ? 'Register students'
+    : selectedRole.value === 'student'
+      ? 'How would you like to register?'
+      : 'How are you registering students?',
 )
 const pathwayDescription = computed(() =>
   selectedRole.value === 'student'
@@ -2556,6 +2558,55 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+.registration-page--supervisor {
+  --registration-ink: var(--text-main, #253730);
+  --registration-muted: var(--text-soft, #66756f);
+  --registration-green: var(--dark-green, #017151);
+  --registration-green-dark: var(--dark-green, #017151);
+  --registration-line: var(--line-mid, rgba(14, 31, 25, 0.14));
+  min-height: auto;
+  overflow: visible;
+  background: var(--bg-light, #f8f9fa);
+  font-family: inherit;
+}
+
+.registration-page--supervisor .page-atmosphere {
+  display: none;
+}
+
+.registration-page--supervisor .setup-layout,
+.registration-page--supervisor .work-layout {
+  width: min(100%, 1080px);
+  margin-right: auto;
+  margin-bottom: 32px;
+  margin-left: auto;
+}
+
+.registration-page--supervisor .pathway-choices,
+.registration-page--supervisor .form-surface {
+  border-color: var(--line-mid, rgba(14, 31, 25, 0.14));
+  border-radius: 12px;
+  background: var(--white, #fff);
+  box-shadow: var(--shadow-soft, 0 12px 28px rgba(7, 17, 15, 0.06));
+}
+
+.registration-page--supervisor .pathway-choice {
+  min-height: 88px;
+  padding: 18px 22px;
+}
+
+.registration-page--supervisor .pathway-choice:hover,
+.registration-page--supervisor .pathway-choice:focus-visible {
+  background: var(--light-green, #e9f5ef);
+}
+
+.registration-page--supervisor .work-layout .journey-context h1 {
+  max-width: none;
+  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
 .page-atmosphere {
   position: absolute;
   inset: 0;
@@ -2844,6 +2895,25 @@ onBeforeUnmount(() => {
   color: var(--registration-muted);
   font-size: 1rem;
   line-height: 1.6;
+}
+
+.setup-layout.setup-layout--supervisor {
+  margin-top: 28px;
+}
+
+.setup-heading.setup-heading--supervisor {
+  margin: 20px 0 24px;
+}
+
+.setup-heading--supervisor h1 {
+  max-width: none;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.setup-heading--supervisor p {
+  margin-top: 8px;
 }
 
 .role-options {

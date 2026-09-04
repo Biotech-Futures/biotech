@@ -11,3 +11,7 @@ export const resolveSupervisorRegistrationAccess = (
   if (!auth.isSupervisor && !auth.isAdmin) return '/dashboard'
   return true
 }
+
+export const shouldShowSupervisorRegistrationNavigation = (
+  auth: Pick<RegistrationAccessState, 'isAuthenticated' | 'isSupervisor'>,
+): boolean => auth.isAuthenticated && auth.isSupervisor

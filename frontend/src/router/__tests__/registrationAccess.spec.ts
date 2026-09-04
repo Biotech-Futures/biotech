@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveSupervisorRegistrationAccess } from '@/router/registrationAccess'
 import {
-  EMBEDDED_SUPERVISOR_REGISTRATION_PATH,
-  embeddedSupervisorRegistrationRoute,
+  resolveSupervisorRegistrationAccess,
+  shouldShowSupervisorRegistrationNavigation,
+} from '@/router/registrationAccess'
+import {
   SUPERVISOR_REGISTRATION_PATH,
-  SUPERVISOR_REGISTRATION_PATHS,
   supervisorRegistrationRoute,
 } from '@/router/supervisorRegistrationRoute'
 import { resolveRegistrationUiTestAccess } from '@/router/registrationUiTestRoute'
@@ -16,15 +16,27 @@ describe('supervisor registration access', () => {
     expect(supervisorRegistrationRoute.path).toBe(SUPERVISOR_REGISTRATION_PATH)
     expect(supervisorRegistrationRoute.name).toBe('supervisor-registration')
     expect(supervisorRegistrationRoute.props).toEqual({ mode: 'supervisor' })
-    expect(embeddedSupervisorRegistrationRoute.path).toBe(
-      EMBEDDED_SUPERVISOR_REGISTRATION_PATH,
-    )
-    expect(embeddedSupervisorRegistrationRoute.name).toBe('embedded-supervisor-registration')
-    expect(embeddedSupervisorRegistrationRoute.props).toEqual({ mode: 'embedded-supervisor' })
-    expect(SUPERVISOR_REGISTRATION_PATHS).toEqual([
-      '/supervisor/registration',
-      '/supervisor/registration/embed',
-    ])
+  })
+
+  it('shows supervisor navigation only for an authenticated supervisor', () => {
+    expect(
+      shouldShowSupervisorRegistrationNavigation({
+        isAuthenticated: true,
+        isSupervisor: true,
+      }),
+    ).toBe(true)
+    expect(
+      shouldShowSupervisorRegistrationNavigation({
+        isAuthenticated: false,
+        isSupervisor: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowSupervisorRegistrationNavigation({
+        isAuthenticated: true,
+        isSupervisor: false,
+      }),
+    ).toBe(false)
   })
 
   it('allows supervisors and administrators', () => {
@@ -65,6 +77,5 @@ describe('supervisor registration access', () => {
     expect(resolveRegistrationUiTestAccess(false)).toBe('/register')
     expect(resolveRegistrationUiTestAccess(true)).toBe(true)
     expect(SUPERVISOR_REGISTRATION_PATH).toBe('/supervisor/registration')
-    expect(EMBEDDED_SUPERVISOR_REGISTRATION_PATH).toBe('/supervisor/registration/embed')
   })
 })

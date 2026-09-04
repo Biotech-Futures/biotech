@@ -31,7 +31,6 @@ import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index
 import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
 import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
 import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
-import { Route as AuthPeopleRegistrationRouteImport } from './routes/_auth/people/registration'
 import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
 import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
 import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
@@ -146,11 +145,6 @@ const AuthPeopleStudentsRoute = AuthPeopleStudentsRouteImport.update({
   path: '/students',
   getParentRoute: () => AuthPeopleRouteRoute,
 } as any)
-const AuthPeopleRegistrationRoute = AuthPeopleRegistrationRouteImport.update({
-  id: '/registration',
-  path: '/registration',
-  getParentRoute: () => AuthPeopleRouteRoute,
-} as any)
 const AuthPeopleMentorsRoute = AuthPeopleMentorsRouteImport.update({
   id: '/mentors',
   path: '/mentors',
@@ -196,7 +190,6 @@ export interface FileRoutesByFullPath {
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/people/mentors': typeof AuthPeopleMentorsRoute
-  '/people/registration': typeof AuthPeopleRegistrationRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups/': typeof AuthGroupsIndexRoute
@@ -222,7 +215,6 @@ export interface FileRoutesByTo {
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/people/mentors': typeof AuthPeopleMentorsRoute
-  '/people/registration': typeof AuthPeopleRegistrationRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups': typeof AuthGroupsIndexRoute
@@ -252,7 +244,6 @@ export interface FileRoutesById {
   '/_auth/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/_auth/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/_auth/people/mentors': typeof AuthPeopleMentorsRoute
-  '/_auth/people/registration': typeof AuthPeopleRegistrationRoute
   '/_auth/people/students': typeof AuthPeopleStudentsRoute
   '/_auth/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/_auth/groups/': typeof AuthGroupsIndexRoute
@@ -282,7 +273,6 @@ export interface FileRouteTypes {
     | '/groups/mentor-matching'
     | '/groups/student-matching'
     | '/people/mentors'
-    | '/people/registration'
     | '/people/students'
     | '/people/supervisors'
     | '/groups/'
@@ -308,7 +298,6 @@ export interface FileRouteTypes {
     | '/groups/mentor-matching'
     | '/groups/student-matching'
     | '/people/mentors'
-    | '/people/registration'
     | '/people/students'
     | '/people/supervisors'
     | '/groups'
@@ -337,7 +326,6 @@ export interface FileRouteTypes {
     | '/_auth/groups/mentor-matching'
     | '/_auth/groups/student-matching'
     | '/_auth/people/mentors'
-    | '/_auth/people/registration'
     | '/_auth/people/students'
     | '/_auth/people/supervisors'
     | '/_auth/groups/'
@@ -508,13 +496,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthPeopleStudentsRouteImport
       parentRoute: typeof AuthPeopleRouteRoute
     }
-    '/_auth/people/registration': {
-      id: '/_auth/people/registration'
-      path: '/registration'
-      fullPath: '/people/registration'
-      preLoaderRoute: typeof AuthPeopleRegistrationRouteImport
-      parentRoute: typeof AuthPeopleRouteRoute
-    }
     '/_auth/people/mentors': {
       id: '/_auth/people/mentors'
       path: '/mentors'
@@ -566,7 +547,6 @@ const AuthGroupsRouteRouteWithChildren = AuthGroupsRouteRoute._addFileChildren(
 
 interface AuthPeopleRouteRouteChildren {
   AuthPeopleMentorsRoute: typeof AuthPeopleMentorsRoute
-  AuthPeopleRegistrationRoute: typeof AuthPeopleRegistrationRoute
   AuthPeopleStudentsRoute: typeof AuthPeopleStudentsRoute
   AuthPeopleSupervisorsRoute: typeof AuthPeopleSupervisorsRoute
   AuthPeopleIndexRoute: typeof AuthPeopleIndexRoute
@@ -574,7 +554,6 @@ interface AuthPeopleRouteRouteChildren {
 
 const AuthPeopleRouteRouteChildren: AuthPeopleRouteRouteChildren = {
   AuthPeopleMentorsRoute: AuthPeopleMentorsRoute,
-  AuthPeopleRegistrationRoute: AuthPeopleRegistrationRoute,
   AuthPeopleStudentsRoute: AuthPeopleStudentsRoute,
   AuthPeopleSupervisorsRoute: AuthPeopleSupervisorsRoute,
   AuthPeopleIndexRoute: AuthPeopleIndexRoute,
