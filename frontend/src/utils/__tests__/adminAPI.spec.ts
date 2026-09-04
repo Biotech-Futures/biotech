@@ -3,6 +3,7 @@ import {
   buildAdminQuery,
   fetchAdminSummary,
   fetchAdminUsers,
+  importAdminStudents,
   deleteAdminUser,
   bulkSetUsersActive,
   bulkDeleteUsers,
@@ -212,6 +213,71 @@ describe('bulk user actions', () => {
     expect(body.expectedCount).toBe(2)
     expect(body.filters).toEqual({ search: 'ada', role: 'student' })
     expect(body.excludeIds).toEqual([3])
+  })
+
+  it('importAdminStudents posts parsed student rows and unwraps the result envelope', async () => {
+    const rows = [
+      {
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada.lovelace@example.edu',
+        country: 'Australia',
+        state: 'NSW',
+        schoolName: 'Sydney Girls High School',
+        yearLevel: 11,
+        interests: ['Genetics', 'Bioinformatics'],
+        guardianFirstName: 'Anne',
+        guardianLastName: 'Lovelace',
+        guardianEmail: 'anne.lovelace@example.com',
+        supervisorFirstName: 'Mary',
+        supervisorLastName: 'Somerville',
+        supervisorEmail: 'm.somerville@example.edu',
+        joinpermResponseId: 'R_1a2b3c4d5e6f7g8',
+        active: true,
+        groupNumber: '1'
+      }
+    ]
+    const payload = {
+      msg: 'Bulk import complete: 1 created, 1 skipped, 1 co-registration group created',
+      data: {
+        created: [{ id: 1, firstName: 'Ada', lastName: 'Lovelace', email: 'ada.lovelace@example.edu' }],
+        skipped: [{ email: 'existing@example.edu', reason: 'Email already exists' }],
+        coRegistration: {
+          groupsCreated: [{ name: 'BTF1', memberCount: 2 }],
+          warnings: ['BTF1 has 6 members']
+        }
+      }
+    }
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string) => {
+        if (String(url).includes('/services/csrf/')) {
+          return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await importAdminStudents(rows)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/bulk/')) as [string, RequestInit]
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(rows)
+    expect(result).toEqual(payload)
+    expect(result.data.created).toHaveLength(1)
+    expect(result.data.skipped[0]).toEqual({
+      email: 'existing@example.edu',
+      reason: 'Email already exists'
+    })
+    expect(result.data.coRegistration?.groupsCreated[0]).toEqual({
+      name: 'BTF1',
+      memberCount: 2
+    })
   })
 })
 

@@ -8,6 +8,7 @@
       :loading="loading"
       v-model:search="searchInput"
       @add="openCreate"
+      @import-students="openStudentImport"
     />
 
     <!-- Users tab filters: search / role / country / state / in-group / status -->
@@ -245,6 +246,12 @@
       @close="onViewClose"
       @edit="openEditFromView"
     />
+
+    <AdminStudentImportSheet
+      v-if="isStudentMode"
+      v-model="studentImportOpen"
+      @imported="onStudentsImported"
+    />
   </div>
 </template>
 
@@ -259,6 +266,7 @@ import AdminUsersTable from '@/components/admin/users/AdminUsersTable.vue'
 import AdminUsersBulkBar from '@/components/admin/users/AdminUsersBulkBar.vue'
 import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
+import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import type { AdminUser } from '@/utils/adminAPI'
 import { PAGE_SIZE_OPTIONS } from '@/utils/userOptions'
 import { useAdminUsersView } from '@/composables/admin/useAdminUsersView'
@@ -360,6 +368,16 @@ const {
 // Create / Edit form sheet state (the sheet owns the form itself).
 const formOpen = ref(false)
 const formEditUser = ref<AdminUser | null>(null)
+const studentImportOpen = ref(false)
+
+const openStudentImport = () => {
+  if (!isStudentMode.value) return
+  studentImportOpen.value = true
+}
+
+const onStudentsImported = () => {
+  void load()
+}
 
 const openCreate = () => {
   formEditUser.value = null

@@ -12,7 +12,14 @@ import {
 import { logApiError } from '@/utils/apiError'
 import { isEffectivelyInactive } from '@/utils/mentorFormat'
 
-export type MentorSortKey = 'name' | 'country' | 'institution' | 'capacity' | 'lastMessage' | 'status'
+export type MentorSortKey =
+  | 'name'
+  | 'country'
+  | 'institution'
+  | 'capacity'
+  | 'lastMessage'
+  | 'status'
+  | 'loggedIn'
 export type MentorSortDirection = 'asc' | 'desc'
 
 export interface MentorBulkAction {
@@ -110,7 +117,9 @@ export function useAdminMentorsView() {
       case 'lastMessage':
         return mentor.lastMessageAt ?? ''
       case 'status':
-        return isEffectivelyInactive(mentor, inactiveDays.value) ? 'Inactive' : 'Active'
+        return mentor.isActive ? 'Active' : 'Inactive'
+      case 'loggedIn':
+        return mentor.hasLoggedIn ? mentor.lastLogin ?? '' : ''
     }
   }
 
@@ -123,7 +132,12 @@ export function useAdminMentorsView() {
       capacity: (a, b) => a.remainingCapacity - b.remainingCapacity,
       lastMessage: (a, b) =>
         getSortValue(a, 'lastMessage').toString().localeCompare(getSortValue(b, 'lastMessage').toString()),
-      status: (a, b) => getSortValue(a, 'status').toString().localeCompare(getSortValue(b, 'status').toString())
+      status: (a, b) => Number(a.isActive) - Number(b.isActive),
+      loggedIn: (a, b) => {
+        const hasLoggedInCompare = Number(Boolean(a.hasLoggedIn)) - Number(Boolean(b.hasLoggedIn))
+        if (hasLoggedInCompare !== 0) return hasLoggedInCompare
+        return (a.lastLogin ?? '').localeCompare(b.lastLogin ?? '')
+      }
     }
     return [...mentors.value].sort((a, b) => comparators[sortState.value.key](a, b) * direction)
   })
@@ -280,6 +294,10 @@ export function useAdminMentorsView() {
     runBulkStatus,
     onReplaceConfirmed,
     sortClass: (key: MentorSortKey) => ({ 'admin-mentors__sort--active': sortState.value.key === key }),
+    sortIcon: (key: MentorSortKey) => {
+      if (sortState.value.key !== key) return 'fa-sort'
+      return sortState.value.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+    },
     load
   }
 }

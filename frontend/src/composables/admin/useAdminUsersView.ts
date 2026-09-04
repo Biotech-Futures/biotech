@@ -113,7 +113,13 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   const sortByFromKey: Record<string, string> = {
     name: 'name',
     email: 'email',
-    student: 'name'
+    student: 'name',
+    school: 'school',
+    year: 'yearLevel',
+    country: 'country',
+    state: 'state',
+    group: 'group',
+    loggedIn: 'hasLoggedIn'
   }
 
   const load = async () => {
@@ -293,13 +299,13 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
       if (isStudentMode.value) {
         return [
           { key: 'student', label: 'Student', sortable: true },
-          { key: 'school', label: 'School' },
-          { key: 'year', label: 'Year' },
-          { key: 'country', label: 'Country' },
-          { key: 'state', label: 'State' },
-          { key: 'group', label: 'Group' },
+          { key: 'school', label: 'School', sortable: true },
+          { key: 'year', label: 'Year', sortable: true },
+          { key: 'country', label: 'Country', sortable: true },
+          { key: 'state', label: 'State', sortable: true },
+          { key: 'group', label: 'Group', sortable: true },
           { key: 'interests', label: 'Interests' },
-          { key: 'loggedIn', label: 'Logged In' },
+          { key: 'loggedIn', label: 'Logged In', sortable: true },
           { key: 'actions', label: 'Actions', align: 'right' }
         ]
       }

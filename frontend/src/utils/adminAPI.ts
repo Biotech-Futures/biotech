@@ -12,6 +12,7 @@
 
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
+import type { StudentImportRow } from './adminStudentCsv'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -261,8 +262,40 @@ export type CreateUserPayload = Record<string, unknown> & {
   role: string
 }
 
+export interface StudentImportSkippedRow {
+  email: string
+  reason: string
+}
+
+export interface StudentImportCoRegistrationGroup {
+  name: string
+  memberCount: number
+}
+
+export interface StudentImportCoRegistration {
+  groupsCreated: StudentImportCoRegistrationGroup[]
+  warnings: string[]
+}
+
+export interface StudentBulkImportData {
+  created: AdminUser[]
+  skipped: StudentImportSkippedRow[]
+  coRegistration?: StudentImportCoRegistration
+}
+
+export interface StudentBulkImportResult {
+  msg: string
+  data: StudentBulkImportData
+}
+
 export const createAdminUser = (payload: CreateUserPayload) =>
   adminPost<AdminEnvelope<AdminUser>>('/user/', payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBulkImportResult> =>
+  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows).then((env) => ({
     msg: env.msg,
     data: env.data
   }))
