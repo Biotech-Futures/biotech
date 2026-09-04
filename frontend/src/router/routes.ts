@@ -78,8 +78,7 @@ const routes: RouteRecordRaw[] = [
 
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue'), meta: { public: true, shellFree: true } },
-  { path: '/register', name: 'register', component: () => import('@/views/RegistrationDemoPage.vue'), props: { mode: 'canonical' }, meta: { public: true, shellFree: true } },
-  { path: '/registration-demo', name: 'registration-demo', component: () => import('@/views/RegistrationDemoPage.vue'), props: { mode: 'demo' }, meta: { public: true, shellFree: true } },
+  { path: '/register', name: 'register', component: () => import('@/views/RegistrationPage.vue'), props: { mode: 'canonical' }, meta: { public: true, shellFree: true } },
   supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue'), meta: { public: true, shellFree: true } },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue'), meta: { public: true, shellFree: true } },

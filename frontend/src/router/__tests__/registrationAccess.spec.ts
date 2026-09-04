@@ -128,8 +128,7 @@ describe('supervisor registration access', () => {
     },
   )
 
-  it('preserves shell treatment for demo and authenticated routes', () => {
-    expect(isShellFreeRoute(router.resolve('/registration-demo'))).toBe(true)
+  it('preserves shell treatment for public and authenticated routes', () => {
     expect(isShellFreeRoute(router.resolve('/login'))).toBe(true)
     expect(isShellFreeRoute(router.resolve('/dashboard'))).toBe(false)
     expect(isShellFreeRoute(router.resolve('/supervisor/registration'))).toBe(false)

@@ -5,11 +5,10 @@ export const REGISTRATION_JOURNEYS = [
   'supervisor_group',
   'supervisor_csv',
   'mentor',
-  'guardian_consent',
 ] as const
 
 export type RegistrationJourney = (typeof REGISTRATION_JOURNEYS)[number]
-export type RegistrationIntakeJourney = Exclude<RegistrationJourney, 'guardian_consent'>
+export type RegistrationIntakeJourney = RegistrationJourney
 
 export const INTEREST_CATEGORIES = [
   'Biomedical Innovations',
@@ -159,20 +158,6 @@ export interface MentorForm {
   attestation: boolean
 }
 
-export interface GuardianConsentForm {
-  invitationReference: string
-  studentName: string
-  guardianFirstName: string
-  guardianLastName: string
-  guardianEmail: string
-  phone: string
-  relationship: '' | 'Parent' | 'Legal guardian' | 'Other'
-  relationshipOther: string
-  participationAcknowledged: boolean
-  mediaConsent: '' | 'yes' | 'no'
-  wordingVersion: string
-}
-
 export interface RegistrationForms {
   studentIndividual: StudentIndividualForm
   studentTeam: StudentTeamForm
@@ -180,7 +165,6 @@ export interface RegistrationForms {
   supervisorGroup: SupervisorGroupForm
   supervisorCsv: SupervisorCsvForm
   mentor: MentorForm
-  guardianConsent: GuardianConsentForm
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -276,19 +260,6 @@ export const createRegistrationForms = (): RegistrationForms => ({
     safeguardingStatus: 'pending-review',
     complianceDeclaration: false,
     attestation: false,
-  },
-  guardianConsent: {
-    invitationReference: 'BTF-GUARDIAN-DEMO-1042',
-    studentName: 'Alex Morgan',
-    guardianFirstName: '',
-    guardianLastName: '',
-    guardianEmail: '',
-    phone: '',
-    relationship: '',
-    relationshipOther: '',
-    participationAcknowledged: false,
-    mediaConsent: '',
-    wordingVersion: 'Preview wording — approval pending',
   },
 })
 
@@ -609,26 +580,6 @@ export const payloadForRegistrationJourney = (
       }
     case 'mentor':
       return { mentor: forms.mentor }
-    case 'guardian_consent':
-      return {
-        invitation: {
-          reference: forms.guardianConsent.invitationReference,
-          studentName: forms.guardianConsent.studentName,
-          wordingVersion: forms.guardianConsent.wordingVersion,
-        },
-        guardian: {
-          firstName: forms.guardianConsent.guardianFirstName,
-          lastName: forms.guardianConsent.guardianLastName,
-          email: forms.guardianConsent.guardianEmail,
-          phone: forms.guardianConsent.phone,
-          relationship: forms.guardianConsent.relationship,
-          relationshipOther: forms.guardianConsent.relationshipOther,
-        },
-        consent: {
-          participationAcknowledged: forms.guardianConsent.participationAcknowledged,
-          mediaConsent: forms.guardianConsent.mediaConsent,
-        },
-      }
   }
 }
 
@@ -653,15 +604,3 @@ export const sanitizeRegistrationPayload = (value: unknown, key = ''): unknown =
   }
   return value
 }
-
-export const buildRegistrationDemoRequest = (
-  journey: RegistrationJourney,
-  forms: RegistrationForms,
-) => ({
-  journey,
-  payload: sanitizeRegistrationPayload(payloadForRegistrationJourney(journey, forms)),
-})
-
-export type RegistrationDemoForms = RegistrationForms
-
-export const createRegistrationDemoForms = createRegistrationForms

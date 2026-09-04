@@ -7,7 +7,7 @@ import {
   type RegistrationGateway,
   type RegistrationGatewayResult,
 } from '@/registration/registrationGateway'
-import RegistrationDemoPage from '@/views/RegistrationDemoPage.vue'
+import RegistrationPage from '@/views/RegistrationPage.vue'
 
 type PageSetup = {
   currentStep: number
@@ -81,7 +81,7 @@ type PageSetup = {
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
-  mount(RegistrationDemoPage, {
+  mount(RegistrationPage, {
     props: { mode: 'canonical' },
     attachTo: document.body,
     global: {
@@ -96,8 +96,23 @@ const mountWithGateway = (gateway: RegistrationGateway) =>
     },
   })
 
+const mountWithoutGateway = () =>
+  mount(RegistrationPage, {
+    props: { mode: 'canonical' },
+    attachTo: document.body,
+    global: {
+      plugins: [createPinia()],
+      stubs: {
+        RouterLink: {
+          props: ['to'],
+          template: '<a :href="to"><slot /></a>',
+        },
+      },
+    },
+  })
+
 const mountSupervisorWithGateway = (gateway: RegistrationGateway) =>
-  mount(RegistrationDemoPage, {
+  mount(RegistrationPage, {
     props: { mode: 'supervisor' },
     attachTo: document.body,
     global: {
@@ -214,6 +229,19 @@ afterEach(() => {
 })
 
 describe('registration gateway UI integration', () => {
+  it('reports unavailable submission when no gateway is configured', async () => {
+    const wrapper = mountWithoutGateway()
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain(
+        'Registration submission is not configured in this environment.',
+      ),
+    )
+    expect(wrapper.text()).not.toContain('Registration details received')
+  })
+
   it('shows loading and then the guardian-consent-required student outcome', async () => {
     let resolveResult!: (result: RegistrationGatewayResult) => void
     const gateway: RegistrationGateway = {

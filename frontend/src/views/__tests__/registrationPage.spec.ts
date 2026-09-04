@@ -2,10 +2,10 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import RegistrationDemoPage from '@/views/RegistrationDemoPage.vue'
+import RegistrationPage from '@/views/RegistrationPage.vue'
 
-const mountPage = (mode: 'canonical' | 'demo' | 'supervisor' = 'canonical') =>
-  mount(RegistrationDemoPage, {
+const mountPage = (mode: 'canonical' | 'supervisor' = 'canonical') =>
+  mount(RegistrationPage, {
     props: { mode },
     global: {
       plugins: [createPinia()],
@@ -37,7 +37,6 @@ describe('canonical registration intake', () => {
   it('limits public role selection to student and mentor', async () => {
     const wrapper = mountPage()
 
-    expect(wrapper.text()).not.toContain('vision demo')
     expect(wrapper.text()).not.toContain('guardian consent invitation')
     await clickButton(wrapper, 'Register now')
     expect(wrapper.text()).toContain('Who are you registering as?')
@@ -120,13 +119,6 @@ describe('canonical registration intake', () => {
 
     expect(wrapper.text()).toContain('Guardian consent is still required before every student')
     expect(wrapper.text()).toContain('initial feedback only')
-  })
-
-  it('retains the explicitly labelled local prototype route mode', () => {
-    const wrapper = mountPage('demo')
-
-    expect(wrapper.text()).toContain('Local vision demo')
-    expect(wrapper.text()).toContain('Have a guardian consent invitation?')
   })
 
   it('starts every supervisor flow at its first student, group, or upload field', async () => {
@@ -241,14 +233,5 @@ describe('canonical registration intake', () => {
     await mentor.vm.$nextTick()
     assertRadioGroup(mentor, 'mentor-affiliation')
 
-    const guardian = mountPage('demo')
-    const guardianSetup = guardian.vm as unknown as {
-      journey: string
-      currentStep: number
-    }
-    guardianSetup.journey = 'guardian_consent'
-    guardianSetup.currentStep = 2
-    await guardian.vm.$nextTick()
-    assertRadioGroup(guardian, 'guardian-media-consent')
   })
 })

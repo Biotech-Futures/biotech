@@ -13,15 +13,6 @@
       <RouterLink to="/login" class="sign-in-link">Already registered? Sign in</RouterLink>
     </header>
 
-    <div
-      v-if="usingDevelopmentAdapter && !isDemo"
-      class="development-notice"
-      role="status"
-    >
-      <strong>Development preview</strong>
-      <span>Submissions are simulated in this browser and are not persisted.</span>
-    </div>
-
     <section v-if="success" class="success-panel" aria-live="polite">
       <div class="success-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24">
@@ -47,12 +38,6 @@
           <dd>{{ formatSavedDate(success.submittedAt) }}</dd>
         </div>
       </dl>
-      <div v-if="isDemo" class="simulated-workflows">
-        <h2>Shown in the demo, not executed</h2>
-        <ul>
-          <li v-for="workflow in selectedJourney?.simulations" :key="workflow">{{ workflow }}</li>
-        </ul>
-      </div>
       <div class="success-actions">
         <button type="button" class="primary-action" @click="resetRegistration">
           Start another journey
@@ -80,10 +65,6 @@
           </button>
           <RouterLink to="/login" class="secondary-action">Sign in</RouterLink>
         </div>
-        <button v-if="isDemo" type="button" class="invitation-link" @click="openGuardianInvitation">
-          Have a guardian consent invitation?
-          <span>Continue with your link →</span>
-        </button>
       </div>
 
       <aside class="welcome-aside" aria-label="Registration overview">
@@ -96,22 +77,11 @@
         <h2>One clear registration</h2>
         <ul>
           <li>
-            {{
-              isDemo
-                ? 'Choose whether you’re a student, supervisor, or mentor.'
-                : 'Choose whether you’re a student or mentor.'
-            }}
+            Choose whether you’re a student or mentor.
           </li>
           <li>Complete a guided form with clear progress.</li>
           <li>Review everything before you submit.</li>
         </ul>
-        <div v-if="isDemo" class="vision-note">
-          <strong>Local vision demo</strong>
-          <p>
-            Submissions save locally. Emails, invitations, consent documents, review decisions, and
-            matching are demonstrated but not sent.
-          </p>
-        </div>
       </aside>
     </section>
 
@@ -1048,204 +1018,6 @@
               </div>
             </template>
 
-            <template v-else-if="isDemo && journey === 'guardian_consent'">
-              <div v-if="currentStep === 0" class="step-stack">
-                <div class="invitation-preview">
-                  <dl>
-                    <div>
-                      <dt>Invitation reference</dt>
-                      <dd>{{ forms.guardianConsent.invitationReference }}</dd>
-                    </div>
-                    <div>
-                      <dt>Named student</dt>
-                      <dd>{{ forms.guardianConsent.studentName }}</dd>
-                    </div>
-                    <div>
-                      <dt>Form wording</dt>
-                      <dd>{{ forms.guardianConsent.wordingVersion }}</dd>
-                    </div>
-                  </dl>
-                </div>
-                <div class="scope-explanation">
-                  This is a preview using a demonstration invitation. Production access must resolve
-                  a recipient-bound invitation to one named student. Exact consent wording, policy
-                  links, approver, and enabled version remain approval controlled.
-                </div>
-                <div class="field-grid">
-                  <RegistrationTextField
-                    id="guardian-invitation-reference"
-                    v-model="forms.guardianConsent.invitationReference"
-                    label="Invitation reference"
-                    :error="errors['guardianConsent.invitationReference']"
-                    readonly
-                    required
-                  />
-                  <RegistrationTextField
-                    id="guardian-student-name"
-                    v-model="forms.guardianConsent.studentName"
-                    label="Named student"
-                    :error="errors['guardianConsent.studentName']"
-                    readonly
-                    required
-                  />
-                </div>
-              </div>
-
-              <div v-else-if="currentStep === 1" class="step-stack">
-                <div class="field-grid">
-                  <RegistrationTextField
-                    id="guardian-first"
-                    v-model="forms.guardianConsent.guardianFirstName"
-                    label="Guardian first name"
-                    :error="errors['guardianConsent.guardianFirstName']"
-                    required
-                  />
-                  <RegistrationTextField
-                    id="guardian-last"
-                    v-model="forms.guardianConsent.guardianLastName"
-                    label="Guardian last name"
-                    :error="errors['guardianConsent.guardianLastName']"
-                    required
-                  />
-                  <RegistrationTextField
-                    id="guardian-email"
-                    v-model="forms.guardianConsent.guardianEmail"
-                    label="Guardian email"
-                    type="email"
-                    :error="errors['guardianConsent.guardianEmail']"
-                    required
-                  />
-                  <RegistrationTextField
-                    id="guardian-phone"
-                    v-model="forms.guardianConsent.phone"
-                    label="Phone"
-                    type="tel"
-                    optional
-                  />
-                  <label class="select-field">
-                    <span>Relationship <span aria-hidden="true">*</span></span>
-                    <select
-                      id="guardian-consent-relationship"
-                      v-model="forms.guardianConsent.relationship"
-                      :aria-invalid="Boolean(errors['guardianConsent.relationship'])"
-                      :aria-describedby="
-                        errors['guardianConsent.relationship']
-                          ? 'guardian-consent-relationship-error'
-                          : undefined
-                      "
-                      required
-                    >
-                      <option value="" disabled>Select a relationship</option>
-                      <option>Parent</option>
-                      <option>Legal guardian</option>
-                      <option>Other</option>
-                    </select>
-                    <span
-                      v-if="errors['guardianConsent.relationship']"
-                      id="guardian-consent-relationship-error"
-                      class="inline-error"
-                    >
-                      {{ errors['guardianConsent.relationship'] }}
-                    </span>
-                  </label>
-                  <RegistrationTextField
-                    v-if="forms.guardianConsent.relationship === 'Other'"
-                    id="guardian-relationship-other"
-                    v-model="forms.guardianConsent.relationshipOther"
-                    label="Describe the relationship"
-                    :error="errors['guardianConsent.relationshipOther']"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div v-else-if="currentStep === 2" class="step-stack">
-                <div class="consent-copy">
-                  <h3>Participation acknowledgement</h3>
-                  <p>
-                    I acknowledge the named student’s participation in the BIOTech Futures
-                    Challenge, including online and potentially in-person activities. This preview
-                    stands in for the fuller approved safety, privacy, intellectual-property, and
-                    participation wording required in production.
-                  </p>
-                  <label class="attestation-control">
-                    <input
-                      v-model="forms.guardianConsent.participationAcknowledged"
-                      type="checkbox"
-                      :aria-invalid="Boolean(errors['guardianConsent.participationAcknowledged'])"
-                      :aria-describedby="
-                        errors['guardianConsent.participationAcknowledged']
-                          ? 'guardian-participation-error'
-                          : undefined
-                      "
-                      required
-                    />
-                    <span>I acknowledge and agree to the participation statement above.</span>
-                  </label>
-                  <span
-                    v-if="errors['guardianConsent.participationAcknowledged']"
-                    id="guardian-participation-error"
-                    class="inline-error"
-                  >
-                    {{ errors['guardianConsent.participationAcknowledged'] }}
-                  </span>
-                </div>
-
-                <fieldset
-                  class="choice-fieldset"
-                  :aria-invalid="Boolean(errors['guardianConsent.mediaConsent'])"
-                  :aria-describedby="
-                    errors['guardianConsent.mediaConsent'] ? 'guardian-media-error' : undefined
-                  "
-                >
-                  <legend>Media consent</legend>
-                  <p class="fieldset-help">Choose Yes or No. No option is selected by default.</p>
-                  <div class="choice-row">
-                    <label>
-                      <input
-                        v-model="forms.guardianConsent.mediaConsent"
-                        type="radio"
-                        name="guardian-media-consent"
-                        value="yes"
-                        :aria-invalid="Boolean(errors['guardianConsent.mediaConsent'])"
-                        required
-                      />
-                      <span>
-                        <strong>Yes</strong>
-                        <small>I give media consent for the named student.</small>
-                      </span>
-                    </label>
-                    <label>
-                      <input
-                        v-model="forms.guardianConsent.mediaConsent"
-                        type="radio"
-                        name="guardian-media-consent"
-                        value="no"
-                        :aria-invalid="Boolean(errors['guardianConsent.mediaConsent'])"
-                        required
-                      />
-                      <span>
-                        <strong>No</strong>
-                        <small>I do not give media consent for the named student.</small>
-                      </span>
-                    </label>
-                  </div>
-                  <span
-                    v-if="errors['guardianConsent.mediaConsent']"
-                    id="guardian-media-error"
-                    class="inline-error"
-                  >
-                    {{ errors['guardianConsent.mediaConsent'] }}
-                  </span>
-                </fieldset>
-                <div class="scope-explanation">
-                  Choosing No does not prevent online participation. It may affect eligibility for
-                  in-person events; the final event policy and production consequence wording remain
-                  subject to client approval.
-                </div>
-              </div>
-            </template>
-
             <div v-if="currentStep === steps.length - 1" class="review-step">
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>
@@ -1257,13 +1029,8 @@
                 </dl>
               </div>
               <div class="review-boundary">
-                <strong>{{ isDemo ? 'Before you save' : 'Before you submit' }}</strong>
-                <p v-if="isDemo">
-                  This sends a structured vision-demo record to the local BIOTech service. It does
-                  not execute production email, invitations, guardian consent documents,
-                  administrator decisions, or matching.
-                </p>
-                <p v-else-if="journey === 'mentor'">
+                <strong>Before you submit</strong>
+                <p v-if="journey === 'mentor'">
                   These browser checks provide initial feedback only. Your application remains
                   pending safeguarding and administrator review after submission.
                 </p>
@@ -1285,13 +1052,9 @@
               <span v-if="isSubmitting" class="spinner" aria-hidden="true"></span>
               {{
                 isSubmitting
-                  ? isDemo
-                    ? 'Saving locally…'
-                    : 'Submitting…'
+                  ? 'Submitting…'
                   : currentStep === steps.length - 1
-                    ? isDemo
-                      ? 'Save demo registration'
-                      : 'Submit registration'
+                    ? 'Submit registration'
                     : 'Continue'
               }}
             </button>
@@ -1311,7 +1074,6 @@ import RegistrationInterestSelector from '@/components/registration/Registration
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
-import { developmentRegistrationGateway } from '@/registration/developmentRegistrationGateway'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
   buildRegistrationRequest,
@@ -1346,7 +1108,6 @@ interface JourneyOption {
   title: string
   description: string
   steps: StepDefinition[]
-  simulations: string[]
 }
 
 type RegistrationRole = 'student' | 'supervisor' | 'mentor'
@@ -1414,11 +1175,6 @@ const journeyOptions: JourneyOption[] = [
         description: 'Check the details before submitting.',
       },
     ],
-    simulations: [
-      'Student email confirmation',
-      'Guardian recipient-bound invitation and consent',
-      'Registration review and downstream group matching',
-    ],
   },
   {
     value: 'student_team',
@@ -1447,11 +1203,6 @@ const journeyOptions: JourneyOption[] = [
         description: 'Check the intended team before saving.',
       },
     ],
-    simulations: [
-      'Individual teammate action links',
-      'Private guardian flows for every student',
-      'Group readiness and existing Mentor Matching handoff',
-    ],
   },
   {
     value: 'supervisor_individual',
@@ -1474,11 +1225,6 @@ const journeyOptions: JourneyOption[] = [
         title: 'Review the student registration',
         description: 'Check the record before saving.',
       },
-    ],
-    simulations: [
-      'Student action and status link',
-      'Guardian detail reminder and consent invitation',
-      'Supervisor action summary and automatic grouping',
     ],
   },
   {
@@ -1503,11 +1249,6 @@ const journeyOptions: JourneyOption[] = [
         description: 'Check membership and shared details before saving.',
       },
     ],
-    simulations: [
-      'Individual student action links',
-      'Per-student guardian reminders and consent',
-      'Group readiness and supervisor summary',
-    ],
   },
   {
     value: 'supervisor_csv',
@@ -1531,11 +1272,6 @@ const journeyOptions: JourneyOption[] = [
         title: 'Review the import',
         description: 'Confirm included and excluded rows before saving.',
       },
-    ],
-    simulations: [
-      'Student action links for approved rows',
-      'Pending review routing for review-required rows',
-      'Import summary and notification ledger',
     ],
   },
   {
@@ -1571,44 +1307,6 @@ const journeyOptions: JourneyOption[] = [
         description: 'Submission does not activate matching access.',
       },
     ],
-    simulations: [
-      'Restricted safeguarding/compliance review',
-      'Administrator approval or decline',
-      'Eligibility handoff to existing Mentor Matching',
-    ],
-  },
-  {
-    value: 'guardian_consent',
-    role: 'Guardian preview',
-    title: 'Preview guardian consent',
-    description: 'Review a recipient-bound consent journey for one named student.',
-    steps: [
-      {
-        label: 'Invitation',
-        title: 'Confirm the invitation context',
-        description: 'Production access is bound to a recipient and named student.',
-      },
-      {
-        label: 'Guardian',
-        title: 'Your guardian details',
-        description: 'Identify your relationship to the named student.',
-      },
-      {
-        label: 'Consent',
-        title: 'Record participation and media choices',
-        description: 'Participation and media are separate decisions.',
-      },
-      {
-        label: 'Review',
-        title: 'Review the consent preview',
-        description: 'Exact production wording and version remain approval controlled.',
-      },
-    ],
-    simulations: [
-      'Recipient-bound invitation validation',
-      'Guardian receipt and scoped consent document',
-      'Student and supervisor status notifications',
-    ],
   },
 ]
 
@@ -1622,11 +1320,10 @@ const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: strin
 
 const props = withDefaults(
   defineProps<{
-    mode?: 'canonical' | 'demo' | 'supervisor'
+    mode?: 'canonical' | 'supervisor'
   }>(),
   { mode: 'canonical' },
 )
-const isDemo = computed(() => props.mode === 'demo')
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
 const unavailableGateway: RegistrationGateway = {
@@ -1637,10 +1334,7 @@ const unavailableGateway: RegistrationGateway = {
     }
   },
 }
-const usingDevelopmentAdapter = isDemo.value || (!injectedGateway && import.meta.env.DEV)
-const registrationGateway = isDemo.value
-  ? developmentRegistrationGateway
-  : injectedGateway || (usingDevelopmentAdapter ? developmentRegistrationGateway : unavailableGateway)
+const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
 const journey = ref<RegistrationJourney | null>(null)
 const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'welcome')
@@ -1667,19 +1361,12 @@ const selectedJourney = computed(() =>
   journey.value ? journeyOptions.find((option) => option.value === journey.value) : undefined,
 )
 const visibleRoleOptions = computed(() =>
-  isDemo.value ? roleOptions : roleOptions.filter((role) => role.value !== 'supervisor'),
+  roleOptions.filter((role) => role.value !== 'supervisor'),
 )
 const successHeading = computed(() =>
-  usingDevelopmentAdapter
-    ? journey.value === 'mentor'
-      ? 'Application preview complete'
-      : 'Registration preview complete'
-    : journey.value === 'mentor'
-      ? 'Application received'
-      : 'Registration details received',
+  journey.value === 'mentor' ? 'Application received' : 'Registration details received',
 )
 const successMessage = computed(() => {
-  if (isDemo.value) return 'This local development submission was saved with reference'
   if (journey.value === 'mentor') {
     return 'Your application is pending safeguarding and administrator review. Reference'
   }
@@ -1909,40 +1596,6 @@ const reviewSections = computed<ReviewSection[]>(() => {
             },
             { label: 'Safeguarding status', value: 'Pending administrator review' },
             { label: 'Matching access', value: 'Not activated by this submission' },
-          ],
-        },
-      ]
-    case 'guardian_consent':
-      return [
-        {
-          title: 'Invitation and guardian',
-          items: [
-            { label: 'Reference', value: forms.guardianConsent.invitationReference },
-            { label: 'Student', value: forms.guardianConsent.studentName },
-            {
-              label: 'Guardian',
-              value: `${forms.guardianConsent.guardianFirstName} ${forms.guardianConsent.guardianLastName}`,
-            },
-            {
-              label: 'Relationship',
-              value:
-                forms.guardianConsent.relationship === 'Other'
-                  ? forms.guardianConsent.relationshipOther
-                  : forms.guardianConsent.relationship,
-            },
-          ],
-        },
-        {
-          title: 'Choices',
-          items: [
-            {
-              label: 'Participation',
-              value: forms.guardianConsent.participationAcknowledged
-                ? 'Acknowledged'
-                : 'Not acknowledged',
-            },
-            { label: 'Media', value: forms.guardianConsent.mediaConsent === 'yes' ? 'Yes' : 'No' },
-            { label: 'Wording version', value: forms.guardianConsent.wordingVersion },
           ],
         },
       ]
@@ -2184,59 +1837,6 @@ const validateCurrentStep = () => {
           'Acknowledge the compliance review and complete the attestation.'
       }
     }
-  } else if (journey.value === 'guardian_consent') {
-    if (step === 0) {
-      requireValue(
-        'guardianConsent.invitationReference',
-        forms.guardianConsent.invitationReference,
-        'Enter the invitation reference.',
-      )
-      requireValue(
-        'guardianConsent.studentName',
-        forms.guardianConsent.studentName,
-        'Enter the named student.',
-      )
-    }
-    if (step === 1) {
-      requireValue(
-        'guardianConsent.guardianFirstName',
-        forms.guardianConsent.guardianFirstName,
-        'Enter the guardian first name.',
-      )
-      requireValue(
-        'guardianConsent.guardianLastName',
-        forms.guardianConsent.guardianLastName,
-        'Enter the guardian last name.',
-      )
-      validateEmail(
-        'guardianConsent.guardianEmail',
-        forms.guardianConsent.guardianEmail,
-        'Guardian email',
-      )
-      requireValue(
-        'guardianConsent.relationship',
-        forms.guardianConsent.relationship,
-        'Select the guardian relationship.',
-      )
-      if (forms.guardianConsent.relationship === 'Other') {
-        requireValue(
-          'guardianConsent.relationshipOther',
-          forms.guardianConsent.relationshipOther,
-          'Describe the guardian relationship.',
-        )
-      }
-    }
-    if (step === 2) {
-      if (!forms.guardianConsent.participationAcknowledged) {
-        clientErrors['guardianConsent.participationAcknowledged'] =
-          'Acknowledge participation to continue.'
-      }
-      requireValue(
-        'guardianConsent.mediaConsent',
-        forms.guardianConsent.mediaConsent,
-        'Choose Yes or No for media consent.',
-      )
-    }
   }
 
   validateCrossRoleEmails()
@@ -2289,11 +1889,6 @@ const backToRoleSelection = () => {
   scrollToTop()
 }
 
-const openGuardianInvitation = () => {
-  selectedRole.value = null
-  selectJourney('guardian_consent')
-}
-
 const changeJourney = () => {
   journey.value = null
   currentStep.value = 0
@@ -2335,7 +1930,7 @@ const continueJourney = async () => {
     return
   }
   const currentJourney = journey.value
-  if (currentJourney && currentJourney !== 'guardian_consent') {
+  if (currentJourney) {
     const currentServerKeys = Object.keys(serverFieldErrors).filter(
       (key) => earliestRegistrationErrorStep(currentJourney, [key]) === currentStep.value,
     )
@@ -2497,7 +2092,7 @@ const csvCategoryLabel = (category: CsvCategory) =>
   category === 'review-required' ? 'Review required' : category === 'invalid' ? 'Invalid' : 'Valid'
 
 const submitRegistration = async () => {
-  if (!journey.value || journey.value === 'guardian_consent' || isSubmitting.value) return
+  if (!journey.value || isSubmitting.value) return
   if (!(await validateJourneyBeforeSubmit())) return
   serverError.value = ''
   isSubmitting.value = true
@@ -2654,26 +2249,6 @@ onBeforeUnmount(() => {
   gap: 24px;
 }
 
-.development-notice {
-  position: relative;
-  z-index: 2;
-  width: min(1220px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 10px 14px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  border: 1px solid #c5d5ce;
-  border-radius: 10px;
-  background: #edf5f0;
-  color: var(--registration-muted);
-  font-size: 0.82rem;
-}
-
-.development-notice strong {
-  color: var(--registration-green-dark);
-}
-
 .brand-link,
 .sign-in-link {
   color: var(--registration-ink);
@@ -2755,36 +2330,6 @@ onBeforeUnmount(() => {
 
 .welcome-primary {
   min-width: 170px;
-}
-
-.invitation-link {
-  margin-top: 28px;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  color: var(--registration-muted);
-  font: inherit;
-  font-size: 0.88rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.invitation-link span {
-  color: var(--registration-green-dark);
-  font-weight: 800;
-}
-
-.invitation-link:hover span,
-.invitation-link:focus-visible span {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-.invitation-link:focus-visible {
-  outline: 3px solid rgba(8, 116, 90, 0.22);
-  outline-offset: 6px;
 }
 
 .welcome-aside {
@@ -3150,20 +2695,17 @@ onBeforeUnmount(() => {
   line-height: 1.7;
 }
 
-.vision-note,
 .context-note {
   margin-top: 30px;
   padding: 20px 0;
   border-block: 1px solid rgba(8, 116, 90, 0.22);
 }
 
-.vision-note strong,
 .context-note strong {
   color: var(--registration-green-dark);
   font-size: 0.9rem;
 }
 
-.vision-note p,
 .context-note p {
   margin: 7px 0 0;
   color: var(--registration-muted);
@@ -3516,8 +3058,6 @@ form {
 .section-divider h3,
 .student-entry__heading h3,
 .template-download h3,
-.consent-copy h3,
-.simulated-workflows h2,
 .review-section h3 {
   margin: 0;
   color: var(--registration-ink);
@@ -3525,8 +3065,7 @@ form {
 }
 
 .section-divider p,
-.template-download p,
-.consent-copy p {
+.template-download p {
   max-width: 68ch;
   margin: 7px 0 0;
   color: var(--registration-muted);
@@ -3847,25 +3386,11 @@ tr.is-excluded {
   cursor: pointer;
 }
 
-.consent-copy {
-  padding-bottom: 30px;
-  display: grid;
-  gap: 16px;
-  border-bottom: 1px solid var(--registration-line);
-}
-
-.invitation-preview {
-  padding-block: 8px;
-  border-block: 1px solid var(--registration-line);
-}
-
-.invitation-preview dl,
 .review-section dl,
 .success-details {
   margin: 0;
 }
 
-.invitation-preview dl > div,
 .review-section dl > div,
 .success-details > div {
   padding: 13px 0;
@@ -3875,7 +3400,6 @@ tr.is-excluded {
   border-bottom: 1px solid var(--registration-line);
 }
 
-.invitation-preview dl > div:last-child,
 .review-section dl > div:last-child,
 .success-details > div:last-child {
   border-bottom: 0;
@@ -4064,18 +3588,6 @@ dd {
   margin-top: 30px;
   padding-block: 5px;
   border-block: 1px solid var(--registration-line);
-}
-
-.simulated-workflows {
-  margin-top: 30px;
-}
-
-.simulated-workflows ul {
-  margin: 10px 0 0;
-  padding-left: 20px;
-  color: var(--registration-muted);
-  font-size: 0.88rem;
-  line-height: 1.65;
 }
 
 .success-actions {
@@ -4313,7 +3825,6 @@ dd {
     grid-column: auto;
   }
 
-  .invitation-preview dl > div,
   .review-section dl > div,
   .success-details > div {
     grid-template-columns: 1fr;

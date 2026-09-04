@@ -94,7 +94,7 @@ describe('magic-link error copy', () => {
     expect(wrapper?.text()).toContain(en.signIn)
     expect(wrapper?.find('.language-switcher').exists()).toBe(false)
     expect(wrapper?.text()).not.toContain('简体中文')
-    expect(wrapper?.get('.registration-demo-link a').attributes('href')).toBe('#/register')
+    expect(wrapper?.get('.registration-link a').attributes('href')).toBe('#/register')
   })
 
   it('tells a throttled user to wait and blocks the submit button', async () => {

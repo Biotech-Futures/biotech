@@ -257,7 +257,7 @@
                   <span v-else>{{ loginActionLabel }}</span>
                 </button>
 
-                <p class="registration-demo-link">
+                <p class="registration-link">
                   New student?
                   <RouterLink to="/register">Start a registration</RouterLink>
                 </p>
@@ -1812,21 +1812,21 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
-.registration-demo-link {
+.registration-link {
   margin: 4px 0 0;
   color: var(--stone-500);
   font-size: 0.9rem;
   text-align: center;
 }
 
-.registration-demo-link a {
+.registration-link a {
   color: var(--emerald-700);
   font-weight: 800;
   text-decoration: none;
 }
 
-.registration-demo-link a:hover,
-.registration-demo-link a:focus-visible {
+.registration-link a:hover,
+.registration-link a:focus-visible {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  createDevelopmentRegistrationGateway,
-  developmentRegistrationGateway,
-} from '@/registration/developmentRegistrationGateway'
 import { createRegistrationForms } from '@/registration/registration'
-import { buildRegistrationRequest } from '@/registration/registrationGateway'
+import {
+  buildRegistrationRequest,
+  type RegistrationGateway,
+} from '@/registration/registrationGateway'
 
 describe('registration gateway contract', () => {
   it('sanitizes confirmation fields, file-like values, preview URLs, and email casing', () => {
@@ -38,26 +37,16 @@ describe('registration gateway contract', () => {
     })
   })
 
-  it('returns a journey-specific development receipt without claiming persistence', async () => {
-    const forms = createRegistrationForms()
-    const result = await developmentRegistrationGateway.submit(
-      buildRegistrationRequest('student_team', forms),
-    )
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.receipt.journey).toBe('student_team')
-      expect(result.receipt.studentCount).toBe(2)
-      expect(result.receipt.referenceCode).toMatch(/^DEV-/)
+  it('can represent authoritative field errors through an injected test gateway', async () => {
+    const gateway: RegistrationGateway = {
+      async submit() {
+        return {
+          ok: false,
+          message: 'Review the highlighted information.',
+          fieldErrors: { 'mentor.email': 'This address is already registered.' },
+        } as const
+      },
     }
-  })
-
-  it('can represent authoritative field errors from a future backend adapter', async () => {
-    const gateway = createDevelopmentRegistrationGateway({
-      ok: false,
-      message: 'Review the highlighted information.',
-      fieldErrors: { 'mentor.email': 'This address is already registered.' },
-    })
 
     const result = await gateway.submit(
       buildRegistrationRequest('mentor', createRegistrationForms()),
