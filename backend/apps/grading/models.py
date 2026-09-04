@@ -251,7 +251,9 @@ class CertificatesRelease(SingletonModel):
     # Finalist teams get merit certificates handed out separately, so admins
     # can keep their participation certificates locked while releasing to
     # everyone else.
-    exclude_finalists = models.BooleanField(default=False)
+    # Ticked by default: finalist teams get merit certificates through their
+    # own channel, so holding them out of the bulk release is the safe norm.
+    exclude_finalists = models.BooleanField(default=True)
 
     class Meta:
         db_table = "certificates_release"

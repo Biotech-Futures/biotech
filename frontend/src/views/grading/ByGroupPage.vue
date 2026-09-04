@@ -3,35 +3,39 @@
     <div class="card-header">
       <h3 class="card-title">Mark by Group</h3>
     </div>
-    <p class="by-group__hint">Every component for a single group. Enter the group's ID.</p>
+    <p class="by-group__hint">
+      Every component for a single group. Search by group name or ID.
+    </p>
     <form class="by-group__form" @submit.prevent="open">
-      <div class="by-group__input-wrap">
-        <i class="fas fa-magnifying-glass by-group__search-icon" aria-hidden="true"></i>
-        <input
-          v-model="groupId"
-          type="number"
-          min="1"
-          placeholder="Group ID"
-          class="by-group__input"
-          aria-label="Group ID"
-        />
-      </div>
+      <GroupSearchInput ref="picker" v-model="query" class="by-group__picker" @select="goTo" />
       <button type="submit" class="btn btn-primary btn-sm">Open</button>
     </form>
+    <p v-if="error" class="by-group__error">{{ error }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 
 const router = useRouter()
-const groupId = ref('')
+const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
+const query = ref('')
+const error = ref('')
+
+const goTo = ({ id }: { id: number }) => {
+  void router.push(`/grading/groups/${id}`)
+}
 
 const open = () => {
-  const n = Number(groupId.value)
-  if (!Number.isFinite(n) || n <= 0) return
-  void router.push(`/grading/groups/${n}`)
+  error.value = ''
+  const id = picker.value?.resolveId() ?? null
+  if (id == null) {
+    error.value = 'No group matches that name or ID.'
+    return
+  }
+  void router.push(`/grading/groups/${id}`)
 }
 </script>
 
@@ -51,46 +55,13 @@ const open = () => {
   gap: 0.5rem;
 }
 
-.by-group__input-wrap {
-  position: relative;
+.by-group__picker {
   flex: 1;
 }
 
-.by-group__search-icon {
-  position: absolute;
-  left: 0.65rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  pointer-events: none;
-}
-
-.by-group__input {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem 0.45rem 2rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-}
-
-.by-group__input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-}
-
-/* Hide the native number spinners — IDs are typed, not stepped. */
-.by-group__input {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.by-group__input::-webkit-inner-spin-button,
-.by-group__input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+.by-group__error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
 }
 </style>

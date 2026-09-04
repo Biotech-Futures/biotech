@@ -5,20 +5,14 @@
         <h3 class="card-title">Extend Deadline</h3>
       </div>
       <p class="extensions__hint">
-        Enter the group's ID to extend their deadline. Times are in your local timezone
-        ({{ localTimeZone }}). Students see the closing time; the server quietly keeps
-        accepting for the grace hours after it.
+        Search by the group's name or ID to extend their deadline. Times are in your local
+        timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
+        keeps accepting for the grace hours after it.
       </p>
       <form class="extensions__form" @submit.prevent="save">
-        <label class="extensions__field">
-          <span>Group ID</span>
-          <input
-            v-model="groupId"
-            type="number"
-            min="1"
-            required
-            class="extensions__input extensions__input--narrow"
-          />
+        <label class="extensions__field extensions__field--group">
+          <span>Group</span>
+          <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
         <label class="extensions__field">
           <span>Extended until</span>
@@ -52,7 +46,7 @@
         <button
           type="submit"
           class="btn btn-primary btn-sm"
-          :disabled="isSaving || !groupId || !untilLocal"
+          :disabled="isSaving || !groupQuery || !untilLocal"
         >
           {{ isSaving ? 'Saving…' : 'Grant' }}
         </button>
@@ -123,6 +117,7 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { describeBrowserTimeZone } from '@/utils/date'
+import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 
 const localTimeZone = describeBrowserTimeZone()
 
@@ -133,7 +128,8 @@ const actionError = ref('')
 const savedMessage = ref('')
 const isSaving = ref(false)
 
-const groupId = ref('')
+const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
+const groupQuery = ref('')
 const untilLocal = ref('')
 const graceHours = ref(0)
 const reason = ref('')
@@ -172,12 +168,17 @@ const load = async () => {
 const save = async () => {
   actionError.value = ''
   savedMessage.value = ''
+  const id = picker.value?.resolveId() ?? null
+  if (id == null) {
+    actionError.value = 'No group matches that name or ID.'
+    return
+  }
   isSaving.value = true
   try {
     const iso = new Date(untilLocal.value).toISOString()
-    await saveGroupExtension(Number(groupId.value), iso, graceHours.value || 0, reason.value)
+    await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
     savedMessage.value = 'Extension granted.'
-    groupId.value = ''
+    groupQuery.value = ''
     untilLocal.value = ''
     graceHours.value = 0
     reason.value = ''
@@ -258,24 +259,12 @@ onMounted(() => {
   border-color: var(--dark-green);
 }
 
-.extensions__input--narrow {
-  width: 7rem;
+.extensions__field--group {
+  width: 16rem;
 }
 
 .extensions__input--grace {
   width: 5.5rem;
-}
-
-/* Hide the native number spinners — IDs are typed, not stepped. */
-.extensions__input--narrow {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.extensions__input--narrow::-webkit-inner-spin-button,
-.extensions__input--narrow::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 .extensions__banner {

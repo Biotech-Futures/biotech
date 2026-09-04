@@ -5,20 +5,10 @@
         <h3 class="card-title">Add Finalist</h3>
       </div>
       <p class="finalists__hint">
-        Enter the group's ID to add them as a finalist.
+        Search by group name or ID to add them as a finalist.
       </p>
       <form class="finalists__form" @submit.prevent="add">
-        <div class="finalists__input-wrap">
-          <i class="fas fa-magnifying-glass finalists__search-icon" aria-hidden="true"></i>
-          <input
-            v-model="groupId"
-            type="number"
-            min="1"
-            placeholder="Group ID"
-            class="finalists__input"
-            aria-label="Group ID"
-          />
-        </div>
+        <GroupSearchInput ref="picker" v-model="groupQuery" class="finalists__picker" />
         <button type="submit" class="btn btn-primary btn-sm" :disabled="isMutating">
           Add as Finalist
         </button>
@@ -208,6 +198,7 @@ import {
   type FinalistListResponse
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -215,7 +206,8 @@ const loadError = ref('')
 const actionError = ref('')
 const actionMessage = ref('')
 const isMutating = ref(false)
-const groupId = ref('')
+const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
+const groupQuery = ref('')
 
 const finalists = computed(() => list.value?.finalists ?? [])
 
@@ -282,17 +274,17 @@ const addFromRow = async (id: number) => {
 }
 
 const add = async () => {
-  const n = Number(groupId.value)
   actionMessage.value = ''
   actionError.value = ''
-  if (!Number.isFinite(n) || n <= 0) {
-    actionError.value = 'Enter a numeric group ID.'
+  const id = picker.value?.resolveId() ?? null
+  if (id == null) {
+    actionError.value = 'No group matches that name or ID.'
     return
   }
   isMutating.value = true
   try {
-    await addFinalist(n)
-    groupId.value = ''
+    await addFinalist(id)
+    groupQuery.value = ''
     await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -363,47 +355,8 @@ const remove = async (id: number) => {
   flex-wrap: wrap;
 }
 
-.finalists__input-wrap {
-  position: relative;
+.finalists__picker {
   width: 20rem;
-}
-
-.finalists__search-icon {
-  position: absolute;
-  left: 0.65rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  pointer-events: none;
-}
-
-.finalists__input {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem 0.45rem 2rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-}
-
-.finalists__input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-}
-
-/* Hide the native number spinners — IDs are typed, not stepped. */
-.finalists__input {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.finalists__input::-webkit-inner-spin-button,
-.finalists__input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 /* Only the tables run full width; the add card stays compact. */

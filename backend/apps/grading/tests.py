@@ -1125,6 +1125,11 @@ class StudentReadViewsTests(_GradingFixture):
         r = self.client.post(url, {"release": "false"}, format="json")
         self.assertIsNone(r.json()["released_at"])
 
+    def test_exclusion_is_on_by_default(self):
+        self.client.force_authenticate(self.staff)
+        r = self.client.get(reverse("grading:certificates-release"))
+        self.assertTrue(r.json()["exclude_finalists"])
+
     def test_exclusion_only_post_does_not_restamp_release(self):
         self.client.force_authenticate(self.staff)
         url = reverse("grading:certificates-release")
