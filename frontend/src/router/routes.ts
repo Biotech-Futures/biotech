@@ -57,7 +57,6 @@
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { SUPPORT_EMAIL } from '@/constants/brand';
-import { registrationUiTestRoute } from './registrationUiTestRoute';
 import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
@@ -81,7 +80,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
   { path: '/register', name: 'register', component: () => import('@/views/RegistrationDemoPage.vue'), props: { mode: 'canonical' } },
   { path: '/registration-demo', name: 'registration-demo', component: () => import('@/views/RegistrationDemoPage.vue'), props: { mode: 'demo' } },
-  registrationUiTestRoute,
   supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },

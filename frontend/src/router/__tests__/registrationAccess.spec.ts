@@ -8,7 +8,6 @@ import {
   SUPERVISOR_REGISTRATION_PATH,
   supervisorRegistrationRoute,
 } from '@/router/supervisorRegistrationRoute'
-import { resolveRegistrationUiTestAccess } from '@/router/registrationUiTestRoute'
 
 describe('supervisor registration access', () => {
   it('declares the supervisor intake as a non-public route', () => {
@@ -71,11 +70,5 @@ describe('supervisor registration access', () => {
         isAdmin: false,
       }),
     ).toBe('/dashboard')
-  })
-
-  it('keeps the UI test route development-only without changing public or supervisor access', () => {
-    expect(resolveRegistrationUiTestAccess(false)).toBe('/register')
-    expect(resolveRegistrationUiTestAccess(true)).toBe(true)
-    expect(SUPERVISOR_REGISTRATION_PATH).toBe('/supervisor/registration')
   })
 })

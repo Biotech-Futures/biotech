@@ -51,10 +51,6 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import routes from './routes'
 import { normalizeDirectAuthRedirect } from './normalizeAuthRedirect'
 import { resolveSupervisorRegistrationAccess } from './registrationAccess'
-import {
-  REGISTRATION_UI_TEST_PATH,
-  resolveRegistrationUiTestAccess,
-} from './registrationUiTestRoute'
 import { SUPERVISOR_REGISTRATION_PATH } from './supervisorRegistrationRoute'
 
 normalizeDirectAuthRedirect()
@@ -72,22 +68,13 @@ router.beforeEach((to, from, next) => {
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPasswordSetupPath = to.path === passwordSetupPath
-  const isRegistrationUiTestPath = to.path === REGISTRATION_UI_TEST_PATH
-  const registrationUiTestAccess = isRegistrationUiTestPath
-    ? resolveRegistrationUiTestAccess(import.meta.env.DEV)
-    : true
-  const isPublicPath =
-    publicPaths.includes(to.path) ||
-    (isRegistrationUiTestPath && registrationUiTestAccess === true)
+  const isPublicPath = publicPaths.includes(to.path)
   const isSupervisorRegistrationPath = to.path === SUPERVISOR_REGISTRATION_PATH
   const supervisorRegistrationAccess = isSupervisorRegistrationPath
     ? resolveSupervisorRegistrationAccess(auth)
     : true
 
-  if (registrationUiTestAccess !== true) {
-    next(registrationUiTestAccess)
-
-  } else if (supervisorRegistrationAccess !== true) {
+  if (supervisorRegistrationAccess !== true) {
     next(supervisorRegistrationAccess)
 
   } else if (isPasswordSetupPath && !auth.isAuthenticated) {

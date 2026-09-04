@@ -311,7 +311,6 @@ const isLoginPage = computed(() =>
     '/login',
     '/register',
     '/registration-demo',
-    '/registration-ui-test',
     '/auth/callback',
     '/auth/reset-password',
     '/auth/set-password',

@@ -5,7 +5,7 @@
   >
     <div class="page-atmosphere" aria-hidden="true"></div>
 
-    <header v-if="!isSupervisorMode && !isUiTest" class="registration-header">
+    <header v-if="!isSupervisorMode" class="registration-header">
       <RouterLink to="/login" class="brand-link" aria-label="BIOTech Connect home">
         <img :src="logo" :alt="BRAND_NAME" />
         <span>{{ BRAND_CONNECT }}</span>
@@ -14,7 +14,7 @@
     </header>
 
     <div
-      v-if="usingDevelopmentAdapter && !isDemo && !isUiTest"
+      v-if="usingDevelopmentAdapter && !isDemo"
       class="development-notice"
       role="status"
     >
@@ -219,7 +219,7 @@
     <div v-else class="work-layout">
       <aside class="journey-context">
         <button type="button" class="change-journey" @click="changeJourney">
-          {{ isUiTest ? 'Restart this test journey' : '← Change registration type' }}
+          ← Change registration type
         </button>
         <h1>{{ selectedJourney?.title }}</h1>
         <p>{{ selectedJourney?.description }}</p>
@@ -1613,13 +1613,11 @@ const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: strin
 
 const props = withDefaults(
   defineProps<{
-    mode?: 'canonical' | 'demo' | 'supervisor' | 'ui-test'
-    initialJourney?: RegistrationJourney | null
+    mode?: 'canonical' | 'demo' | 'supervisor'
   }>(),
-  { mode: 'canonical', initialJourney: null },
+  { mode: 'canonical' },
 )
 const isDemo = computed(() => props.mode === 'demo')
-const isUiTest = computed(() => props.mode === 'ui-test')
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
 const unavailableGateway: RegistrationGateway = {
@@ -1630,27 +1628,15 @@ const unavailableGateway: RegistrationGateway = {
     }
   },
 }
-const forceDevelopmentAdapter = isDemo.value || isUiTest.value
-const usingDevelopmentAdapter =
-  forceDevelopmentAdapter || (!injectedGateway && import.meta.env.DEV)
-const registrationGateway = forceDevelopmentAdapter
+const usingDevelopmentAdapter = isDemo.value || (!injectedGateway && import.meta.env.DEV)
+const registrationGateway = isDemo.value
   ? developmentRegistrationGateway
   : injectedGateway || (usingDevelopmentAdapter ? developmentRegistrationGateway : unavailableGateway)
 const forms = reactive(createRegistrationForms())
-const journey = ref<RegistrationJourney | null>(props.initialJourney)
-const selectionStage = ref<SelectionStage>(
-  isSupervisorMode.value ? 'pathway' : props.initialJourney ? 'pathway' : 'welcome',
-)
+const journey = ref<RegistrationJourney | null>(null)
+const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'welcome')
 const selectedRole = ref<RegistrationRole | null>(
-  props.initialJourney?.startsWith('supervisor_')
-    ? 'supervisor'
-    : props.initialJourney?.startsWith('student_')
-      ? 'student'
-      : props.initialJourney === 'mentor'
-        ? 'mentor'
-        : isSupervisorMode.value
-          ? 'supervisor'
-          : null,
+  isSupervisorMode.value ? 'supervisor' : null,
 )
 const currentStep = ref(0)
 const maxReachedStep = ref(0)
@@ -2290,10 +2276,6 @@ const openGuardianInvitation = () => {
 }
 
 const changeJourney = () => {
-  if (isUiTest.value && props.initialJourney) {
-    resetRegistration()
-    return
-  }
   journey.value = null
   currentStep.value = 0
   maxReachedStep.value = 0
@@ -2492,18 +2474,9 @@ const resetRegistration = () => {
   Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
   Object.keys(photoPreviews).forEach((key) => delete photoPreviews[key])
   Object.assign(forms, createRegistrationForms())
-  journey.value = props.initialJourney
-  selectedRole.value = props.initialJourney?.startsWith('supervisor_')
-    ? 'supervisor'
-    : props.initialJourney?.startsWith('student_')
-      ? 'student'
-      : props.initialJourney === 'mentor'
-        ? 'mentor'
-        : isSupervisorMode.value
-          ? 'supervisor'
-          : null
-  selectionStage.value =
-    isSupervisorMode.value || props.initialJourney ? 'pathway' : 'welcome'
+  journey.value = null
+  selectedRole.value = isSupervisorMode.value ? 'supervisor' : null
+  selectionStage.value = isSupervisorMode.value ? 'pathway' : 'welcome'
   currentStep.value = 0
   maxReachedStep.value = 0
   success.value = null
