@@ -435,6 +435,107 @@ export const removeGroupMember = (groupId: string | number, userId: string | num
   ).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
+// Group management (create / rename / delete / messages)
+// ---------------------------------------------------------------------------
+
+/** Preview of the name create_group() would auto-generate. Reserves nothing —
+ *  the number is only allocated at insert time. */
+export const fetchNextGroupName = (): Promise<string> =>
+  adminGet<AdminEnvelope<{ name: string }>>('/group/next-name/').then((env) => env.data.name)
+
+/** Create a group. Omit `name` to let the backend allocate the next BTF number. */
+export const createGroup = (name?: string) =>
+  adminPost<AdminEnvelope<AdminGroupDetail | null>>('/group/', { name }).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+/** Rename a group. Duplicate active names are rejected by the backend. */
+export const updateGroup = (groupId: string | number, name: string) =>
+  adminPut<AdminEnvelope<AdminGroupDetail | null>>(`/group/${groupId}/`, { name }).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+/** Permanently delete one group (hard delete; cascades chat history, memberships,
+ *  event targets, announcement audiences, tasks, match recommendations). Fails if a
+ *  hosted workshop still references it — use bulkDeleteGroups with force for that. */
+export const deleteGroup = (groupId: string | number) =>
+  adminDelete<AdminEnvelope<{ id: string } | null>>(`/group/${groupId}/`).then((env) => env.msg)
+
+export type GroupBulkDeleteVars =
+  | { groupIds: (string | number)[]; force?: boolean }
+  | {
+      selectAll: true
+      filters?: GroupListDetailParams
+      excludeIds?: (string | number)[]
+      /** Count the admin reviewed; the server refuses if the live set grew past it. */
+      expectedCount?: number
+      force?: boolean
+      /** Max groups to delete this call; the response reports `remaining`. */
+      limit?: number
+    }
+
+export interface GroupBulkDeleteResult {
+  deletedIds: number[]
+  failedIds: number[]
+  notFoundIds: number[]
+  /** Only present for the selectAll path — matching groups not attempted this
+   *  call. The caller loops (raising `excludeIds`) until this is 0. */
+  remaining?: number
+}
+
+/** Permanently delete groups in one request — explicit ids or "select all
+ *  matching" (resolved server-side from the same list filters). force=true also
+ *  purges the hosted workshops that PROTECT a group. */
+export const bulkDeleteGroups = (payload: GroupBulkDeleteVars) =>
+  adminPost<AdminEnvelope<GroupBulkDeleteResult | null>>('/group/bulk-delete/', payload).then(
+    (env) => ({ msg: env.msg, data: env.data })
+  )
+
+export interface AdminGroupMessageAttachment {
+  id: number
+  filename: string
+  mime_type: string
+  size: number
+  download_url: string
+}
+
+export interface AdminGroupMessage {
+  id: string
+  group_id: string
+  sender: { id: string; name: string; email: string; role: string | null }
+  message_type: string
+  text: string
+  attachments: AdminGroupMessageAttachment[]
+  gif: { gif_url: string; preview_url: string; title: string } | null
+  sent_at: string
+  edited_at: string | null
+}
+
+export interface AdminGroupMessagesData {
+  items: AdminGroupMessage[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export const fetchGroupMessages = (
+  groupId: string | number,
+  params: { page?: number; limit?: number } = {}
+): Promise<AdminGroupMessagesData> =>
+  adminGet<AdminEnvelope<AdminGroupMessagesData>>(
+    `/group/${groupId}/messages/${buildAdminQuery(params)}`
+  ).then((env) => env.data)
+
+/** Soft-delete a message from a group. */
+export const removeGroupMessage = (groupId: string | number, messageId: string | number) =>
+  adminDelete<AdminEnvelope<{ id: string; group_id: string } | null>>(
+    `/group/${groupId}/messages/${messageId}/`
+  ).then((env) => env.msg)
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -656,6 +757,19 @@ export const unassignMentors = (groupIds: number[]) =>
   adminPost<AdminEnvelope<{ unassignedCount: number }>>('/mentor-match/unassign/', {
     groupIds
   }).then((env) => ({ msg: env.msg, unassignedCount: env.data.unassignedCount }))
+
+export interface MentorReplacePayload {
+  membershipId: number
+  groupId: number
+  newMentorUserId: number
+}
+
+/** Swap one group's mentor for another (POST /mentor-match/replace/). Rejects
+ *  if the new mentor is already at capacity. */
+export const replaceMentor = (payload: MentorReplacePayload) =>
+  adminPost<AdminEnvelope<{ replaced: number }>>('/mentor-match/replace/', payload).then(
+    (env) => ({ msg: env.msg, replaced: env.data.replaced })
+  )
 
 export interface MentorReplaceSuggestion {
   mentorUserId: number
