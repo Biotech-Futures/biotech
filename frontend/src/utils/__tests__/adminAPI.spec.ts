@@ -3,6 +3,7 @@ import {
   buildAdminQuery,
   fetchAdminSummary,
   fetchAdminUsers,
+  importAdminMentors,
   importAdminStudents,
   fetchAdminTasks,
   createAdminTask,
@@ -274,6 +275,71 @@ describe('bulk user actions', () => {
     expect(result.data.coRegistration?.groupsCreated[0]).toEqual({
       name: 'BTF1',
       memberCount: 2
+    })
+  })
+
+  it('importAdminMentors posts parsed mentor rows as mentor users and unwraps the result envelope', async () => {
+    const rows = [
+      {
+        firstName: 'Mary',
+        lastName: 'Somerville',
+        email: 'mary@example.edu',
+        country: 'Australia',
+        state: 'NSW',
+        interests: ['Genetics', 'Bioinformatics'],
+        mentorReason: 'I want to support students exploring biotech careers.',
+        mentorInstitution: 'University of Sydney',
+        mentorBackground: 'postgraduate',
+        mentorMaxGroupCount: 2
+      }
+    ]
+    const payload = {
+      msg: 'Bulk import complete: 1 created, 1 skipped',
+      data: {
+        created: [{ id: 1, firstName: 'Mary', lastName: 'Somerville', email: 'mary@example.edu' }],
+        skipped: [{ email: 'existing@example.edu', reason: 'Email already exists' }]
+      }
+    }
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string) => {
+        if (String(url).includes('/services/csrf/')) {
+          return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await importAdminMentors(rows)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/bulk/')) as [string, RequestInit]
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual([
+      {
+        firstName: 'Mary',
+        lastName: 'Somerville',
+        email: 'mary@example.edu',
+        role: 'mentor',
+        state: 'NSW',
+        country: 'Australia',
+        interests: ['Genetics', 'Bioinformatics'],
+        mentorReason: 'I want to support students exploring biotech careers.',
+        mentorInstitution: 'University of Sydney',
+        mentorBackground: 'postgraduate',
+        mentorMaxGroupCount: 2,
+        active: true
+      }
+    ])
+    expect(result).toEqual(payload)
+    expect(result.data.created).toHaveLength(1)
+    expect(result.data.skipped[0]).toEqual({
+      email: 'existing@example.edu',
+      reason: 'Email already exists'
     })
   })
 })

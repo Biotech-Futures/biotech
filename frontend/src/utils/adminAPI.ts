@@ -13,6 +13,7 @@
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
+import type { MentorImportRow } from './adminMentorCsv'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -288,6 +289,16 @@ export interface StudentBulkImportResult {
   data: StudentBulkImportData
 }
 
+export interface MentorBulkImportData {
+  created: AdminUser[]
+  skipped: StudentImportSkippedRow[]
+}
+
+export interface MentorBulkImportResult {
+  msg: string
+  data: MentorBulkImportData
+}
+
 export const createAdminUser = (payload: CreateUserPayload) =>
   adminPost<AdminEnvelope<AdminUser>>('/user/', payload).then((env) => ({
     msg: env.msg,
@@ -299,6 +310,28 @@ export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBu
     msg: env.msg,
     data: env.data
   }))
+
+export const importAdminMentors = (rows: MentorImportRow[]): Promise<MentorBulkImportResult> => {
+  const payload = rows.map((row) => ({
+    firstName: row.firstName,
+    lastName: row.lastName,
+    email: row.email,
+    role: 'mentor' as const,
+    state: row.state,
+    country: row.country,
+    interests: row.interests,
+    mentorReason: row.mentorReason,
+    mentorInstitution: row.mentorInstitution,
+    mentorBackground: row.mentorBackground ?? undefined,
+    mentorMaxGroupCount: row.mentorMaxGroupCount,
+    active: true
+  }))
+
+  return adminPost<AdminEnvelope<MentorBulkImportData>>('/user/bulk/', payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+}
 
 export const updateAdminUser = (userId: string | number, payload: Record<string, unknown>) =>
   adminPut<AdminEnvelope<AdminUser>>(`/user/${userId}/`, payload).then((env) => ({

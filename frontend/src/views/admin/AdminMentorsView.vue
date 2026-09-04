@@ -6,7 +6,7 @@
         {{ mentors.length }} mentor{{ mentors.length === 1 ? '' : 's' }} registered
       </p>
       <div class="admin-mentors__header-actions">
-        <button type="button" class="btn btn-sm btn-outline" title="CSV import coming soon">
+        <button type="button" class="btn btn-sm btn-outline" :disabled="loading" @click="mentorImportOpen = true">
           <i class="fas fa-file-arrow-up" aria-hidden="true"></i>
           Import Mentors CSV
         </button>
@@ -167,14 +167,20 @@
       :mentors="mentorList"
       @confirmed="onReplaceConfirmed"
     />
+
+    <AdminMentorImportSheet
+      v-model="mentorImportOpen"
+      @imported="onMentorsImported"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
+import AdminMentorImportSheet from '@/components/admin/mentors/AdminMentorImportSheet.vue'
 import AdminMentorRow from '@/components/admin/mentors/AdminMentorRow.vue'
 import { useAdminMentorsView } from '@/composables/admin/useAdminMentorsView'
 
@@ -209,9 +215,15 @@ const {
   load
 } = useAdminMentorsView()
 
+const mentorImportOpen = ref(false)
+
 onMounted(() => {
   void load()
 })
+
+const onMentorsImported = () => {
+  void load()
+}
 </script>
 
 <style scoped>
