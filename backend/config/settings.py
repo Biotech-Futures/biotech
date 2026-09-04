@@ -83,7 +83,15 @@ AZURE_CUSTOM_DOMAIN = config(
 
 # Azure Blob is the only supported file backend.
 USE_AZURE_BLOB_STORAGE = True
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+# Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
+# now, so naming the backend here is what actually routes plain FileFields
+# (the grading templates and director signatures) to Azure rather than to the
+# App Service's ephemeral local disk. django-storages picks up the account and
+# AZURE_CONTAINER from the settings above on its own.
+STORAGES = {
+    "default": {"BACKEND": "storages.backends.azure_storage.AzureStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 

@@ -96,13 +96,23 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
 
 // GET a binary endpoint with the session cookie and return the blob plus the
 // server-suggested filename (from Content-Disposition, if any).
-async function requestBlob(pathOrUrl: string): Promise<{ blob: Blob; filename: string | null }> {
+async function requestBlob(
+  pathOrUrl: string,
+  options: RequestInit = {}
+): Promise<{ blob: Blob; filename: string | null }> {
+  const method = String(options.method || 'GET').toUpperCase()
+  const includeCSRF = !['GET', 'HEAD', 'OPTIONS'].includes(method)
   const csrfReady = await ensureCsrfCookie(API_BASE_URL)
   if (!csrfReady) throw new Error('Could not initialize a secure session.')
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${API_BASE_URL}${pathOrUrl}`
   const response = await fetch(url, {
     credentials: 'include',
-    headers: buildSessionHeaders({ includeCSRF: false, isFormData: false, headers: { Accept: '*/*' } })
+    ...options,
+    headers: buildSessionHeaders({
+      includeCSRF,
+      isFormData: options.body instanceof FormData,
+      headers: { Accept: '*/*', ...(options.headers || {}) }
+    })
   })
   if (!response.ok) throw await apiErrorFromResponse(response)
   const disposition = response.headers.get('content-disposition') || ''
@@ -455,6 +465,60 @@ export function updateGrade(
 export function fetchComponentRows(code: string, year?: number): Promise<ComponentListPayload> {
   const qs = year ? `?year=${year}` : ''
   return requestJson<ComponentListPayload>(`/api/v1/grading/components/${encodeURIComponent(code)}/${qs}`)
+}
+
+// Which placeholders the active docx template actually contains.
+export interface TemplateScan {
+  uploaded: boolean
+  dialect: 'tokens' | 'controls' | 'none'
+  /** Placeholders present that the renderer knows how to fill. */
+  present: string[]
+  /** Placeholders present that would be left blank — usually typos. */
+  unknown: string[]
+}
+
+// GET /api/v1/grading/settings/template-scan/{kind}/
+export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promise<TemplateScan> {
+  return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`)
+}
+
+// POST /api/v1/grading/settings/template-scan/{kind}/ — scan a picked file
+// WITHOUT saving it, so the page can preview a selection before Save
+// replaces the stored template. A file the renderer can't open 400s.
+export function scanTemplateCandidate(
+  kind: 'marks-summary' | 'certificate',
+  file: File
+): Promise<TemplateScan> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`, {
+    method: 'POST',
+    body: fd
+  })
+}
+
+// GET /api/v1/grading/settings/test-render/{kind}/ — render the active docx
+// template with synthetic data and save it, so admins can check placeholders.
+export async function downloadTemplateTestRender(
+  kind: 'marks-summary' | 'certificate'
+): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/`)
+  triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
+}
+
+// POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
+// with synthetic data while the saved template stays active.
+export async function downloadCandidateTestRender(
+  kind: 'marks-summary' | 'certificate',
+  file: File
+): Promise<void> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const { blob, filename } = await requestBlob(
+    `/api/v1/grading/settings/test-render/${kind}/`,
+    { method: 'POST', body: fd }
+  )
+  triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
 }
 
 // GET /api/v1/grading/groups/{id}/download/ — sync zip fetch + browser save.

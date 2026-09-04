@@ -20,7 +20,7 @@ from .finalist import (
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupMarkingView
 from .release import CertificatesReleaseView, MarksReleaseView
-from .settings import GradingSettingsView
+from .settings import GradingSettingsView, TemplateScanView, TemplateTestRenderView
 from .student import MyCertificateView, MyGradesView, MySummaryView
 from .supervisor import SupervisorDownloadView, SupervisorGradesView
 from .upload import BulkUploadMarksView
@@ -40,6 +40,8 @@ __all__ = [
     "GradingJobDetailView",
     "GradingJobDownloadView",
     "GradingSettingsView",
+    "TemplateScanView",
+    "TemplateTestRenderView",
     "GroupDownloadView",
     "GroupExtensionDetailView",
     "GroupExtensionListView",

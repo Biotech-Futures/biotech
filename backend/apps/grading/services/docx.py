@@ -9,17 +9,19 @@ Templates live in two tiers:
      client's real 2025 templates, so the endpoints produce the real
      documents out of the box.
 
-Three template dialects are auto-detected per file:
+Two template dialects are auto-detected per file:
 
   * ``<<[FieldName]>>`` text tokens — the client's marks release template
     (BTF 2025). Replaced run-aware so formatting and line breaks survive.
   * Word content controls with an alias (``firstName``/``lastName``/
     ``projectTitle``) — the client's merit certificate template.
-  * Jinja ``{{ variable }}`` markers via ``docxtpl`` — anything else.
+
+A file with neither is returned unchanged.
 """
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
 from datetime import date
@@ -29,9 +31,17 @@ from pathlib import Path
 from django.core.files.storage import default_storage
 from docx import Document
 from docx.oxml.ns import qn
-from docxtpl import DocxTemplate
+from docx.shared import Inches
+from docx.text.run import Run
 
 from ..models import GradingSettings
+
+
+logger = logging.getLogger(__name__)
+
+# Signatures are scanned artwork of wildly varying pixel size; pinning the
+# width keeps every document's signature block the same on the page.
+SIGNATURE_WIDTH = Inches(1.6)
 
 
 FALLBACK_DIR = Path(__file__).resolve().parent.parent / "templates" / "docx"
@@ -73,12 +83,14 @@ def _iter_paragraphs(container):
                 yield from _iter_paragraphs(cell)
 
 
-def _replace_tokens_in_paragraph(paragraph, fields: dict) -> None:
+def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = False) -> None:
     """Replace ``<<[Name]>>`` tokens even when Word split them across runs.
 
     Works on the ``w:t`` text nodes directly: line breaks (``w:br``) and run
     formatting outside the token span are untouched. Unknown field names are
-    blanked rather than left as visible template markers.
+    blanked rather than left as visible template markers, unless ``only_known``
+    is set — the image pass needs to clear its own tokens without wiping the
+    text tokens that have not been substituted yet.
     """
     ts = paragraph._element.findall(f".//{qn('w:t')}")
     if not ts:
@@ -97,6 +109,8 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict) -> None:
 
     # Right-to-left so earlier match offsets stay valid after each splice.
     for m in reversed(matches):
+        if only_known and m.group(1) not in fields:
+            continue
         value = str(fields.get(m.group(1), ""))
         s, e = m.span()
         start_i = end_i = None
@@ -121,9 +135,49 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict) -> None:
         t_el.text = new
 
 
-def _render_token_template(data: bytes, fields: dict) -> bytes:
+class _PartOwner:
+    """Minimal parent so a bare ``w:r`` element can be wrapped in a ``Run``.
+
+    ``Run.add_picture`` reaches the document part through its parent; content
+    controls give us the element but no python-docx object to hang it off.
+    """
+
+    def __init__(self, part):
+        self.part = part
+
+
+def _insert_images_in_paragraph(paragraph, images: dict) -> None:
+    """Swap ``<<[Name]>>`` image tokens for the picture they name.
+
+    The token text is cleared in place and the picture appended to the same
+    paragraph — signature tokens sit on their own line in practice, so the
+    end of the paragraph is where the image belongs.
+    """
+    ts = paragraph._element.findall(f".//{qn('w:t')}")
+    if not ts:
+        return
+    combined = "".join(t.text or "" for t in ts)
+    found = [m.group(1) for m in _TOKEN_RE.finditer(combined) if m.group(1) in images]
+    if not found:
+        return
+
+    _replace_tokens_in_paragraph(paragraph, {name: "" for name in found}, only_known=True)
+    for name in found:
+        try:
+            paragraph.add_run().add_picture(io.BytesIO(images[name]), width=SIGNATURE_WIDTH)
+        except Exception:
+            # A corrupt or unreadable signature must not sink the whole
+            # document — the name beside it still identifies the signatory.
+            logger.exception("grading_docx.signature_insert_failed token=%s", name)
+
+
+def _render_token_template(data: bytes, fields: dict, images: dict | None = None) -> bytes:
     doc = Document(io.BytesIO(data))
     for paragraph in _iter_paragraphs(doc):
+        # Images first: the text pass blanks tokens it does not recognise,
+        # which would erase the image tokens before they are seen.
+        if images:
+            _insert_images_in_paragraph(paragraph, images)
         _replace_tokens_in_paragraph(paragraph, fields)
     buf = io.BytesIO()
     doc.save(buf)
@@ -134,21 +188,31 @@ def _render_token_template(data: bytes, fields: dict) -> bytes:
 # Content-control (w:sdt alias) filling
 
 
-def _fill_content_controls(data: bytes, fields: dict) -> bytes:
+def _fill_content_controls(data: bytes, fields: dict, images: dict | None = None) -> bytes:
     doc = Document(io.BytesIO(data))
+    images = images or {}
     for sdt in doc.element.body.iter(qn("w:sdt")):
         pr = sdt.find(qn("w:sdtPr"))
         alias = pr.find(qn("w:alias")) if pr is not None else None
         if alias is None:
             continue
         name = alias.get(qn("w:val"))
-        if name not in fields:
+        if name not in fields and name not in images:
             continue
         content = sdt.find(qn("w:sdtContent"))
         if content is None:
             continue
         ts = content.findall(f".//{qn('w:t')}")
         if not ts:
+            continue
+        if name in images:
+            for t in ts:
+                t.text = ""
+            try:
+                run = Run(ts[0].getparent(), _PartOwner(doc.part))
+                run.add_picture(io.BytesIO(images[name]), width=SIGNATURE_WIDTH)
+            except Exception:
+                logger.exception("grading_docx.signature_insert_failed control=%s", name)
             continue
         ts[0].text = str(fields[name])
         for extra in ts[1:]:
@@ -204,6 +268,9 @@ def marks_release_fields(context: dict) -> dict:
         "Schools": context.get("schools", ""),
         "PosterComment": (by_code.get("POSTER") or {}).get("overall_comment", "")
         or context.get("poster_comment", ""),
+        # Configurable per the spec; blank until an admin sets them.
+        "Director1Name": context.get("director_1_name", ""),
+        "Director2Name": context.get("director_2_name", ""),
     }
     for i in range(10):
         c = poster[i] if i < len(poster) else None
@@ -230,11 +297,62 @@ def certificate_fields(context: dict) -> dict:
         # No project-title field in the data model yet; the group name is the
         # closest identity we hold for the team's project.
         "projectTitle": context.get("project_title") or context.get("group_name", ""),
+        "director1Name": context.get("director_1_name", ""),
+        "director2Name": context.get("director_2_name", ""),
     }
+
+
+def _signature_bytes(field) -> bytes | None:
+    """Read one signature image, or None if unset/unreadable.
+
+    Best-effort: a missing blob must not sink a certificate run, so failures
+    are logged and the document renders without that image.
+    """
+    if not field:
+        return None
+    try:
+        with default_storage.open(field.name, "rb") as fh:
+            return fh.read()
+    except Exception:
+        logger.exception("grading_docx.signature_unreadable name=%s", getattr(field, "name", ""))
+        return None
+
+
+def signature_images(settings, prefix: str) -> dict:
+    """``{token_name: image_bytes}`` for whichever signatures are uploaded.
+
+    ``prefix`` selects the naming convention of the calling dialect —
+    ``Director`` for ``<<[Director1Signature]>>`` tokens, ``director`` for
+    ``director1Signature`` content controls.
+    """
+    images = {}
+    for index, field in (
+        (1, settings.director_1_signature),
+        (2, settings.director_2_signature),
+    ):
+        data = _signature_bytes(field)
+        if data:
+            images[f"{prefix}{index}Signature"] = data
+    return images
 
 
 # ---------------------------------------------------------------------------
 # Public renderers
+
+
+def render_marks_summary_data(data: bytes, context: dict) -> bytes:
+    """Render marks-summary docx bytes — the saved template or a candidate
+    upload being previewed before it replaces anything."""
+    settings = GradingSettings.load()
+    if _has_angle_tokens(_document_xml(data)):
+        return _render_token_template(
+            data,
+            marks_release_fields(context),
+            signature_images(settings, "Director"),
+        )
+    # No recognised placeholders: hand back the document as uploaded rather
+    # than failing. A static summary with nothing to substitute is valid.
+    return data
 
 
 def render_marks_summary(context: dict) -> bytes:
@@ -242,14 +360,20 @@ def render_marks_summary(context: dict) -> bytes:
     settings = GradingSettings.load()
     with _open_template(settings.marks_summary_template, "marks_release.docx") as fh:
         data = fh.read()
+    return render_marks_summary_data(data, context)
+
+
+def render_certificate_data(data: bytes, context: dict) -> bytes:
+    """Render certificate docx bytes — saved template or previewed candidate."""
+    settings = GradingSettings.load()
     xml = _document_xml(data)
+    fields = certificate_fields(context)
     if _has_angle_tokens(xml):
-        return _render_token_template(data, marks_release_fields(context))
-    doc = DocxTemplate(io.BytesIO(data))
-    doc.render(context)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+        return _render_token_template(data, fields, signature_images(settings, "Director"))
+    if "<w:sdt>" in xml or "w:alias" in xml:
+        return _fill_content_controls(data, fields, signature_images(settings, "director"))
+    # As above — a certificate with no placeholders is returned unchanged.
+    return data
 
 
 def render_participation_certificate(context: dict) -> bytes:
@@ -257,21 +381,190 @@ def render_participation_certificate(context: dict) -> bytes:
     settings = GradingSettings.load()
     with _open_template(settings.certificate_template, "merit_certificate.docx") as fh:
         data = fh.read()
-    xml = _document_xml(data)
-    fields = certificate_fields(context)
-    if _has_angle_tokens(xml):
-        return _render_token_template(data, fields)
-    if "<w:sdt>" in xml or "w:alias" in xml:
-        return _fill_content_controls(data, fields)
-    doc = DocxTemplate(io.BytesIO(data))
-    doc.render(context)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    return render_certificate_data(data, context)
 
 
 # ---------------------------------------------------------------------------
 # Context builders
+
+
+def sample_marks_summary_context() -> dict:
+    """Synthetic marks-summary data for the Document Setup test render.
+
+    Every field the templates can reference is filled with an obviously fake
+    value, so an admin opening the result can spot any placeholder that did
+    NOT get replaced.
+    """
+    settings = GradingSettings.load()
+
+    def _criteria(prefix: str, count: int) -> list[dict]:
+        return [
+            {
+                "name": f"Sample {prefix} criterion {i}",
+                "max_mark": "5",
+                "mark": f"{3 + (i % 3)}.00",
+                "comment": f"Sample comment for {prefix} criterion {i}.",
+            }
+            for i in range(1, count + 1)
+        ]
+
+    return {
+        "group_name": "SAMPLE-TEAM-01",
+        "project_title": "Sample Project Title",
+        "project_category": "Sample Project Category",
+        "solution_category": "Sample Solution Category",
+        "year": date.today().year,
+        "components": [
+            {
+                "code": "POSTER",
+                "name": "Poster",
+                "submitted": True,
+                "overall_comment": "Sample overall poster comment.",
+                "criteria": _criteria("poster", 10),
+            },
+            {
+                "code": "SAQ",
+                "name": "Short Answer Questions",
+                "submitted": True,
+                "overall_comment": "",
+                "criteria": _criteria("SAQ", 4),
+            },
+        ],
+        "director_1_name": settings.director_1_name or "Sample Director One",
+        "director_2_name": settings.director_2_name or "Sample Director Two",
+        "generated_at": date.today().isoformat(),
+        "students": "Jane Doe, John Roe",
+        "mentors": "Dr. Sample Mentor",
+        "supervisors": "Ms. Sample Supervisor",
+        "schools": "Sample High School",
+    }
+
+
+def sample_certificate_context() -> dict:
+    """Synthetic certificate data for the Document Setup test render."""
+    context = certificate_context(
+        "Jane Doe",
+        "SAMPLE-TEAM-01",
+        date.today().year,
+        first_name="Jane",
+        last_name="Doe",
+    )
+    context["project_title"] = "Sample Project Title"
+    return context
+
+
+_ALIAS_RE = re.compile(r'<w:alias[^>]*w:val="([^"]+)"')
+_TAG_RE = re.compile(r"<[^>]+>")
+_TEXT_PART_RE = re.compile(r"word/(document|header\d*|footer\d*)\.xml")
+
+# Signature placeholders are images rather than context keys, so they are not
+# in the field maps and have to be named explicitly when listing what we fill.
+_TOKEN_SIGNATURES = {"Director1Signature", "Director2Signature"}
+_CONTROL_SIGNATURES = {"director1Signature", "director2Signature"}
+
+
+def _visible_text(xml: str) -> str:
+    """Document text with markup removed, so run-split tokens read whole.
+
+    Word happily splits ``<<[TeamCode]>>`` across several ``w:t`` nodes;
+    dropping the tags first is what makes those tokens findable.
+    """
+    from html import unescape
+
+    return unescape(_TAG_RE.sub("", xml))
+
+
+def _known_placeholders(kind: str) -> set[str]:
+    if kind == "marks-summary":
+        return set(marks_release_fields(sample_marks_summary_context())) | _TOKEN_SIGNATURES
+    if kind == "certificate":
+        return (
+            set(certificate_fields(sample_certificate_context()))
+            | _TOKEN_SIGNATURES
+            | _CONTROL_SIGNATURES
+        )
+    raise ValueError(f"unknown template kind {kind!r}")
+
+
+def scan_template_data(kind: str, data: bytes) -> dict:
+    """Placeholder report for docx bytes — shared by the scan endpoint and the
+    upload-time check, so both judge a template by exactly the same rules."""
+    known = _known_placeholders(kind)
+    tokens: set[str] = set()
+    controls: set[str] = set()
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for name in z.namelist():
+            if not _TEXT_PART_RE.fullmatch(name):
+                continue
+            xml = z.read(name).decode("utf8", errors="ignore")
+            tokens.update(m.group(1) for m in _TOKEN_RE.finditer(_visible_text(xml)))
+            controls.update(_ALIAS_RE.findall(xml))
+
+    found = tokens | controls
+    return {
+        "dialect": "tokens" if tokens else ("controls" if controls else "none"),
+        "present": sorted(found & known),
+        "unknown": sorted(found - known),
+    }
+
+
+def scan_template(kind: str) -> dict:
+    """Which placeholders the active template actually contains.
+
+    Returns the ones this app knows how to fill (``present``) and the ones it
+    would silently leave blank (``unknown``) — the latter are almost always a
+    typo in the template, so the settings page can surface them before real
+    documents go out.
+    """
+    settings = GradingSettings.load()
+    if kind == "marks-summary":
+        field, fallback = settings.marks_summary_template, "marks_release.docx"
+    elif kind == "certificate":
+        field, fallback = settings.certificate_template, "merit_certificate.docx"
+    else:
+        raise ValueError(f"unknown template kind {kind!r}")
+
+    with _open_template(field, fallback) as fh:
+        data = fh.read()
+    return {"uploaded": bool(field), **scan_template_data(kind, data)}
+
+
+def check_template_upload(kind: str, data: bytes) -> dict:
+    """Gate an incoming template before it replaces the active one.
+
+    Opens the bytes exactly the way the renderers will, so a file that would
+    break document generation — an old binary .doc, a renamed PDF, a
+    truncated upload — is rejected while the working template is still in
+    place. Raises ``ValueError`` with an admin-facing message; returns the
+    placeholder scan on success.
+    """
+    try:
+        Document(io.BytesIO(data))
+    except Exception as exc:
+        raise ValueError(
+            "This file could not be opened as a .docx document, so the "
+            "current template was left unchanged. Save it from Word as "
+            ".docx and upload it again."
+        ) from exc
+    return scan_template_data(kind, data)
+
+
+def check_signature_upload(data: bytes) -> None:
+    """Gate an incoming signature image before it replaces the active one.
+
+    Uses the same format sniffing ``add_picture`` relies on, so any accepted
+    file is guaranteed to embed at render time instead of being skipped with
+    only a log line. Raises ``ValueError`` with an admin-facing message.
+    """
+    from docx.image.image import Image as DocxImage
+
+    try:
+        DocxImage.from_blob(data)
+    except Exception as exc:
+        raise ValueError(
+            "This file is not an image Word can embed (PNG or JPEG work "
+            "best), so the current signature was left unchanged."
+        ) from exc
 
 
 def _team_details(group) -> dict:

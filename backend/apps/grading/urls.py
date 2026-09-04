@@ -26,6 +26,8 @@ from .views import (
     MySummaryView,
     SupervisorDownloadView,
     SupervisorGradesView,
+    TemplateScanView,
+    TemplateTestRenderView,
 )
 
 app_name = "grading"
@@ -61,6 +63,18 @@ urlpatterns = [
     path("release/", MarksReleaseView.as_view(), name="release"),
     path("certificates-release/", CertificatesReleaseView.as_view(), name="certificates-release"),
     path("settings/", GradingSettingsView.as_view(), name="settings"),
+    # Which placeholders the active template actually contains.
+    path(
+        "settings/template-scan/<str:kind>/",
+        TemplateScanView.as_view(),
+        name="settings-template-scan",
+    ),
+    # Render the active template with synthetic data to check placeholders.
+    path(
+        "settings/test-render/<str:kind>/",
+        TemplateTestRenderView.as_view(),
+        name="settings-test-render",
+    ),
 
     # Student-facing read views (gated on MarksRelease.released_at).
     path("me/grades/", MyGradesView.as_view(), name="me-grades"),

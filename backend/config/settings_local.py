@@ -23,9 +23,14 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 # to happen here rather than in the environment.
 DATABASES["default"]["OPTIONS"]["sslmode"] = os.environ.get("DB_SSLMODE", "disable")
 
-# Use local file storage instead of Azure Blob
+# Use local file storage instead of Azure Blob. STORAGES has to be replaced
+# wholesale: settings.py builds it for Azure, and flipping the flag below
+# cannot retroactively change a dict that was already evaluated.
 USE_AZURE_BLOB_STORAGE = False
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
