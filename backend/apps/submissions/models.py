@@ -130,6 +130,15 @@ class Deadline(models.Model):
     # Rows are kept rather than deleted so a past round stays on record. Only
     # the active one is consulted when deciding whether submissions are open.
     is_active = models.BooleanField(default=True)
+    # Who announced it — shown on the admin page so a changed deadline has a
+    # name attached. Null for rows created before this field (or via scripts).
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deadlines_set",
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.submissions',
+    'apps.grading',
     'apps.services',
     'matching',
     'drf_spectacular',
@@ -68,10 +69,12 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
-# Competition entries live in their own container rather than alongside the
-# general resource library, so student submissions are not mixed in with
-# program-wide material.
-AZURE_SUBMISSION_CONTAINER = config("AZURE_SUBMISSION_CONTAINER", default="submissions")
+# Competition entries live apart from the general resource library, with one
+# container per attachment slot, so posters, reports and prototypes are
+# separated at the storage-account level rather than mixed in one namespace.
+AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
+AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
+AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -264,7 +267,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": config("DB_SSLMODE", default="require"),
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -574,6 +577,19 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# --- Grading platform --------------------------------------------------------
+# GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
+# link previews / unread digests / auth emails: bulk-zip jobs normally run on
+# a daemon thread after transaction.on_commit, but tests set this true to
+# execute inline so assertions can observe the job row and result URL.
+GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# Fires the "you're a finalist" email to every group member. Off by default
+# so local dev / staging don't accidentally spam real students; flip on per
+# environment via env var once the announcement copy is signed off.
+GRADING_FINALIST_EMAIL_ENABLED = config(
+    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
+)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

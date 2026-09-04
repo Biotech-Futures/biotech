@@ -15,6 +15,11 @@ django-cors-headers==4.8.0
 django-filter==24.3
 django-otp==1.6.1
 django-storages==1.14.6
+docxtpl==0.20.2
+python-docx==1.2.0
+Jinja2==3.1.6
+lxml==6.1.1
+MarkupSafe==3.0.3
 djangorestframework==3.16.1
 drf-nested-routers==0.95.0
 drf-spectacular==0.28.0

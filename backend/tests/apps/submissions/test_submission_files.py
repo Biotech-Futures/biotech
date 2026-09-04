@@ -16,7 +16,7 @@ from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
-from apps.submissions.storage import SUBMISSION_FILE_SERVICE
+from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
 from .seed_data import install_question_set
@@ -83,14 +83,20 @@ class SubmissionFileTests(TestCase):
         stored = self._stored("poster")
         self.assertEqual(stored["name"], "poster.pdf")
         self.assertEqual(stored["mime"], "application/pdf")
-        self.assertTrue(SUBMISSION_FILE_SERVICE.exists(stored["storage_key"]))
+        self.assertTrue(submission_file_service("poster").exists(stored["storage_key"]))
+        # Slots are container-separated: the poster's key must not resolve in
+        # the other slots' stores.
+        self.assertFalse(submission_file_service("report").exists(stored["storage_key"]))
+        self.assertFalse(submission_file_service("prototype").exists(stored["storage_key"]))
 
     def test_prototype_accepts_a_non_pdf(self):
         upload = SimpleUploadedFile(
             "model.stl", b"solid teapot\nendsolid\n", content_type="application/octet-stream"
         )
         self.assertEqual(self._upload("prototype", upload).status_code, 200)
-        self.assertEqual(self._stored("prototype")["name"], "model.stl")
+        stored = self._stored("prototype")
+        self.assertEqual(stored["name"], "model.stl")
+        self.assertTrue(submission_file_service("prototype").exists(stored["storage_key"]))
 
     # ------------------------------------------------------------- rejecting
     def test_non_pdf_rejected_for_poster(self):
@@ -160,8 +166,8 @@ class SubmissionFileTests(TestCase):
 
         self.assertNotEqual(first_key, second_key)
         self.assertEqual(self._stored("poster")["name"], "second.pdf")
-        self.assertFalse(SUBMISSION_FILE_SERVICE.exists(first_key))
-        self.assertTrue(SUBMISSION_FILE_SERVICE.exists(second_key))
+        self.assertFalse(submission_file_service("poster").exists(first_key))
+        self.assertTrue(submission_file_service("poster").exists(second_key))
 
     def test_deleting_a_file_clears_the_slot(self):
         self._upload("poster", _pdf_upload())
@@ -171,7 +177,7 @@ class SubmissionFileTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(self._stored("poster"))
-        self.assertFalse(SUBMISSION_FILE_SERVICE.exists(key))
+        self.assertFalse(submission_file_service("poster").exists(key))
 
     def test_deleting_an_empty_slot_is_404(self):
         self.assertEqual(self.client.delete(self._file_url("report")).status_code, 404)
