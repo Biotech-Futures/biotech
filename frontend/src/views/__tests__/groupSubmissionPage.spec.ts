@@ -147,10 +147,10 @@ const reopenedDetail = () => {
 
 const stub = { template: '<div />' }
 
-// The page renders a RouterLink back to the team, so that named route has to
-// exist here or every mount throws while resolving it.
+// The portal is a section of the group page and reads the team from the route,
+// so it is mounted on the route it really lives at.
 const ROUTES = [
-  { path: '/submission/:id', name: 'submission', component: stub },
+  { path: '/groups/:id/submission', name: 'group-submission', component: stub },
   { path: '/groups/:id', name: 'group-detail', component: stub },
 ]
 
@@ -160,7 +160,7 @@ let wrapper: VueWrapper | null = null
 const mountPage = async (detail: SubmissionDetail) => {
   fetchSubmission.mockResolvedValue(detail)
   const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-  await router.push('/submission/1')
+  await router.push('/groups/1/submission')
   await router.isReady()
   // Attached to the document so focus actually moves: an unattached component
   // can never hold document.activeElement, and sending the student to the
@@ -389,7 +389,7 @@ describe('loading failure', () => {
   it('reports the error instead of rendering an empty form', async () => {
     fetchSubmission.mockRejectedValue(new Error('network down'))
     const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-    await router.push('/submission/1')
+    await router.push('/groups/1/submission')
     await router.isReady()
     wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
     for (let i = 0; i < 4; i += 1) await flushPromises()
@@ -457,7 +457,7 @@ describe('the deadline passing while the page is open', () => {
       // this mock is consumed once and does not affect the later re-check.
       fetchSubmission.mockResolvedValueOnce(open)
       const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-      await router.push('/submission/1')
+      await router.push('/groups/1/submission')
       await router.isReady()
       wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
       await flushPromises()
@@ -496,7 +496,7 @@ describe('the deadline passing while the page is open', () => {
       fetchSubmission.mockResolvedValue(open)
 
       const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-      await router.push('/submission/1')
+      await router.push('/groups/1/submission')
       await router.isReady()
       wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
       await flushPromises()
@@ -855,5 +855,196 @@ describe('how the status line is worded', () => {
     await mountPage(buildDetail({ submission: { stage: 'in_progress', answers: ANSWERED } }))
 
     expect(wrapper!.find('.status-line__state').text()).toBe('In Progress')
+  })
+})
+
+describe('how the deadline reads', () => {
+  it('leaves the year out when the deadline falls this year', async () => {
+    // Four characters of noise in a line that was already crowded.
+    await mountPage(buildDetail({}))
+
+    expect(wrapper!.find('.submission-due__date').text()).not.toContain(
+      String(new Date().getFullYear()),
+    )
+  })
+
+  it('names the year when the deadline is in another one', async () => {
+    // The shortening must never make a deadline read as this year when it is
+    // not — the saving is not worth an ambiguous closing date.
+    const nextYear = new Date()
+    nextYear.setFullYear(nextYear.getFullYear() + 1)
+    const detail = buildDetail({})
+    detail.deadline.closes_at = nextYear.toISOString()
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('.submission-due__date').text()).toContain(
+      String(nextYear.getFullYear()),
+    )
+  })
+
+  it('shows the countdown while the window is open', async () => {
+    await mountPage(buildDetail({}))
+
+    expect(wrapper!.find('.submission-remaining').exists()).toBe(true)
+  })
+
+  it('marks the countdown as near inside the last day', async () => {
+    // The chip changes colour rather than shape, so nothing on the row moves
+    // underneath a student who is mid-sentence.
+    const detail = buildDetail({})
+    detail.deadline.closes_at = new Date(Date.now() + 3 * 3_600_000).toISOString()
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('.submission-remaining').classes()).toContain('is-near')
+  })
+})
+
+describe('the word counter', () => {
+  it('stays hidden until there is something to count', async () => {
+    // Six "0 / 150 words" lines on an untouched form read as six things already
+    // wrong. The limit is stated in the section instructions, so nothing is lost
+    // by waiting.
+    await mountPage(buildDetail({ submission: null }))
+
+    expect(wrapper!.findAll('.submission-count')).toHaveLength(0)
+  })
+
+  it('appears once a question is answered, for that question only', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('Two words')
+    await flushPromises()
+
+    const counts = wrapper!.findAll('.submission-count')
+    expect(counts).toHaveLength(1)
+    expect(counts[0].text()).toContain('2 / 150 words')
+  })
+
+  it('treats whitespace as nothing, the same as the progress count does', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('   ')
+    await flushPromises()
+
+    expect(wrapper!.findAll('.submission-count')).toHaveLength(0)
+  })
+
+  it('still shows a count that is over the limit', async () => {
+    // The counter turning itself off must never hide the one state that
+    // actually blocks a submission.
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('word '.repeat(151))
+    await flushPromises()
+
+    const count = wrapper!.find('.submission-count')
+    expect(count.exists()).toBe(true)
+    expect(count.classes()).toContain('is-over-limit')
+  })
+})
+
+describe('collapsing a preview', () => {
+  const openPosterTab = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('starts open, so an uploaded poster is visible without asking', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper!.find('.preview-panel').classes()).not.toContain('is-collapsed')
+  })
+
+  it('folds away when the heading is pressed', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    await wrapper!.find('[data-testid="toggle-poster-preview"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="toggle-poster-preview"]').attributes('aria-expanded')).toBe(
+      'false',
+    )
+    expect(wrapper!.find('.preview-panel').classes()).toContain('is-collapsed')
+  })
+
+  it('hides the document rather than unloading it', async () => {
+    // Tearing the iframe down would make every re-open refetch the file.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    await wrapper!.find('[data-testid="toggle-poster-preview"]').trigger('click')
+    await flushPromises()
+
+    const body = wrapper!.find('#poster-preview-body')
+    expect(body.exists()).toBe(true)
+    expect((body.element as HTMLElement).style.display).toBe('none')
+  })
+
+  it('opens again on a second press', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const toggle = () => wrapper!.find('[data-testid="toggle-poster-preview"]')
+    await toggle().trigger('click')
+    await toggle().trigger('click')
+    await flushPromises()
+
+    expect(toggle().attributes('aria-expanded')).toBe('true')
+  })
+})
+
+describe('as a section of the group page', () => {
+  // There is one mount. The portal used to render as a page of its own as well,
+  // behind an `embedded` prop that varied its chrome; that mount is gone, and
+  // these specs pin what the single remaining one owes the page around it.
+
+  it('keeps the page wrapper, which carries every design token', async () => {
+    // This spec once asserted the opposite, and that assertion held a real bug
+    // in place. Every token here — panel background, border, shadow, field
+    // colours, the spacing scale — is declared on .content-area. Dropping the
+    // class left about a hundred declarations pointing at undefined properties,
+    // so panels rendered with no background, no border and no spacing, and the
+    // page came out as text and buttons floating in white space.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(wrapper!.find('.content-area').exists()).toBe(true)
+  })
+
+  it('carries no masthead, which the group page header already covers', async () => {
+    // It also echoed the Qualtrics form's header, which is the thing the client
+    // reacted to.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.portal-brand').exists()).toBe(false)
+  })
+
+  it('keeps the deadline, which nothing else on the group page states', async () => {
+    // The deadline shares a strip with the masthead that was removed, so it is
+    // easy to lose the closing date by accident while tidying that strip up.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.submission-due').exists()).toBe(true)
+  })
+
+  it('carries no back link, which pointed at the page it now lives on', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.submission-back').exists()).toBe(false)
+  })
+
+  it('keeps everything that matters', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(wrapper!.findAll('textarea')).toHaveLength(QUESTIONS.length)
+    expect(wrapper!.find('.submission-due').exists()).toBe(true)
+    expect(wrapper!.find('.status-line').exists()).toBe(true)
+    expect(wrapper!.find('.submission-steps').exists()).toBe(true)
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
   })
 })

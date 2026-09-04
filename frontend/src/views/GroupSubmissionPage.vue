@@ -1,50 +1,25 @@
 <template>
+  <!-- .content-area is not optional chrome: every one of this section's design
+       tokens is declared on it, so removing it leaves ~100 declarations
+       pointing at undefined properties and the panels lose their background,
+       border and spacing entirely. -->
   <div class="content-area">
-    <div v-if="isLoading" class="panel">
+    <div v-if="isLoading" class="card">
       <p>Loading submission…</p>
     </div>
 
-    <div v-else-if="loadError" class="panel">
+    <div v-else-if="loadError" class="card">
       <h2 class="card-title">{{ loadError }}</h2>
       <button class="btn btn-outline btn-sm" type="button" @click="load">Try again</button>
     </div>
 
     <template v-else-if="detail">
-      <!-- Mirrors the header the client's Qualtrics form injects, so students
-           moving from the old form recognise where they are. -->
-      <div class="page-head portal-banner">
-        <div class="portal-brand">
-          <!-- No backdrop needed now the banner is tinted rather than solid:
-               the mark reads directly against it. -->
-          <img class="portal-brand__logo" :src="logo" :alt="BRAND_NAME" />
-          <div>
-            <h1 class="portal-brand__title">Submission Portal</h1>
-            <p class="portal-brand__subtitle">{{ BRAND_NAME }}</p>
-          </div>
-        </div>
-
-        <!-- Compact by design: a date and a countdown do not need a full-width
-             panel, and the space is better spent on the criteria above. -->
-        <!-- Stacked rather than run together: label, date and countdown on one
-             line made a long string that fought the title for attention. -->
-        <div class="submission-due" :title="deadlineDetail">
-          <span class="submission-due__label">{{ isOpen ? 'Due' : 'Closed' }}</span>
-          <strong class="submission-due__date">{{ deadlineDate }}</strong>
-          <span class="submission-due__foot">
-            <span
-              v-if="timeRemaining"
-              class="submission-remaining"
-              :class="{ 'is-near': isDeadlineNear }"
-            >
-              {{ timeRemaining }}
-            </span>
-            <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
-          </span>
-        </div>
-      </div>
-
       <!-- One line rather than a panel: in progress is the ordinary state, and
-           only a completed submission carries information worth pausing on. -->
+           only a completed submission carries information worth pausing on.
+           The closing date rides on the same line, at the far end. It used to
+           sit above in a banner of its own, which was the last structural echo
+           of the Qualtrics form's header; where the entry stands and when it is
+           due are one thought, so they belong on one line. -->
       <div class="status-line" :class="`is-${state.tone}`">
         <span class="status-line__icon" aria-hidden="true">
           <i :class="`fas ${state.icon}`"></i>
@@ -62,6 +37,22 @@
         >
           {{ isReopening ? 'Opening…' : 'Resubmit' }}
         </button>
+
+        <!-- Runs inline now rather than stacking: on its own line a label above
+             a date read as a heading, but at the end of a sentence about the
+             entry it reads as the deadline it is. -->
+        <span class="submission-due" :title="deadlineDetail">
+          <span class="submission-due__label">{{ isOpen ? 'Due' : 'Closed' }}</span>
+          <strong class="submission-due__date">{{ deadlineDate }}</strong>
+          <span
+            v-if="timeRemaining"
+            class="submission-remaining"
+            :class="{ 'is-near': isDeadlineNear }"
+          >
+            {{ timeRemaining }}
+          </span>
+          <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
+        </span>
       </div>
 
       <!-- Slim bar rather than a full card: it appears after every action, so
@@ -95,11 +86,11 @@
 
       <!-- 1. Short-answer questions. Defined in the database, so this list is
            whatever the server sent rather than anything hardcoded here. -->
-      <section v-show="activeTab === 'questions'" class="panel">
+      <section v-show="activeTab === 'questions'" class="card">
         <!-- Title with one supporting line, the shape the client's form uses.
              Both come from the database, so admins can reword either. -->
         <header v-if="sectionHeading || sectionBody" class="section-head">
-          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
@@ -122,8 +113,13 @@
             rows="5"
             :disabled="!isEditable"
           ></textarea>
+          <!-- Only once there is something to count. On an untouched form six
+               "0 / 150 words" lines read as six things already wrong; the limit
+               is stated in the section's instructions, so nothing is lost by
+               waiting until it can report real progress. Whitespace alone
+               counts as nothing here, the same as it does everywhere else. -->
           <p
-            v-if="question.max_words"
+            v-if="question.max_words && wordCount(question.key) > 0"
             class="submission-count"
             :class="{ 'is-over-limit': wordCount(question.key) > question.max_words }"
           >
@@ -134,9 +130,9 @@
 
       <!-- 2. Poster, with the preview kept open — this tab exists mainly to
            give the document room to be read. -->
-      <section v-show="activeTab === 'poster'" class="panel">
+      <section v-show="activeTab === 'poster'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
-          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
@@ -202,9 +198,28 @@
 
         <!-- Guarded on the slot as well as the source: hidden tabs stay in the
              DOM, so this frame would otherwise load the report's preview too. -->
-        <article class="preview-panel">
+        <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.poster }">
           <div class="preview-header">
-            <h2>Preview</h2>
+            <!-- The heading wraps the button rather than sitting inside it: a
+                 button may only contain phrasing content, and this keeps the
+                 preview findable in a screen reader's heading list. -->
+            <h2 class="preview-title">
+              <button
+                type="button"
+                class="preview-toggle"
+                :aria-expanded="!previewCollapsed.poster"
+                aria-controls="poster-preview-body"
+                data-testid="toggle-poster-preview"
+                @click="togglePreview('poster')"
+              >
+                <i
+                  class="fas preview-toggle__chevron"
+                  :class="previewCollapsed.poster ? 'fa-chevron-right' : 'fa-chevron-down'"
+                  aria-hidden="true"
+                ></i>
+                Preview
+              </button>
+            </h2>
             <!-- Always offered: some browsers refuse to embed a PDF at all, and a
                  student must never be left unable to check their own file. -->
             <a
@@ -218,18 +233,22 @@
             </a>
           </div>
 
-          <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
-            <p>Preparing preview…</p>
-          </div>
-          <iframe
-            v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
-            class="preview-frame"
-            title="Poster preview"
-            :src="previewSource"
-          ></iframe>
-          <div v-else class="preview-empty">
-            <i class="fas fa-file-pdf" aria-hidden="true"></i>
-            <p>Once you upload a poster it appears here, so you can check the right file arrived.</p>
+          <!-- Hidden rather than destroyed: tearing the iframe down would make
+               every collapse and re-open refetch the document. -->
+          <div v-show="!previewCollapsed.poster" id="poster-preview-body">
+            <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
+              <p>Preparing preview…</p>
+            </div>
+            <iframe
+              v-else-if="isPosterPreviewOpen && previewSource && storedFile('poster')"
+              class="preview-frame"
+              title="Poster preview"
+              :src="previewSource"
+            ></iframe>
+            <div v-else class="preview-empty">
+              <i class="fas fa-file-pdf" aria-hidden="true"></i>
+              <p>Once you upload a poster it appears here, so you can check the right file arrived.</p>
+            </div>
           </div>
         </article>
       </section>
@@ -237,15 +256,15 @@
       <!-- 3. Optional extras. The report is previewed like the poster; the
            prototype is a plain upload because it can be any file type. -->
       <div v-show="activeTab === 'extras'">
-        <section class="panel">
+        <section class="card">
           <header v-if="sectionHeading || sectionBody" class="section-head">
-          <h2 v-if="sectionHeading" class="section-head__title">{{ sectionHeading }}</h2>
+          <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
           <div class="submission-slot submission-slot--plain">
             <div class="submission-slot__info">
-              <h2 class="panel__heading">Scientific report</h2>
+              <h2 class="panel-subheading">Scientific report</h2>
               <p class="submission-muted">PDF only · up to {{ maxSizeLabel('report') }}</p>
 
               <p v-if="storedFile('report')" class="submission-file">
@@ -285,9 +304,25 @@
             </div>
           </div>
 
-          <article class="preview-panel">
+          <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.report }">
             <div class="preview-header">
-              <h2>Preview</h2>
+              <h2 class="preview-title">
+                <button
+                  type="button"
+                  class="preview-toggle"
+                  :aria-expanded="!previewCollapsed.report"
+                  aria-controls="report-preview-body"
+                  data-testid="toggle-report-preview"
+                  @click="togglePreview('report')"
+                >
+                  <i
+                    class="fas preview-toggle__chevron"
+                    :class="previewCollapsed.report ? 'fa-chevron-right' : 'fa-chevron-down'"
+                    aria-hidden="true"
+                  ></i>
+                  Preview
+                </button>
+              </h2>
               <a
                 v-if="storedFile('report')"
                 class="btn btn-outline btn-sm"
@@ -299,26 +334,28 @@
               </a>
             </div>
 
-            <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
-              <p>Preparing preview…</p>
-            </div>
-            <iframe
-              v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
-              class="preview-frame"
-              title="Scientific report preview"
-              :src="previewSource"
-            ></iframe>
-            <div v-else class="preview-empty">
-              <i class="fas fa-file-pdf" aria-hidden="true"></i>
-              <p>A scientific report is optional. If you upload one it appears here.</p>
+            <div v-show="!previewCollapsed.report" id="report-preview-body">
+              <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
+                <p>Preparing preview…</p>
+              </div>
+              <iframe
+                v-else-if="isReportPreviewOpen && previewSource && storedFile('report')"
+                class="preview-frame"
+                title="Scientific report preview"
+                :src="previewSource"
+              ></iframe>
+              <div v-else class="preview-empty">
+                <i class="fas fa-file-pdf" aria-hidden="true"></i>
+                <p>A scientific report is optional. If you upload one it appears here.</p>
+              </div>
             </div>
           </article>
         </section>
 
-        <section class="panel">
+        <section class="card">
           <div class="submission-slot submission-slot--plain">
             <div class="submission-slot__info">
-              <h2 class="panel__heading">Prototype</h2>
+              <h2 class="panel-subheading">Prototype</h2>
               <p class="submission-muted">
                 Any file type · up to {{ maxSizeLabel('prototype') }}
               </p>
@@ -383,15 +420,6 @@
       <!-- Available from every tab: the server validates the whole entry, so
            there is no reason to force a student through the steps in order. -->
       <div class="submission-actions">
-        <!-- An exit rather than a starting point, so it sits after the form
-             instead of above the title. -->
-        <RouterLink
-          :to="{ name: 'group-detail', params: { id: groupId } }"
-          class="submission-back"
-        >
-          <span aria-hidden="true">&larr;</span>
-          <span>Back to group</span>
-        </RouterLink>
 
         <!-- Auto-save is invisible by design, so it needs to say so somewhere;
              without this the student cannot tell whether their work is safe. -->
@@ -450,9 +478,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME } from '@/constants/brand'
+import { useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
   countWords,
@@ -633,6 +659,25 @@ const sectionBody = computed(() => activeInstructions.value?.body ?? '')
 const isReportPreviewOpen = computed(() => previewSlot.value === 'report')
 const isPosterPreviewOpen = computed(() => previewSlot.value === 'poster')
 
+/**
+ * Whether the student has folded a preview away.
+ *
+ * Distinct from the two flags above, which are about which slot's document is
+ * loaded at all — hidden tabs stay in the DOM, so only one iframe is ever
+ * pointed at a file. This is the student's own choice about whether they want
+ * to look at it, and it starts open: the preview is the reason these tabs have
+ * the room they do, and a student who has just uploaded a poster should see it
+ * without asking.
+ */
+const previewCollapsed = reactive<Record<'poster' | 'report', boolean>>({
+  poster: false,
+  report: false,
+})
+
+function togglePreview(slot: 'poster' | 'report') {
+  previewCollapsed[slot] = !previewCollapsed[slot]
+}
+
 const saveStateLabel = computed(() => {
   if (isSaving.value) return 'Saving…'
   if (saveState.value === 'error') return 'Could not save'
@@ -725,7 +770,7 @@ const submittedLine = computed(() => {
 
 const deadlineDate = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  return closesAt ? formatDate(closesAt) : 'No deadline set'
+  return closesAt ? formatDeadline(closesAt) : 'No deadline set'
 })
 
 /** "3 days left" — urgency a fixed date does not convey on its own. */
@@ -770,6 +815,26 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short'
+  })
+}
+
+/**
+ * The closing time, shortened for the status line: "18 Sep, 11:59 PM".
+ *
+ * The year is dropped only when it is the current one. A competition deadline
+ * is almost always months away at most, so carrying "2026" every time is four
+ * characters of noise in a line that was already crowded — but a deadline that
+ * genuinely falls in another year must not read as this one.
+ */
+function formatDeadline(value: string) {
+  const date = new Date(value)
+  const isThisYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: isThisYear ? undefined : 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
   })
 }
 
@@ -1270,190 +1335,82 @@ onBeforeUnmount(() => {
 /* One spacing scale for the page. The gaps between blocks were previously set
    case by case, which is most of what made the layout feel unsettled. */
 .content-area {
-  --gap-sm: 0.5rem;
-  --gap-md: 0.85rem;
-  --gap-lg: 1.5rem;
-  --gap-xl: 2.25rem;
-  --gap-2xl: 3rem;
 
-  /* Local tokens. Every colour on this page routes through one of these so
-     the dark theme is a matter of redefining them rather than hunting down
-     hardcoded hexes — which is exactly the bug this replaces. */
-  --panel-bg: var(--white, #ffffff);
-  --panel-border: var(--border-light, #e0e0e0);
-  /* Ground the panels sit on. Deliberately only ~10/255 darker than a white
-     panel: enough for the shadow below to have something to fall on, faint
-     enough that the page never announces itself as a different product from
-     the rest of the platform. Tinted towards the brand green rather than a
-     neutral grey, for the same reason. */
-  --page-bg: #f3f7f4;
-  --panel-edge: rgba(6, 40, 30, 0.07);
-  --panel-shadow:
-    0 1px 2px rgba(6, 40, 30, 0.04),
-    0 8px 20px -8px rgba(6, 40, 30, 0.1);
-  --field-bg: var(--white, #ffffff);
-  --field-border: #d7dbd9;
-  --field-disabled-bg: #f4f5f5;
-  --muted: var(--text-muted, #6c757d);
-  --body-text: var(--charcoal, #174243);
-  --accent: var(--dark-green, #017151);
-  --accent-soft: rgba(1, 114, 81, 0.12);
-  --error: #c0392b;
-  --error-bg: #fdecea;
-  --ok-bg: #f2f9f5;
-  --ok-border: #bfe3cf;
-  --notice-bg: #f4f6f5;
-  --banner-bg: #e9f3ee;
-  /* Matches --panel-edge in light mode so the banner and the panels below it
-     are edged identically, but stays a separate token because the dark theme
-     needs a green edge here and a neutral one on the panels. */
-  --banner-border: rgba(6, 40, 30, 0.07);
+  /* Names for the platform's colours, not colours of their own. Every one of
+     these resolves to a token main.css defines on :root, so this section has
+     no palette to keep in step with the rest of BIOTech Connect — and it picks
+     up the platform's dark theme for free, which is why the block that used to
+     restate all of this for dark mode is gone.
 
-  /* Type scale. Applied across the whole page rather than only the questions,
-     which is what made everything else read as thin by comparison. Four sizes
-     and three weights — enough to establish rank, few enough to stay coherent. */
-  --text-heading: 1.15rem;
-  --text-body: 1rem;
-  --text-meta: 0.875rem;
-  --text-micro: 0.78rem;
+     The indirection is kept because ~100 declarations below read through these
+     names, and a name like --panel-bg says what the value is for in a way that
+     --white does not. */
+  --panel-bg: var(--white);
+  --panel-border: var(--border-light);
+  --field-bg: var(--white);
+  --field-border: var(--border-light);
+  --field-disabled-bg: var(--bg-light);
+  --notice-bg: var(--bg-light);
+  --muted: var(--text-muted);
+  --body-text: var(--charcoal);
+  --accent: var(--dark-green);
+  --error: var(--danger);
 
-  /* Set here rather than globally: main.css uses Arial platform-wide, and
-     changing that affects every other team's pages. A system stack renders
-     noticeably sharper than Arial on Windows at no loading cost. */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  /* Tints the platform has no token for. Mixed from platform colours rather
+     than written as fixed hexes so they follow the dark theme on their own:
+     --danger and --dark-green change under [data-theme="dark"], and mixing
+     towards transparent lets whatever ground is behind show through. */
+  --accent-soft: color-mix(in srgb, var(--dark-green) 12%, transparent);
+  --error-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --ok-bg: color-mix(in srgb, var(--dark-green) 10%, transparent);
+  --ok-border: color-mix(in srgb, var(--dark-green) 35%, transparent);
+
   color: var(--body-text);
-  /* Overrides main.css's shared .content-area rule for this page only — the
-     scoped attribute wins on specificity, so no other page is affected. */
-  background-color: var(--page-bg);
+  /* These override main.css's shared .content-area rule for this component
+     only — the scoped attribute wins on specificity, so no other page is
+     affected. That rule assumes it is styling a whole page; this is a section
+     of the group page, which already supplies the padding, the ground and the
+     scrolling. min-height in particular would otherwise force a full viewport
+     height inside a container that is already a fixed height, and a second
+     scroll container nested in the group page's would trap the scroll. */
+  /* The group page paints the ground this sits on; a tinted block of our own
+     inside someone else's page is exactly the "separate product" look the
+     client objected to. */
+  background-color: transparent;
+  padding: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
-/* Dark theme. The platform opts in with <html data-theme="dark">, so the
-   overrides hang off that rather than prefers-color-scheme. */
-:root[data-theme='dark'] .content-area {
-  /* Let the app shell paint the dark ground rather than restating its value
-     here, so the page cannot drift out of step if the shell's dark grey
-     changes. A drop shadow needs a lighter surface to darken, so on a dark
-     ground it does nothing but soften the edge — the border carries the
-     separation instead. */
-  --page-bg: transparent;
-  --panel-edge: var(--panel-border);
-  --panel-shadow: none;
-  --field-bg: #101817;
-  --field-border: #33403c;
-  --field-disabled-bg: #131b19;
-  --accent-soft: rgba(1, 114, 81, 0.28);
-  --error: #f87171;
-  --error-bg: rgba(248, 113, 113, 0.12);
-  --ok-bg: rgba(1, 114, 81, 0.14);
-  --ok-border: rgba(1, 114, 81, 0.45);
-  --notice-bg: rgba(255, 255, 255, 0.04);
-  --banner-bg: rgba(1, 114, 81, 0.16);
-  --banner-border: rgba(1, 114, 81, 0.35);
-}
+/* There is no dark-mode block here any more. Every colour resolves to a token
+   main.css redefines under [data-theme="dark"], and the cards take their shadow
+   from the platform's --shadow, which darkens there too. */
 
-/* Matches the Events page header treatment: title, muted subtitle, and the
-   content starting immediately underneath. */
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: var(--gap-lg);
-}
-
-/* Brand banner, echoing the Qualtrics form's header strip — but tinted rather
-   than solid: the platform already has a full-width green bar directly above,
-   and two saturated greens stacked read as heavy. */
-.portal-banner {
-  background: var(--banner-bg);
-  border: 1px solid var(--banner-border);
-  padding: var(--gap-lg) var(--gap-xl);
-  border-radius: 12px;
-  /* Same lift as the panels below it: the banner is a surface on the page,
-     not a stripe painted onto it, so it should cast the same shadow. */
-  box-shadow: var(--panel-shadow);
-}
-
-
-.page-head h1 {
-  margin: 0;
-  font-size: clamp(1.5rem, 2.2vw, 2rem);
-}
-
-.portal-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-}
-
-/* Matches the banner proportions of the Qualtrics form, whose theme sets the
-   logo at 58px. The title previously sat at the same weight as section
-   headings, so the page had no clear top level. */
-.portal-brand__logo {
-  height: 62px;
-  width: auto;
-  display: block;
-  flex-shrink: 0;
-}
-
-.portal-brand__title {
-  margin: 0;
-  color: var(--body-text);
-  font-size: clamp(1.9rem, 3vw, 2.6rem);
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-}
-
-/* Matches the Qualtrics banner, whose .headerSubtitle is 16px italic serif
-   ("Lyon, Georgia, serif"). Lyon is a licensed University of Sydney face and
-   is not ours to ship, so their own Georgia fallback leads instead. */
-.portal-brand__subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--accent);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.05rem;
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
+/* Sits at the far end of the status line. Pushed there rather than ordered
+   there, so it stays on the right whether or not the Resubmit button is
+   showing. */
 .submission-due {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.1rem;
-  font-size: var(--text-meta);
-  text-align: right;
-}
-
-.submission-due__date {
-  font-size: var(--text-body);
-  line-height: 1.3;
+  align-items: center;
+  /* Wider than the 0.4rem it was: "Due", the date and the chip were running
+     together as one string. */
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
-.submission-due__foot {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+.submission-due__date {
+  font-weight: 600;
+  color: var(--body-text);
 }
 
+/* Quiet, so the date is the thing the eye lands on. It was uppercase at weight
+   700, which put it in direct competition with the date beside it at 600 and
+   left three items of equal loudness with nothing to rank them. */
 .submission-due__label {
   color: var(--muted);
-  text-transform: uppercase;
-  font-weight: 700;
-  font-size: var(--text-micro);
-  letter-spacing: 0.04em;
-}
-
-.submission-back {
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 0.9rem;
-  margin-right: auto;
+  font-weight: 400;
 }
 
 .status-line {
@@ -1464,8 +1421,8 @@ onBeforeUnmount(() => {
   /* Matches the step buttons' left padding so the badge sits on the same
      vertical line as the numbered step markers below it. */
   padding: 0 0.9rem;
-  margin-bottom: var(--gap-lg);
-  font-size: var(--text-meta);
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
@@ -1487,13 +1444,15 @@ onBeforeUnmount(() => {
 
 .status-line__state {
   font-weight: 700;
-  font-size: var(--text-body);
+  font-size: 1rem;
   color: var(--body-text);
   letter-spacing: -0.005em;
 }
 
+/* Follows the status text directly rather than being pushed right: the
+   deadline now claims the far end of the line. */
 .status-line__action {
-  margin-left: auto;
+  margin-left: 0.3rem;
 }
 
 /* Submitted is the state worth confirming at a glance, so it fills in — the
@@ -1518,15 +1477,25 @@ onBeforeUnmount(() => {
   color: var(--body-text);
 }
 
+/* The one piece of shape in this row. Three runs of text at the same size read
+   as flat however they are spaced, so the countdown — the only part that
+   changes on its own — becomes an object instead of more words. A tint rather
+   than a solid fill: it should register, not announce. */
 .submission-remaining {
-  color: var(--muted);
-  font-size: var(--text-meta);
-  margin-left: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
+/* Inside the last day the same chip changes colour rather than shape, so it
+   draws the eye without the row rearranging itself underneath the student. */
 .submission-remaining.is-near {
+  background: var(--error-bg);
   color: var(--error);
-  font-weight: 600;
 }
 
 /* Deliberately quieter than .submission-message--error: nothing here blocks a
@@ -1539,7 +1508,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: var(--notice-bg);
   color: var(--body-text);
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
 }
 
 .poster-notice__head {
@@ -1563,9 +1532,9 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0.95rem;
-  margin-bottom: var(--gap-lg);
+  margin-bottom: 1.5rem;
   border-radius: 8px;
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
   font-weight: 600;
   /* --ok-bg/--ok-border already carry a dark-mode variant (a translucent
      green wash rather than restating a colour), but sat unused: this banner
@@ -1600,7 +1569,7 @@ onBeforeUnmount(() => {
 }
 
 .submission-count {
-  font-size: var(--text-micro);
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--body-text);
   margin: 0.3rem 0 0;
@@ -1618,8 +1587,8 @@ onBeforeUnmount(() => {
    strip read as navigation instead of content. */
 .submission-steps {
   display: flex;
-  gap: var(--gap-sm);
-  margin-bottom: var(--gap-lg);
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--panel-border);
 }
@@ -1672,77 +1641,74 @@ onBeforeUnmount(() => {
 
 .submission-step__label {
   font-weight: 700;
-  font-size: var(--text-body);
+  font-size: 1rem;
   flex: 1;
 }
 
 .submission-step__state {
-  font-size: var(--text-micro);
+  font-size: 0.875rem;
   color: var(--muted);
   white-space: nowrap;
 }
 
 
-/* One container rule for the whole page. Previously some blocks were `.card`,
-   some carried a green left border and some neither, so nothing read as more
-   important than anything else. */
-.panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-edge);
-  border-radius: 12px;
-  /* Lifts the white panel off the tinted ground. The hairline border is kept
-     as well as the shadow: shadow alone leaves the top edge soft, and the two
-     together are what read as crisp rather than floating. */
-  box-shadow: var(--panel-shadow);
-  /* Generous inside padding does more for a long form than any amount of
-     styling: it is what stops six stacked answers reading as a wall. */
-  padding: var(--gap-xl);
-  margin-bottom: var(--gap-lg);
-}
+/* The blocks here are main.css's own .card now, rather than a lookalike of it.
+   Nothing is declared for them: background, radius, shadow, padding and margin
+   all come from the platform, so they stay in step with the cards on the pages
+   around them without us maintaining a parallel definition. */
 
-/* Section header, in the shape the Qualtrics form uses: a substantial title
-   with one supporting line under it. This is the page's second-level voice —
-   clearly below the portal title, clearly above a question label. */
+/* Follows .card-header's rhythm — same 1rem gap and hairline rule — but stacks
+   rather than running as a flex row, because a title with a supporting line
+   underneath is not the row of controls that .card-header assumes. */
 .section-head {
-  margin: 0 0 var(--gap-xl);
-  padding-bottom: var(--gap-md);
+  /* A little more room below than .card-header's 1rem: the first question sat
+     tight under the rule, which is part of what made the top of the section
+     read as cramped. */
+  margin: 0 0 1.5rem;
+  padding-bottom: 1rem;
   border-bottom: 1px solid var(--panel-border);
 }
 
-.section-head__title {
+/* The title itself is .card-title, straight from the platform. This only
+   removes the heading margin main.css gives every h1–h6, which would otherwise
+   double up with .section-head's own spacing. */
+.card-title {
   margin: 0;
-  font-size: clamp(1.35rem, 1.9vw, 1.65rem);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
 }
 
 .section-head__sub {
   margin: 0.35rem 0 0;
   color: var(--muted);
-  font-size: var(--text-body);
+  font-size: 1rem;
   font-weight: 500;
   line-height: 1.55;
   max-width: 75ch;
 }
 
-.panel__heading {
+/* A block inside a card, one level under its .card-title. Body size, bolded,
+   rather than a size of its own: two heading sizes is all this needs, and both
+   now come from the platform. */
+.panel-subheading {
   margin: 0 0 0.3rem;
-  font-size: var(--text-heading);
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.3;
 }
 
 /* Each question is its own block of thought; the space between them is what
    separates six answers into six tasks rather than one long page. */
 .submission-field + .submission-field {
-  margin-top: var(--gap-2xl);
+  margin-top: 2rem;
 }
 
+/* Body size, bolded — a form label, not a heading. It was set at the same
+   1.25rem as .card-title above it, one weight apart, which left the section
+   title and the questions under it reading as the same level. The rank now
+   steps properly: card title, question, answer. */
 .submission-label {
   display: block;
-  font-weight: 700;
-  font-size: var(--text-heading);
+  font-weight: 600;
+  font-size: 1rem;
   line-height: 1.35;
   margin-bottom: 0.55rem;
 }
@@ -1753,14 +1719,14 @@ onBeforeUnmount(() => {
 .field-label {
   display: block;
   font-weight: 600;
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
   color: var(--body-text);
   margin-bottom: 0.4rem;
 }
 
 .submission-muted {
   color: var(--muted);
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
   line-height: 1.5;
   margin: 0.2rem 0;
 }
@@ -1840,7 +1806,7 @@ onBeforeUnmount(() => {
 
 .submission-file {
   margin: 0.35rem 0 0;
-  font-size: var(--text-body);
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -1850,10 +1816,28 @@ onBeforeUnmount(() => {
 .preview-panel {
   background: var(--panel-bg);
   border-radius: 8px;
-  box-shadow: 0 2px 4px var(--shadow, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 2px 4px var(--shadow);
   min-height: 560px;
   overflow: hidden;
   margin-top: 1rem;
+}
+
+/* Folded away, this stops being a panel at all and becomes a row in the card
+   it sits in. The surface only exists to frame a document: with the document
+   hidden, a white rounded box with its own shadow sitting on the card's white
+   rounded box reads as a bar floating on top of the page. The tall minimum
+   goes for the same reason — there is nothing left to give room to. */
+.preview-panel.is-collapsed {
+  min-height: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* Flush with the card's own padding, so the collapsed row lines up with the
+   content above it rather than being indented inside an invisible box. */
+.preview-panel.is-collapsed .preview-header {
+  border-bottom: none;
+  padding: 0.75rem 0;
 }
 
 .preview-header {
@@ -1864,10 +1848,36 @@ onBeforeUnmount(() => {
   padding: 1rem 1.25rem;
 }
 
-.preview-header h2 {
-  font-size: var(--text-heading);
-  font-weight: 700;
+/* Same level as .panel-subheading: a block inside a card, under its title. */
+.preview-title {
+  font-size: 1rem;
+  font-weight: 600;
   margin: 0;
+}
+
+/* Looks like the heading it sits in, not like a button — the chevron is what
+   says it can be folded away. The whole row is the hit target rather than the
+   chevron alone, which is a small thing to aim at. */
+.preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.preview-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.preview-toggle__chevron {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .preview-frame {
@@ -1903,7 +1913,7 @@ onBeforeUnmount(() => {
 }
 
 .submission-savestate {
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
