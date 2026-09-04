@@ -10,7 +10,7 @@
       data-testid="section-tab-tasks"
       @click="goToSection('tasks')"
     >
-      Tasks
+      Tasks and Chat
     </button>
     <button
       type="button"
@@ -46,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-/** The group page's section switcher: Tasks (the default slot) and Submission. */
+/** The group page's section switcher: Tasks and Chat (the slot) and Submission. */
 import { computed, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
