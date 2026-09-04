@@ -101,7 +101,7 @@ def validate_submission_file(uploaded_file, slot: str):
         if not _looks_like_pdf(uploaded_file):
             raise serializers.ValidationError(
                 f"{label} must be a PDF. The file was named like one but its "
-                "contents are not a PDF — try exporting it again."
+                "contents are not a PDF."
             )
         return uploaded_file
 

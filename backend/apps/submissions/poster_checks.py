@@ -72,11 +72,9 @@ SCHOOL_LOGO = "school_logo"
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
-# Said instead of naming a finding the student cannot check for themselves.
-GENERIC_REFUSAL = (
-    "This poster does not match the required format. Please check it against "
-    "the programme's poster template and export it again."
-)
+# Said instead of naming a finding the student cannot check. Word for word the
+# same as PosterFormatError's detail, so one situation has one phrasing.
+GENERIC_REFUSAL = "This poster is not in the required format."
 
 
 @dataclass(frozen=True)

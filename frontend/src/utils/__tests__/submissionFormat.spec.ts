@@ -13,9 +13,8 @@ const NOW = new Date('2026-09-01T00:00:00Z').getTime()
 const inHours = (h: number) => new Date(NOW + h * 3600_000).toISOString()
 
 describe('countWords', () => {
-  // This has to agree with the server, which splits on runs of whitespace, and
-  // with the client's Qualtrics validation regex. A counter that disagrees
-  // tells a student their answer fits and then has the save rejected.
+  // Must agree with the server and the Qualtrics regex: a counter that
+  // disagrees tells a student their answer fits, then the save is rejected.
   it('counts words separated by single spaces', () => {
     expect(countWords('one two three four five')).toBe(5)
   })
@@ -84,8 +83,11 @@ describe('describeTimeRemaining', () => {
     )
   })
 
-  it('says closing rather than a negative count once the moment has passed', () => {
-    expect(describeTimeRemaining(inHours(-1), NOW)).toBe('Closing now')
+  it('says nothing at all once the moment has passed, rather than counting negative', () => {
+    // Naming the grace period would publish a window the programme keeps quiet,
+    // and a frozen phrase would keep saying "now" for up to a day.
+    expect(describeTimeRemaining(inHours(-1), NOW)).toBe('')
+    expect(describeTimeRemaining(inHours(-25), NOW)).toBe('')
   })
 
   it('says nothing when no deadline is configured', () => {
