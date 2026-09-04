@@ -88,14 +88,11 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("portrait", problems.lower())
         self.assertIn("landscape", problems.lower())
 
-    def test_a_wrongly_sized_page_is_told_the_size_it_should_be(self):
-        # A page size is a number in the export dialog, so this one is named
-        # rather than hidden behind a general instruction.
-        problems = " ".join(self._upload(_upload_file(*US_LETTER)).data["problems"])
+    def test_a_page_of_any_size_is_accepted(self):
+        # The client confirmed A2 is not strict, so size is no longer checked.
+        response = self._upload(_upload_file(*US_LETTER, text="BTF7 a@b.edu.au"))
 
-        self.assertIn("A2", problems)
-        self.assertNotIn("ratio", problems.lower())
-        self.assertNotIn("tolerance", problems.lower())
+        self.assertEqual(response.status_code, 200)
 
     def test_a_multi_page_pdf_is_refused(self):
         response = self._upload(_upload_file(*A2, pages=2))
@@ -110,12 +107,11 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(self._submission().poster)
 
-    def test_the_size_of_the_programmes_instruction_deck_is_refused(self):
-        # Recorded deliberately: that file is an instruction deck, not a canvas
-        # teams build on, so a poster arriving at its size was not set up at A2.
+    def test_the_programmes_own_template_size_is_accepted(self):
+        # It was refused on size until the client relaxed the requirement.
         response = self._upload(_upload_file(*INSTRUCTION_DECK, text="BTF7 a@b.edu.au"))
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
 
     def test_a_complete_poster_is_recorded_with_no_warnings(self):
         self._upload(_upload_file(*A2, text="BTF7 supervisor@school.edu.au"))
@@ -208,11 +204,11 @@ class PosterFormatUploadTests(TestCase):
         self.assertIsInstance(payload["submission"]["cohort"], int)
 
     # -------------------------------------------------- the check switched off
-    def test_a_wrongly_shaped_poster_is_accepted_when_the_check_is_off(self):
-        # US Letter: refused outright while the check is on. The switch has to
-        # let a real poster through, not merely stop raising.
+    def test_a_landscape_poster_is_accepted_when_the_check_is_off(self):
+        # Landscape is refused outright while the check is on, so this proves
+        # the switch lets a real poster through rather than merely not raising.
         with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
-            response = self._upload(_upload_file(*US_LETTER))
+            response = self._upload(_upload_file(A2[1], A2[0]))
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(self._submission().poster)
@@ -242,6 +238,6 @@ class PosterFormatUploadTests(TestCase):
     def test_the_check_is_on_unless_it_is_switched_off(self):
         # The setting defaults on, so an environment that never mentions it
         # keeps enforcing the format the client asked for.
-        response = self._upload(_upload_file(*US_LETTER))
+        response = self._upload(_upload_file(A2[1], A2[0]))
 
         self.assertEqual(response.status_code, 400)

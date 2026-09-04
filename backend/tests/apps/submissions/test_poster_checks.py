@@ -5,16 +5,12 @@ one property it is about — a page size, a rotation, an image, a line of text �
 and nothing else varies between them.
 
 The sizes are real. 643 x 915 points is the exact size of the programme's own
-PowerPoint file (its slide is 8166100 x 11620500 EMU, and there are 12700 EMU
-to a point). That file is an instruction deck rather than a canvas teams build
-in, so its size is *not* accepted: the programme asks for A2 and A2 is what is
-enforced. The test naming it below records that this is a decision rather than
-an oversight.
+PowerPoint file. Page size is no longer checked at all, so these sizes now
+serve to prove that none of them is refused.
 """
 from django.test import SimpleTestCase
 
 from apps.submissions.poster_checks import (
-    PAGE_SIZE,
     PORTRAIT,
     SCHOOL_LOGO,
     SINGLE_PAGE,
@@ -142,42 +138,19 @@ class PosterShapeTests(SimpleTestCase):
     def test_a2_is_accepted(self):
         self.assertEqual(_check(_build_pdf(*A2)).blocking, [])
 
-    def test_a4_is_refused_even_though_it_is_the_right_shape(self):
-        # The sharpest edge of enforcing size over proportion: this would print
-        # identically to an A2 poster and is still refused.
-        result = _check(_build_pdf(*A4))
+    def test_any_portrait_page_size_is_accepted(self):
+        # The client confirmed the A2 requirement is not strict. A4, US Letter
+        # and the programme's own instruction deck were all refused on size
+        # until then; students are pointed at the template instead.
+        for size in (A4, US_LETTER, INSTRUCTION_DECK):
+            with self.subTest(size=size):
+                self.assertEqual(_check(_build_pdf(*size)).blocking, [])
 
-        self.assertIn(PAGE_SIZE, _codes(result.blocking))
-
-    def test_the_programmes_instruction_deck_size_is_refused(self):
-        # Deliberate: that file is an instruction deck, not a canvas teams build
-        # on, so its size means the poster was not set up at A2.
-        result = _check(_build_pdf(*INSTRUCTION_DECK))
-
-        self.assertIn(PAGE_SIZE, _codes(result.blocking))
-
-    def test_the_refusal_names_the_size_it_found(self):
-        # A page size is a number in the export dialog, so telling the student
-        # what theirs is tells them exactly what to change.
-        result = _check(_build_pdf(*A4))
-
-        message = next(c.message for c in result.blocking if c.code == PAGE_SIZE)
-        self.assertIn("A2", message)
-        self.assertIn("210", message)
-        self.assertIn("297", message)
-
-    def test_landscape_is_refused(self):
+    def test_landscape_is_still_refused(self):
+        # Orientation is a separate requirement and still enforced.
         result = _check(_build_pdf(A2[1], A2[0]))
 
         self.assertIn(PORTRAIT, _codes(result.blocking))
-
-    def test_us_letter_is_refused(self):
-        # Portrait, but neither A2 nor the right shape — the mistake a student
-        # makes by exporting with a US page default.
-        result = _check(_build_pdf(*US_LETTER))
-
-        self.assertNotIn(PORTRAIT, _codes(result.blocking))
-        self.assertIn(PAGE_SIZE, _codes(result.blocking))
 
     def test_more_than_one_page_is_refused(self):
         result = _check(_build_pdf(*A2, pages=2))
