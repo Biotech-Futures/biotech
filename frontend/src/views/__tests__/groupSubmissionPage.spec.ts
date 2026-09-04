@@ -134,6 +134,8 @@ const stub = { template: '<div />' }
 const ROUTES = [
   { path: '/groups/:id/submission', name: 'group-submission', component: stub },
   { path: '/groups/:id', name: 'group-detail', component: stub },
+  // The poster step links to the template in the resource library.
+  { path: '/resources/:id', name: 'resource-detail', component: stub },
 ]
 
 let pinia: Pinia

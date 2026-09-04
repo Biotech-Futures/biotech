@@ -173,6 +173,14 @@
           <div class="submission-slot__info">
             <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
 
+            <!-- A router link, not the absolute address the client sent: the
+                 resource library is this same platform, so this keeps the
+                 student in the app and works on any deployment of it. -->
+            <p class="submission-template">
+              Your poster must use the programme's
+              <RouterLink :to="`/resources/${POSTER_TEMPLATE_RESOURCE_ID}`">template</RouterLink>.
+            </p>
+
             <p v-if="storedFile('poster')" class="submission-file">
               <a :href="downloadUrl('poster')" target="_blank" rel="noopener noreferrer">
                 {{ storedFile('poster')?.name }}
@@ -503,7 +511,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
   countWords,
@@ -554,6 +562,9 @@ const FALLBACK_MAX_FILE_SIZES: Record<SubmissionSlot, number> = {
 // How long a success note stays before clearing itself. Errors are never
 // auto-cleared — one a student misses is worse than a banner that lingers.
 const MESSAGE_TIMEOUT_MS = 4000
+
+// The resource library entry holding the programme's poster template.
+const POSTER_TEMPLATE_RESOURCE_ID = 9
 
 const route = useRoute()
 const groupId = computed(() => String(route.params.id ?? ''))
@@ -1736,6 +1747,18 @@ onBeforeUnmount(() => {
 .submission-file {
   margin: 0.35rem 0 0;
   font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Sits above the attachment state, since it is what to do before uploading. */
+.submission-template {
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.875rem;
+  color: var(--body-text);
+}
+
+.submission-template a {
+  color: var(--accent);
   font-weight: 600;
 }
 
