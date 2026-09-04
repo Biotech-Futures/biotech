@@ -52,7 +52,7 @@
    -->
 
   <!-- Page shell and two-column layout. -->
-  <div class="login-shell" :dir="currentDir">
+  <div class="login-shell">
     <div class="shell-aurora" aria-hidden="true">
       <span class="shell-aurora-orb shell-aurora-orb--one"></span>
       <span class="shell-aurora-orb shell-aurora-orb--two"></span>
@@ -96,30 +96,8 @@
       </div>
     </section>
 
-    <!-- Right auth pane: badges, language, email step, OTP step. -->
     <section class="auth-pane">
       <div class="auth-shell">
-        <!-- Top bar with trust badges and language switcher. -->
-        <div class="auth-topbar">
-          <!--          <div class="top-badges">-->
-          <!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
-          <!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
-          <!--          </div>-->
-
-          <div class="language-switcher" role="tablist" aria-label="Language switcher">
-            <button
-              v-for="item in languageOptions"
-              :key="item.value"
-              type="button"
-              class="language-option"
-              :class="{ active: locale === item.value }"
-              @click="switchLanguage(item.value)"
-            >
-              {{ item.label }}
-            </button>
-          </div>
-        </div>
-
         <!-- Auth card container. -->
         <div class="auth-card">
           <div class="auth-card-glow"></div>
@@ -278,6 +256,11 @@
                   <span v-else-if="sendingCode">{{ t('sendingCode') }}</span>
                   <span v-else>{{ loginActionLabel }}</span>
                 </button>
+
+                <p class="registration-link">
+                  New student?
+                  <RouterLink to="/register">Start a registration</RouterLink>
+                </p>
               </form>
 
               <!-- Step feedback messages. -->
@@ -450,7 +433,6 @@ import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
-  LOGIN_LANGUAGE_KEY,
   LOGIN_SEND_COOLDOWN_KEY,
   safeLocalStorageGet,
   safeLocalStorageRemove,
@@ -459,7 +441,7 @@ import {
 
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
-import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
+import { LOGIN_MESSAGES } from '@/data/login_language'
 
 /*
   Page-level instances.
@@ -494,7 +476,6 @@ const MAGIC_LINK_ERROR_KEYS = {
 /*
   Shared page data.
 */
-const languageOptions = LOGIN_LANGUAGE_OPTIONS
 const messages = LOGIN_MESSAGES
 
 /*
@@ -524,11 +505,6 @@ const otpShake = ref(false)
 const otpErrorActive = ref(false)
 
 /*
-  UI presentation state.
-*/
-const locale = ref('en')
-
-/*
   DOM refs.
 */
 const emailInputRef = ref(null)
@@ -546,12 +522,11 @@ let codeExpiryTimer = null
 /*
   Translation accessor.
 */
-const t = (key) => messages[locale.value]?.[key] || messages.en?.[key] || key
+const t = (key) => messages.en?.[key] || key
 
 /*
   Basic derived values.
 */
-const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
 const maskedEmail = computed(() => maskEmail(email.value))
 const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
 const authHeading = computed(() => t('signIn'))
@@ -670,15 +645,6 @@ const setLoginMode = async (mode) => {
 const togglePasswordVisibility = () => {
   showPassword.value = !showPassword.value
   nextTick(() => passwordInputRef.value?.focus())
-}
-
-/*
-  Language switching and persistence.
-*/
-const switchLanguage = (lang) => {
-  locale.value = lang
-  clearMessages()
-  safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
 }
 
 /*
@@ -1225,19 +1191,6 @@ const resendCode = async () => {
 }
 
 /*
-  Document language and direction sync.
-*/
-watch(
-  locale,
-  (nextLocale) => {
-    const direction = nextLocale === 'ar' ? 'rtl' : 'ltr'
-    document.documentElement.lang = nextLocale
-    document.documentElement.dir = direction
-  },
-  { immediate: true },
-)
-
-/*
   Step focus sync.
 */
 watch(currentStep, async (step) => {
@@ -1263,14 +1216,6 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
     }
   }, 160)
 })
-
-/*
-  Restore saved language.
-*/
-const savedLanguage = safeLocalStorageGet(LOGIN_LANGUAGE_KEY, 'en')
-if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
-  locale.value = savedLanguage
-}
 
 /*
   Lifecycle: initial focus.
@@ -1547,8 +1492,6 @@ onBeforeUnmount(() => {
   Module 4: shared interaction states.
 */
 
-.language-option:hover,
-.language-option:focus-visible,
 .primary-button:hover,
 .primary-button:focus-visible,
 .secondary-button:hover,
@@ -1560,7 +1503,6 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-.language-option:focus-visible,
 .field-input:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
@@ -1575,7 +1517,6 @@ onBeforeUnmount(() => {
   Module 5: shared clickable controls.
 */
 
-.language-option,
 .primary-button,
 .secondary-button,
 .text-link,
@@ -1610,15 +1551,6 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.auth-topbar {
-  width: min(100%, 420px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
 .top-badges {
   display: flex;
   flex-wrap: wrap;
@@ -1631,30 +1563,6 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid rgba(31, 93, 79, 0.08);
   box-shadow: 0 8px 24px rgba(12, 41, 34, 0.06);
-}
-
-.language-switcher {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-
-.language-option {
-  min-height: 30px;
-  padding: 0 11px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.56);
-  color: var(--stone-700);
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.language-option.active {
-  color: #fff;
-  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
-  box-shadow: 0 14px 24px rgba(31, 93, 79, 0.16);
 }
 
 .auth-card {
@@ -1902,6 +1810,25 @@ onBeforeUnmount(() => {
 .forgot-password-link:hover,
 .forgot-password-link:focus-visible {
   text-decoration: underline;
+}
+
+.registration-link {
+  margin: 4px 0 0;
+  color: var(--stone-500);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.registration-link a {
+  color: var(--emerald-700);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.registration-link a:hover,
+.registration-link a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .field-label {
@@ -2247,7 +2174,6 @@ onBeforeUnmount(() => {
     padding: 20px;
   }
 
-  .auth-topbar,
   .meta-row--stack {
     flex-direction: column;
     align-items: center;
@@ -2273,7 +2199,6 @@ onBeforeUnmount(() => {
   .content-fade-leave-active,
   .message-slide-enter-active,
   .message-slide-leave-active,
-  .language-option,
   .primary-button,
   .secondary-button,
   .text-link,
@@ -2352,12 +2277,6 @@ onBeforeUnmount(() => {
   backdrop-filter: none;
 }
 
-.language-option {
-  position: relative;
-  overflow: hidden;
-}
-
-.language-option::before,
 .primary-button::before,
 .secondary-button::before {
   content: '';
@@ -2369,7 +2288,6 @@ onBeforeUnmount(() => {
   transition: opacity 0.22s ease;
 }
 
-.language-option:hover::before,
 .primary-button:hover::before,
 .secondary-button:hover::before {
   opacity: 1;
@@ -2575,32 +2493,8 @@ onBeforeUnmount(() => {
 }
 
 .auth-card,
-.field-shell,
-.language-switcher {
+.field-shell {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.auth-topbar {
-  position: relative;
-  z-index: 1;
-}
-
-.language-switcher {
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.48);
-  box-shadow:
-    0 14px 30px rgba(12, 41, 34, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.54);
-}
-
-.language-option {
-  min-width: 64px;
-}
-
-.language-option.active {
-  transform: translateY(-1px);
 }
 
 .auth-card {
@@ -2662,8 +2556,7 @@ onBeforeUnmount(() => {
 }
 
 .primary-button:active,
-.secondary-button:active,
-.language-option:active {
+.secondary-button:active {
   transform: translateY(0) scale(0.99);
 }
 
@@ -2707,14 +2600,6 @@ onBeforeUnmount(() => {
     height: 260px;
   }
 
-  .language-switcher {
-    width: 100%;
-  }
-
-  .language-option {
-    flex: 1 1 auto;
-  }
-
   .support-row {
     flex-direction: column;
     align-items: flex-start;
@@ -2724,7 +2609,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .login-shell::before,
   .login-shell::after,
-  .language-option::before,
   .primary-button::before,
   .secondary-button::before,
   .shell-aurora-orb,

@@ -50,6 +50,10 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 import routes from './routes'
 import { normalizeDirectAuthRedirect } from './normalizeAuthRedirect'
+import {
+  isSupervisorRegistrationRoute,
+  resolveSupervisorRegistrationRouteAccess,
+} from './registrationAccess'
 
 normalizeDirectAuthRedirect()
 
@@ -62,13 +66,17 @@ import { useAuthStore } from '../stores/auth'
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
-  const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
+  const isPublicPath = to.meta.public === true
+  const isSupervisorRegistrationPath = isSupervisorRegistrationRoute(to)
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
@@ -80,7 +88,12 @@ router.beforeEach((to, from, next) => {
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
+  } else if (
+    !isPublicPath &&
+    !isSupervisorRegistrationPath &&
+    auth.isAuthenticated &&
+    auth.isAdmin
+  ) {
     next('/login')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {

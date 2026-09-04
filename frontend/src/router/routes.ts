@@ -57,6 +57,8 @@
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { SUPPORT_EMAIL } from '@/constants/brand';
+import { publicRegistrationRoute } from './publicRegistrationRoute';
+import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
@@ -76,10 +78,12 @@ const resolveGroupsLanding = async () => {
 const routes: RouteRecordRaw[] = [
 
   { path: '/', redirect: '/login' },
-  { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
-  { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
-  { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
-  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
+  { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue'), meta: { public: true, shellFree: true } },
+  publicRegistrationRoute,
+  supervisorRegistrationRoute,
+  { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue'), meta: { public: true, shellFree: true } },
+  { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue'), meta: { public: true, shellFree: true } },
+  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue'), meta: { shellFree: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
