@@ -190,14 +190,11 @@
       <div v-else class="admin-resource-form__section-wrap">
         <div class="admin-resource-form__section">Page Content *</div>
         <div class="form-field form-field--full">
-          <textarea
-            id="res-page-content"
+          <RichEditor
+            :key="editorKey"
             v-model="form.contentHtml"
-            class="form-input"
-            rows="8"
-            placeholder="Write resource page content (HTML or plain text)..."
-            required
-          ></textarea>
+            placeholder="Write resource page content…"
+          />
           <p class="admin-resource-form__hint">
             Content will be displayed directly when users view this resource page.
           </p>
@@ -241,6 +238,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import RichEditor from '@/components/admin/announcements/RichEditor.vue'
 import type {
   AdminResourceDetail,
   AdminResourceRoleItem,
@@ -305,6 +303,7 @@ const formError = ref('')
 const saving = ref(false)
 const loadingDetail = ref(false)
 const adminDetail = ref<AdminResourceDetail | null>(null)
+const editorKey = ref(0)
 
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const resourceTypes = ref<ResourceType[]>([])
@@ -424,6 +423,7 @@ const initForm = async (currentResource?: Resource | AdminResourceDetail | null)
   formError.value = ''
   selectedFile.value = null
   adminDetail.value = null
+  editorKey.value++
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -531,9 +531,12 @@ const validateForm = (): boolean => {
     formError.value = 'Please select a file to upload.'
     return false
   }
-  if (form.kind === 'page' && !form.contentHtml.trim()) {
-    formError.value = 'Page content is required for page resources.'
-    return false
+  if (form.kind === 'page') {
+    const strippedContent = form.contentHtml.replace(/<[^>]*>/g, '').trim()
+    if (!strippedContent && !form.contentHtml.includes('<img') && !form.contentHtml.includes('<table')) {
+      formError.value = 'Page content is required for page resources.'
+      return false
+    }
   }
   return true
 }

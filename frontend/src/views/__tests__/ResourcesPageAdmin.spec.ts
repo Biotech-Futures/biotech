@@ -370,6 +370,54 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       sheetWrapper.unmount()
     })
+
+    it('submits a page resource created via RichEditor', async () => {
+      const sheetWrapper = mount(AdminResourceFormSheet, {
+        props: {
+          modelValue: true,
+          resource: null
+        },
+        global: {
+          stubs: {
+            FormSheet: {
+              template: '<div><slot /></div>'
+            },
+            RichEditor: {
+              name: 'RichEditor',
+              props: ['modelValue'],
+              emits: ['update:modelValue'],
+              template: '<div class="stub-rich-editor"><textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></div>'
+            }
+          }
+        }
+      })
+      await flushPromises()
+
+      // Set kind to 'page'
+      await sheetWrapper.find('#res-kind').setValue('page')
+      await sheetWrapper.find('#res-name').setValue('Competition Rules')
+      await sheetWrapper.find('#res-desc').setValue('Rules description')
+
+      // Set page content in RichEditor
+      const richTextarea = sheetWrapper.find('.stub-rich-editor textarea')
+      expect(richTextarea.exists()).toBe(true)
+      await richTextarea.setValue('<p>Official Rules Content</p>')
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(adminApi.createAdminResource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource_name: 'Competition Rules',
+          resource_description: 'Rules description',
+          resource_kind: 'page',
+          content_html: '<p>Official Rules Content</p>',
+          visibility_scope: 'global'
+        })
+      )
+
+      sheetWrapper.unmount()
+    })
   })
 
   describe('Batch Mode & Multi-Select', () => {
