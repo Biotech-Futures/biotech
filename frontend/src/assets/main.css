@@ -317,6 +317,26 @@ h5 {
   border-color: var(--dark-green);
 }
 
+/* Disabled buttons: dimmed, no hover feedback, not-allowed cursor. */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-primary:disabled:hover {
+  background-color: var(--dark-green);
+}
+
+.btn-outline:disabled:hover {
+  background-color: transparent;
+  border-color: var(--border-light);
+}
+
 .btn-sm {
   padding: 0.375rem 0.75rem;
   font-size: 0.875rem;

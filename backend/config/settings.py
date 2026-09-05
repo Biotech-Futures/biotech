@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
+    'apps.submissions',
+    'apps.grading',
     'apps.services',
     'matching',
     'drf_spectacular',
@@ -67,6 +69,12 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
+# Competition entries live apart from the general resource library, with one
+# container per attachment slot, so posters, reports and prototypes are
+# separated at the storage-account level rather than mixed in one namespace.
+AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
+AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
+AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -92,6 +100,27 @@ RESOURCE_INLINE_HTML_MAX_BYTES = config(
 CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     "CHAT_ATTACHMENT_MAX_UPLOAD_SIZE",
     default=10 * 1024 * 1024,
+    cast=int,
+)
+# Figures set by the programme after checking last year's entries: the largest
+# poster they received was 18MB, so 20MB is the deliberate headroom above a
+# known real maximum rather than a guess. Reports share that ceiling; both are
+# PDFs of the same kind of thing.
+#
+# The prototype's 50MB is above the request body limit some hosts impose in
+# front of the application (IIS defaults to roughly 28.6MB). Where that applies
+# the upload is rejected before it ever reaches this check, and the student sees
+# the host's error rather than ours — so the platform limit has to be raised to
+# match, or this ceiling is fiction. The two PDF slots share one setting;
+# giving them different limits would need a second.
+SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
+    default=50 * 1024 * 1024,
+    cast=int,
+)
+SUBMISSION_PDF_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_PDF_MAX_UPLOAD_SIZE",
+    default=20 * 1024 * 1024,
     cast=int,
 )
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
@@ -238,7 +267,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": config("DB_SSLMODE", default="require"),
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -533,12 +562,30 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# Shared secret for POST /api/v1/submissions/admin/send-reminders/, the daily
+# nudge to teams whose entry is still outstanding. Same fail-loud contract as
+# above: unset means the endpoint answers 503 rather than standing open.
+SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
+
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# --- Grading platform --------------------------------------------------------
+# GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
+# link previews / unread digests / auth emails: bulk-zip jobs normally run on
+# a daemon thread after transaction.on_commit, but tests set this true to
+# execute inline so assertions can observe the job row and result URL.
+GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# Fires the "you're a finalist" email to every group member. Off by default
+# so local dev / staging don't accidentally spam real students; flip on per
+# environment via env var once the announcement copy is signed off.
+GRADING_FINALIST_EMAIL_ENABLED = config(
+    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
+)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
