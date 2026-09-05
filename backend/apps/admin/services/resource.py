@@ -740,19 +740,27 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
         }
 
     try:
+        content = None
         try:
-            content = download_file_bytes(resource.storage_key)
+            with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+                content = fp.read()
         except Exception:
-            content = None
-            for blob_client in iter_resource_blob_clients(resource.storage_key):
-                try:
-                    if blob_client.exists():
-                        content = blob_client.download_blob().readall()
-                        break
-                except Exception:
-                    continue
-            if content is None:
-                raise
+            pass
+
+        if content is None:
+            try:
+                content = download_file_bytes(resource.storage_key)
+            except Exception:
+                for blob_client in iter_resource_blob_clients(resource.storage_key):
+                    try:
+                        if blob_client.exists():
+                            content = blob_client.download_blob().readall()
+                            break
+                    except Exception:
+                        continue
+
+        if content is None:
+            raise ValueError("File not found in storage")
 
         return {
             'msg': 'Resource download ready',
@@ -788,6 +796,32 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
     file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
 
     try:
+        try:
+            file_handle = RESOURCE_FILE_SERVICE.open(resource.storage_key)
+            def file_chunk_generator(handle, chunk_size=64 * 1024):
+                try:
+                    while True:
+                        chunk = handle.read(chunk_size)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    handle.close()
+
+            return {
+                'msg': 'Resource stream ready',
+                'data': {
+                    'resource_id': resource.id,
+                    'access_type': 'stream',
+                    'file_name': file_name,
+                    'mime_type': resource.file_mime_type or 'application/octet-stream',
+                    'file_size': resource.file_size,
+                    'stream': file_chunk_generator(file_handle),
+                },
+            }
+        except Exception:
+            pass
+
         for blob_client in iter_resource_blob_clients(resource.storage_key):
             try:
                 if blob_client.exists():

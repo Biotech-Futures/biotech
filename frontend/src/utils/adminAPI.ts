@@ -583,6 +583,77 @@ export interface AdminEvent {
   [key: string]: unknown
 }
 
+export interface EventTargetGroupItem {
+  id: number
+  groupName: string
+}
+
+export interface EventTargetRoleItem {
+  id: number
+  roleName: string
+}
+
+export interface AdminEventTargetsData {
+  groupIds: number[]
+  roleIds: number[]
+}
+
+export interface AdminEventRsvpItem {
+  id: number
+  eventId: number
+  userId: number
+  rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
+  respondedAt: string | null
+}
+
+export interface AdminEventDetail {
+  id: number
+  eventName: string
+  description: string | null
+  startDatetime: string
+  endsDatetime: string
+  location: string | null
+  deletedFlag: boolean
+  deletedDatetime: string | null
+  eventImage: string | null
+  eventFormat: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone: string
+  hostUserId: number | null
+  hostName: string | null
+  hostEmail: string | null
+  locationLink: string | null
+}
+
+export interface CreateAdminEventPayload {
+  eventName: string
+  description?: string | null
+  location?: string | null
+  locationLink?: string | null
+  eventFormat?: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone?: string
+  hostUserId?: number | null
+  startAt: string
+  endsAt: string
+  eventImage?: string | null
+  targetGroupIds?: number[]
+  targetRoleIds?: number[]
+}
+
+export interface UpdateAdminEventPayload {
+  eventName?: string
+  description?: string | null
+  location?: string | null
+  locationLink?: string | null
+  eventFormat?: 'in_person' | 'virtual' | 'hybrid'
+  eventTimezone?: string
+  hostUserId?: number | null
+  startAt?: string
+  endsAt?: string
+  eventImage?: string | null
+  targetGroupIds?: number[]
+  targetRoleIds?: number[]
+}
+
 export interface AdminEventListParams {
   search?: string
   ordering?: string
@@ -593,8 +664,40 @@ export interface AdminEventListParams {
 export const fetchAdminEvents = (params: AdminEventListParams = {}) =>
   adminGet<PaginatedResult<AdminEvent>>(`/event/${buildAdminQuery(params)}`)
 
-export const fetchAdminEventMetaGroups = () => adminGet<unknown[]>('/event/meta/groups/')
-export const fetchAdminEventMetaRoles = () => adminGet<unknown[]>('/event/meta/roles/')
+export const fetchAdminEvent = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`).then((env) => env.data)
+
+export const createAdminEvent = (payload: CreateAdminEventPayload) =>
+  adminPost<AdminEnvelope<AdminEventDetail>>('/event/', payload).then((env) => env.data)
+
+export const updateAdminEvent = (id: number | string, payload: UpdateAdminEventPayload) =>
+  adminPut<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`, payload).then((env) => env.data)
+
+export const deleteAdminEvent = (id: number | string) =>
+  adminDelete<AdminEnvelope<AdminEventDetail>>(`/event/${id}/`).then((env) => env.data)
+
+export const uploadAdminEventImage = (id: number | string, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminEventDetail>>(`/event/${id}/upload-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+export const fetchAdminEventRsvps = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventRsvpItem[]>>(`/event/${id}/rsvp/`).then((env) => env.data || [])
+
+export const fetchAdminEventTargets = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminEventTargetsData>>(`/event/${id}/targets/`).then((env) => env.data)
+
+export const fetchAdminEventMetaGroups = () =>
+  adminGet<AdminEnvelope<EventTargetGroupItem[]>>('/event/meta/groups/').then((env) => env.data || [])
+
+export const fetchAdminEventMetaRoles = () =>
+  adminGet<AdminEnvelope<EventTargetRoleItem[]>>('/event/meta/roles/').then((env) => env.data || [])
+
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -608,29 +711,262 @@ export interface AdminResource {
   [key: string]: unknown
 }
 
+export interface AdminResourceRoleItem {
+  id: number
+  slug: string
+  type_name: string
+}
+
+export interface AdminResourceTypeOption {
+  value: string
+  label: string
+}
+
+export interface AdminResourceDetail {
+  id: number
+  resource_name: string
+  resource_description: string | null
+  resource_kind: 'file' | 'attachment' | 'page' | string
+  resource_type: string | null
+  resource_type_id: number | null
+  visibility_scope: 'global' | 'role_based' | string
+  uploaded_at: string
+  deleted_at: string | null
+  file_name: string | null
+  file_mime_type: string | null
+  file_size: number | null
+  content_html?: string | null
+  storage_key?: string | null
+  labels?: Array<{ id: number; name: string }>
+  audiences?: Array<{
+    id: number
+    role_id: number | null
+    role?: { id: number; slug: string; type_name: string }
+  }>
+  uploader?: {
+    id: number | string
+    first_name: string
+    last_name: string
+    email: string
+  }
+}
+
+export interface CreateAdminResourcePayload {
+  resource_name: string
+  resource_description: string
+  resource_kind: 'file' | 'attachment' | 'page'
+  visibility_scope: 'global' | 'role_based'
+  role_ids?: number[]
+  resource_type_id?: number | null
+  resource_type?: string | null
+  label_names?: string[]
+  content_html?: string
+  group_id?: number | null
+}
+
+export interface UpdateAdminResourcePayload {
+  resource_name?: string
+  resource_description?: string | null
+  visibility_scope?: 'global' | 'role_based'
+  role_ids?: number[]
+  resource_type_id?: number | null
+  resource_type?: string | null
+  label_names?: string[]
+  content_html?: string | null
+}
+
 export const fetchAdminResources = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<AdminResource>>(`/resource/${buildAdminQuery(params)}`)
 
-export const fetchResourceRoles = () => adminGet<unknown[]>('/resource/roles/')
-export const fetchResourceTypes = () => adminGet<unknown[]>('/resource/types/')
+export const fetchAdminResource = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/`).then((env) => env.data)
+
+export const createAdminResource = (payload: CreateAdminResourcePayload) =>
+  adminPost<AdminEnvelope<AdminResourceDetail>>('/resource/', payload).then((env) => env.data)
+
+export const uploadAdminResource = (formData: FormData) =>
+  adminRequest<AdminEnvelope<AdminResourceDetail>>('/resource/upload/', {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+
+export const uploadLinkedResourceAttachment = async (file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('resource_kind', 'attachment')
+  formData.append('resource_name', file.name)
+  formData.append('resource_description', `Resource attachment: ${file.name}`)
+  const resource = await uploadAdminResource(formData)
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
+  const downloadUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/download/`
+  return {
+    id: resource.id,
+    fileName: resource.resource_name || resource.file_name || file.name,
+    accessUrl,
+    downloadUrl
+  }
+}
+
+export const updateAdminResource = (id: number | string, payload: UpdateAdminResourcePayload) =>
+  adminPut<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/`, payload).then((env) => env.data)
+
+export const deleteAdminResource = (id: number | string) =>
+  adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
+
+export const replaceAdminResourceFile = (id: number | string, file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+export const fetchAdminResourceRoles = () =>
+  adminGet<AdminEnvelope<AdminResourceRoleItem[]>>('/resource/roles/').then((env) => env.data || [])
+
+export const fetchAdminResourceTypes = () =>
+  adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
+
+export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include'
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to download resource: ${res.statusText}`)
+  }
+  const blob = await res.blob()
+  const blobUrl = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = fileName || 'download'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}
 
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------
 
+export interface AnnouncementAudience {
+  id: number
+  roleId: number | null
+  groupId: number | null
+  roleName: string | null
+  groupName: string | null
+}
+
 export interface AdminAnnouncement {
-  id?: number | string
-  announcement_id?: number
-  title?: string | null
-  archived?: boolean
+  id: number
+  title: string
+  body?: string
+  visibilityScope: 'global' | 'role_based'
+  publishedAt: string | null
+  archivedAt: string | null
+  authorUserId: number | null
+  audiences: AnnouncementAudience[]
   [key: string]: unknown
 }
 
-export const fetchAdminAnnouncements = (params: Record<string, unknown> = {}) =>
-  adminGet<PaginatedResult<AdminAnnouncement>>(`/announcement/${buildAdminQuery(params)}`)
+export type AdminAnnouncementDetail = AdminAnnouncement
 
-export const fetchAnnouncementGroups = () => adminGet<unknown[]>('/announcement/groups/')
-export const fetchAnnouncementRoles = () => adminGet<unknown[]>('/announcement/roles/')
+export interface PaginatedAnnouncements {
+  items: AdminAnnouncement[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
+export interface CreateAdminAnnouncementPayload {
+  title: string
+  body: string
+  visibility_scope?: 'global' | 'role_based'
+  role_ids?: number[]
+  group_ids?: number[]
+  send_email?: boolean
+}
+
+export interface UpdateAdminAnnouncementPayload {
+  title?: string
+  body?: string
+  visibility_scope?: 'global' | 'role_based'
+  role_ids?: number[]
+  group_ids?: number[]
+  send_email?: boolean
+}
+
+export interface AdminAnnouncementGroupOption {
+  id: number
+  name: string
+}
+
+export interface AdminAnnouncementRoleOption {
+  id: number
+  name: string
+}
+
+export interface AdminAnnouncementNotifyResult {
+  msg: string
+  deliveryId?: number
+  status: 'success' | 'partial' | 'failed' | 'skipped'
+  attempted: number
+  succeeded: number
+  failed: number
+}
+
+export const fetchAdminAnnouncements = (params: Record<string, unknown> = {}) =>
+  adminGet<AdminEnvelope<PaginatedAnnouncements>>(`/announcement/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const fetchAdminAnnouncement = (id: number | string) =>
+  adminGet<AdminEnvelope<AdminAnnouncementDetail>>(`/announcement/${id}/`).then(
+    (env) => env.data
+  )
+
+export const createAdminAnnouncement = (payload: CreateAdminAnnouncementPayload) =>
+  adminPost<AdminEnvelope<AdminAnnouncementDetail>>('/announcement/', payload).then(
+    (env) => env.data
+  )
+
+export const updateAdminAnnouncement = (
+  id: number | string,
+  payload: UpdateAdminAnnouncementPayload
+) =>
+  adminPut<AdminEnvelope<AdminAnnouncementDetail>>(`/announcement/${id}/`, payload).then(
+    (env) => env.data
+  )
+
+export const archiveAdminAnnouncement = (id: number | string) =>
+  adminPost<AdminEnvelope<AdminAnnouncementDetail>>(`/announcement/${id}/archive/`).then(
+    (env) => env.data
+  )
+
+export const deleteAdminAnnouncement = (id: number | string) =>
+  adminDelete<AdminEnvelope<AdminAnnouncementDetail>>(`/announcement/${id}/`).then(
+    (env) => env?.data
+  )
+
+export const notifyAdminAnnouncement = (id: number | string) =>
+  adminPost<AdminAnnouncementNotifyResult>(`/announcement/${id}/notify/`)
+
+export const fetchAnnouncementGroups = () =>
+  adminGet<AdminEnvelope<AdminAnnouncementGroupOption[]>>('/announcement/groups/').then(
+    (env) => env.data || []
+  )
+
+export const fetchAnnouncementRoles = () =>
+  adminGet<AdminEnvelope<AdminAnnouncementRoleOption[]>>('/announcement/roles/').then(
+    (env) => env.data || []
+  )
 
 // ---------------------------------------------------------------------------
 // Mentors

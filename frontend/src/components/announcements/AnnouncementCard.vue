@@ -2,7 +2,8 @@
   <article
     class="announcement"
     :class="{
-      'announcement--with-media': hasImages
+      'announcement--with-media': hasImages,
+      'has-open-menu': isMenuOpen
     }"
     role="link"
     tabindex="0"
@@ -20,27 +21,121 @@
 
     <div class="announcement__body">
       <header class="announcement__header">
-        <div class="announcement__author">
-          <div class="announcement__avatar" :aria-hidden="true">
-            {{ authorInitial(announcement.author) }}
+        <div class="announcement__header-left">
+          <div
+            v-if="isAdmin && batchMode"
+            class="announcement__select-wrapper"
+            @click.stop
+          >
+            <input
+              type="checkbox"
+              class="announcement__checkbox"
+              :checked="selected"
+              :aria-label="`Select announcement ${announcement.title}`"
+              @change.stop="emit('toggle-select', announcement.id)"
+            />
           </div>
-          <div class="announcement__author-text">
-            <span class="announcement__author-name">{{ announcement.author }}</span>
-            <time
-              class="announcement__date"
-              :datetime="announcement.date || undefined"
-              :title="fullDate"
-            >
-              {{ overviewDateTime }}
-            </time>
+          <div class="announcement__author">
+            <div class="announcement__avatar" :aria-hidden="true">
+              {{ authorInitial(announcement.author) }}
+            </div>
+            <div class="announcement__author-text">
+              <span class="announcement__author-name">{{ announcement.author }}</span>
+              <time
+                class="announcement__date"
+                :datetime="announcement.date || undefined"
+                :title="fullDate"
+              >
+                {{ overviewDateTime }}
+              </time>
+            </div>
           </div>
         </div>
-        <span
-          class="status-badge announcement__badge"
-          :class="getAudienceClass(announcement.audience)"
-        >
-          {{ getAudienceLabel(announcement.audience) }}
-        </span>
+        <div class="announcement__header-right">
+          <span
+            v-if="announcement.isArchived"
+            class="status-badge announcement__badge announcement__badge--archived"
+          >
+            Archived
+          </span>
+          <span
+            class="status-badge announcement__badge"
+            :class="getAudienceClass(announcement.audience)"
+          >
+            {{ getAudienceLabel(announcement.audience) }}
+          </span>
+          <!-- Admin Actions Dropdown -->
+          <div
+            v-if="isAdmin"
+            class="announcement__menu-container"
+            @click.stop
+          >
+            <button
+              type="button"
+              class="announcement__more-btn"
+              :class="{ active: isMenuOpen }"
+              aria-label="More announcement options"
+              aria-haspopup="true"
+              :aria-expanded="isMenuOpen"
+              @click.stop="toggleMenu"
+            >
+              <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+            </button>
+            <div
+              v-if="isMenuOpen"
+              class="announcement__dropdown"
+              role="menu"
+              @click.stop
+            >
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('view')"
+              >
+                <i class="fas fa-eye" aria-hidden="true"></i>
+                <span>View Details</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('edit')"
+              >
+                <i class="fas fa-pen" aria-hidden="true"></i>
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('notify')"
+              >
+                <i class="fas fa-paper-plane" aria-hidden="true"></i>
+                <span>Send Notification</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('archive')"
+              >
+                <i class="fas fa-box-archive" aria-hidden="true"></i>
+                <span>Archive</span>
+              </button>
+              <div class="announcement__dropdown-divider"></div>
+              <button
+                type="button"
+                class="announcement__dropdown-item announcement__dropdown-item--danger"
+                role="menuitem"
+                @click.stop="handleAction('delete')"
+              >
+                <i class="fas fa-trash-can" aria-hidden="true"></i>
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </header>
 
       <h2 class="announcement__title">
@@ -90,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
@@ -102,15 +197,64 @@ import {
   type Announcement
 } from '@/composables/useAnnouncements'
 
-const props = defineProps<{
+interface Props {
   announcement: Announcement
-}>()
+  isAdmin?: boolean
+  batchMode?: boolean
+  selected?: boolean
+  activeMenuId?: Announcement['id'] | null
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  isAdmin: false,
+  batchMode: false,
+  selected: false,
+  activeMenuId: null
+})
 
 const emit = defineEmits<{
   (e: 'image-error', payload: { id: Announcement['id']; url: string }): void
+  (e: 'edit', announcement: Announcement): void
+  (e: 'notify', announcement: Announcement): void
+  (e: 'archive', announcement: Announcement): void
+  (e: 'delete', announcement: Announcement): void
+  (e: 'toggle-select', id: Announcement['id']): void
+  (e: 'toggle-menu', id: Announcement['id']): void
 }>()
 
 const router = useRouter()
+
+const localMenuOpen = ref(false)
+const isMenuOpen = computed(() => {
+  if (props.activeMenuId !== undefined && props.activeMenuId !== null) {
+    return props.activeMenuId === props.announcement.id
+  }
+  return localMenuOpen.value
+})
+
+function toggleMenu() {
+  if (props.activeMenuId !== undefined) {
+    emit('toggle-menu', props.announcement.id)
+  } else {
+    localMenuOpen.value = !localMenuOpen.value
+  }
+}
+
+function handleAction(action: 'view' | 'edit' | 'notify' | 'archive' | 'delete') {
+  localMenuOpen.value = false
+  emit('toggle-menu', null as unknown as Announcement['id'])
+  if (action === 'view') {
+    openDetails()
+  } else if (action === 'edit') {
+    emit('edit', props.announcement)
+  } else if (action === 'notify') {
+    emit('notify', props.announcement)
+  } else if (action === 'archive') {
+    emit('archive', props.announcement)
+  } else if (action === 'delete') {
+    emit('delete', props.announcement)
+  }
+}
 
 const hasImages = computed(() => props.announcement.images.length > 0)
 const overviewDateTime = computed(() => formatOverviewDateTime(props.announcement.date))
@@ -128,7 +272,7 @@ const openDetails = () => {
 const shouldIgnoreCardOpen = (event?: Event) => {
   const target = event?.target
   if (!(target instanceof Element)) return false
-  return Boolean(target.closest('a, button, input, select, textarea'))
+  return Boolean(target.closest('a, button, input, select, textarea, .announcement__menu-container'))
 }
 
 const openDetailsFromCard = (event: MouseEvent | KeyboardEvent) => {
@@ -192,11 +336,146 @@ const onImageError = (url: string) => {
   gap: 1rem;
 }
 
+.announcement.has-open-menu {
+  overflow: visible;
+  z-index: 40;
+}
+
 .announcement__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.announcement__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.announcement__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.announcement__select-wrapper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.announcement__checkbox {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.announcement__badge--archived {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.announcement__menu-container {
+  position: relative;
+}
+
+.announcement__more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.announcement__more-btn:hover,
+.announcement__more-btn.active {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #e5e7eb;
+}
+
+.announcement__dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  z-index: 50;
+  min-width: 11.5rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 0.375rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.announcement__dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #374151;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.announcement__dropdown-item:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.announcement__dropdown-item i {
+  font-size: 0.875rem;
+  width: 1rem;
+  text-align: center;
+  color: #6b7280;
+}
+
+.announcement__dropdown-item:hover i {
+  color: #111827;
+}
+
+.announcement__dropdown-item--danger {
+  color: #dc2626;
+}
+
+.announcement__dropdown-item--danger i {
+  color: #dc2626;
+}
+
+.announcement__dropdown-item--danger:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.announcement__dropdown-item--danger:hover i {
+  color: #b91c1c;
+}
+
+.announcement__dropdown-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0.25rem 0;
 }
 
 .announcement__author {

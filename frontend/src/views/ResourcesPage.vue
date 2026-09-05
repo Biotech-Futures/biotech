@@ -5,9 +5,26 @@
         <h1>Resource Library</h1>
         <p class="resource-subtitle">Browse available files and pages.</p>
       </div>
-      <button v-if="isAdmin" class="btn btn-primary">
-        <i class="fas fa-upload"></i> Upload Resource
-      </button>
+      <div v-if="isAdmin" class="resource-header__actions">
+        <button
+          type="button"
+          class="btn"
+          :class="batchMode ? 'btn-primary' : 'btn-outline'"
+          @click="toggleBatchMode"
+        >
+          <i :class="batchMode ? 'fas fa-check-square' : 'fas fa-list-check'" aria-hidden="true"></i>
+          <span>{{ batchMode ? 'Exit Batch Mode' : 'Batch Mode' }}</span>
+        </button>
+
+        <button
+          class="btn btn-primary"
+          type="button"
+          @click="openCreateResource"
+        >
+          <i class="fas fa-upload"></i>
+          <span>Upload Resource</span>
+        </button>
+      </div>
     </div>
 
     <section class="resource-toolbar" aria-label="Resource filters">
@@ -104,15 +121,53 @@
           <p>Try changing your search or filters.</p>
         </div>
 
-        <div v-else class="resource-list card">
+        <!-- Bulk Actions Bar for Admins -->
+        <BulkActionsBar
+          v-if="isAdmin && batchMode && selectedResourceIds.length && !loading"
+          :count="selectedResourceIds.length"
+          noun="resource"
+          :disabled="batchBusy"
+          @clear="clearSelection"
+        >
+          <button
+            type="button"
+            class="btn btn-sm btn-outline"
+            :disabled="batchBusy"
+            @click="openBatchAccessModal"
+          >
+            <i class="fas fa-user-shield" aria-hidden="true"></i>
+            <span>Edit Access</span>
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-danger"
+            :disabled="batchBusy"
+            @click="confirmBulkDelete"
+          >
+            <i class="fas fa-trash-can" aria-hidden="true"></i>
+            <span>Delete</span>
+          </button>
+        </BulkActionsBar>
+
+        <div v-if="resources.length > 0" class="resource-list card">
           <table>
             <thead>
               <tr>
+                <th v-if="isAdmin && batchMode" class="th-select">
+                  <input
+                    type="checkbox"
+                    :checked="allOnPageSelected"
+                    :indeterminate.prop="someOnPageSelected && !allOnPageSelected"
+                    aria-label="Select all resources"
+                    @change="toggleSelectAll"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Kind</th>
                 <th>Labels</th>
                 <th>Modified</th>
+                <th v-if="isAdmin" class="th-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -120,10 +175,22 @@
                 v-for="resource in resources"
                 :key="resource.id"
                 class="resource-row"
+                :class="{
+                  'resource-row--menu-open': activeMenuResourceId === resource.id,
+                  'resource-row--selected': isAdmin && batchMode && selectedResourceIds.includes(resource.id)
+                }"
                 tabindex="0"
-                @click="openResourceDetail(resource.id)"
-                @keydown.enter="openResourceDetail(resource.id)"
+                @click="onRowClick(resource.id, $event)"
+                @keydown.enter="onRowClick(resource.id, $event)"
               >
+                <td v-if="isAdmin && batchMode" class="td-select" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="selectedResourceIds.includes(resource.id)"
+                    :aria-label="`Select ${resource.name}`"
+                    @change="toggleResourceSelection(resource.id)"
+                  />
+                </td>
                 <td>
                   <div class="resource-name-cell">
                     <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
@@ -141,18 +208,127 @@
                   <span v-else class="muted">None</span>
                 </td>
                 <td>{{ formatDate(resource.uploaded_at) }}</td>
+                <td v-if="isAdmin" class="td-actions" @click.stop>
+                  <div class="resource-menu">
+                    <button
+                      type="button"
+                      class="resource-more-btn"
+                      :class="{ active: activeMenuResourceId === resource.id }"
+                      aria-label="More resource actions"
+                      aria-haspopup="true"
+                      :aria-expanded="activeMenuResourceId === resource.id"
+                      @click="toggleResourceMenu(resource.id, $event)"
+                    >
+                      <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+                    </button>
+
+                    <div
+                      v-if="activeMenuResourceId === resource.id"
+                      class="resource-dropdown"
+                      role="menu"
+                    >
+                      <button
+                        type="button"
+                        class="resource-dropdown-item"
+                        role="menuitem"
+                        @click="onMenuAction(resource, 'view')"
+                      >
+                        <i class="fas fa-eye" aria-hidden="true"></i>
+                        <span>View Details</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="resource-dropdown-item"
+                        role="menuitem"
+                        @click="onMenuAction(resource, 'edit')"
+                      >
+                        <i class="fas fa-pen" aria-hidden="true"></i>
+                        <span>Edit Resource</span>
+                      </button>
+                      <button
+                        v-if="resource.kind !== 'page'"
+                        type="button"
+                        class="resource-dropdown-item"
+                        role="menuitem"
+                        @click="onMenuAction(resource, 'download')"
+                      >
+                        <i class="fas fa-download" aria-hidden="true"></i>
+                        <span>Download</span>
+                      </button>
+                      <div class="resource-dropdown-divider"></div>
+                      <button
+                        type="button"
+                        class="resource-dropdown-item resource-dropdown-item--danger"
+                        role="menuitem"
+                        @click="onMenuAction(resource, 'delete')"
+                      >
+                        <i class="fas fa-trash-can" aria-hidden="true"></i>
+                        <span>Delete Resource</span>
+                      </button>
+                    </div>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
     </div>
+
+    <!-- Admin Side Panels & Confirm Dialogs -->
+    <AdminResourceFormSheet
+      v-if="isAdmin"
+      v-model="formSheetOpen"
+      :resource="formEditResource"
+      :busy="busy"
+      @saved="onResourceSaved"
+      @delete="onFormEditorDelete"
+    />
+
+    <AdminResourceBatchAccessModal
+      v-if="isAdmin"
+      v-model="batchAccessModalOpen"
+      :count="selectedResourceIds.length"
+      :busy="batchBusy"
+      @apply="onApplyBatchAccess"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="deleteConfirm.open"
+      title="Delete Resource"
+      :message="deleteConfirm.message"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      @confirm="runDeleteResource"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="bulkDeleteConfirm.open"
+      title="Delete Resources"
+      :message="bulkDeleteConfirm.message"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="batchBusy"
+      @confirm="runBulkDeleteResources"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import AdminResourceBatchAccessModal from '@/components/admin/resources/AdminResourceBatchAccessModal.vue'
+import AdminResourceFormSheet from '@/components/admin/resources/AdminResourceFormSheet.vue'
+import {
+  deleteAdminResource,
+  downloadAdminResourceFile,
+  updateAdminResource
+} from '@/utils/adminAPI'
 import {
   fetchResources,
   fetchResourceLabels,
@@ -168,6 +344,32 @@ import { useAuthStore } from '../stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 const isAdmin = computed(() => auth.isAdmin)
+
+const busy = ref(false)
+const formSheetOpen = ref(false)
+const formEditResource = ref<Resource | null>(null)
+const activeMenuResourceId = ref<number | null>(null)
+const deleteConfirm = ref<{
+  open: boolean
+  resource: Resource | null
+  message: string
+}>({
+  open: false,
+  resource: null,
+  message: ''
+})
+
+const batchMode = ref(false)
+const selectedResourceIds = ref<number[]>([])
+const batchBusy = ref(false)
+const batchAccessModalOpen = ref(false)
+const bulkDeleteConfirm = ref<{
+  open: boolean
+  message: string
+}>({
+  open: false,
+  message: ''
+})
 
 const resources = ref<Resource[]>([])
 const labels = ref<ResourceLabel[]>([])
@@ -315,7 +517,7 @@ const formatFileSize = (value?: number | null): string => {
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-let searchTimer: ReturnType<typeof window.setTimeout> | undefined
+let searchTimer: any
 watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDate], () => {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
@@ -323,9 +525,248 @@ watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDa
   }, 250)
 })
 
+const openCreateResource = () => {
+  formEditResource.value = null
+  formSheetOpen.value = true
+}
+
+const openEditResource = (resource: Resource) => {
+  formEditResource.value = resource
+  formSheetOpen.value = true
+}
+
+const toggleResourceMenu = (id: number, event?: Event) => {
+  event?.stopPropagation()
+  activeMenuResourceId.value = activeMenuResourceId.value === id ? null : id
+}
+
+const closeResourceMenu = () => {
+  activeMenuResourceId.value = null
+}
+
+const onMenuAction = (resource: Resource, action: 'view' | 'edit' | 'download' | 'delete') => {
+  closeResourceMenu()
+  if (action === 'view') {
+    openResourceDetail(resource.id)
+  } else if (action === 'edit') {
+    openEditResource(resource)
+  } else if (action === 'download') {
+    void handleDownload(resource)
+  } else if (action === 'delete') {
+    confirmDeleteResource(resource)
+  }
+}
+
+const handleDownload = async (resource: Resource) => {
+  try {
+    await downloadAdminResourceFile(resource.id, resource.file_name || `${resource.name}.bin`)
+  } catch (err: any) {
+    console.error('Download failed:', err)
+    error.value = err?.message || 'Download failed.'
+  }
+}
+
+const confirmDeleteResource = (resource: Resource) => {
+  deleteConfirm.value = {
+    open: true,
+    resource,
+    message: `Are you sure you want to delete resource "${resource.name}"? This action cannot be undone.`
+  }
+}
+
+const runDeleteResource = async () => {
+  const target = deleteConfirm.value.resource
+  if (!target?.id) return
+
+  busy.value = true
+  try {
+    await deleteAdminResource(target.id)
+    deleteConfirm.value.open = false
+    deleteConfirm.value.resource = null
+    await Promise.all([loadResources(), loadResourceLookups()])
+  } catch (err: any) {
+    console.error('Failed to delete resource:', err)
+    error.value = err?.message || 'Failed to delete resource.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const onResourceSaved = async () => {
+  await Promise.all([loadResources(), loadResourceLookups()])
+}
+
+const onFormEditorDelete = () => {
+  const r = formEditResource.value
+  formSheetOpen.value = false
+  if (r) {
+    confirmDeleteResource(r)
+  }
+}
+
+const allOnPageSelected = computed(() => {
+  if (!resources.value.length) return false
+  return resources.value.every((r) => selectedResourceIds.value.includes(r.id))
+})
+
+const someOnPageSelected = computed(() => {
+  return resources.value.some((r) => selectedResourceIds.value.includes(r.id))
+})
+
+const toggleBatchMode = () => {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    clearSelection()
+  }
+}
+
+const toggleResourceSelection = (id: number) => {
+  const idx = selectedResourceIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedResourceIds.value.splice(idx, 1)
+  } else {
+    selectedResourceIds.value.push(id)
+  }
+}
+
+const toggleSelectAll = () => {
+  if (allOnPageSelected.value) {
+    const pageIds = new Set(resources.value.map((r) => r.id))
+    selectedResourceIds.value = selectedResourceIds.value.filter((id) => !pageIds.has(id))
+  } else {
+    const set = new Set(selectedResourceIds.value)
+    for (const r of resources.value) {
+      set.add(r.id)
+    }
+    selectedResourceIds.value = Array.from(set)
+  }
+}
+
+const clearSelection = () => {
+  selectedResourceIds.value = []
+}
+
+const onRowClick = (resourceId: number, event?: Event) => {
+  const target = event?.target
+  if (target instanceof Element && target.closest('a, button, [data-row-ignore], .resource-menu')) {
+    return
+  }
+  if (isAdmin.value && batchMode.value) {
+    toggleResourceSelection(resourceId)
+    return
+  }
+  openResourceDetailFromRow(resourceId, event)
+}
+
+const openBatchAccessModal = () => {
+  if (!selectedResourceIds.value.length) return
+  batchAccessModalOpen.value = true
+}
+
+const onApplyBatchAccess = async (payload: { visibilityScope: 'global' | 'role_based'; roleIds: number[] }) => {
+  if (!selectedResourceIds.value.length) return
+  batchBusy.value = true
+  error.value = ''
+
+  try {
+    const ids = [...selectedResourceIds.value]
+    const updates = {
+      visibility_scope: payload.visibilityScope,
+      role_ids: payload.roleIds
+    }
+
+    const results = await Promise.allSettled(
+      ids.map((id) => updateAdminResource(id, updates))
+    )
+
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length > 0) {
+      console.warn(`Batch access update partially failed: ${failed.length} of ${ids.length} failed.`)
+    }
+
+    batchAccessModalOpen.value = false
+    clearSelection()
+    await Promise.all([loadResources(), loadResourceLookups()])
+  } catch (err: any) {
+    console.error('Batch access update failed:', err)
+    error.value = err?.message || 'Failed to update access for selected resources.'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+const confirmBulkDelete = () => {
+  const count = selectedResourceIds.value.length
+  if (!count) return
+
+  bulkDeleteConfirm.value = {
+    open: true,
+    message: `Are you sure you want to delete ${count} selected ${count === 1 ? 'resource' : 'resources'}? This action cannot be undone.`
+  }
+}
+
+const runBulkDeleteResources = async () => {
+  const ids = [...selectedResourceIds.value]
+  if (!ids.length) return
+
+  batchBusy.value = true
+  error.value = ''
+
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => deleteAdminResource(id))
+    )
+
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length > 0) {
+      console.warn(`Bulk delete partially failed: ${failed.length} of ${ids.length} failed.`)
+    }
+
+    bulkDeleteConfirm.value.open = false
+    clearSelection()
+    await Promise.all([loadResources(), loadResourceLookups()])
+  } catch (err: any) {
+    console.error('Failed to bulk delete resources:', err)
+    error.value = err?.message || 'Failed to delete selected resources.'
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+const openResourceDetailFromRow = (id: number, event?: Event) => {
+  const target = event?.target
+  if (target instanceof Element && target.closest('a, button, input, select, textarea, [data-row-ignore]')) {
+    return
+  }
+  openResourceDetail(id)
+}
+
+const onDocumentClick = (e: MouseEvent) => {
+  if (activeMenuResourceId.value !== null) {
+    const target = e.target as HTMLElement | null
+    if (!target?.closest('.resource-menu')) {
+      activeMenuResourceId.value = null
+    }
+  }
+}
+
+const onKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && activeMenuResourceId.value !== null) {
+    activeMenuResourceId.value = null
+  }
+}
+
 onMounted(() => {
   loadResourceLookups()
   loadResources()
+  document.addEventListener('click', onDocumentClick)
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onBeforeUnmount(() => {
+  window.clearTimeout(searchTimer)
+  document.removeEventListener('click', onDocumentClick)
+  window.removeEventListener('keydown', onKeyDown)
 })
 </script>
 
@@ -456,15 +897,173 @@ onMounted(() => {
 
 .resource-list {
   overflow-x: auto;
+  overflow-y: visible;
   padding: 0;
+  position: relative;
 }
 
 .resource-row {
   cursor: pointer;
 }
 
+.resource-row--menu-open {
+  position: relative;
+  z-index: 10;
+}
+
 .resource-row:focus-visible {
   outline-offset: -2px;
+}
+
+.resource-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.th-select,
+.td-select {
+  width: 44px;
+  text-align: center;
+  padding-left: 0.85rem !important;
+  padding-right: 0.85rem !important;
+  vertical-align: middle;
+}
+
+.th-select input[type='checkbox'],
+.td-select input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--dark-green);
+  vertical-align: middle;
+}
+
+.resource-row--selected {
+  background-color: var(--light-green) !important;
+}
+
+.th-actions {
+  width: 70px;
+  text-align: right;
+  padding-right: 1.25rem !important;
+}
+
+.td-actions {
+  text-align: right;
+  padding-right: 1rem !important;
+  white-space: nowrap;
+}
+
+.resource-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.resource-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background-color: var(--white);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.82rem;
+  transition: all 0.18s ease;
+}
+
+.resource-more-btn:hover,
+.resource-more-btn.active {
+  background-color: var(--accent-green-soft);
+  color: var(--dark-green);
+  border-color: var(--dark-green);
+}
+
+.resource-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 170px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
+  padding: 0.35rem 0;
+  z-index: 50;
+  text-align: left;
+  animation: dropdown-pop 0.15s ease-out;
+}
+
+@keyframes dropdown-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.resource-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--charcoal);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.resource-dropdown-item i {
+  width: 16px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.resource-dropdown-item:hover {
+  background-color: var(--bg-light);
+  color: var(--dark-green);
+}
+
+.resource-dropdown-item:hover i {
+  color: var(--dark-green);
+}
+
+.resource-dropdown-item--danger {
+  color: var(--danger);
+}
+
+.resource-dropdown-item--danger i {
+  color: var(--danger);
+}
+
+.resource-dropdown-item--danger:hover {
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+}
+
+.resource-dropdown-item--danger:hover i {
+  color: var(--danger);
+}
+
+.resource-dropdown-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.3rem 0;
 }
 
 .resource-name-cell {

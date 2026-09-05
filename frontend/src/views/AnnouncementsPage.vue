@@ -19,25 +19,103 @@
         </p>
       </div>
 
-      <label class="announcements__search">
-        <span class="sr-only">Search announcements</span>
-        <input
-          v-model="q"
-          type="text"
-          placeholder="Search by title, body, or audience"
-          aria-label="Search announcements"
-        />
-        <button
-          v-if="q"
-          type="button"
-          class="announcements__search-clear"
-          aria-label="Clear search"
-          @click="q = ''"
-        >
-          &times;
-        </button>
-      </label>
+      <div class="announcements__hero-controls">
+        <!-- Admin Header Actions -->
+        <div v-if="auth.isAdmin" class="announcements__admin-actions">
+          <button
+            type="button"
+            class="btn"
+            :class="batchMode ? 'btn-primary' : 'btn-outline'"
+            @click="toggleBatchMode"
+          >
+            <i :class="batchMode ? 'fas fa-check-square' : 'fas fa-list-check'" aria-hidden="true"></i>
+            <span>{{ batchMode ? 'Exit Batch Mode' : 'Batch Mode' }}</span>
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-primary"
+            @click="openCreateAnnouncement"
+          >
+            <i class="fas fa-plus" aria-hidden="true"></i>
+            <span>New Announcement</span>
+          </button>
+        </div>
+
+        <label class="announcements__search">
+          <span class="sr-only">Search announcements</span>
+          <input
+            v-model="q"
+            type="text"
+            placeholder="Search by title, body, or audience"
+            aria-label="Search announcements"
+          />
+          <button
+            v-if="q"
+            type="button"
+            class="announcements__search-clear"
+            aria-label="Clear search"
+            @click="q = ''"
+          >
+            &times;
+          </button>
+        </label>
+      </div>
     </header>
+
+    <!-- Feedback Banner -->
+    <div
+      v-if="feedbackMessage"
+      class="announcements__feedback-banner"
+      :class="`announcements__feedback-banner--${feedbackTone}`"
+      role="status"
+    >
+      <i
+        :class="{
+          'fas fa-circle-check': feedbackTone === 'success',
+          'fas fa-triangle-exclamation': feedbackTone === 'error',
+          'fas fa-circle-info': feedbackTone === 'info' || feedbackTone === 'warning'
+        }"
+        class="announcements__feedback-icon"
+      ></i>
+      <span class="announcements__feedback-text">{{ feedbackMessage }}</span>
+      <button
+        type="button"
+        class="announcements__feedback-close"
+        aria-label="Dismiss message"
+        @click="feedbackMessage = null"
+      >
+        &times;
+      </button>
+    </div>
+
+    <!-- Bulk Actions Bar -->
+    <BulkActionsBar
+      v-if="auth.isAdmin && batchMode && selectedAnnouncementIds.length && !isLoading"
+      :count="selectedAnnouncementIds.length"
+      noun="announcement"
+      :disabled="batchBusy"
+      @clear="clearSelection"
+    >
+      <button
+        type="button"
+        class="btn btn-sm btn-outline"
+        :disabled="batchBusy"
+        @click="openBulkArchiveConfirm"
+      >
+        <i class="fas fa-box-archive mr-1.5" aria-hidden="true"></i>
+        <span>Archive</span>
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-danger"
+        :disabled="batchBusy"
+        @click="openBulkDeleteConfirm"
+      >
+        <i class="fas fa-trash-can mr-1.5" aria-hidden="true"></i>
+        <span>Delete</span>
+      </button>
+    </BulkActionsBar>
 
     <div
       v-if="visibleAudienceFilters.length || myGroups.length"
@@ -98,7 +176,17 @@
           v-for="item in filtered"
           :key="item.id"
           :announcement="item"
+          :is-admin="auth.isAdmin"
+          :batch-mode="batchMode"
+          :selected="selectedAnnouncementIds.includes(item.id)"
+          :active-menu-id="activeMenuId"
           @image-error="onImageError"
+          @edit="onEditAnnouncement"
+          @notify="onNotifyAnnouncement"
+          @archive="onArchiveAnnouncement"
+          @delete="onDeleteAnnouncement"
+          @toggle-select="onToggleSelectAnnouncement"
+          @toggle-menu="onToggleCardMenu"
         />
       </div>
 
@@ -116,22 +204,52 @@
         </button>
       </div>
     </template>
+
+    <!-- Admin Form Side Sheet -->
+    <AdminAnnouncementFormSheet
+      v-model="formSheetOpen"
+      :announcement="editingAnnouncement"
+      @saved="onFormSaved"
+      @delete="onFormDelete"
+    />
+
+    <!-- Reusable Confirmation Dialog -->
+    <ConfirmDialog
+      v-model="confirmDialog.open"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-label="confirmDialog.confirmLabel"
+      :variant="confirmDialog.variant"
+      :busy="confirmDialog.busy"
+      @confirm="onDialogConfirm"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import AnnouncementCard from '@/components/announcements/AnnouncementCard.vue'
 import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleton.vue'
+import AdminAnnouncementFormSheet from '@/components/admin/announcements/AdminAnnouncementFormSheet.vue'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
   AUDIENCE_FILTERS_FOR_ROLE,
   audienceMatches,
   fetchMyGroups,
   getAudienceLabel,
+  type Announcement,
   type UserGroupOption,
   useAnnouncements
 } from '@/composables/useAnnouncements'
 import { useAuthStore } from '@/stores/auth'
+import {
+  archiveAdminAnnouncement,
+  deleteAdminAnnouncement,
+  notifyAdminAnnouncement,
+  type AdminAnnouncement,
+  type AdminAnnouncementDetail
+} from '@/utils/adminAPI'
 
 const auth = useAuthStore()
 const { announcements, isLoading, error, load } = useAnnouncements()
@@ -140,6 +258,59 @@ const q = ref('')
 const audienceFilter = ref<string>('all')
 const groupFilter = ref<number>(0) // 0 = "All groups"
 const myGroups = ref<UserGroupOption[]>([])
+
+// Admin states
+const batchMode = ref(false)
+const selectedAnnouncementIds = ref<Array<number | string>>([])
+const batchBusy = ref(false)
+const activeMenuId = ref<number | string | null>(null)
+const formSheetOpen = ref(false)
+const editingAnnouncement = ref<AdminAnnouncement | null>(null)
+
+// Toast / Feedback banner
+const feedbackMessage = ref<string | null>(null)
+const feedbackTone = ref<'success' | 'error' | 'warning' | 'info'>('success')
+let feedbackTimeout: ReturnType<typeof setTimeout> | null = null
+
+function setFeedback(msg: string, tone: 'success' | 'error' | 'warning' | 'info' = 'success') {
+  if (feedbackTimeout) clearTimeout(feedbackTimeout)
+  feedbackMessage.value = msg
+  feedbackTone.value = tone
+  feedbackTimeout = setTimeout(() => {
+    if (feedbackMessage.value === msg) feedbackMessage.value = null
+  }, 5000)
+}
+
+// Confirmation Dialog State
+interface ConfirmDialogState {
+  open: boolean
+  title: string
+  message: string
+  confirmLabel: string
+  variant: 'default' | 'danger' | 'warning'
+  busy: boolean
+  onConfirm: () => Promise<void> | void
+}
+
+const confirmDialog = reactive<ConfirmDialogState>({
+  open: false,
+  title: '',
+  message: '',
+  confirmLabel: 'Confirm',
+  variant: 'danger',
+  busy: false,
+  onConfirm: () => {}
+})
+
+const onDialogConfirm = async () => {
+  confirmDialog.busy = true
+  try {
+    await confirmDialog.onConfirm()
+    confirmDialog.open = false
+  } finally {
+    confirmDialog.busy = false
+  }
+}
 
 const callerRole = computed<'admin' | 'mentor' | 'supervisor' | 'student'>(() => {
   if (auth.isAdmin) return 'admin'
@@ -219,10 +390,197 @@ function onImageError({ id, url }: { id: number | string; url: string }) {
   if (target) target.images = target.images.filter(image => image.url !== url)
 }
 
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    clearSelection()
+  }
+}
+
+function clearSelection() {
+  selectedAnnouncementIds.value = []
+}
+
+function openCreateAnnouncement() {
+  editingAnnouncement.value = null
+  formSheetOpen.value = true
+}
+
+function onEditAnnouncement(item: Announcement) {
+  editingAnnouncement.value = {
+    id: Number(item.id),
+    title: item.title,
+    body: item.bodyHtml || item.bodyText,
+    visibilityScope: item.isPublic ? 'global' : 'role_based',
+    publishedAt: item.date || null,
+    archivedAt: item.archivedAt || null,
+    authorUserId: null,
+    audiences: []
+  }
+  formSheetOpen.value = true
+}
+
+async function onFormSaved(saved: AdminAnnouncementDetail) {
+  setFeedback(`Announcement "${saved.title}" saved successfully.`, 'success')
+  await load()
+}
+
+function onFormDelete(item: AdminAnnouncement) {
+  formSheetOpen.value = false
+  const match = announcements.value.find((a) => a.id === item.id)
+  onDeleteAnnouncement(
+    match ||
+      ({
+        id: item.id,
+        title: item.title,
+        date: '',
+        author: '',
+        bodyText: '',
+        bodyHtml: '',
+        audience: 'all',
+        audienceRoles: [],
+        isPublic: true,
+        groupIds: [],
+        images: []
+      } as Announcement)
+  )
+}
+
+function onArchiveAnnouncement(item: Announcement) {
+  confirmDialog.title = 'Archive Announcement?'
+  confirmDialog.message = `Are you sure you want to archive "${item.title}"? It will be marked as archived.`
+  confirmDialog.confirmLabel = 'Archive'
+  confirmDialog.variant = 'warning'
+  confirmDialog.onConfirm = async () => {
+    try {
+      await archiveAdminAnnouncement(item.id)
+      setFeedback(`Announcement "${item.title}" archived successfully.`, 'success')
+      await load()
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to archive announcement', 'error')
+    }
+  }
+  confirmDialog.open = true
+}
+
+function onDeleteAnnouncement(item: Announcement) {
+  confirmDialog.title = 'Delete Announcement?'
+  confirmDialog.message = `Are you sure you want to permanently delete "${item.title}"? This action cannot be undone.`
+  confirmDialog.confirmLabel = 'Delete'
+  confirmDialog.variant = 'danger'
+  confirmDialog.onConfirm = async () => {
+    try {
+      await deleteAdminAnnouncement(item.id)
+      setFeedback(`Announcement "${item.title}" deleted successfully.`, 'success')
+      selectedAnnouncementIds.value = selectedAnnouncementIds.value.filter((id) => id !== item.id)
+      await load()
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to delete announcement', 'error')
+    }
+  }
+  confirmDialog.open = true
+}
+
+function onNotifyAnnouncement(item: Announcement) {
+  confirmDialog.title = 'Send Email Notification?'
+  confirmDialog.message = `Send an email notification for "${item.title}" to its target audience now?`
+  confirmDialog.confirmLabel = 'Send Notification'
+  confirmDialog.variant = 'default'
+  confirmDialog.onConfirm = async () => {
+    try {
+      const res = await notifyAdminAnnouncement(item.id)
+      if (res.status === 'success') {
+        setFeedback(`Email notification sent successfully (${res.succeeded} delivered).`, 'success')
+      } else if (res.status === 'partial') {
+        setFeedback(`Email partially sent (${res.succeeded}/${res.attempted} delivered).`, 'warning')
+      } else if (res.status === 'skipped') {
+        setFeedback(res.msg || 'No recipients found for this announcement audience.', 'info')
+      } else {
+        setFeedback(res.msg || 'Email send failed. Check server logs.', 'error')
+      }
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to send notification email', 'error')
+    }
+  }
+  confirmDialog.open = true
+}
+
+function onToggleSelectAnnouncement(id: number | string) {
+  if (selectedAnnouncementIds.value.includes(id)) {
+    selectedAnnouncementIds.value = selectedAnnouncementIds.value.filter((x) => x !== id)
+  } else {
+    selectedAnnouncementIds.value.push(id)
+  }
+}
+
+function onToggleCardMenu(id: number | string | null) {
+  activeMenuId.value = activeMenuId.value === id ? null : id
+}
+
+function openBulkArchiveConfirm() {
+  const count = selectedAnnouncementIds.value.length
+  if (!count) return
+  confirmDialog.title = `Archive ${count} Announcement${count > 1 ? 's' : ''}?`
+  confirmDialog.message = `Are you sure you want to archive the ${count} selected announcements?`
+  confirmDialog.confirmLabel = 'Archive All'
+  confirmDialog.variant = 'warning'
+  confirmDialog.onConfirm = async () => {
+    batchBusy.value = true
+    try {
+      const ids = [...selectedAnnouncementIds.value]
+      const results = await Promise.allSettled(ids.map((id) => archiveAdminAnnouncement(id)))
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length
+      setFeedback(`Successfully archived ${succeeded} of ${ids.length} announcements.`, 'success')
+      clearSelection()
+      await load()
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to bulk archive announcements', 'error')
+    } finally {
+      batchBusy.value = false
+    }
+  }
+  confirmDialog.open = true
+}
+
+function openBulkDeleteConfirm() {
+  const count = selectedAnnouncementIds.value.length
+  if (!count) return
+  confirmDialog.title = `Delete ${count} Announcement${count > 1 ? 's' : ''}?`
+  confirmDialog.message = `Are you sure you want to permanently delete the ${count} selected announcements? This action cannot be undone.`
+  confirmDialog.confirmLabel = 'Delete All'
+  confirmDialog.variant = 'danger'
+  confirmDialog.onConfirm = async () => {
+    batchBusy.value = true
+    try {
+      const ids = [...selectedAnnouncementIds.value]
+      const results = await Promise.allSettled(ids.map((id) => deleteAdminAnnouncement(id)))
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length
+      setFeedback(`Successfully deleted ${succeeded} of ${ids.length} announcements.`, 'success')
+      clearSelection()
+      await load()
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to bulk delete announcements', 'error')
+    } finally {
+      batchBusy.value = false
+    }
+  }
+  confirmDialog.open = true
+}
+
+const handleWindowClick = () => {
+  activeMenuId.value = null
+}
+
 onMounted(async () => {
+  window.addEventListener('click', handleWindowClick)
   await load()
   // Group list is non-critical to first paint — fire after the feed loads.
   myGroups.value = await fetchMyGroups(auth.user?.id ?? null)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleWindowClick)
+  if (feedbackTimeout) clearTimeout(feedbackTimeout)
 })
 </script>
 
@@ -458,11 +816,93 @@ onMounted(async () => {
   border: 0;
 }
 
+.announcements__hero-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.announcements__admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.announcements__feedback-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.announcements__feedback-banner--success {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.announcements__feedback-banner--error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.announcements__feedback-banner--warning {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.announcements__feedback-banner--info {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+.announcements__feedback-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.announcements__feedback-close:hover {
+  opacity: 1;
+}
+
+.btn-danger {
+  background-color: #dc2626;
+  color: #ffffff;
+  border: 1px solid #dc2626;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
 @media (max-width: 720px) {
   .announcements__hero {
     flex-direction: column;
     align-items: stretch;
     padding: 1.25rem;
+  }
+
+  .announcements__hero-controls {
+    align-items: stretch;
+  }
+
+  .announcements__admin-actions {
+    flex-wrap: wrap;
   }
 
   .announcements__search {
