@@ -13,6 +13,7 @@
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
+import type { MentorImportRow } from './adminMentorCsv'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -288,6 +289,16 @@ export interface StudentBulkImportResult {
   data: StudentBulkImportData
 }
 
+export interface MentorBulkImportData {
+  created: AdminUser[]
+  skipped: StudentImportSkippedRow[]
+}
+
+export interface MentorBulkImportResult {
+  msg: string
+  data: MentorBulkImportData
+}
+
 export const createAdminUser = (payload: CreateUserPayload) =>
   adminPost<AdminEnvelope<AdminUser>>('/user/', payload).then((env) => ({
     msg: env.msg,
@@ -299,6 +310,28 @@ export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBu
     msg: env.msg,
     data: env.data
   }))
+
+export const importAdminMentors = (rows: MentorImportRow[]): Promise<MentorBulkImportResult> => {
+  const payload = rows.map((row) => ({
+    firstName: row.firstName,
+    lastName: row.lastName,
+    email: row.email,
+    role: 'mentor' as const,
+    state: row.state,
+    country: row.country,
+    interests: row.interests,
+    mentorReason: row.mentorReason,
+    mentorInstitution: row.mentorInstitution,
+    mentorBackground: row.mentorBackground ?? undefined,
+    mentorMaxGroupCount: row.mentorMaxGroupCount,
+    active: true
+  }))
+
+  return adminPost<AdminEnvelope<MentorBulkImportData>>('/user/bulk/', payload).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+}
 
 export const updateAdminUser = (userId: string | number, payload: Record<string, unknown>) =>
   adminPut<AdminEnvelope<AdminUser>>(`/user/${userId}/`, payload).then((env) => ({
@@ -700,18 +733,105 @@ export const setAdminMentorActive = (mentorId: number, isActive: boolean) =>
 // ---------------------------------------------------------------------------
 
 export interface AdminTask {
-  id?: number | string
-  task_id?: number
-  title?: string | null
-  is_active?: boolean
-  [key: string]: unknown
+  id: number
+  name: string
+  description: string
+  due_date: string | null
+  status: AdminTaskStatus
+  completed: boolean
+  parent: number | null
+  task_type: AdminTaskType
+  group: number | null
+  assigned_user: number | null
+  created_by: AdminTaskUserMini | null
+  creator_role: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
 }
 
-export const fetchAdminTasks = (params: Record<string, unknown> = {}) =>
-  adminGet<PaginatedResult<AdminTask>>(`/task/${buildAdminQuery(params)}`)
+export type AdminTaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked'
+export type AdminTaskType = 'group' | 'individual'
+export type AdminTaskSortBy = 'completed' | 'name' | 'type' | 'target' | 'status' | 'due' | 'createdAt'
 
-export const fetchTaskRoleRecipients = () =>
-  adminGet<unknown[]>(`/task/role-recipients/`)
+export interface AdminTaskUserMini {
+  id: number
+  name: string | null
+}
+
+export interface AdminTaskListParams {
+  page?: number
+  limit?: number
+  task_type?: AdminTaskType | ''
+  sortBy?: AdminTaskSortBy
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface AdminTaskListData {
+  items: AdminTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface CreateAdminTaskPayload {
+  name: string
+  description?: string
+  due_date?: string | null
+  status?: AdminTaskStatus
+  parent?: number | null
+  task_type: AdminTaskType
+  group?: number | null
+  assigned_user?: number | null
+  assigned_role?: string | null
+}
+
+export interface UpdateAdminTaskPayload {
+  name?: string
+  description?: string
+  due_date?: string | null
+  status?: AdminTaskStatus
+  parent?: number | null
+}
+
+export interface AdminTaskFanoutResult {
+  created_count: number
+  assigned_role: string
+}
+
+export interface AdminTaskRoleRecipientsData {
+  role: string
+  count: number
+}
+
+export type AdminTaskMutationResult<T = AdminTask | AdminTaskFanoutResult | null> = AdminEnvelope<T>
+
+export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<AdminTaskListData> =>
+  adminGet<AdminEnvelope<AdminTaskListData>>(`/task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const createAdminTask = (
+  payload: CreateAdminTaskPayload
+): Promise<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>>('/task/', payload)
+
+export const updateAdminTask = (
+  taskId: number | string,
+  payload: UpdateAdminTaskPayload
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPatch<AdminTaskMutationResult<AdminTask | null>>(`/task/${taskId}/`, payload)
+
+export const deleteAdminTask = (taskId: number | string): Promise<void> =>
+  adminDelete<void>(`/task/${taskId}/`)
+
+export const fetchTaskRoleRecipients = (
+  role: string
+): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>
+  adminGet<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>>(
+    `/task/role-recipients/${buildAdminQuery({ role })}`
+  )
 
 // ---------------------------------------------------------------------------
 // Matching / mentor-match
