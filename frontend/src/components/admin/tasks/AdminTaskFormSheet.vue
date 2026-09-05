@@ -380,7 +380,7 @@ const submitForm = () => {
     description: form.description.trim(),
     due_date: toDueDatePayload(form.due_date),
     status: form.status,
-    parent: null
+    parent: props.task?.parent ?? null
   })
 }
 </script>

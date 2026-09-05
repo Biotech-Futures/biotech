@@ -559,8 +559,8 @@ describe('AdminTasksPage', () => {
     })
   })
 
-  it('edits task details without changing assignment fields', async () => {
-    const fetchMock = fetchMockFor([buildTask()])
+  it('edits child task details without changing assignment fields or detaching the parent', async () => {
+    const fetchMock = fetchMockFor([buildTask({ parent: 99 })])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
@@ -577,7 +577,7 @@ describe('AdminTasksPage', () => {
       description: 'Write a short weekly update',
       due_date: '2026-09-15T00:00:00Z',
       status: 'in_progress',
-      parent: null
+      parent: 99
     })
   })
 })
