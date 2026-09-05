@@ -798,9 +798,9 @@ export const uploadLinkedResourceAttachment = async (file: File) => {
   formData.append('resource_name', file.name)
   formData.append('resource_description', `Resource attachment: ${file.name}`)
   const resource = await uploadAdminResource(formData)
-  const apiUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
-  const accessUrl = `${apiUrl}/resource/${resource.id}/access/`
-  const downloadUrl = `${apiUrl}/resource/${resource.id}/download/`
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
+  const downloadUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/download/`
   return {
     id: resource.id,
     fileName: resource.resource_name || resource.file_name || file.name,

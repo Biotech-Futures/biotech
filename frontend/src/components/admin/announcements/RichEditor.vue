@@ -3,8 +3,6 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import Underline from '@tiptap/extension-underline'
-import Link from '@tiptap/extension-link'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
@@ -40,15 +38,12 @@ const updateTick = ref(0)
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
-      link: false,
-      underline: false
+      link: {
+        openOnClick: props.readOnly,
+        HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
+      }
     }),
-    Underline,
     Image.configure({ inline: false, allowBase64: true }),
-    Link.configure({
-      openOnClick: props.readOnly,
-      HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
-    }),
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
@@ -201,7 +196,7 @@ async function handleAttachmentFiles(files: File[]) {
   try {
     for (const [index, file] of files.entries()) {
       const resource = await uploadLinkedResourceAttachment(file)
-      insertAttachmentLink(resource.accessUrl || resource.downloadUrl, index === 0 ? initialRange : null)
+      insertAttachmentLink(resource.downloadUrl || resource.accessUrl, index === 0 ? initialRange : null)
     }
   } catch (err: unknown) {
     console.error('Attachment upload failed:', err)
