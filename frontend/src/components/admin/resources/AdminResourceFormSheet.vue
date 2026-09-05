@@ -2,7 +2,7 @@
   <FormSheet
     v-model="open"
     :title="isEditing ? 'Edit Resource' : 'Upload Resource'"
-    :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file, attachment, or page to the resource library.'"
+    :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-resource-form" novalidate @submit.prevent="submitForm">
@@ -21,7 +21,6 @@
             :disabled="isEditing"
           >
             <option value="file">File Upload</option>
-            <option value="attachment">Attachment</option>
             <option value="page">Rich Content Page</option>
           </select>
           <p v-if="isEditing" class="admin-resource-form__hint">
