@@ -102,7 +102,7 @@
 
         <!-- Global audience notice -->
         <div v-if="roleIds.length === 0 && groupIds.length === 0" class="admin-ann-form__notice">
-          <i class="fas fa-circle-info mr-1.5 text-blue-500"></i>
+          <i class="fas fa-circle-info"></i>
           <span>No roles or groups selected — announcement will be visible to all users (Global).</span>
         </div>
       </div>
@@ -116,8 +116,8 @@
           :disabled="saving || busy"
           @click="emit('delete', announcement!)"
         >
-          <i class="fas fa-trash-can mr-1.5" aria-hidden="true"></i>
-          Delete
+          <i class="fas fa-trash-can" aria-hidden="true"></i>
+          <span>Delete</span>
         </button>
 
         <span v-if="isEditing" class="admin-ann-form__footer-spacer"></span>
@@ -128,7 +128,7 @@
           :disabled="saving || busy"
           @click="onDismiss"
         >
-          Cancel
+          <span>Cancel</span>
         </button>
 
         <!-- Create Mode Buttons -->
@@ -139,8 +139,8 @@
             :disabled="saving || busy"
             @click="handleSubmit(false)"
           >
-            <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin mr-1.5"></i>
-            Publish
+            <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin"></i>
+            <span>Publish</span>
           </button>
           <button
             type="button"
@@ -148,9 +148,9 @@
             :disabled="saving || busy"
             @click="promptPublishWithEmail"
           >
-            <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin mr-1.5"></i>
-            <i v-else class="fas fa-paper-plane mr-1.5"></i>
-            Publish & Notify
+            <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin"></i>
+            <i v-else class="fas fa-paper-plane"></i>
+            <span>Publish & Notify</span>
           </button>
         </template>
 
@@ -162,8 +162,8 @@
             :disabled="saving || busy"
             @click="handleSubmit(false)"
           >
-            <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin mr-1.5"></i>
-            Save
+            <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin"></i>
+            <span>Save</span>
           </button>
           <button
             type="button"
@@ -171,9 +171,9 @@
             :disabled="saving || busy"
             @click="handleSubmit(true)"
           >
-            <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin mr-1.5"></i>
-            <i v-else class="fas fa-paper-plane mr-1.5"></i>
-            Save & Re-notify
+            <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin"></i>
+            <i v-else class="fas fa-paper-plane"></i>
+            <span>Save & Re-notify</span>
           </button>
         </template>
       </div>
@@ -545,12 +545,20 @@ async function handleSubmit(sendEmail: boolean) {
 .admin-ann-form__notice {
   display: flex;
   align-items: center;
-  font-size: 0.8125rem;
-  color: #4b5563;
+  gap: 0.65rem;
+  font-size: 0.84rem;
+  color: #1e40af;
   background-color: #eff6ff;
   border: 1px solid #dbeafe;
   border-radius: 0.375rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.625rem 0.875rem;
+  line-height: 1.4;
+}
+
+.admin-ann-form__notice i {
+  font-size: 1rem;
+  color: #2563eb;
+  flex-shrink: 0;
 }
 
 .admin-ann-form__footer {
@@ -570,6 +578,7 @@ async function handleSubmit(sendEmail: boolean) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   padding: 0.5rem 1rem;
   border-radius: 0.375rem;
   font-size: 0.875rem;

@@ -258,7 +258,7 @@ function handleRawInput(e: Event) {
               @click="showHeadingDropdown = !showHeadingDropdown"
             >
               <span>{{ currentHeadingLabel }}</span>
-              <i class="fas fa-chevron-down text-xs ml-1 opacity-60"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
             </button>
             <div v-if="showHeadingDropdown" class="heading-dropdown-menu">
               <button
@@ -419,7 +419,8 @@ function handleRawInput(e: Event) {
             title="Insert image"
             @mousedown.prevent="fileInputRef?.click()"
           >
-            <i class="fas fa-image mr-1"></i> Image
+            <i class="fas fa-image"></i>
+            <span>Image</span>
           </button>
           <button
             type="button"
@@ -428,8 +429,8 @@ function handleRawInput(e: Event) {
             :disabled="uploadingAttachment"
             @mousedown.prevent="openAttachmentPicker"
           >
-            <i class="fas fa-paperclip mr-1"></i>
-            {{ uploadingAttachment ? 'Uploading…' : 'File' }}
+            <i class="fas fa-paperclip"></i>
+            <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
           </button>
           <button
             type="button"
@@ -437,7 +438,8 @@ function handleRawInput(e: Event) {
             title="Insert table (3x3)"
             @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
           >
-            <i class="fas fa-table mr-1"></i> Table
+            <i class="fas fa-table"></i>
+            <span>Table</span>
           </button>
 
           <div class="toolbar-sep"></div>
@@ -468,20 +470,22 @@ function handleRawInput(e: Event) {
         <!-- Raw HTML Toggle Button -->
         <button
           type="button"
-          class="toolbar-btn toggle-raw-btn"
+          class="toolbar-btn text-icon-btn toggle-raw-btn"
           :class="{ active: rawMode }"
           :title="rawMode ? 'Switch to visual editor' : 'Edit raw HTML'"
           @mousedown.prevent="toggleRawMode"
         >
-          <i class="fas fa-code mr-1"></i>
+          <i class="fas fa-code"></i>
           <span>{{ rawMode ? 'Visual' : 'HTML' }}</span>
         </button>
       </div>
 
       <!-- Table Context Toolbar -->
       <div v-if="isInTable && !rawMode && !readOnly" class="table-context-bar">
-        <i class="fas fa-table text-blue-500 mr-1.5"></i>
-        <span class="table-context-title">Table:</span>
+        <div class="table-context-heading">
+          <i class="fas fa-table text-blue-500"></i>
+          <span class="table-context-title">Table:</span>
+        </div>
 
         <button
           type="button"
@@ -558,11 +562,12 @@ function handleRawInput(e: Event) {
 
         <button
           type="button"
-          class="table-action-btn danger"
+          class="table-action-btn danger table-action-btn--delete"
           title="Delete table"
           @mousedown.prevent="editor?.chain().focus().deleteTable().run()"
         >
-          <i class="fas fa-trash-can mr-1"></i> Delete table
+          <i class="fas fa-trash-can"></i>
+          <span>Delete table</span>
         </button>
       </div>
 
@@ -701,13 +706,30 @@ function handleRawInput(e: Event) {
 }
 
 .toolbar-btn.text-icon-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.toolbar-btn.text-icon-btn i {
+  font-size: 0.8125rem;
 }
 
 .heading-btn {
-  min-width: 4.5rem;
+  min-width: 5.5rem;
+  display: inline-flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+}
+
+.heading-chevron {
+  font-size: 0.6875rem;
+  margin-left: 0.35rem;
+  opacity: 0.7;
 }
 
 .heading-dropdown-menu {
@@ -787,28 +809,36 @@ function handleRawInput(e: Event) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
+  gap: 0.45rem;
+  padding: 0.35rem 0.625rem;
   background-color: #eff6ff;
   border-bottom: 1px solid #bfdbfe;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.table-context-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #2563eb;
+  font-weight: 600;
+  margin-right: 0.25rem;
 }
 
 .table-context-title {
   color: #2563eb;
   font-weight: 600;
-  margin-right: 0.25rem;
 }
 
 .table-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.1875rem 0.375rem;
+  padding: 0.25rem 0.45rem;
   border: none;
   border-radius: 0.25rem;
   background: transparent;
-  font-size: 0.75rem;
+  font-size: 0.78125rem;
   color: #1e40af;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -824,6 +854,12 @@ function handleRawInput(e: Event) {
 
 .table-action-btn.danger:hover {
   background-color: #fee2e2;
+}
+
+.table-action-btn--delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .rich-editor-content-area {
