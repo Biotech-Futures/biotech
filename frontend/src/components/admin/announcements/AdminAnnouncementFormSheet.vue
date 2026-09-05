@@ -131,17 +131,8 @@
           <span>Cancel</span>
         </button>
 
-        <!-- Create Mode Buttons -->
+        <!-- Create Mode Buttons: ONLY Publish & Notify -->
         <template v-if="!isEditing">
-          <button
-            type="button"
-            class="btn btn-outline"
-            :disabled="saving || busy"
-            @click="handleSubmit(false)"
-          >
-            <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin"></i>
-            <span>Publish</span>
-          </button>
           <button
             type="button"
             class="btn btn-primary"
@@ -532,7 +523,7 @@ async function handleSubmit(sendEmail: boolean) {
 .admin-ann-form__checkbox-label input[type='checkbox'] {
   width: 1rem;
   height: 1rem;
-  accent-color: #2563eb;
+  accent-color: var(--dark-green);
   cursor: pointer;
 }
 
@@ -547,9 +538,9 @@ async function handleSubmit(sendEmail: boolean) {
   align-items: center;
   gap: 0.65rem;
   font-size: 0.84rem;
-  color: #1e40af;
-  background-color: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--charcoal);
+  background-color: var(--light-green);
+  border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 0.375rem;
   padding: 0.625rem 0.875rem;
   line-height: 1.4;
@@ -557,65 +548,27 @@ async function handleSubmit(sendEmail: boolean) {
 
 .admin-ann-form__notice i {
   font-size: 1rem;
-  color: #2563eb;
+  color: var(--dark-green);
   flex-shrink: 0;
 }
 
 .admin-ann-form__footer {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
-  margin-top: 0.5rem;
+  border-top: 1px solid var(--border-light);
 }
 
 .admin-ann-form__footer-spacer {
-  margin-right: auto;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease-in-out;
-  border: 1px solid transparent;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background-color: #2563eb;
-  color: #ffffff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: #1d4ed8;
-}
-
-.btn-outline {
-  background-color: #ffffff;
-  border-color: #d1d5db;
-  color: #374151;
-}
-
-.btn-outline:hover:not(:disabled) {
-  background-color: #f3f4f6;
-  border-color: #9ca3af;
+  flex: 1;
 }
 
 .btn-danger {
-  background-color: #dc2626;
-  color: #ffffff;
+  background-color: var(--danger);
+  color: var(--white);
 }
 
 .btn-danger:hover:not(:disabled) {

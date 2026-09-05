@@ -136,17 +136,17 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     })
     await flushPromises()
 
-    // Click Publish without title
-    const publishBtn = wrapper.findAll('button').find(b => b.text().includes('Publish') && !b.text().includes('& Notify'))
-    expect(publishBtn).toBeDefined()
-    await publishBtn!.trigger('click')
+    // Click Publish & Notify without title
+    const publishNotifyBtn = wrapper.findAll('button').find(b => b.text().includes('Publish & Notify'))
+    expect(publishNotifyBtn).toBeDefined()
+    await publishNotifyBtn!.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Title is required')
     expect(adminApi.createAdminAnnouncement).not.toHaveBeenCalled()
   })
 
-  it('submits create payload with selected roles and groups', async () => {
+  it('submits create payload with selected roles and groups via Publish & Notify', async () => {
     wrapper = mount(AdminAnnouncementFormSheet, {
       props: {
         modelValue: true,
@@ -156,7 +156,7 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
         stubs: {
           FormSheet: {
             props: ['modelValue', 'title'],
-            template: '<div class="form-sheet-stub"><slot /></div>'
+            template: '<div class="form-sheet-stub"><slot /><slot name="footer" /></div>'
           },
           RichEditor: {
             name: 'RichEditor',
@@ -164,7 +164,12 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
             emits: ['update:modelValue'],
             template: '<textarea class="rich-editor-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea>'
           },
-          ConfirmDialog: true
+          ConfirmDialog: {
+            name: 'ConfirmDialog',
+            props: ['modelValue', 'title', 'message'],
+            emits: ['update:modelValue', 'confirm', 'cancel'],
+            template: '<div v-if="modelValue" class="confirm-dialog-stub"><button class="confirm-btn" @click="$emit(\'confirm\')">Confirm</button></div>'
+          }
         }
       }
     })
@@ -184,10 +189,16 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     await mentorCheckbox!.trigger('change')
     await flushPromises()
 
-    // Click Publish
-    const publishBtn = wrapper.findAll('button').find(b => b.text().trim() === 'Publish')
-    expect(publishBtn).toBeDefined()
-    await publishBtn!.trigger('click')
+    // Click Publish & Notify
+    const publishNotifyBtn = wrapper.findAll('button').find(b => b.text().includes('Publish & Notify'))
+    expect(publishNotifyBtn).toBeDefined()
+    await publishNotifyBtn!.trigger('click')
+    await flushPromises()
+
+    // Confirm dialog
+    const confirmBtn = wrapper.find('.confirm-btn')
+    expect(confirmBtn.exists()).toBe(true)
+    await confirmBtn.trigger('click')
     await flushPromises()
 
     expect(adminApi.createAdminAnnouncement).toHaveBeenCalledWith({
@@ -195,7 +206,7 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
       body: '<p>Exciting news about tech funding</p>',
       role_ids: [2],
       group_ids: undefined,
-      send_email: false
+      send_email: true
     })
 
     expect(wrapper.emitted('saved')).toBeTruthy()
