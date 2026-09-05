@@ -837,6 +837,35 @@ export const fetchTaskRoleRecipients = (
 // Matching / mentor-match
 // ---------------------------------------------------------------------------
 
+/**
+ * Run the student matcher (GET /match/student/).
+ *
+ * The payload shape is unstable — snake_case wrapper keys, and
+ * `recommendations` that may be flat per-student or already grouped. Returned
+ * raw here on purpose; `normalizeStudentMatchData` in utils/adminMatching.ts
+ * owns the reshaping so it stays testable on its own.
+ */
+export const fetchStudentMatch = () =>
+  adminGet<AdminEnvelope<unknown>>('/match/student/').then((env) => env.data)
+
+/** Students not currently in any group (GET /match/individual/). */
+export const fetchIndividualStudents = () =>
+  adminGet<AdminEnvelope<unknown>>('/match/individual/').then((env) => env.data)
+
+/** Mentor-match modes, mirroring MatchMode in apps/admin/algorithms/mentor.py. */
+export type MentorMatchMode = 'balanced' | 'strict' | 'coverage'
+
+/**
+ * Run the mentor matcher (GET /mentor-match/recommend/?mode=).
+ *
+ * An unrecognised mode is coerced to "balanced" server-side
+ * (MentorMatchRecommendView), so the union here is the real contract.
+ */
+export const fetchMentorMatchRecommendations = (mode: MentorMatchMode = 'balanced') =>
+  adminGet<AdminEnvelope<unknown>>(`/mentor-match/recommend/?mode=${mode}`).then(
+    (env) => env.data
+  )
+
 export const fetchMatchSuggestions = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/match/student-suggestions/${buildAdminQuery(params)}`)
 
