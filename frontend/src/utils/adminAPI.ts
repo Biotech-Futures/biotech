@@ -725,12 +725,6 @@ export const updateAdminTask = (
 export const deleteAdminTask = (taskId: number | string): Promise<void> =>
   adminDelete<void>(`/task/${taskId}/`)
 
-export const toggleAdminTask = (
-  taskId: number | string,
-  completed: boolean
-): Promise<AdminTaskMutationResult<AdminTask | null>> =>
-  adminPost<AdminTaskMutationResult<AdminTask | null>>(`/task/${taskId}/toggle/`, { completed })
-
 export const fetchTaskRoleRecipients = (
   role: string
 ): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>

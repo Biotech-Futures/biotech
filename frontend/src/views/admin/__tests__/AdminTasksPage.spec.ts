@@ -27,11 +27,17 @@ const fetchMockFor = (
   total = tasks.length,
   options: {
     roleRecipientCount?: number
+    roleRecipientCounts?: Array<number | 'error'>
     failDeleteIds?: number[]
     failPatchIds?: number[]
+    patchDelayMs?: number
+    trackDeletedTotal?: boolean
+    roles?: Array<{ id?: number; roleName: string }>
   } = {}
-) =>
-  vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+) => {
+  const deletedIds = new Set<number>()
+  let roleRecipientLookupCount = 0
+  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const path = String(url)
     const method = init?.method ?? 'GET'
     const taskId = Number(path.match(/\/api\/v1\/admin\/task\/(\d+)\//)?.[1])
@@ -41,9 +47,21 @@ const fetchMockFor = (
     if (path.includes('/services/csrf/')) {
       payload = { csrfToken: 'test-token' }
     } else if (path.includes('/api/v1/admin/task/role-recipients/')) {
-      payload = {
-        msg: 'Role recipients retrieved successfully',
-        data: { role: 'mentor', count: options.roleRecipientCount ?? 2 }
+      const roleRecipientResult = options.roleRecipientCounts?.[roleRecipientLookupCount]
+      roleRecipientLookupCount += 1
+      if (roleRecipientResult === 'error') {
+        status = 500
+        payload = { msg: 'Role recipients lookup failed', data: null }
+      } else {
+        payload = {
+          msg: 'Role recipients retrieved successfully',
+          data: {
+            role: 'mentor',
+            count: typeof roleRecipientResult === 'number'
+              ? roleRecipientResult
+              : options.roleRecipientCount ?? 2
+          }
+        }
       }
     } else if (path.includes('/api/v1/admin/task/') && method === 'POST') {
       payload = { msg: 'Task created successfully', data: buildTask({ id: 11 }) }
@@ -54,6 +72,7 @@ const fetchMockFor = (
       } else {
         status = 204
         payload = null
+        if (Number.isFinite(taskId)) deletedIds.add(taskId)
       }
     } else if (path.includes('/api/v1/admin/task/') && method === 'PATCH') {
       if (options.failPatchIds?.includes(taskId)) {
@@ -62,10 +81,32 @@ const fetchMockFor = (
       } else {
         payload = { msg: 'Task updated successfully', data: buildTask({ id: 1 }) }
       }
+      if (options.patchDelayMs) {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(
+              new Response(JSON.stringify(payload), {
+                status,
+                headers: { 'Content-Type': 'application/json' }
+              })
+            )
+          }, options.patchDelayMs)
+        })
+      }
     } else if (path.includes('/api/v1/admin/task/')) {
+      const params = new URL(path).searchParams
+      const currentTotal = options.trackDeletedTotal
+        ? Math.max(0, total - deletedIds.size)
+        : total
       payload = {
         msg: 'Tasks retrieved successfully',
-        data: { items: tasks, total, page: 1, limit: 25, has_more: total > tasks.length }
+        data: {
+          items: tasks,
+          total: currentTotal,
+          page: Number(params.get('page') ?? 1),
+          limit: Number(params.get('limit') ?? 25),
+          has_more: currentTotal > tasks.length
+        }
       }
     } else if (path.includes('/api/v1/admin/group/')) {
       payload = {
@@ -120,7 +161,10 @@ const fetchMockFor = (
         }
       }
     } else if (path.includes('/api/v1/admin/event/meta/roles/')) {
-      payload = { msg: 'Roles retrieved successfully', data: [{ id: 2, roleName: 'mentor' }] }
+      payload = {
+        msg: 'Roles retrieved successfully',
+        data: options.roles ?? [{ id: 2, roleName: 'mentor' }]
+      }
     } else {
       payload = {}
     }
@@ -132,6 +176,7 @@ const fetchMockFor = (
       })
     )
   })
+}
 
 const lastTaskListUrl = (fetchMock: ReturnType<typeof vi.fn>) => {
   const call = [...fetchMock.mock.calls]
@@ -290,6 +335,24 @@ describe('AdminTasksPage', () => {
     expect(wrapper.text()).toContain('1 task selected')
   })
 
+  it('clears selected tasks when navigating to another page', async () => {
+    const fetchMock = fetchMockFor([buildTask()], 60)
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 task selected')
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('2')
+    expect(wrapper.text()).not.toContain('task selected')
+  })
+
   it('deletes an individual task after confirmation and refreshes the list', async () => {
     const fetchMock = fetchMockFor([buildTask()])
     vi.stubGlobal('fetch', fetchMock)
@@ -309,6 +372,48 @@ describe('AdminTasksPage', () => {
     expect(deleteCall[0]).toContain('/api/v1/admin/task/1/')
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/v1/admin/task/')).length)
       .toBeGreaterThan(1)
+  })
+
+  it('shows individual delete failures inside the open confirmation dialog', async () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fetchMock = fetchMockFor([buildTask()], 1, { failDeleteIds: [1] })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await buttonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+    await lastButtonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Delete task')
+    expect(wrapper.text()).toContain('Delete "Submit reflection"? This cannot be undone.')
+    expect(wrapper.find('.admin-tasks__dialog-error').text()).toContain('Task delete failed')
+    expect(wrapper.text()).toContain('Submit reflection')
+
+    consoleSpy.mockRestore()
+  })
+
+  it('clamps to the new last page after deleting the final row on the final page', async () => {
+    const fetchMock = fetchMockFor([buildTask({ id: 51 })], 51, { trackDeletedTotal: true })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('3')
+
+    await buttonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+    await lastButtonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('2')
+    expect(wrapper.text()).toContain('Page 2 of 2')
+    expect(wrapper.text()).not.toContain('Page 3 of 2')
   })
 
   it('bulk deletes selected tasks and clears successful selections', async () => {
@@ -345,6 +450,37 @@ describe('AdminTasksPage', () => {
     expect(wrapper.text()).not.toContain('tasks selected')
   })
 
+  it('clamps to the new last page after bulk deleting final rows on the final page', async () => {
+    const fetchMock = fetchMockFor(
+      [buildTask({ id: 51 }), buildTask({ id: 52, name: 'Prepare slides', assigned_user: 43 })],
+      52,
+      { trackDeletedTotal: true }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('3')
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await rowCheckboxes[2].setValue(true)
+    await flushPromises()
+
+    await buttonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+    await lastButtonByText(wrapper, 'Delete')!.trigger('click')
+    await flushPromises()
+
+    expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('2')
+    expect(wrapper.text()).toContain('Page 2 of 2')
+    expect(wrapper.text()).not.toContain('Page 3 of 2')
+  })
+
   it('bulk status updates selected tasks and reports partial failures', async () => {
     const fetchMock = fetchMockFor(
       [buildTask(), buildTask({ id: 2, name: 'Prepare slides', assigned_user: 43 })],
@@ -370,6 +506,25 @@ describe('AdminTasksPage', () => {
     expect(patchCalls.map(([, init]) => JSON.parse(String(init?.body)).status)).toEqual(['done', 'done'])
     expect(wrapper.text()).toContain('Updated 1, but 1 could not be updated.')
     expect(wrapper.text()).toContain('1 task selected')
+  })
+
+  it('disables toolbar controls while a bulk task action is in progress', async () => {
+    const fetchMock = fetchMockFor([buildTask()], 1, { patchDelayMs: 50 })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    const rowCheckboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
+    await rowCheckboxes[1].setValue(true)
+    await flushPromises()
+
+    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+
+    expect(wrapper.find<HTMLSelectElement>('#task-type-filter').attributes('disabled')).toBeDefined()
+    expect(buttonByText(wrapper, 'Add Task')!.attributes('disabled')).toBeDefined()
+
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    await flushPromises()
   })
 
   it('shows empty and error states', async () => {
@@ -419,6 +574,26 @@ describe('AdminTasksPage', () => {
       .toBeGreaterThan(1)
   })
 
+  it('creates a task with the selected due date at midnight UTC', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
+    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
+    await submitButton(wrapper)!.trigger('submit')
+    await flushPromises()
+
+    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      name: 'Review group plan',
+      due_date: '2026-10-04T00:00:00Z'
+    })
+  })
+
   it('disables Save until the task form has valid required fields and assignment', async () => {
     const fetchMock = fetchMockFor([buildTask()], 1, { roleRecipientCount: 0 })
     vi.stubGlobal('fetch', fetchMock)
@@ -443,6 +618,73 @@ describe('AdminTasksPage', () => {
 
     expect(wrapper.text()).toContain('No active users currently have this role.')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
+  })
+
+  it('shows a retryable error when role recipient lookup fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fetchMock = fetchMockFor([buildTask()], 1, { roleRecipientCounts: ['error', 3] })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
+    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Recipient count could not be loaded. Try again.')
+    expect(wrapper.text()).not.toContain('Creates a separate task for every mentor.')
+    expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
+
+    const lookupCallsBeforeRetry = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/v1/admin/task/role-recipients/')
+    )
+    expect(lookupCallsBeforeRetry).toHaveLength(1)
+
+    await buttonByText(wrapper, 'Retry')!.trigger('click')
+    await flushPromises()
+
+    const lookupCallsAfterRetry = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/v1/admin/task/role-recipients/')
+    )
+    expect(lookupCallsAfterRetry).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('Recipient count could not be loaded. Try again.')
+    expect(wrapper.text()).toContain('Creates 3 separate tasks')
+    expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
+
+    consoleSpy.mockRestore()
+  })
+
+  it('renders duplicate role names without changing role assignment behavior', async () => {
+    const fetchMock = fetchMockFor([buildTask()], 1, {
+      roles: [
+        { id: 2, roleName: 'mentor' },
+        { id: 3, roleName: 'mentor' }
+      ]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+
+    const roleOptions = wrapper.findAll<HTMLOptionElement>('#task-role option')
+    expect(roleOptions.filter((option) => option.element.value === 'mentor')).toHaveLength(2)
+
+    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
+    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await flushPromises()
+    await submitButton(wrapper)!.trigger('submit')
+    await flushPromises()
+    await buttonByText(wrapper, 'Create tasks')!.trigger('click')
+    await flushPromises()
+
+    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).assigned_role).toBe('mentor')
   })
 
   it('creates an individual task for a selected user', async () => {
@@ -559,8 +801,9 @@ describe('AdminTasksPage', () => {
     })
   })
 
-  it('edits child task details without changing assignment fields or detaching the parent', async () => {
-    const fetchMock = fetchMockFor([buildTask({ parent: 99 })])
+  it('edits child task details without changing assignment fields, due datetime, or parent', async () => {
+    const originalDueDate = '2026-09-15T14:30:00+00:00'
+    const fetchMock = fetchMockFor([buildTask({ parent: 99, due_date: originalDueDate })])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
@@ -575,9 +818,39 @@ describe('AdminTasksPage', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       name: 'Updated reflection',
       description: 'Write a short weekly update',
-      due_date: '2026-09-15T00:00:00Z',
+      due_date: originalDueDate,
       status: 'in_progress',
       parent: 99
     })
+  })
+
+  it('sends midnight UTC when an edited task due date is changed', async () => {
+    const fetchMock = fetchMockFor([buildTask({ due_date: '2026-09-15T14:30:00+00:00' })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-09-20')
+    await submitButton(wrapper)!.trigger('submit')
+    await flushPromises()
+
+    const [, init] = lastTaskMutation(fetchMock, 'PATCH') as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).due_date).toBe('2026-09-20T00:00:00Z')
+  })
+
+  it('sends null when an edited task due date is cleared', async () => {
+    const fetchMock = fetchMockFor([buildTask({ due_date: '2026-09-15T14:30:00+00:00' })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('')
+    await submitButton(wrapper)!.trigger('submit')
+    await flushPromises()
+
+    const [, init] = lastTaskMutation(fetchMock, 'PATCH') as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).due_date).toBeNull()
   })
 })

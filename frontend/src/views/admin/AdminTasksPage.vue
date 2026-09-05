@@ -12,7 +12,7 @@
           <select
             id="task-type-filter"
             :value="taskTypeFilter"
-            :disabled="loading"
+            :disabled="loading || taskActionBusy"
             @change="onTaskTypeChange"
           >
             <option value="all">All</option>
@@ -20,7 +20,7 @@
             <option value="individual">Individual</option>
           </select>
         </label>
-        <button type="button" class="btn btn-primary" :disabled="loading || saving" @click="openCreate">
+        <button type="button" class="btn btn-primary" :disabled="loading || saving || taskActionBusy" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
           <span>Add Task</span>
         </button>
@@ -159,7 +159,11 @@
         :busy="taskActionBusy"
         @confirm="confirmSingleDelete"
         @cancel="cancelSingleDelete"
-      />
+      >
+        <p v-if="singleDeleteError" class="admin-tasks__dialog-error" role="alert">
+          {{ singleDeleteError }}
+        </p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         v-model="bulkDeleteConfirmOpen"
@@ -249,6 +253,7 @@ const pendingRoleFanoutRecipientCount = ref<number | null>(null)
 const selectedTasks = ref(new Map<string | number, AdminTask>())
 const singleDeleteConfirmOpen = ref(false)
 const taskPendingDelete = ref<AdminTask | null>(null)
+const singleDeleteError = ref('')
 const bulkDeleteConfirmOpen = ref(false)
 
 const tableRows = computed(() => tasks.value as unknown as Record<string, unknown>[])
@@ -318,6 +323,13 @@ const reloadFromFirstPage = () => {
 const clearSelection = () => {
   selectedIds.value = []
   selectedTasks.value = new Map()
+}
+
+const clampPageAfterDelete = (deletedCount: number) => {
+  if (deletedCount <= 0) return
+  const nextTotal = Math.max(0, totalCount.value - deletedCount)
+  const maxPage = Math.max(1, Math.ceil(nextTotal / limit.value))
+  if (page.value > maxPage) page.value = maxPage
 }
 
 const normalizeRoles = (data: unknown): RoleOption[] => {
@@ -472,11 +484,13 @@ const reportBulkResult = (
 
 const openSingleDelete = (task: AdminTask) => {
   taskPendingDelete.value = task
+  singleDeleteError.value = ''
   singleDeleteConfirmOpen.value = true
 }
 
 const cancelSingleDelete = () => {
   taskPendingDelete.value = null
+  singleDeleteError.value = ''
 }
 
 const confirmSingleDelete = async () => {
@@ -488,11 +502,13 @@ const confirmSingleDelete = async () => {
     await deleteAdminTask(task.id)
     singleDeleteConfirmOpen.value = false
     taskPendingDelete.value = null
+    singleDeleteError.value = ''
     updateSelectionAfterSuccess([task.id])
+    clampPageAfterDelete(1)
     await load()
   } catch (deleteError) {
     logApiError('admin.tasks.delete', deleteError)
-    error.value = deleteError instanceof Error ? deleteError.message : 'Task could not be deleted.'
+    singleDeleteError.value = deleteError instanceof Error ? deleteError.message : 'Task could not be deleted.'
   } finally {
     taskActionBusy.value = false
   }
@@ -519,6 +535,7 @@ const confirmBulkDelete = async () => {
       .map((outcome) => outcome.value)
     updateSelectionAfterSuccess(doneIds)
     bulkDeleteConfirmOpen.value = false
+    clampPageAfterDelete(doneIds.length)
     await load()
     reportBulkResult('Deleted', doneIds.length, targets.length, 'Unable to delete the selected tasks.')
   } finally {
@@ -575,6 +592,7 @@ const onSortChange = (next: SortState) => {
 
 const onPageChange = (next: number) => {
   page.value = next
+  clearSelection()
   void load()
 }
 
@@ -713,6 +731,17 @@ onMounted(() => {
   border-radius: 6px;
   background-color: rgba(220, 53, 69, 0.08);
   color: var(--danger);
+}
+
+.admin-tasks__dialog-error {
+  margin: 0.9rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .admin-tasks__selection {

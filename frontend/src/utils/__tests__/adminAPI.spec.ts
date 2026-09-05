@@ -9,7 +9,6 @@ import {
   createAdminTask,
   updateAdminTask,
   deleteAdminTask,
-  toggleAdminTask,
   fetchTaskRoleRecipients,
   deleteAdminUser,
   bulkSetUsersActive,
@@ -486,19 +485,6 @@ describe('admin task actions', () => {
     const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/task/7/')) as [string, RequestInit]
     expect(init.method).toBe('DELETE')
     expect(result).toBeUndefined()
-  })
-
-  it('toggleAdminTask posts the completed value and returns the response envelope', async () => {
-    const payload = { msg: 'Task updated successfully', data: { ...task, completed: true } }
-    const fetchMock = mockTaskFetch(payload)
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await toggleAdminTask(7, true)
-
-    const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/task/7/toggle/')) as [string, RequestInit]
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual({ completed: true })
-    expect(result).toEqual(payload)
   })
 
   it('fetchTaskRoleRecipients passes the role query and returns the response envelope', async () => {

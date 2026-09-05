@@ -62,22 +62,39 @@
               </label>
               <select id="task-role" v-model="form.assigned_role" class="form-input" :disabled="busy">
                 <option value="">{{ roles.length ? 'Select role' : 'No roles available' }}</option>
-                <option v-for="role in roles" :key="role.roleName" :value="role.roleName">
+                <option
+                  v-for="(role, index) in roles"
+                  :key="role.id ?? `${role.roleName}-${index}`"
+                  :value="role.roleName"
+                >
                   Everyone with the {{ role.roleName }} role
                 </option>
               </select>
-              <p v-if="form.assigned_role" class="admin-task-form__hint">
-                <template v-if="recipientCountLoading">Resolving recipients...</template>
-                <template v-else-if="roleRecipientCount === null">
-                  Creates a separate task for every {{ form.assigned_role }}.
-                </template>
-                <template v-else-if="roleRecipientCount === 0">
-                  No active users currently have this role.
-                </template>
-                <template v-else>
-                  Creates {{ roleRecipientCount }} separate task{{ roleRecipientCount === 1 ? '' : 's' }} - one per {{ form.assigned_role }}.
-                </template>
-              </p>
+              <div v-if="form.assigned_role">
+                <p v-if="recipientLookupError" class="admin-task-form__lookup-error" role="alert">
+                  <span>{{ recipientLookupError }}</span>
+                  <button
+                    type="button"
+                    class="admin-task-form__retry"
+                    :disabled="busy || recipientCountLoading"
+                    @click="retryRecipientLookup"
+                  >
+                    Retry
+                  </button>
+                </p>
+                <p v-else class="admin-task-form__hint">
+                  <template v-if="recipientCountLoading">Resolving recipients...</template>
+                  <template v-else-if="roleRecipientCount === null">
+                    Creates a separate task for every {{ form.assigned_role }}.
+                  </template>
+                  <template v-else-if="roleRecipientCount === 0">
+                    No active users currently have this role.
+                  </template>
+                  <template v-else>
+                    Creates {{ roleRecipientCount }} separate task{{ roleRecipientCount === 1 ? '' : 's' }} - one per {{ form.assigned_role }}.
+                  </template>
+                </p>
+              </div>
             </div>
           </template>
         </div>
@@ -197,6 +214,7 @@ const form = reactive<TaskForm>({
 const formError = ref('')
 const roleRecipientCount = ref<number | null>(null)
 const recipientCountLoading = ref(false)
+const recipientLookupError = ref('')
 const recipientRequestId = ref(0)
 
 const open = computed({
@@ -222,10 +240,17 @@ const saveDisabled = computed(() => Boolean(props.busy) || !canSave.value)
 
 const toDateInput = (value: string | null | undefined) => value ? value.slice(0, 10) : ''
 const toDueDatePayload = (value: string) => value ? `${value}T00:00:00Z` : null
+const toEditDueDatePayload = () => {
+  const originalDueDate = props.task?.due_date ?? null
+  return form.due_date === toDateInput(originalDueDate)
+    ? originalDueDate
+    : toDueDatePayload(form.due_date)
+}
 
 const reset = () => {
   formError.value = ''
   roleRecipientCount.value = null
+  recipientLookupError.value = ''
   if (props.task) {
     form.task_type = props.task.task_type
     form.group = props.task.group != null ? String(props.task.group) : ''
@@ -270,6 +295,7 @@ watch(
   () => {
     formError.value = ''
     roleRecipientCount.value = null
+    recipientLookupError.value = ''
     if (form.task_type === 'group') {
       form.assign_mode = 'user'
       form.assigned_user = ''
@@ -285,35 +311,49 @@ watch(
   () => {
     formError.value = ''
     roleRecipientCount.value = null
+    recipientLookupError.value = ''
     if (form.assign_mode === 'user') form.assigned_role = ''
     else form.assigned_user = ''
   }
 )
 
+const loadRecipientCount = async (role = form.assigned_role) => {
+  roleRecipientCount.value = null
+  recipientLookupError.value = ''
+  if (!props.modelValue || form.task_type !== 'individual' || form.assign_mode !== 'role' || !role) {
+    return
+  }
+  const requestId = recipientRequestId.value + 1
+  recipientRequestId.value = requestId
+  recipientCountLoading.value = true
+  try {
+    const result: AdminTaskMutationResult<AdminTaskRoleRecipientsData | null> =
+      await fetchTaskRoleRecipients(role)
+    if (recipientRequestId.value === requestId) {
+      roleRecipientCount.value = result.data?.count ?? null
+      recipientLookupError.value = ''
+    }
+  } catch (error) {
+    logApiError('admin.tasks.role-recipients', error)
+    if (recipientRequestId.value === requestId) {
+      roleRecipientCount.value = null
+      recipientLookupError.value = 'Recipient count could not be loaded. Try again.'
+    }
+  } finally {
+    if (recipientRequestId.value === requestId) recipientCountLoading.value = false
+  }
+}
+
 watch(
   () => form.assigned_role,
-  async (role) => {
-    roleRecipientCount.value = null
-    if (!props.modelValue || form.task_type !== 'individual' || form.assign_mode !== 'role' || !role) {
-      return
-    }
-    const requestId = recipientRequestId.value + 1
-    recipientRequestId.value = requestId
-    recipientCountLoading.value = true
-    try {
-      const result: AdminTaskMutationResult<AdminTaskRoleRecipientsData | null> =
-        await fetchTaskRoleRecipients(role)
-      if (recipientRequestId.value === requestId) {
-        roleRecipientCount.value = result.data?.count ?? null
-      }
-    } catch (error) {
-      logApiError('admin.tasks.role-recipients', error)
-      if (recipientRequestId.value === requestId) roleRecipientCount.value = null
-    } finally {
-      if (recipientRequestId.value === requestId) recipientCountLoading.value = false
-    }
+  (role) => {
+    void loadRecipientCount(role)
   }
 )
+
+const retryRecipientLookup = () => {
+  void loadRecipientCount()
+}
 
 const groupLabel = (group: AdminGroup) =>
   String(group.name ?? group.group_id ?? `Group #${group.id ?? ''}`)
@@ -378,7 +418,7 @@ const submitForm = () => {
   emit('save', {
     name: form.name.trim(),
     description: form.description.trim(),
-    due_date: toDueDatePayload(form.due_date),
+    due_date: toEditDueDatePayload(),
     status: form.status,
     parent: props.task?.parent ?? null
   })
@@ -458,6 +498,37 @@ const submitForm = () => {
   border-radius: 6px;
   background-color: rgba(220, 53, 69, 0.08);
   color: var(--danger);
+}
+
+.admin-task-form__lookup-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.65rem;
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.admin-task-form__retry {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--dark-green);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.1rem 0.2rem;
+}
+
+.admin-task-form__retry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .admin-task-form__footer {
