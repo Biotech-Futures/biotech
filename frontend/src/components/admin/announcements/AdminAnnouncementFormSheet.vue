@@ -310,6 +310,7 @@ async function populateFromAnnouncement(item: AdminAnnouncement) {
 watch(
   () => props.modelValue,
   async (isOpen) => {
+    confirmNotifyOpen.value = false
     if (isOpen) {
       formError.value = null
       await loadMeta()
@@ -359,6 +360,7 @@ function toggleGroup(id: number) {
 }
 
 function onDismiss() {
+  confirmNotifyOpen.value = false
   emit('close')
   open.value = false
 }
@@ -383,6 +385,7 @@ function promptPublishWithEmail() {
 }
 
 async function confirmPublishAndNotify() {
+  confirmNotifyOpen.value = false
   await handleSubmit(true)
 }
 
@@ -410,6 +413,7 @@ async function handleSubmit(sendEmail: boolean) {
     }
 
     emit('saved', result)
+    confirmNotifyOpen.value = false
     open.value = false
   } catch (err: unknown) {
     console.error('Failed to save announcement:', err)

@@ -201,6 +201,74 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
+  it('prompts confirmation on Publish & Notify and closes dialog after confirming publication', async () => {
+    wrapper = mount(AdminAnnouncementFormSheet, {
+      props: {
+        modelValue: true,
+        announcement: null
+      },
+      global: {
+        stubs: {
+          FormSheet: {
+            props: ['modelValue', 'title'],
+            template: '<div class="form-sheet-stub"><slot /><slot name="footer" /></div>'
+          },
+          RichEditor: {
+            name: 'RichEditor',
+            props: ['modelValue'],
+            emits: ['update:modelValue'],
+            template: '<textarea class="rich-editor-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea>'
+          },
+          ConfirmDialog: {
+            name: 'ConfirmDialog',
+            props: ['modelValue', 'title', 'message'],
+            emits: ['update:modelValue', 'confirm', 'cancel'],
+            template: '<div v-if="modelValue" class="confirm-dialog-stub"><button class="confirm-btn" @click="$emit(\'confirm\')">Confirm</button></div>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    // Fill title and body
+    const titleInput = wrapper.find<HTMLInputElement>('#ann-title')
+    await titleInput.setValue('Company Update')
+
+    const bodyEditor = wrapper.findComponent({ name: 'RichEditor' })
+    bodyEditor.vm.$emit('update:modelValue', '<p>Important update details</p>')
+    await flushPromises()
+
+    // Click Publish & Notify button
+    const publishNotifyBtn = wrapper.findAll('button').find(b => b.text().includes('Publish & Notify'))
+    expect(publishNotifyBtn).toBeDefined()
+    await publishNotifyBtn!.trigger('click')
+    await flushPromises()
+
+    // Confirm dialog is open
+    const confirmDialog = wrapper.findComponent({ name: 'ConfirmDialog' })
+    expect(confirmDialog.props('modelValue')).toBe(true)
+
+    // Click confirm on dialog
+    const confirmBtn = wrapper.find('.confirm-btn')
+    expect(confirmBtn.exists()).toBe(true)
+    await confirmBtn.trigger('click')
+    await flushPromises()
+
+    // Api was called with send_email: true
+    expect(adminApi.createAdminAnnouncement).toHaveBeenCalledWith({
+      title: 'Company Update',
+      body: '<p>Important update details</p>',
+      role_ids: undefined,
+      group_ids: undefined,
+      send_email: true
+    })
+
+    // Dialog is closed
+    expect(confirmDialog.props('modelValue')).toBe(false)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
+  })
+
   it('renders RichEditor toolbar buttons and supports raw mode toggle', async () => {
     const editorWrapper = mount(RichEditor, {
       props: {
