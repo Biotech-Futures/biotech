@@ -158,15 +158,6 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
-                    to="/admin/matching"
-                    class="sidebar-sublink"
-                    :class="{ active: route.path === '/admin/matching' }"
-                  >
-                    <span>Matching</span>
-                  </RouterLink>
-                </li>
-                <li class="sidebar-subitem">
-                  <RouterLink
                     to="/admin/events"
                     class="sidebar-sublink"
                     :class="{ active: route.path === '/admin/events' }"

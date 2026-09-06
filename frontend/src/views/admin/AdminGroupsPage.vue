@@ -2,8 +2,10 @@
   <div class="content-area admin-groups">
     <div class="page-head">
       <div>
-        <h1>Groups</h1>
-        <p class="page-subtitle">Manage student groups and mentor assignments.</p>
+        <h1>Groups &amp; Matching</h1>
+        <p class="page-subtitle">
+          Manage student groups, run matching, and review mentor assignments.
+        </p>
       </div>
     </div>
 
