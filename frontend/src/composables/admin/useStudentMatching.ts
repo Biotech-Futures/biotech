@@ -2,12 +2,33 @@ import { computed, ref } from 'vue'
 import { confirmStudentAssignments, fetchStudentMatch } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import {
-  type MatchRecommendationGroup,
-  type NotFullGroup,
+  type MatchStudent,
+  type MatchTutor,
   type RecommendedStudent,
   type StudentMatchData,
   parseStudentMatchData
 } from '@/utils/adminMatching'
+
+/** A group rendered as a drop target, merged from notFullGroups + recommendations. */
+export interface BoardGroup {
+  id: number
+  groupName: string
+  maxSize: number
+  tutor: MatchTutor
+  existingStudents: MatchStudent[]
+  sharedInterests: string[]
+}
+
+export type GroupFilter = 'all' | 'needs_action' | 'has_space' | 'full'
+
+export const GROUP_FILTERS: { value: GroupFilter; label: string }[] = [
+  { value: 'all', label: 'All groups' },
+  { value: 'needs_action', label: 'Has recommended students' },
+  { value: 'has_space', label: 'Has space' },
+  { value: 'full', label: 'Full groups' }
+]
+
+const DEFAULT_MAX_SIZE = 5
 
 const emptyData = (): StudentMatchData => ({
   recommendations: [],
@@ -15,60 +36,155 @@ const emptyData = (): StudentMatchData => ({
   notFullGroups: []
 })
 
+/** Interests common to every existing member — what the group is "about". */
+const sharedInterestsOf = (students: MatchStudent[]): string[] => {
+  if (students.length === 0) return []
+  const [first, ...rest] = students
+  return first.interests.filter((interest) =>
+    rest.every((student) => student.interests.includes(interest))
+  )
+}
+
 /**
- * State and behaviour for the Student Matching tab.
+ * State and behaviour for the Student Matching board.
  *
- * The matcher is never run on mount — it is a deliberate admin action, and the
- * results are only a proposal until `confirm()` writes them. `assignments`
- * therefore tracks a working copy seeded from the algorithm's output, which the
- * board may mutate (drag-to-assign) and `reset()` restores.
+ * The matcher is never run on mount — it is a deliberate admin action and its
+ * output is only a proposal until `confirm()` writes it. Students the admin
+ * drags live in `buckets` (per group) and `waiting`; students already in a
+ * group are fixed and never move.
  */
 export function useStudentMatching() {
   const loading = ref(false)
   const confirming = ref(false)
   const error = ref('')
-  /** False until the first run, so the panel can show a call-to-action instead
-   *  of an empty board that reads as "everything is matched". */
+  /** False until the first run, so an unrun board never reads as "all matched". */
   const hasRun = ref(false)
 
   const data = ref<StudentMatchData>(emptyData())
+  const groups = ref<BoardGroup[]>([])
 
-  /** studentId -> groupId. The admin's working copy of the proposal. */
-  const assignments = ref<Map<string, string | number>>(new Map())
+  /** groupId -> students proposed or dragged into it. Mutated by drag and drop. */
+  const buckets = ref<Record<string, RecommendedStudent[]>>({})
+  /** Students held out of every group. */
+  const waiting = ref<RecommendedStudent[]>([])
+
+  /**
+   * studentId -> the group the matcher originally proposed for them.
+   *
+   * A student's score is only meaningful for that pairing — it bakes in the
+   * group's country, timezone spread and size. Once dragged elsewhere the
+   * number is stale, so the board needs to know where it came from rather than
+   * presenting it as the fit for wherever the student now sits.
+   */
+  const recommendedGroup = ref<Map<string, { id: number; groupName: string }>>(new Map())
+
+  const search = ref('')
+  const groupFilter = ref<GroupFilter>('all')
+
+  // -- Board construction -----------------------------------------------------
+
+  const seedBoard = (source: StudentMatchData) => {
+    const byId = new Map<number, BoardGroup>()
+    const nextBuckets: Record<string, RecommendedStudent[]> = {}
+    const nextRecommended = new Map<string, { id: number; groupName: string }>()
+
+    // Not-full groups first: they render as empty drop targets even when the
+    // matcher proposed nobody for them.
+    for (const group of source.notFullGroups) {
+      byId.set(group.id, {
+        id: group.id,
+        groupName: group.groupName,
+        maxSize: group.maxSize ?? DEFAULT_MAX_SIZE,
+        tutor: group.tutor,
+        existingStudents: group.existingStudents,
+        sharedInterests: sharedInterestsOf(group.existingStudents)
+      })
+      nextBuckets[String(group.id)] = []
+    }
+
+    for (const group of source.recommendations) {
+      if (!byId.has(group.id)) {
+        byId.set(group.id, {
+          id: group.id,
+          groupName: group.groupName,
+          maxSize: group.maxSize ?? DEFAULT_MAX_SIZE,
+          tutor: group.tutor,
+          existingStudents: group.existingStudents,
+          sharedInterests: sharedInterestsOf(group.existingStudents)
+        })
+      }
+
+      const existingIds = new Set(group.existingStudents.map((student) => student.id))
+      const proposed = group.recommendStudents.filter(
+        (entry) => !existingIds.has(entry.student.id)
+      )
+      nextBuckets[String(group.id)] = proposed
+
+      for (const entry of proposed) {
+        nextRecommended.set(String(entry.student.id), {
+          id: group.id,
+          groupName: group.groupName
+        })
+      }
+    }
+
+    groups.value = [...byId.values()]
+    buckets.value = nextBuckets
+    waiting.value = [...source.unmatchedStudents]
+    recommendedGroup.value = nextRecommended
+  }
+
+  /** The group the matcher proposed for this student, if any. */
+  const recommendedGroupOf = (studentId: string | number) =>
+    recommendedGroup.value.get(String(studentId)) ?? null
+
+  /** True when the student is sitting where the matcher put them. */
+  const isInRecommendedGroup = (studentId: string | number, groupId: number) =>
+    recommendedGroupOf(studentId)?.id === groupId
 
   // -- Derived ----------------------------------------------------------------
 
-  const recommendations = computed<MatchRecommendationGroup[]>(
-    () => data.value.recommendations
-  )
-  const unmatchedStudents = computed<RecommendedStudent[]>(
-    () => data.value.unmatchedStudents
-  )
-  const notFullGroups = computed<NotFullGroup[]>(() => data.value.notFullGroups)
+  const bucketFor = (groupId: number): RecommendedStudent[] =>
+    buckets.value[String(groupId)] ?? []
 
-  const recommendedCount = computed(() =>
-    recommendations.value.reduce((total, group) => total + group.recommendStudents.length, 0)
-  )
+  const seatsUsed = (group: BoardGroup) =>
+    group.existingStudents.length + bucketFor(group.id).length
 
-  const assignmentCount = computed(() => assignments.value.size)
+  const openSeatsFor = (group: BoardGroup) => Math.max(0, group.maxSize - seatsUsed(group))
 
-  const isEmpty = computed(
-    () =>
-      recommendations.value.length === 0 &&
-      unmatchedStudents.value.length === 0 &&
-      notFullGroups.value.length === 0
-  )
-
-  /** Only students the algorithm placed — unmatched ones have no target group. */
-  const seedAssignments = (source: StudentMatchData) => {
-    const next = new Map<string, string | number>()
-    for (const group of source.recommendations) {
-      for (const entry of group.recommendStudents) {
-        next.set(String(entry.student.id), group.id)
+  const visibleGroups = computed(() => {
+    const term = search.value.trim().toLowerCase()
+    return groups.value.filter((group) => {
+      if (term) {
+        const haystack = `${group.groupName} ${group.tutor?.name ?? ''}`.toLowerCase()
+        if (!haystack.includes(term)) return false
       }
-    }
-    assignments.value = next
-  }
+      switch (groupFilter.value) {
+        case 'needs_action':
+          return bucketFor(group.id).length > 0
+        case 'has_space':
+          return openSeatsFor(group) > 0
+        case 'full':
+          return openSeatsFor(group) === 0
+        default:
+          return true
+      }
+    })
+  })
+
+  const totalGroups = computed(() => groups.value.length)
+  const visibleGroupCount = computed(() => visibleGroups.value.length)
+  const totalOpenSeats = computed(() =>
+    groups.value.reduce((sum, group) => sum + openSeatsFor(group), 0)
+  )
+  const waitingCount = computed(() => waiting.value.length)
+
+  /** Students sitting in a group bucket — i.e. what confirm would write. */
+  const assignmentCount = computed(() =>
+    Object.values(buckets.value).reduce((sum, bucket) => sum + bucket.length, 0)
+  )
+
+  const isEmpty = computed(() => groups.value.length === 0 && waiting.value.length === 0)
 
   // -- Actions ----------------------------------------------------------------
 
@@ -82,53 +198,39 @@ export function useStudentMatching() {
         // these assignments get written straight to production on confirm.
         error.value = parsed.message
         data.value = emptyData()
-        assignments.value = new Map()
+        seedBoard(emptyData())
         return
       }
       data.value = parsed.data
-      seedAssignments(parsed.data)
+      seedBoard(parsed.data)
       hasRun.value = true
     } catch (runError) {
       logApiError('admin.matching.student.run', runError)
       error.value =
         runError instanceof Error ? runError.message : 'Unable to run student matching.'
-      // Clear rather than keep a stale board — a half-loaded proposal is worse
-      // than none, because confirming it would write the wrong assignments.
       data.value = emptyData()
-      assignments.value = new Map()
+      seedBoard(emptyData())
     } finally {
       loading.value = false
     }
   }
 
-  /** Restore the algorithm's original proposal, discarding manual changes. */
+  /** Restore the algorithm's original proposal, discarding manual moves. */
   const reset = () => {
-    seedAssignments(data.value)
+    seedBoard(data.value)
     error.value = ''
   }
-
-  /** Move a student to a group, or drop them from the proposal with `null`. */
-  const assignStudent = (studentId: string | number, groupId: string | number | null) => {
-    const next = new Map(assignments.value)
-    if (groupId === null) next.delete(String(studentId))
-    else next.set(String(studentId), groupId)
-    assignments.value = next
-  }
-
-  const groupIdFor = (studentId: string | number) =>
-    assignments.value.get(String(studentId)) ?? null
 
   const confirm = async (): Promise<boolean> => {
     if (confirming.value) return false
 
-    const payload = Array.from(assignments.value.entries())
-      .map(([studentId, groupId]) => ({
-        studentId: Number(studentId),
+    const payload = Object.entries(buckets.value).flatMap(([groupId, bucket]) =>
+      bucket.map((entry) => ({
+        studentId: Number(entry.student.id),
         groupId: Number(groupId)
       }))
-      // The endpoint keys on integer ids; anything non-numeric is a synthetic
-      // row and would 400 the whole batch.
-      // `> 0`, not `Number.isFinite`: Number('') is 0, which is finite, so a
+    )
+      // `> 0`, not Number.isFinite: Number('') is 0, which is finite, so a
       // missing id would otherwise be posted as student 0.
       .filter((entry) => entry.studentId > 0 && entry.groupId > 0)
 
@@ -161,16 +263,25 @@ export function useStudentMatching() {
     confirming,
     error,
     hasRun,
-    recommendations,
-    unmatchedStudents,
-    notFullGroups,
-    recommendedCount,
+    groups,
+    buckets,
+    waiting,
+    search,
+    groupFilter,
+    visibleGroups,
+    totalGroups,
+    visibleGroupCount,
+    totalOpenSeats,
+    waitingCount,
     assignmentCount,
     isEmpty,
+    bucketFor,
+    seatsUsed,
+    openSeatsFor,
+    recommendedGroupOf,
+    isInRecommendedGroup,
     run,
     reset,
-    confirm,
-    assignStudent,
-    groupIdFor
+    confirm
   }
 }
