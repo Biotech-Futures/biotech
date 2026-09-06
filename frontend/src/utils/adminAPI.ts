@@ -875,6 +875,10 @@ export const fetchMentorMatchMentors = (params: Record<string, unknown> = {}) =>
 export const fetchMentorMatchGroups = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/mentor-match/groups/${buildAdminQuery(params)}`)
 
+/** Groups still needing a mentor (GET /mentor-match/groups/), envelope unwrapped. */
+export const fetchUnmatchedGroups = () =>
+  adminGet<AdminEnvelope<unknown>>('/mentor-match/groups/').then((env) => env.data)
+
 export const fetchMentorMatchMatchedGroups = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/mentor-match/matched-groups/${buildAdminQuery(params)}`)
 

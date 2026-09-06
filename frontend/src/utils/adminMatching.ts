@@ -323,6 +323,9 @@ const mentorGroupRecommendationSchema = z.object({
 
 const mentorRecommendationsSchema = z.array(mentorGroupRecommendationSchema)
 
+/** GET /mentor-match/groups/ — groups still needing a mentor. */
+const unmatchedGroupsSchema = z.array(mentorMatchGroupSchema)
+
 export type MentorMatchGroupStudent = z.infer<typeof mentorGroupStudentSchema>
 export type MentorMatchGroup = z.infer<typeof mentorMatchGroupSchema>
 export type RecommendedMentor = z.infer<typeof recommendedMentorSchema>
@@ -357,6 +360,9 @@ export const parseMentorRecommendations = (
   payload: unknown
 ): ParseResult<MentorGroupRecommendation[]> =>
   toResult(mentorRecommendationsSchema.safeParse(payload), 'Mentor matching')
+
+export const parseUnmatchedGroups = (payload: unknown): ParseResult<MentorMatchGroup[]> =>
+  toResult(unmatchedGroupsSchema.safeParse(payload), 'Unmatched groups')
 
 /** `POST /match/confirm/` returns `{ assigned_count }` or `{ assignedCount }`. */
 export const normalizeAssignedCount = (payload: unknown): number => {
