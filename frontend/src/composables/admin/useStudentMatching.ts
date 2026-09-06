@@ -6,7 +6,7 @@ import {
   type NotFullGroup,
   type RecommendedStudent,
   type StudentMatchData,
-  normalizeStudentMatchData
+  parseStudentMatchData
 } from '@/utils/adminMatching'
 
 const emptyData = (): StudentMatchData => ({
@@ -76,10 +76,17 @@ export function useStudentMatching() {
     loading.value = true
     error.value = ''
     try {
-      const payload = await fetchStudentMatch()
-      const normalized = normalizeStudentMatchData(payload)
-      data.value = normalized
-      seedAssignments(normalized)
+      const parsed = parseStudentMatchData(await fetchStudentMatch())
+      if (!parsed.ok) {
+        // Surface the shape mismatch rather than rendering coerced defaults —
+        // these assignments get written straight to production on confirm.
+        error.value = parsed.message
+        data.value = emptyData()
+        assignments.value = new Map()
+        return
+      }
+      data.value = parsed.data
+      seedAssignments(parsed.data)
       hasRun.value = true
     } catch (runError) {
       logApiError('admin.matching.student.run', runError)
@@ -121,7 +128,9 @@ export function useStudentMatching() {
       }))
       // The endpoint keys on integer ids; anything non-numeric is a synthetic
       // row and would 400 the whole batch.
-      .filter((entry) => Number.isFinite(entry.studentId) && Number.isFinite(entry.groupId))
+      // `> 0`, not `Number.isFinite`: Number('') is 0, which is finite, so a
+      // missing id would otherwise be posted as student 0.
+      .filter((entry) => entry.studentId > 0 && entry.groupId > 0)
 
     if (payload.length === 0) {
       error.value = 'No assignments to confirm.'

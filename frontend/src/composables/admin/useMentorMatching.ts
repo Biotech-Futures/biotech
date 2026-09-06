@@ -7,52 +7,17 @@ import {
   fetchMentorMatchRecommendations
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import {
+  type MentorGroupRecommendation,
+  parseMentorRecommendations
+} from '@/utils/adminMatching'
 
-/**
- * Unlike the student matcher, `/mentor-match/recommend/` already returns clean
- * camelCase (see adminweb/src/schema/mentorMatch.ts), so these types describe
- * the payload directly and no normalisation layer is needed.
- */
-export interface MentorMatchGroupStudent {
-  name: string
-  hasLoggedIn: boolean
-  interests: string[]
-}
-
-export interface MentorMatchGroup {
-  groupId: number
-  groupName: string
-  countryName: string | null
-  studentInterests: string[]
-  studentCount: number
-  students?: MentorMatchGroupStudent[]
-}
-
-export interface RecommendedMentor {
-  mentorId: number
-  name: string
-  countryName: string | null
-  institution: string | null
-  interests: string[]
-  remainingCapacity: number
-}
-
-export interface MentorScoreBreakdown {
-  baseScore: number
-  countryPenalty: number
-  interestBonus: number
-  timezonePenalty: number
-  capacityBonus: number
-  objectiveScore: number
-}
-
-export interface MentorGroupRecommendation {
-  group: MentorMatchGroup
-  recommendedMentor: RecommendedMentor | null
-  reason: string
-  score: number
-  scoreBreakdown: MentorScoreBreakdown | null
-}
+export type {
+  MentorGroupRecommendation,
+  MentorMatchGroup,
+  MentorScoreBreakdown,
+  RecommendedMentor
+} from '@/utils/adminMatching'
 
 /** Copy for the mode selector — wording taken from the reference app. */
 export const MENTOR_MATCH_MODES: { value: MentorMatchMode; label: string; description: string }[] = [
@@ -173,10 +138,16 @@ export function useMentorMatching() {
     loading.value = true
     error.value = ''
     try {
-      const payload = await fetchMentorMatchRecommendations(mode.value)
-      recommendations.value = Array.isArray(payload)
-        ? (payload as MentorGroupRecommendation[])
-        : []
+      const parsed = parseMentorRecommendations(
+        await fetchMentorMatchRecommendations(mode.value)
+      )
+      if (!parsed.ok) {
+        error.value = parsed.message
+        recommendations.value = []
+        selectedGroupIds.value = new Set()
+        return
+      }
+      recommendations.value = parsed.data
       // Deliberately left empty: confirming writes live mentor assignments, and
       // `coverage` mode intentionally produces weaker cross-country matches, so
       // the admin opts in per row rather than unticking a pre-filled board.
