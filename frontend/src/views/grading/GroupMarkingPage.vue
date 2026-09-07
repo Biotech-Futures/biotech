@@ -132,6 +132,7 @@
                 </span>
               </span>
               <span v-if="posterLinks.previewable" class="group-marking__stamp-actions">
+                <span class="group-marking__stamp-actions-label">Poster PDF:</span>
                 <a
                   :href="posterLinks.view ?? undefined"
                   target="_blank"
@@ -846,7 +847,13 @@ const downloadAll = async () => {
 
 .group-marking__stamp-actions {
   display: inline-flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.group-marking__stamp-actions-label {
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 /* min-height + margin of the stamp row above, so the rubric column starts
