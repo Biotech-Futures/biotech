@@ -161,6 +161,39 @@ class ComponentFeedback(models.Model):
         return f"{self.group} — {self.component.code} feedback"
 
 
+class GroupMarkingCategories(models.Model):
+    """The marking key's header selections for one group's entry.
+
+    Product Category is select-one-or-more (label strings, "Other" carries a
+    free-text detail); Category of Solution is select-one. Kept per group, not
+    per component — the same header appears on every marking key sheet.
+    """
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="marking_categories",
+    )
+    product_categories = models.JSONField(default=list, blank=True)
+    product_category_other = models.CharField(max_length=255, blank=True)
+    solution_category = models.CharField(max_length=64, blank=True)
+    solution_category_other = models.CharField(max_length=255, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marking_categories_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "grading_group_categories"
+
+    def __str__(self):
+        return f"{self.group} — marking categories"
+
+
 class FinalistFlag(models.Model):
     group = models.OneToOneField(
         "groups.Groups",

@@ -18,7 +18,7 @@ from .finalist import (
     FinalistToggleView,
 )
 from .grade import GradeBulkView, GradeUpdateView
-from .group import GroupMarkingView
+from .group import GroupCategoriesView, GroupMarkingView
 from .release import CertificatesReleaseView, MarksReleaseView
 from .settings import GradingSettingsView, TemplateScanView, TemplateTestRenderView
 from .student import MyCertificateView, MyGradesView, MySummaryView
@@ -45,6 +45,7 @@ __all__ = [
     "GroupDownloadView",
     "GroupExtensionDetailView",
     "GroupExtensionListView",
+    "GroupCategoriesView",
     "GroupMarkingView",
     "MarksReleaseView",
     "SubmissionDeadlineView",

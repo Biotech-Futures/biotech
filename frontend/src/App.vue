@@ -935,6 +935,12 @@ select {
   .sidebar-collapse-toggle {
     left: calc(50vw - 840px + var(--sidebar-toggle-offset) - 14px);
   }
+
+  /* Full-width marking pages pin the sidebar to the viewport edge, so the
+     centred-layout shift above would float the toggle over the content. */
+  .main-layout--full .sidebar-collapse-toggle {
+    left: calc(var(--sidebar-toggle-offset) - 14px);
+  }
 }
 
 .sidebar-nav {

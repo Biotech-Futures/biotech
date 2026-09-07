@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
 
-from ..models import Grade, Rubric, SubmissionComponent
+from ..models import Grade, GroupMarkingCategories, Rubric, SubmissionComponent
 from ..permissions import IsGrader
 from ..serializers import (
     GradeSerializer,
@@ -101,3 +101,49 @@ class GroupMarkingView(APIView):
             "year": year,
             "components": payload_components,
         })
+
+
+def _categories_payload(row: GroupMarkingCategories | None) -> dict:
+    return {
+        "product_categories": (row.product_categories if row else []) or [],
+        "product_category_other": row.product_category_other if row else "",
+        "solution_category": row.solution_category if row else "",
+        "solution_category_other": row.solution_category_other if row else "",
+    }
+
+
+class GroupCategoriesView(APIView):
+    """GET/POST /api/v1/grading/groups/<id>/categories/
+
+    The marking key's header — Product Category (select one or more, "Other"
+    with free text) and Category of Solution (select one). Stored once per
+    group; POST replaces the whole selection.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def get(self, request, group_id: int):
+        group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
+        row = GroupMarkingCategories.objects.filter(group=group).first()
+        return Response(_categories_payload(row))
+
+    def post(self, request, group_id: int):
+        group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
+        products = request.data.get("product_categories") or []
+        if not isinstance(products, list) or not all(isinstance(p, str) for p in products):
+            return Response(
+                {"detail": "product_categories must be a list of strings."}, status=400
+            )
+        row, _ = GroupMarkingCategories.objects.update_or_create(
+            group=group,
+            defaults={
+                "product_categories": products,
+                "product_category_other": str(request.data.get("product_category_other") or ""),
+                "solution_category": str(request.data.get("solution_category") or ""),
+                "solution_category_other": str(
+                    request.data.get("solution_category_other") or ""
+                ),
+                "updated_by": request.user,
+            },
+        )
+        return Response(_categories_payload(row))

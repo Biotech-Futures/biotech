@@ -18,6 +18,7 @@ from .views import (
     GradingJobDetailView,
     GradingJobDownloadView,
     GradingSettingsView,
+    GroupCategoriesView,
     GroupDownloadView,
     GroupMarkingView,
     MarksReleaseView,
@@ -37,6 +38,8 @@ urlpatterns = [
     path("groups/<int:group_id>/", GroupMarkingView.as_view(), name="group-marking"),
     # Sync zip of one group's submissions (bounded — up to 4 components).
     path("groups/<int:group_id>/download/", GroupDownloadView.as_view(), name="group-download"),
+    # The marking key's header categories (product / solution) for one group.
+    path("groups/<int:group_id>/categories/", GroupCategoriesView.as_view(), name="group-categories"),
     # Per-component table — every group's status for one component.
     path("components/<str:code>/", ComponentMarkingListView.as_view(), name="component-list"),
     # Async bulk export for a single component — returns 202 + job id.

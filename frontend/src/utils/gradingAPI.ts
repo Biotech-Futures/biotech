@@ -603,6 +603,29 @@ export function updateGradingSettings(
   })
 }
 
+// The marking key's header categories for one group (per-group, not per
+// component — the same header appears on every marking key sheet).
+export interface GroupCategories {
+  product_categories: string[]
+  product_category_other: string
+  solution_category: string
+  solution_category_other: string
+}
+
+export function fetchGroupCategories(groupId: number): Promise<GroupCategories> {
+  return requestJson<GroupCategories>(`/api/v1/grading/groups/${groupId}/categories/`)
+}
+
+export function saveGroupCategories(
+  groupId: number,
+  data: GroupCategories
+): Promise<GroupCategories> {
+  return requestJson<GroupCategories>(`/api/v1/grading/groups/${groupId}/categories/`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
+}
+
 // Ranking table for picking finalists: per-group mark totals by component.
 export interface FinalistCandidateRow {
   group_id: number

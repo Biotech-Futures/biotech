@@ -34,7 +34,12 @@
       </span>
     </div>
 
-    <div v-if="submission.answers?.length" class="submission-preview__answers">
+    <div
+      v-if="submission.answers?.length"
+      ref="answersEl"
+      class="submission-preview__answers"
+      :style="answersHeight != null ? { height: `${answersHeight}px`, maxHeight: 'none' } : undefined"
+    >
       <section
         v-for="(block, i) in submission.answers"
         :key="i"
@@ -44,6 +49,16 @@
         <p class="submission-preview__answer-text">{{ block.answer }}</p>
       </section>
     </div>
+    <div
+      v-if="submission.answers?.length"
+      class="submission-preview__resize"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize answers height"
+      tabindex="0"
+      @pointerdown="startAnswersDrag"
+      @keydown="onAnswersKeydown"
+    ></div>
     <pre v-else-if="submission.text" class="submission-preview__text">{{ submission.text }}</pre>
 
     <p v-if="submission.link" class="submission-preview__link-box">
@@ -89,7 +104,7 @@
       :src="frameUrl ?? undefined"
       :title="`${component.name} preview`"
       class="submission-preview__frame"
-      :class="{ 'submission-preview__frame--dragging': draggingHeight }"
+      :class="{ 'submission-preview__frame--dragging': frameDragging }"
       :style="frameHeight != null ? { height: `${frameHeight}px` } : undefined"
     ></iframe>
     <div
@@ -99,8 +114,8 @@
       aria-orientation="horizontal"
       aria-label="Resize preview height"
       tabindex="0"
-      @pointerdown="startHeightDrag"
-      @keydown="onHeightKeydown"
+      @pointerdown="startFrameDrag"
+      @keydown="onFrameKeydown"
     ></div>
   </div>
 </template>
@@ -148,46 +163,66 @@ const frameUrl = computed(() => {
   return isPreviewable.value ? `${url}#navpanes=0&pagemode=none` : url
 })
 
-// Drag the bar under the preview to change its height. null = default 80vh.
-const MIN_FRAME_PX = 240
+// Drag the bar under a block to change its height — the PDF frame and the
+// SAQ answers share the mechanic. null = the block's default CSS height.
+const MIN_BLOCK_PX = 240
+
+function useHeightDrag(target: () => HTMLElement | null) {
+  const height = ref<number | null>(null)
+  const dragging = ref(false)
+
+  const start = (event: PointerEvent) => {
+    const el = target()
+    const handle = event.currentTarget as HTMLElement
+    if (!el) return
+    event.preventDefault()
+    dragging.value = true
+    handle.setPointerCapture(event.pointerId)
+    const startY = event.clientY
+    const startHeight = el.getBoundingClientRect().height
+
+    const move = (e: PointerEvent) => {
+      height.value = Math.max(MIN_BLOCK_PX, Math.round(startHeight + (e.clientY - startY)))
+    }
+    const stop = () => {
+      dragging.value = false
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  }
+
+  const keydown = (e: KeyboardEvent) => {
+    const current = height.value ?? target()?.getBoundingClientRect().height ?? 0
+    if (e.key === 'ArrowDown') {
+      height.value = Math.round(current + 40)
+      e.preventDefault()
+    } else if (e.key === 'ArrowUp') {
+      height.value = Math.max(MIN_BLOCK_PX, Math.round(current - 40))
+      e.preventDefault()
+    }
+  }
+
+  return { height, dragging, start, keydown }
+}
+
 const frameEl = ref<HTMLIFrameElement | null>(null)
-const frameHeight = ref<number | null>(null)
-const draggingHeight = ref(false)
+const {
+  height: frameHeight,
+  dragging: frameDragging,
+  start: startFrameDrag,
+  keydown: onFrameKeydown
+} = useHeightDrag(() => frameEl.value)
 
-const startHeightDrag = (event: PointerEvent) => {
-  const frame = frameEl.value
-  const handle = event.currentTarget as HTMLElement
-  if (!frame) return
-  event.preventDefault()
-  draggingHeight.value = true
-  handle.setPointerCapture(event.pointerId)
-  const startY = event.clientY
-  const startHeight = frame.getBoundingClientRect().height
-
-  const move = (e: PointerEvent) => {
-    frameHeight.value = Math.max(MIN_FRAME_PX, Math.round(startHeight + (e.clientY - startY)))
-  }
-  const stop = () => {
-    draggingHeight.value = false
-    handle.removeEventListener('pointermove', move)
-    handle.removeEventListener('pointerup', stop)
-    handle.removeEventListener('pointercancel', stop)
-  }
-  handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', stop)
-  handle.addEventListener('pointercancel', stop)
-}
-
-const onHeightKeydown = (e: KeyboardEvent) => {
-  const current = frameHeight.value ?? frameEl.value?.getBoundingClientRect().height ?? 0
-  if (e.key === 'ArrowDown') {
-    frameHeight.value = Math.round(current + 40)
-    e.preventDefault()
-  } else if (e.key === 'ArrowUp') {
-    frameHeight.value = Math.max(MIN_FRAME_PX, Math.round(current - 40))
-    e.preventDefault()
-  }
-}
+const answersEl = ref<HTMLDivElement | null>(null)
+const {
+  height: answersHeight,
+  start: startAnswersDrag,
+  keydown: onAnswersKeydown
+} = useHeightDrag(() => answersEl.value)
 
 const submittedLabel = computed(() =>
   props.submission ? new Date(props.submission.submitted_at).toLocaleString() : ''
@@ -349,7 +384,11 @@ const markerTooltip = computed(() => {
 
 .submission-preview__frame {
   width: 100%;
-  height: 80vh;
+  /* A-series portrait proportion (A4 and A2 both 1:√2), so the page fills
+     the frame without black bars; dragging the handle overrides it with an
+     explicit height. */
+  height: auto;
+  aspect-ratio: 210 / 297;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);

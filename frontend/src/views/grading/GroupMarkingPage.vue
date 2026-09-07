@@ -117,6 +117,19 @@
             <p class="group-marking__pane-stamp">
               <span v-if="combinedSubmittedLabel">
                 Submitted {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
+                <template v-if="combinedMarkerText">
+                  · Marker:
+                  <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
+                    {{ combinedMarkerText }}
+                  </span>
+                </template>
+                <span
+                  v-if="categoriesStatus"
+                  class="group-marking__stamp-status"
+                  :class="{ 'is-error': categoriesStatus.error }"
+                >
+                  · {{ categoriesStatus.text }}
+                </span>
               </span>
               <span v-if="posterLinks.previewable" class="group-marking__stamp-actions">
                 <a
@@ -137,6 +150,9 @@
                 </a>
               </span>
             </p>
+            <!-- Category boxes span above the nested split, so the answers
+                 AND the pdf both start below them. -->
+            <MarkingCategories :group-id="groupId" @status="categoriesStatus = $event" />
             <!-- Nested split: drag the divider to trade space between the
                  answers and the poster. -->
             <ResizableSplit>
@@ -214,6 +230,13 @@
                       ></i>
                     </span>
                   </template>
+                  <span
+                    v-if="categoriesStatus && activeBlock.component.code === 'SAQ'"
+                    class="group-marking__stamp-status"
+                    :class="{ 'is-error': categoriesStatus.error }"
+                  >
+                    · {{ categoriesStatus.text }}
+                  </span>
                 </span>
                 <span v-if="singleLinks.previewable" class="group-marking__stamp-actions">
                   <a
@@ -234,6 +257,11 @@
                   </a>
                 </span>
               </p>
+              <MarkingCategories
+                v-if="activeBlock.component.code === 'SAQ'"
+                :group-id="groupId"
+                @status="categoriesStatus = $event"
+              />
               <SubmissionPreview
                 :submission="activeBlock.submission"
                 :component="activeBlock.component"
@@ -276,6 +304,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
+import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import ResizableSplit from '@/components/grading/ResizableSplit.vue'
 import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
@@ -340,12 +369,17 @@ const effectiveCode = computed(() =>
 
 const isCombined = computed(() => effectiveCode.value === COMBINED_CODE)
 
+// Categories save-state, surfaced on the "Submitted" line rather than in
+// the boxes themselves; cleared whenever the section or group changes.
+const categoriesStatus = ref<{ text: string; error: boolean } | null>(null)
+
 // Full browser width for the pdf/answer splits; Prototype (a link + zip)
 // doesn't need it and keeps the normal centred layout.
 watch(
   effectiveCode,
   (code) => {
     markingFullWidth.value = code != null && code !== 'PROTOTYPE'
+    categoriesStatus.value = null
   },
   { immediate: true }
 )
@@ -418,6 +452,28 @@ const combinedSubmittedLabel = computed(() =>
     : ''
 )
 const combinedIsLate = computed(() => combinedSubmission.value?.is_late === true)
+
+// Last marker of each combined section; collapsed to one name when the same
+// person marked both. The tooltip lists every criterion's marker.
+const combinedMarkerText = computed(() => {
+  const saq = saqBlock.value?.last_grader_name
+  const poster = posterBlock.value?.last_grader_name
+  if (saq && poster) return saq === poster ? saq : `SAQ: ${saq} · Poster: ${poster}`
+  if (saq) return `SAQ: ${saq}`
+  if (poster) return `Poster: ${poster}`
+  return ''
+})
+
+const combinedMarkerTooltip = computed(() => {
+  const lines: string[] = []
+  if (saqBlock.value) {
+    lines.push(...markersFor(saqBlock.value).map((m) => `SAQ ${m.name}: ${m.marker}`))
+  }
+  if (posterBlock.value) {
+    lines.push(...markersFor(posterBlock.value).map((m) => `Poster ${m.name}: ${m.marker}`))
+  }
+  return lines.join('\n')
+})
 
 // Open/Download live on the hoisted stamp line. Same rules as the preview's
 // own meta row: Open only for PDFs (anything else keeps its in-pane box).
@@ -811,10 +867,23 @@ const downloadAll = async () => {
   color: var(--text-muted);
 }
 
+.group-marking__stamp-status {
+  color: var(--dark-green);
+}
+
+.group-marking__stamp-status.is-error {
+  color: var(--danger);
+}
+
 .group-marking__combined-rubrics {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  /* Scrolls within its own pane, like the answers and PDF beside it, so a
+     long rubric stack doesn't stretch the page. */
+  max-height: 88vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .group-marking__rubric-title {

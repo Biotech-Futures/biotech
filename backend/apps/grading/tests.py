@@ -971,6 +971,44 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class GroupCategoriesViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def test_defaults_empty(self):
+        r = self.client.get(reverse("grading:group-categories", kwargs={"group_id": self.group.id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json(), {
+            "product_categories": [],
+            "product_category_other": "",
+            "solution_category": "",
+            "solution_category_other": "",
+        })
+
+    def test_save_and_round_trip(self):
+        url = reverse("grading:group-categories", kwargs={"group_id": self.group.id})
+        body = {
+            "product_categories": ["Health and Medicine", "Other"],
+            "product_category_other": "Bioinformatics",
+            "solution_category": "Product/Device",
+            "solution_category_other": "",
+        }
+        r = self.client.post(url, body, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(self.client.get(url).json(), body)
+
+    def test_rejects_non_list_products(self):
+        url = reverse("grading:group-categories", kwargs={"group_id": self.group.id})
+        r = self.client.post(url, {"product_categories": "Health"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_requires_grader(self):
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("grading:group-categories", kwargs={"group_id": self.group.id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class StudentReadViewsTests(_GradingFixture):
     """Release gate: pre-release → 403; post-release → own group only."""
 
