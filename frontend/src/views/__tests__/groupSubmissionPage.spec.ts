@@ -657,6 +657,34 @@ describe('an answer over its word limit', () => {
   })
 })
 
+describe('the poster template link', () => {
+  const goToPoster = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('reads as one instruction with the section body, not two separate lines', async () => {
+    // All three tabs share one heading/body pair and stay mounted under
+    // v-show, so every .section-head__sub carries the same text — the
+    // template sentence is only appended in the poster tab's own paragraph.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await goToPoster()
+
+    const intro = wrapper!.get('.submission-template-link').element.closest('p')
+    expect(intro?.textContent).toContain('Upload a PDF.')
+    expect(intro?.textContent).toContain("Your poster must use the programme's")
+  })
+
+  it('marks the template as a link with an icon, not colour alone', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await goToPoster()
+
+    const link = wrapper!.find('.submission-template-link')
+    expect(link.attributes('href')).toBe('#/resources/9')
+    expect(link.find('i.fa-arrow-up-right-from-square').exists()).toBe(true)
+  })
+})
+
 describe('what the format checks found about the poster', () => {
   const warned = (warnings: { code: string; message: string }[]) =>
     buildDetail({

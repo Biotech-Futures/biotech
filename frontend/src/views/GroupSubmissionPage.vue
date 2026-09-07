@@ -164,7 +164,21 @@
       <section v-show="activeTab === 'poster'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
-          <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
+          <!-- {{ sectionBody }} comes from the database, so admins can reword
+               it; the template sentence is appended in the same paragraph
+               rather than a separate line below, so the two instructions a
+               student needs before uploading read as one. -->
+          <p v-if="sectionBody" class="section-head__sub">
+            {{ sectionBody }}
+            Your poster must use the programme's
+            <RouterLink
+              class="submission-template-link"
+              :to="`/resources/${POSTER_TEMPLATE_RESOURCE_ID}`"
+            >
+              template
+              <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+            </RouterLink>.
+          </p>
         </header>
 
         <div class="submission-slot submission-slot--plain">
@@ -172,14 +186,6 @@
                Additional materials keeps headings because it holds two. -->
           <div class="submission-slot__info">
             <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
-
-            <!-- A router link, not the absolute address the client sent: the
-                 resource library is this same platform, so this keeps the
-                 student in the app and works on any deployment of it. -->
-            <p class="submission-template">
-              Your poster must use the programme's
-              <RouterLink :to="`/resources/${POSTER_TEMPLATE_RESOURCE_ID}`">template</RouterLink>.
-            </p>
 
             <p v-if="storedFile('poster')" class="submission-file">
               <a :href="downloadUrl('poster')" target="_blank" rel="noopener noreferrer">
@@ -1750,16 +1756,17 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-/* Sits above the attachment state, since it is what to do before uploading. */
-.submission-template {
-  margin: 0.35rem 0 0.6rem;
-  font-size: 0.875rem;
-  color: var(--body-text);
-}
-
-.submission-template a {
+/* The icon is what marks this as a link, the same job Canvas's arrow does, so
+   colour is not carrying that meaning alone. */
+.submission-template-link {
   color: var(--accent);
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.submission-template-link i {
+  font-size: 0.75em;
+  margin-left: 0.2em;
 }
 
 /* Mirrors the resource library's preview panel. The panel carries the border
