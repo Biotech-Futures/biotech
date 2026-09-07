@@ -20,8 +20,22 @@
 
         <ul class="support__topics">
           <li v-for="topic in TOPICS" :key="topic.title" class="support__topic">
-            <h3>{{ topic.title }}</h3>
-            <p>{{ topic.blurb }}</p>
+            <!-- A link only once the library actually has that shelf. A topic
+                 with no matching label stays as plain text rather than
+                 becoming a link to an empty list. -->
+            <RouterLink
+              v-if="topicLabelId(topic.title)"
+              :to="{ path: '/resources', query: { label: topicLabelId(topic.title) } }"
+              class="support__topic-link"
+            >
+              <h3>{{ topic.title }}</h3>
+              <p>{{ topic.blurb }}</p>
+              <span class="support__topic-cta">Read the guides &rarr;</span>
+            </RouterLink>
+            <template v-else>
+              <h3>{{ topic.title }}</h3>
+              <p>{{ topic.blurb }}</p>
+            </template>
           </li>
         </ul>
 
@@ -43,9 +57,35 @@
       <p v-else-if="error" class="support__state support__state--error" role="alert">{{ error }}</p>
       <MyTicketsTable v-else :tickets="tickets" />
 
+      <!-- The rows already on screen stay put while the next page loads, and
+           stay put if it fails. Reusing the page-level state here made
+           "Show more" blank the list before adding to it. -->
+      <p v-if="moreError" class="support__state support__state--error" role="alert">
+        {{ moreError }}
+      </p>
+
       <div v-if="hasMore && !isLoading" class="support__more">
-        <button type="button" class="support__more-button" @click="loadMore">Show more</button>
+        <button
+          type="button"
+          class="support__more-button"
+          :disabled="isLoadingMore"
+          @click="loadMore"
+        >
+          {{ isLoadingMore ? 'Loading…' : 'Show more' }}
+        </button>
       </div>
+
+      <!-- p48 closes with "You can reply to any open ticket in this portal or
+           by email. We'll keep all updates in one place." Only the first half
+           is true today: replies by email are a later goal and nothing reads
+           that mailbox yet, so promising it here would send students to write
+           into a void. The half we do deliver is stated instead — every
+           update really does reach them by email. Restore the client's exact
+           sentence when inbound email lands. -->
+      <p class="support__promise">
+        You can reply to any open enquiry on this page, and we will email you
+        every update. We keep the whole conversation in one place.
+      </p>
     </section>
   </div>
 </template>
@@ -56,23 +96,27 @@ import { RouterLink, useRouter } from 'vue-router'
 import MyTicketsTable from '@/components/support/MyTicketsTable.vue'
 import TicketForm from '@/components/support/TicketForm.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { SUPPORT_TOPICS, labelIdFor } from '@/utils/supportTopics'
 import { fetchMyTickets, type TicketDetail, type TicketRow } from '@/utils/supportAPI'
+import { fetchResourceLabels, type ResourceLabel } from '@/utils/resourcesAPI'
 
-// The client's three self-serve topics, worded as they wrote them (p48).
-const TOPICS = [
-  {
-    title: 'Account & Access',
-    blurb: 'Login issues, password reset, and account settings.'
-  },
-  {
-    title: 'Programs & Groups',
-    blurb: 'Course enrolment, group access, and workspace questions.'
-  },
-  {
-    title: 'Certificates & Records',
-    blurb: 'Certificate requests, name updates, and transcripts.'
-  }
-]
+// The list itself lives in utils/supportTopics.ts so a test can import the
+// same one the page renders. See that file for why the strings are
+// load-bearing.
+const TOPICS = SUPPORT_TOPICS
+
+// The knowledge base is the resource library, not a second store of articles:
+// the platform already has rich-text resources, an editor the client can use,
+// and role-based visibility. So "knowledge base" is a naming convention — a
+// resource label whose name matches the topic — and the client adds an
+// article by writing a resource and labelling it. Nothing here needs to
+// change when they do.
+const labels = ref<ResourceLabel[]>([])
+
+// Imported rather than written here: a <script setup> binding cannot be
+// imported, so the test that covered this had a copy of the function in the
+// test file and pinned the rule instead of the implementation.
+const topicLabelId = (topic: string) => labelIdFor(topic, labels.value)
 
 const router = useRouter()
 
@@ -81,21 +125,45 @@ const total = ref(0)
 const page = ref(1)
 const hasMore = ref(false)
 const isLoading = ref(true)
+const isLoadingMore = ref(false)
 const error = ref('')
+const moreError = ref('')
+// Where this run of "Show more" has got to: the snapshot it is walking plus
+// the place the last page ended. The first page sends neither — loading it is
+// how someone asks for what is there now — and every page after sends both.
+const walk = ref<{ asOf: string; after: string } | undefined>(undefined)
 
+// The first page owns the page-level loading and error state, because there is
+// nothing on screen yet to protect. Later pages get their own, so a failure
+// adds a line under the table instead of replacing the table with it.
 async function load(nextPage = 1) {
-  isLoading.value = true
-  error.value = ''
+  const isFirstPage = nextPage === 1
+  if (isFirstPage) {
+    isLoading.value = true
+    error.value = ''
+  } else {
+    isLoadingMore.value = true
+    moreError.value = ''
+  }
   try {
-    const result = await fetchMyTickets(nextPage)
-    tickets.value = nextPage === 1 ? result.items : [...tickets.value, ...result.items]
+    const result = await fetchMyTickets(nextPage, 10, isFirstPage ? undefined : walk.value)
+    // Each page hands the next one its starting place. A null cursor means
+    // there was no last row, which only happens on an empty page.
+    walk.value = result.after ? { asOf: result.asOf, after: result.after } : undefined
+    tickets.value = isFirstPage ? result.items : [...tickets.value, ...result.items]
     total.value = result.total
     page.value = result.page
     hasMore.value = result.hasMore
   } catch (err) {
-    error.value = apiErrorFromUnknown(err, 'Could not load your enquiries.').message
+    const message = apiErrorFromUnknown(err, 'Could not load your enquiries.').message
+    if (isFirstPage) {
+      error.value = message
+    } else {
+      moreError.value = message
+    }
   } finally {
     isLoading.value = false
+    isLoadingMore.value = false
   }
 }
 
@@ -109,7 +177,19 @@ function onSubmitted(ticket: TicketDetail) {
   router.push(`/support/tickets/${ticket.id}`)
 }
 
-onMounted(() => load(1))
+onMounted(() => {
+  load(1)
+  // Deliberately not awaited and deliberately swallowed: the topic cards are
+  // a nice-to-have, and a failure here must not stop somebody raising a
+  // ticket. Without the labels they simply render as plain text.
+  fetchResourceLabels()
+    .then((rows) => {
+      labels.value = rows
+    })
+    .catch(() => {
+      labels.value = []
+    })
+})
 </script>
 
 <style scoped>
@@ -184,6 +264,25 @@ onMounted(() => load(1))
   background: var(--bg-light);
 }
 
+.support__topic-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.support__topic-cta {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #307054;
+}
+
+.support__topic-link:hover .support__topic-cta,
+.support__topic-link:focus-visible .support__topic-cta {
+  text-decoration: underline;
+}
+
 .support__topic h3 {
   margin: 0 0 0.2rem 0;
   font-size: 0.95rem;
@@ -236,6 +335,12 @@ onMounted(() => load(1))
   font-size: 0.85rem;
 }
 
+.support__promise {
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .support__state {
   padding: 1.25rem 0;
   color: var(--text-muted);
@@ -260,8 +365,13 @@ onMounted(() => load(1))
   cursor: pointer;
 }
 
-.support__more-button:hover {
+.support__more-button:hover:not(:disabled) {
   border-color: var(--dark-green);
   color: var(--dark-green);
+}
+
+.support__more-button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 </style>

@@ -15,9 +15,18 @@
         </p>
         <p class="timeline__body">{{ message.body }}</p>
 
+        <!-- No target. The endpoint answers with Content-Disposition:
+             attachment, so the browser downloads the file and leaves this page
+             where it is, and nothing needs a tab. With target="_blank" WebKit
+             opened one per click and closed none of them: three clicks, three
+             empty tabs left behind (measured in WebKit 26.0; Safari itself was
+             not reachable to test, and the tidying up is the shell's job, not
+             the engine's). Chromium closes them, which is why this looked
+             fine. A download attribute does not help either: the file comes
+             from the API origin and the attribute is ignored cross-origin. -->
         <ul v-if="message.attachments.length" class="timeline__files">
           <li v-for="file in message.attachments" :key="file.id">
-            <a :href="attachmentUrl(ticketId, file.id)" target="_blank" rel="noopener">
+            <a :href="attachmentUrl(ticketId, file.id)">
               <i class="fas fa-paperclip"></i>
               {{ file.filename }}
             </a>
@@ -55,13 +64,32 @@ function rowClass(message: TicketMessage) {
 </script>
 
 <style scoped>
+/* --text-muted is 4.45:1 on the system note's --bg-light and 4.10:1 on the
+   requester's own --light-green bubble, both under AA. The literal is the
+   value TicketPriorityBadge.vue measured; dark hands it back to the theme,
+   which is 5.37:1 on that same bubble. */
+/* Every line on this timeline is text somebody else typed or a file
+   somebody else named, and none of it is guaranteed to have a space in it:
+   a bounce note carries an email address, an attachment carries a filename,
+   a bubble carries a pasted link. One unbroken run sets the minimum width of
+   the whole .content-area, so the page scrolls sideways rather than the text
+   wrapping. Declared once here so it reaches all four. `anywhere` rather
+   than `break-word` because only `anywhere` lowers the min-content width,
+   which is the number that gets used. */
 .timeline {
+  --ticket-muted: #616970;
+
+  overflow-wrap: anywhere;
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+:root[data-theme="dark"] .timeline {
+  --ticket-muted: var(--text-muted);
 }
 
 .timeline__row {
@@ -99,7 +127,7 @@ function rowClass(message: TicketMessage) {
   align-items: baseline;
   margin: 0 0 0.3rem 0;
   font-size: 0.78rem;
-  color: var(--text-muted);
+  color: var(--ticket-muted);
 }
 
 .timeline__author {
@@ -121,14 +149,16 @@ function rowClass(message: TicketMessage) {
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
   background: var(--bg-light);
-  color: var(--text-muted);
+  color: var(--ticket-muted);
   font-size: 0.83rem;
   text-align: center;
 }
 
+/* No opacity on the date. Fading muted text by a quarter puts whatever it is
+   sitting on back into the mix: 0.75 took this from 5.29:1 down to 3.19:1,
+   which undid the colour above. The space already separates it. */
 .timeline__system time {
   margin-left: 0.5rem;
-  opacity: 0.75;
 }
 
 .timeline__files {

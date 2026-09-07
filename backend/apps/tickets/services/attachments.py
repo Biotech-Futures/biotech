@@ -46,6 +46,17 @@ def validate_attachments(files) -> None:
             allowed_mime_types=ALLOWED_MIME_TYPES,
             field_label="Attachment",
         )
+        # The shared validator has an upper bound and no lower one, and the
+        # rest of the platform never needed one: chat and the resource library
+        # take their uploads through a DRF FileField, which refuses an empty
+        # file before the validator sees it. The three ticket endpoints read
+        # request.FILES themselves, so a 0 byte file went all the way into
+        # storage and onto the timeline as an ordinary attachment link, with
+        # nothing on either side saying it was empty.
+        if getattr(uploaded, "size", None) == 0:
+            raise serializers.ValidationError(
+                "Attachment is empty. Choose a file with something in it."
+            )
 
 
 @contextmanager

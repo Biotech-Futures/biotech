@@ -171,6 +171,11 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # Ticket submission only; the GET on the same view is exempt via
+        # WriteOnlyScopedThrottle. Each submission puts an email on the same
+        # four-worker pool as login codes, so the cap is really about keeping
+        # one looping account from delaying everyone else's sign-in.
+        'ticket_create': '30/hour',
     },
 }
 
@@ -625,11 +630,27 @@ LINK_PREVIEW_DISPATCH_SYNC = config(
 )
 
 # --- Support tickets ---------------------------------------------------------
-# How long a ticket may sit without a first response before the queue flags it
-# as overdue. Plain wall-clock hours: the platform has no business-day helper
-# and building one is work the client has not asked for. The "typically within
-# 1 business day" line in the submission email is deliberately softer than
-# these numbers and is not derived from them.
+# How long a ticket may sit WITH SUPPORT before the queue flags it as overdue.
+#
+# Not "without a first response", which is what this used to mean. The client
+# was asked on 2026-09-04 whether a first-reply test was right and answered:
+# "instead of making it just the first response, include follow up responses".
+# So the clock restarts every time the requester answers and stops every time
+# support does. It is measured from Ticket.awaiting_support_since; the rule
+# itself is written once, in apps/tickets/services/queue.overdue_condition.
+#
+# Plain wall-clock hours, confirmed by the client as the right reading. A
+# high-priority ticket raised at 22:00 on a Friday is therefore flagged at
+# 02:00 on the Saturday. That is intended, not a bug to fix: the platform has
+# no business-day helper, and building one — a calendar, a timezone per agent,
+# public holidays — is work the client has not asked for.
+#
+# The submission email deliberately does NOT quote these numbers. It says
+# "one business day" (apps/tickets/services/emails.EXPECTED_REPLY), which is
+# softer than the internal target and is not derived from it. That is a
+# decision, not drift: these hours are a triage target for the queue, and
+# putting "four hours" in front of a fourteen-year-old would turn it into a
+# promise we have just said we do not keep at weekends.
 TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
 TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
 TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)

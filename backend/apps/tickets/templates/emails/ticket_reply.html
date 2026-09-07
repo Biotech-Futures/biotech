@@ -5,8 +5,8 @@
 {% block preheader %}There is a new reply on your enquiry {{ TICKET_NUMBER }}.{% endblock %}
 
 {% block content %}
-              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
-                Hi {{ FIRST_NAME|default:"there" }},
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5; overflow-wrap:anywhere;">
+                Hi {{ GREETING_NAME }},
               </p>
 
               <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
@@ -14,20 +14,54 @@
               </h1>
 
 {% if WAITING_ON_REQUESTER %}
+              {% comment %}
+                Two facts from two sources, and this branch keeps them apart.
+                The status proves the ticket is stopped. Only the action taken
+                proves that this reply asked for anything: a ticket stays in
+                "pending user" until something moves it out, so a later reply
+                that answers in full finds the same status and renders here
+                too. That is why ASKED_FOR_INFORMATION is passed down from
+                add_support_reply rather than read off the ticket, and why the
+                sentence below can be said again at all. While the status was
+                the only input it had to go, because it was going out on the
+                replies that had just answered the question.
+              {% endcomment %}
+{% if ASKED_FOR_INFORMATION %}
               <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 We have asked you for some more information. The enquiry is waiting on your answer, so nothing further will happen until you reply.
               </p>
-
-              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
-                Once you reply, we will pick it straight back up.
-              </p>
 {% else %}
               <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
-                Our support team has replied. You do not need to do anything unless you want to add something.
+                Our support team has replied. The enquiry is still waiting on your answer, so nothing further will happen until you reply.
+              </p>
+{% endif %}
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Once you reply, we will pick it straight back up, usually within {{ EXPECTED_REPLY }}.
+              </p>
+{% else %}
+              {% comment %}
+                DEC-021 governs the wording below: this branch must never tell
+                the requester that no action is needed from them. It renders
+                whenever the ticket is not already "pending user" at the moment
+                the reply is written, and an agent who asks a question and then
+                flips the status lands here, so a reassurance of that kind went
+                out on exactly the replies that were asking for something. Only
+                the reply itself knows which case it is, so the email points at
+                the reply instead of guessing.
+
+                Use {% templatetag openblock %} comment {% templatetag closeblock %}
+                and not the {% templatetag opencomment %} short form here. The
+                short form is single-line only, and this block spanning several
+                lines is how the whole note, including the sentence DEC-021
+                bans, was rendered into a live email to a student.
+              {% endcomment %}
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Our support team has replied. Open the enquiry to read it, and reply there if we have asked you for anything.
               </p>
 
               <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
-                If you do reply, we will continue from there.
+                If you do reply, we will continue from there, usually within {{ EXPECTED_REPLY }}.
               </p>
 {% endif %}
 

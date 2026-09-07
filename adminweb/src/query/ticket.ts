@@ -1,6 +1,9 @@
 import { myFetch } from "@/lib/myFetch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  supportAgentSchema,
+  ticketAnalyticsSchema,
+  ticketAuditPageSchema,
   assigneeOptionSchema,
   bulkAssignResultSchema,
   regionOptionSchema,
@@ -14,22 +17,50 @@ import { z } from "zod";
 
 const BASE = "/tickets";
 
-function buildParams(page: number, limit: number, filters: TicketFilters) {
+function buildParams(
+  page: number,
+  limit: number,
+  filters: TicketFilters,
+  walk?: { asOf: string; after: string },
+) {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   // Falsy means "no filter" — the backend reads them the same way, so an
   // empty select does not have to be special-cased on either side.
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
+  // Both halves or neither. A cursor without its snapshot is refused with a
+  // 400, and a snapshot without a cursor is ignored: the server will not page
+  // by offset inside a frozen set, because a frozen set can still shrink and
+  // that is the defect the cursor exists to close.
+  //
+  // URLSearchParams percent-encodes on toString(), which matters here more
+  // than anywhere else on this page: an un-encoded "+" in a timestamp arrives
+  // as a space and the server cannot read it. Both values carry timestamps.
+  if (walk) {
+    params.set("asOf", walk.asOf);
+    params.set("after", walk.after);
+  }
   return params;
 }
 
-export function useTicketsQuery(page: number, limit: number, filters: TicketFilters) {
+export function useTicketsQuery(
+  page: number,
+  limit: number,
+  filters: TicketFilters,
+  walk?: { asOf: string; after: string },
+) {
   return useQuery({
-    queryKey: ["tickets", page, limit, filters],
+    queryKey: ["tickets", page, limit, filters, walk?.asOf, walk?.after],
+    // Overrides the app-wide default, for this query only. An agent works
+    // with the queue open and comes back to it expecting to see what arrived
+    // while they were away; every other list on the platform is something you
+    // navigate to on purpose, which is why the global default stays off and
+    // the other nine admin pages are untouched.
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const res = await myFetch.get<{ msg: string; data: unknown }>(
-        `${BASE}?${buildParams(page, limit, filters)}`,
+        `${BASE}?${buildParams(page, limit, filters, walk)}`,
       );
       return ticketQueueSchema.parse(res.data.data);
     },
@@ -39,6 +70,9 @@ export function useTicketsQuery(page: number, limit: number, filters: TicketFilt
 export function useTicketSummary() {
   return useQuery({
     queryKey: ["ticket-summary"],
+    // Same reason as the queue: the counters sit above it and disagreeing
+    // with the rows underneath is worse than either being stale alone.
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const res = await myFetch.get<{ msg: string; data: unknown }>(`${BASE}/summary`);
       return ticketSummarySchema.parse(res.data.data);
@@ -108,7 +142,13 @@ function useTicketInvalidation() {
 export type TicketPatch = {
   status?: string;
   priority?: string;
-  assignee?: number;
+  // Re-filing a mis-categorised ticket. Like priority, it is a triage field:
+  // the backend audits the change and deliberately writes no timeline message,
+  // so the requester's list does not reorder and no email goes out.
+  category?: string;
+  // null hands the ticket back to the pool. axios keeps a JSON null intact, so
+  // it arrives as null rather than being dropped from the body.
+  assignee?: number | null;
 };
 
 export function useUpdateTicket() {
@@ -136,15 +176,22 @@ export function useReplyTicket() {
       messageType,
       body,
       files,
+      moveToPending,
     }: {
       id: number;
       messageType: "support_reply" | "internal_note";
       body: string;
       files?: File[];
+      moveToPending?: boolean;
     }) => {
       const form = new FormData();
       form.set("messageType", messageType);
       form.set("body", body);
+      // Only sent when ticked. FormData carries strings, so an unticked box
+      // would otherwise post "false" — which the serializer does read
+      // correctly, but leaving the key out keeps the request identical to
+      // what it was before this option existed.
+      if (moveToPending) form.set("moveToPending", "true");
       // Repeated under one key: the backend reads request.FILES.getlist.
       (files ?? []).forEach((file) => form.append("files", file));
       const res = await myFetch.post<{ msg: string; data: unknown }>(
@@ -157,6 +204,19 @@ export function useReplyTicket() {
   });
 }
 
+export function useDeleteTicket() {
+  const invalidate = useTicketInvalidation();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await myFetch.delete(`${BASE}/${id}/delete`);
+      return id;
+    },
+    // No id passed on: the ticket is gone, so refreshing its own detail query
+    // would only fetch a 404.
+    onSuccess: () => invalidate(),
+  });
+}
+
 export function useBulkAssign() {
   const invalidate = useTicketInvalidation();
   return useMutation({
@@ -165,7 +225,11 @@ export function useBulkAssign() {
       assigneeId,
     }: {
       ticketIds: number[];
-      assigneeId: number;
+      // null hands the whole batch back to the pool, the same way the
+      // single-ticket PATCH above does it. The serializer takes null and
+      // refuses the key being absent, so it is null or a primary key here and
+      // never undefined.
+      assigneeId: number | null;
     }) => {
       const res = await myFetch.post<{ msg: string; data: unknown }>(
         `${BASE}/bulk-assign`,
@@ -181,4 +245,93 @@ export function useBulkAssign() {
 
 export function ticketAttachmentUrl(ticketId: number, attachmentId: number) {
   return `${myFetch.defaults.baseURL}${BASE}/${ticketId}/attachments/${attachmentId}/`;
+}
+
+
+// --- The support roster. Admin-only on the server; the screen is admin-only
+// --- too, so a support agent never sees a control that would 403.
+
+const ROSTER = `${BASE}/support-scope`;
+
+export function useSupportRoster() {
+  return useQuery({
+    queryKey: ["ticket-roster"],
+    queryFn: async () => {
+      const res = await myFetch.get<{ msg: string; data: unknown }>(ROSTER);
+      return z.array(supportAgentSchema).parse(res.data.data);
+    },
+  });
+}
+
+export function useGrantSupport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: number) => {
+      await myFetch.post(ROSTER, { userId });
+    },
+    // The assignee dropdowns are built from who can work the queue, so they
+    // go stale the moment the roster changes.
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["ticket-roster"] });
+      client.invalidateQueries({ queryKey: ["ticket-assignees"] });
+    },
+  });
+}
+
+export function useRevokeSupport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: number) => {
+      await myFetch.delete(`${ROSTER}/${userId}`);
+    },
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["ticket-roster"] });
+      client.invalidateQueries({ queryKey: ["ticket-assignees"] });
+    },
+  });
+}
+
+
+export type TicketAuditFilters = { action?: string; actor?: string };
+
+export function useTicketAudit(
+  page: number,
+  limit: number,
+  filters: TicketAuditFilters,
+) {
+  return useQuery({
+    queryKey: ["ticket-audit", page, limit, filters],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.set(key, value);
+      });
+      const res = await myFetch.get<{ msg: string; data: unknown }>(
+        `${BASE}/audit?${params}`,
+      );
+      return ticketAuditPageSchema.parse(res.data.data);
+    },
+  });
+}
+
+
+export type AnalyticsParams = { from?: string; to?: string; dimension?: string };
+
+export function useTicketAnalytics(params: AnalyticsParams) {
+  return useQuery({
+    queryKey: ["ticket-analytics", params],
+    queryFn: async () => {
+      const search = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value) search.set(key, value);
+      });
+      const res = await myFetch.get<{ msg: string; data: unknown }>(
+        `${BASE}/analytics?${search}`,
+      );
+      return ticketAnalyticsSchema.parse(res.data.data);
+    },
+  });
 }

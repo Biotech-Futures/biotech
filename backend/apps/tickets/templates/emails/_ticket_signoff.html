@@ -1,0 +1,22 @@
+{% comment %}
+Who wrote this. Until now the three ticket emails ended without any sign-off
+at all, so a guardian reading over a fifteen-year-old's shoulder had no name
+to attach the message to.
+
+A team, not a person, and that is deliberate rather than lazy. DEC-017 settled
+that a system message never names the agent handling a ticket: the recipients
+are minors, and putting a staff member's name in a child's inbox is a decision
+nobody has asked for. The support side already shows replies as "Support" for
+the same reason, so this matches what the requester sees in the portal.
+
+It lives in the tickets app rather than in the shared chrome at
+apps/services/templates/emails/base.html. base.html does have an overridable
+{% templatetag openblock %} footer_note {% templatetag closeblock %} block that
+could carry it, but that block also serves login, password reset, the
+announcement mailout and the unread digest, and the wording below is about
+enquiries specifically.
+{% endcomment %}
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Thanks,<br>
+                The {{ BRAND_NAME }} support team
+              </p>

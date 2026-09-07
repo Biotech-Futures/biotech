@@ -20,13 +20,19 @@ AUTO_ACKNOWLEDGEMENT_NO_NAME = "Thanks. We're looking into this and will get bac
 # prevent.
 TICKET_NOW_HANDLED = "Your ticket is now being handled."
 
-# T4 — only ever used by mark_pending(), which always follows a real reply.
-MOVED_TO_PENDING_USER = "We've asked for more information — see the reply above."
+# T4 — written by add_support_reply(move_to_pending=True), which is the reply
+# that asks the question, and by mark_pending(), which production does not
+# call. Either way a real reply sits directly above it on the timeline.
+#
+# Two sentences rather than a dash parenthetical: the team's standing style
+# note is that these read better split, and this line only started reaching
+# requesters when the combined action landed.
+MOVED_TO_PENDING_USER = "We've asked for more information. See the reply above."
 
 # T6
 RESOLVED = (
     "This ticket has been marked as resolved. "
-    "Reply here if you need further help — it will reopen automatically."
+    "Reply here if you need further help and it will reopen automatically."
 )
 
 # T7
@@ -34,7 +40,9 @@ REOPENED = "Ticket reopened following your reply. Our team will take another loo
 
 # DEC-012 — written by the mail worker when a resolution email bounces, so an
 # agent can see it and follow up by hand.
-EMAIL_DELIVERY_FAILED = "Resolution email to {recipient} could not be delivered — please follow up."
+EMAIL_DELIVERY_FAILED = (
+    "Resolution email to {recipient} could not be delivered. Please follow up."
+)
 
 # T8 — a status corrected from the dropdown, with no reply attached. The
 # design gives no wording for these landings; deliberately neutral, because

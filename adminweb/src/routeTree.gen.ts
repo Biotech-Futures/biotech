@@ -30,6 +30,9 @@ import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route
 import { Route as AuthTicketsIndexRouteImport } from './routes/_auth/tickets/index'
 import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
 import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthTicketsAuditRouteImport } from './routes/_auth/tickets/audit'
+import { Route as AuthTicketsAnalyticsRouteImport } from './routes/_auth/tickets/analytics'
+import { Route as AuthPeopleSupportAgentsRouteImport } from './routes/_auth/people/support-agents'
 import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
 import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
 import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
@@ -141,6 +144,21 @@ const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthGroupsRouteRoute,
 } as any)
+const AuthTicketsAuditRoute = AuthTicketsAuditRouteImport.update({
+  id: '/tickets/audit',
+  path: '/tickets/audit',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthTicketsAnalyticsRoute = AuthTicketsAnalyticsRouteImport.update({
+  id: '/tickets/analytics',
+  path: '/tickets/analytics',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthPeopleSupportAgentsRoute = AuthPeopleSupportAgentsRouteImport.update({
+  id: '/support-agents',
+  path: '/support-agents',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
 const AuthPeopleSupervisorsRoute = AuthPeopleSupervisorsRouteImport.update({
   id: '/supervisors',
   path: '/supervisors',
@@ -198,6 +216,9 @@ export interface FileRoutesByFullPath {
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/people/support-agents': typeof AuthPeopleSupportAgentsRoute
+  '/tickets/analytics': typeof AuthTicketsAnalyticsRoute
+  '/tickets/audit': typeof AuthTicketsAuditRoute
   '/groups/': typeof AuthGroupsIndexRoute
   '/people/': typeof AuthPeopleIndexRoute
   '/tickets/': typeof AuthTicketsIndexRoute
@@ -224,6 +245,9 @@ export interface FileRoutesByTo {
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
   '/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/people/support-agents': typeof AuthPeopleSupportAgentsRoute
+  '/tickets/analytics': typeof AuthTicketsAnalyticsRoute
+  '/tickets/audit': typeof AuthTicketsAuditRoute
   '/groups': typeof AuthGroupsIndexRoute
   '/people': typeof AuthPeopleIndexRoute
   '/tickets': typeof AuthTicketsIndexRoute
@@ -254,6 +278,9 @@ export interface FileRoutesById {
   '/_auth/people/mentors': typeof AuthPeopleMentorsRoute
   '/_auth/people/students': typeof AuthPeopleStudentsRoute
   '/_auth/people/supervisors': typeof AuthPeopleSupervisorsRoute
+  '/_auth/people/support-agents': typeof AuthPeopleSupportAgentsRoute
+  '/_auth/tickets/analytics': typeof AuthTicketsAnalyticsRoute
+  '/_auth/tickets/audit': typeof AuthTicketsAuditRoute
   '/_auth/groups/': typeof AuthGroupsIndexRoute
   '/_auth/people/': typeof AuthPeopleIndexRoute
   '/_auth/tickets/': typeof AuthTicketsIndexRoute
@@ -284,6 +311,9 @@ export interface FileRouteTypes {
     | '/people/mentors'
     | '/people/students'
     | '/people/supervisors'
+    | '/people/support-agents'
+    | '/tickets/analytics'
+    | '/tickets/audit'
     | '/groups/'
     | '/people/'
     | '/tickets/'
@@ -310,6 +340,9 @@ export interface FileRouteTypes {
     | '/people/mentors'
     | '/people/students'
     | '/people/supervisors'
+    | '/people/support-agents'
+    | '/tickets/analytics'
+    | '/tickets/audit'
     | '/groups'
     | '/people'
     | '/tickets'
@@ -339,6 +372,9 @@ export interface FileRouteTypes {
     | '/_auth/people/mentors'
     | '/_auth/people/students'
     | '/_auth/people/supervisors'
+    | '/_auth/people/support-agents'
+    | '/_auth/tickets/analytics'
+    | '/_auth/tickets/audit'
     | '/_auth/groups/'
     | '/_auth/people/'
     | '/_auth/tickets/'
@@ -501,6 +537,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsIndexRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
     }
+    '/_auth/tickets/audit': {
+      id: '/_auth/tickets/audit'
+      path: '/tickets/audit'
+      fullPath: '/tickets/audit'
+      preLoaderRoute: typeof AuthTicketsAuditRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/tickets/analytics': {
+      id: '/_auth/tickets/analytics'
+      path: '/tickets/analytics'
+      fullPath: '/tickets/analytics'
+      preLoaderRoute: typeof AuthTicketsAnalyticsRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/people/support-agents': {
+      id: '/_auth/people/support-agents'
+      path: '/support-agents'
+      fullPath: '/people/support-agents'
+      preLoaderRoute: typeof AuthPeopleSupportAgentsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
     '/_auth/people/supervisors': {
       id: '/_auth/people/supervisors'
       path: '/supervisors'
@@ -568,6 +625,7 @@ interface AuthPeopleRouteRouteChildren {
   AuthPeopleMentorsRoute: typeof AuthPeopleMentorsRoute
   AuthPeopleStudentsRoute: typeof AuthPeopleStudentsRoute
   AuthPeopleSupervisorsRoute: typeof AuthPeopleSupervisorsRoute
+  AuthPeopleSupportAgentsRoute: typeof AuthPeopleSupportAgentsRoute
   AuthPeopleIndexRoute: typeof AuthPeopleIndexRoute
 }
 
@@ -575,6 +633,7 @@ const AuthPeopleRouteRouteChildren: AuthPeopleRouteRouteChildren = {
   AuthPeopleMentorsRoute: AuthPeopleMentorsRoute,
   AuthPeopleStudentsRoute: AuthPeopleStudentsRoute,
   AuthPeopleSupervisorsRoute: AuthPeopleSupervisorsRoute,
+  AuthPeopleSupportAgentsRoute: AuthPeopleSupportAgentsRoute,
   AuthPeopleIndexRoute: AuthPeopleIndexRoute,
 }
 
@@ -596,6 +655,8 @@ interface AuthRouteRouteChildren {
   AuthTaskRoute: typeof AuthTaskRoute
   AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
+  AuthTicketsAnalyticsRoute: typeof AuthTicketsAnalyticsRoute
+  AuthTicketsAuditRoute: typeof AuthTicketsAuditRoute
   AuthTicketsIndexRoute: typeof AuthTicketsIndexRoute
 }
 
@@ -613,6 +674,8 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthTaskRoute: AuthTaskRoute,
   AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
+  AuthTicketsAnalyticsRoute: AuthTicketsAnalyticsRoute,
+  AuthTicketsAuditRoute: AuthTicketsAuditRoute,
   AuthTicketsIndexRoute: AuthTicketsIndexRoute,
 }
 

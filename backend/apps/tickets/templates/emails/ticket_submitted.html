@@ -5,8 +5,8 @@
 {% block preheader %}We have your enquiry {{ TICKET_NUMBER }}. You do not need to do anything for now.{% endblock %}
 
 {% block content %}
-              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
-                Hi {{ FIRST_NAME|default:"there" }},
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5; overflow-wrap:anywhere;">
+                Hi {{ GREETING_NAME }},
               </p>
 
               <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
@@ -14,7 +14,7 @@
               </h1>
 
               <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
-                It is open and with our support team. You do not need to do anything for now. We usually reply within one business day.
+                It is open and with our support team. You do not need to do anything for now. We usually reply within {{ EXPECTED_REPLY }}.
               </p>
 
               <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">

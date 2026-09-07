@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { useDebounce } from "use-debounce";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,6 +13,7 @@ import {
   TICKET_CATEGORY_OPTIONS,
   TICKET_PRIORITY_LABELS,
   TICKET_STATUS_LABELS,
+  UNASSIGNED,
   type AssigneeOption,
   type RegionOption,
   type TicketFilters,
@@ -31,13 +34,36 @@ export function FilterBar({ filters, onChange, regions, assignees }: Props) {
   const set = (key: keyof TicketFilters, value: string) =>
     onChange({ ...filters, [key]: value === ANY ? "" : value });
 
+  // The box types locally and only settles upward, so "SUP-2026" is one queue
+  // request instead of eight. Every keystroke used to raise the filters, and
+  // each of those is a COUNT plus a page of rows against the whole table.
+  // 300ms and useDebounce match GroupAddStudentsDialog, the existing search
+  // box in this app.
+  const [searchDraft, setSearchDraft] = useState(filters.search ?? "");
+  const [settledSearch] = useDebounce(searchDraft, 300);
+
+  useEffect(() => {
+    if (settledSearch !== (filters.search ?? "")) {
+      onChange({ ...filters, search: settledSearch });
+    }
+    // Only when the settled value moves. Depending on `filters` as well would
+    // re-fire on every other filter change and undo their edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settledSearch]);
+
+  // Keeps the box in step when the parent resets the filters — the Clear
+  // button sets search to "" and nothing else would empty the input.
+  useEffect(() => {
+    setSearchDraft(filters.search ?? "");
+  }, [filters.search]);
+
   const hasAny = Object.values(filters).some(Boolean);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input
-        value={filters.search ?? ""}
-        onChange={(event) => onChange({ ...filters, search: event.target.value })}
+        value={searchDraft}
+        onChange={(event) => setSearchDraft(event.target.value)}
         placeholder="Search number, subject, or requester"
         className="w-full sm:w-72"
         aria-label="Search tickets"
@@ -105,6 +131,13 @@ export function FilterBar({ filters, onChange, regions, assignees }: Props) {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ANY}>Any assignee</SelectItem>
+          {/* The bucket the Unassigned card counts. Not one of the people
+              below, so it is listed by hand rather than coming from the
+              assignee options endpoint. */}
+          <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+          {/* Deactivated agents stay here on purpose: their tickets did not
+              move when the account was switched off, and this is the only way
+              to find that work in bulk. */}
           {assignees.map((person) => (
             <SelectItem key={person.id} value={String(person.id)}>
               {person.name}

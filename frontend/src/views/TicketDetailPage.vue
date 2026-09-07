@@ -16,7 +16,10 @@
             &middot; Last updated {{ formatLongDateAU(ticket.lastUpdated) }}
           </p>
         </div>
-        <TicketStatusBadge :status="ticket.status" />
+        <div class="ticket__badges">
+          <TicketStatusBadge :status="ticket.status" />
+          <TicketPriorityBadge :priority="ticket.priority" />
+        </div>
       </header>
 
       <p v-if="ticket.status === 'pending_user'" class="ticket__callout">
@@ -37,10 +40,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import TicketReplyBox from '@/components/support/TicketReplyBox.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
+import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketTimeline from '@/components/support/TicketTimeline.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatLongDateAU } from '@/utils/date'
@@ -52,17 +56,35 @@ const ticket = ref<TicketDetail | null>(null)
 const isLoading = ref(true)
 const error = ref('')
 
+// Which load is the current one. Changing the address bar twice in a row
+// leaves two requests in flight, and the slower one must not paint over the
+// newer one: that would put a ticket on screen that the URL is not asking for,
+// which is the whole thing this page has to get right.
+let loadToken = 0
+
 async function load() {
+  const token = ++loadToken
   isLoading.value = true
   error.value = ''
   try {
-    ticket.value = await fetchTicket(String(route.params.id))
+    const loaded = await fetchTicket(String(route.params.id))
+    if (token !== loadToken) return
+    ticket.value = loaded
   } catch (err) {
-    // The backend answers 404 for a ticket that is not yours, exactly as it
-    // does for one that does not exist, so there is one message for both.
-    error.value = apiErrorFromUnknown(err, 'This enquiry could not be found.').message
+    if (token !== loadToken) return
+    // A 404 arrives carrying its own sentence, and the backend answers 404
+    // for a ticket that is not yours exactly as it does for one that does
+    // not exist, so both land on that one sentence without help from here.
+    // What reaches the fallback is the request that never came back at all:
+    // a dropped connection, a cancelled request, an answer that is not JSON.
+    // So the fallback must not say the enquiry is missing. It used to, and a
+    // student on a train was told their ticket did not exist.
+    error.value = apiErrorFromUnknown(
+      err,
+      'We could not load this enquiry. Check your connection and try again.'
+    ).message
   } finally {
-    isLoading.value = false
+    if (token === loadToken) isLoading.value = false
   }
 }
 
@@ -74,11 +96,31 @@ function onReplied(updated: TicketDetail) {
 }
 
 onMounted(load)
+
+// The id in the address can change without this component being torn down: a
+// typed URL, a bookmark, the back and forward buttons. Without this the page
+// keeps the ticket it first loaded while the address bar names another one,
+// and the reply box underneath is still bound to the old ticket's id. Every
+// other detail view in the portal watches its route param; this one did not.
+watch(() => route.params.id, load)
 </script>
 
 <style scoped>
+/* Muted text and the error line both take a literal colour rather than
+   --text-muted and --danger. On this page the ground is .content-area's
+   --bg-light, where those two tokens are 4.45:1 and 4.30:1, both under AA.
+   The values here are the ones TicketPriorityBadge.vue measured. Dark hands
+   both back to the theme, which is comfortable there. */
 .ticket {
+  --ticket-muted: #616970;
+  --ticket-danger: #a71d2a;
+
   max-width: 60rem;
+}
+
+:root[data-theme="dark"] .ticket {
+  --ticket-muted: var(--text-muted);
+  --ticket-danger: var(--danger);
 }
 
 .ticket__back {
@@ -105,20 +147,34 @@ onMounted(load)
 
 .ticket__number {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--ticket-muted);
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
 
+/* Same reason as the subject column in MyTicketsTable.vue: a subject is
+   whatever the requester typed, and people paste links into them. One
+   unbroken 200-character URL here sets the minimum width of the whole
+   .content-area, so the page itself starts scrolling sideways at every
+   viewport. `anywhere` rather than `break-word` because only `anywhere`
+   lowers the min-content width, which is the number that gets used. */
 .ticket__title {
   margin: 0.2rem 0 0.35rem 0;
   font-size: 1.6rem;
+  overflow-wrap: anywhere;
+}
+
+.ticket__badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
 }
 
 .ticket__meta {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--ticket-muted);
   font-size: 0.85rem;
 }
 
@@ -137,10 +193,10 @@ onMounted(load)
 
 .ticket__state {
   padding: 2rem 0;
-  color: var(--text-muted);
+  color: var(--ticket-muted);
 }
 
 .ticket__state--error {
-  color: var(--danger);
+  color: var(--ticket-danger);
 }
 </style>

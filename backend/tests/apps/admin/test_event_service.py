@@ -2,7 +2,12 @@
 from datetime import timedelta
 from unittest.mock import patch, MagicMock
 
-from django.test import TestCase
+import struct
+import tempfile
+import zlib
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.admin.services.event import (
@@ -197,21 +202,106 @@ class EventServiceTests(TestCase):
         self.assertGreaterEqual(len(result["data"]), 2)
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="event-image-tests-"))
 class EventImageUploadTests(TestCase):
+    """The happy path needs a real file, and used to be handed a MagicMock.
+
+    Two separate faults came from that one fixture, and each hid the other:
+
+    * ``upload_event_image`` passes the file to ``storage.save``, which for a
+      real upload calls ``open(content.temporary_file_path(), 'rb')``. A
+      ``MagicMock``'s ``__index__`` returns 1, so ``open`` treated it as file
+      descriptor 1 — the process's own stdout — and closed it. The suite still
+      printed ``OK``, then the interpreter could not flush and exited 120.
+      That is a failed job in CI, and ``deploy`` needs it, so nothing deployed.
+    * Because ``storage.save`` blew up on the mock, the valid-upload test only
+      ever exercised the *failure* branch. It asserted the failure message on
+      what is supposed to be the success path, and passed for that reason.
+
+    So the fixture is a real PNG and the assertions are the success ones.
+    MEDIA_ROOT is redirected to a temp directory: with USE_AZURE_BLOB_STORAGE
+    off the save is a genuine write, and it should not land in the repo.
+
+    🔴 The fixture's *dimensions* are load-bearing, which is not obvious.
+    It was 1x1 when this was written, on the reasoning that any valid PNG
+    would do. That reasoning expires: the client's p40 requires event banners
+    to be exactly 1280x320, so an upload that is not that size is going to be
+    refused. A 1x1 fixture asserting "this upload succeeds" would then fail,
+    and the failure would look like a bug in the gate rather than a stale
+    fixture. Generated at the required size instead, so this test keeps
+    testing what it means to test.
+
+    Built from zlib rather than loaded from a file or pasted in as bytes:
+    Pillow is not a dependency of this project, a binary fixture on disk is a
+    thing nobody can read in review, and 883 bytes of escaped PNG in the
+    source would hide the two numbers that actually matter. Written this way
+    the size is one line, and follows the client's requirement if it changes.
+    """
+
+    BANNER_WIDTH = 1280
+    BANNER_HEIGHT = 320
+
+    @staticmethod
+    def _png(width: int, height: int) -> bytes:
+        """A real, decodable PNG of exactly these dimensions.
+
+        Opaque white, 8-bit greyscale, one filter byte per scanline — the
+        smallest thing that is still a genuine image rather than a header
+        claiming to be one. A reader that checks dimensions must be able to
+        get them from this, so the IHDR has to be honest.
+        """
+        def chunk(tag: bytes, data: bytes) -> bytes:
+            body = tag + data
+            return (
+                struct.pack(">I", len(data))
+                + body
+                + struct.pack(">I", zlib.crc32(body))
+            )
+
+        # width, height, bit depth 8, colour type 0 (greyscale), then the
+        # three zero bytes for compression, filter and interlace method.
+        ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+        scanlines = b"".join(b"\x00" + b"\xff" * width for _ in range(height))
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(scanlines, 9))
+            + chunk(b"IEND", b"")
+        )
+
     def setUp(self):
-        self.mock_file = MagicMock()
-        self.mock_file.content_type = "image/png"
-        self.mock_file.size = 1024 * 1024  # 1 MB
+        self.mock_file = SimpleUploadedFile(
+            "banner.png",
+            self._png(self.BANNER_WIDTH, self.BANNER_HEIGHT),
+            content_type="image/png",
+        )
+
+    def test_fixture_is_really_a_banner_sized_png(self):
+        """The fixture's own size, asserted rather than assumed.
+
+        Without this the generator could start producing something else —
+        a wrong struct format, a transposed pair of arguments — and every
+        other test here would carry on passing, because none of them look at
+        the image. The one test that would eventually catch it is a gate that
+        does not exist in this branch yet.
+
+        Read back out of the IHDR the way any reader would: bytes 16-24, the
+        two big-endian integers immediately after the chunk's length and tag.
+        """
+        data = self._png(self.BANNER_WIDTH, self.BANNER_HEIGHT)
+
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", data[16:24])
+        self.assertEqual((width, height), (1280, 320))
 
     def test_upload_image_valid(self):
         from apps.admin.services.event_image import upload_event_image
         result = upload_event_image(self.mock_file)
-        if result.get("data") is not None:
-            self.assertIn(result["msg"], [
-                "Upload failed: " + str(result["data"]),
-            ])
-        else:
-            self.assertIsNotNone(result["msg"])
+
+        self.assertEqual(result["msg"], "Event image uploaded successfully")
+        self.assertIsNotNone(result["data"], result["msg"])
+        # The durable key, not a signed URL: the URL is minted fresh on read.
+        self.assertTrue(result["data"]["key"].endswith(".png"))
 
     def test_upload_image_invalid_type(self):
         from apps.admin.services.event_image import upload_event_image

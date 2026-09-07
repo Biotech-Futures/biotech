@@ -69,3 +69,125 @@ class IsSupportScopedTests(TestCase):
 
     def test_an_anonymous_visitor_is_refused(self):
         self.assertFalse(self._check(AnonymousUser()))
+
+
+class BeingSignedInIsTheOnlyRequirementTests(TestCase):
+    """Who may raise a ticket, pinned on purpose.
+
+    Asked on 2026-09-04 whether "people need to be signed in to BIOTech
+    Connect to raise a ticket, but they do not need to be registered in any
+    programme" was right, the client answered "Correct".
+
+    That is what the code already did, but only by accident: nothing said so,
+    so anyone adding a sensible-looking guard — members of a group, students
+    with a supervisor, people whose registration is complete — would have been
+    tightening a rule the client has settled, and every existing test would
+    still have passed. These tests make that a decision somebody has to
+    deliberately overturn.
+    """
+
+    def setUp(self):
+        # Deliberately bare. No group, no role assignment, no profile, no
+        # workshop, no supervisor, no guardian consent: an account that exists
+        # and nothing more.
+        self.stranger = User.objects.create_user(
+            email="stranger@example.com", password="pass1234",
+            first_name="Kim", last_name="Vo",
+        )
+
+    def test_an_account_in_no_programme_can_raise_a_ticket(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=self.stranger)
+        response = client.post("/api/v1/tickets/", {
+            "category": "account_access",
+            "subject": "I cannot get in",
+            "body": "My login code never arrives.",
+        })
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_they_can_read_and_reply_to_their_own_ticket(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=self.stranger)
+        created = client.post("/api/v1/tickets/", {
+            "category": "account_access",
+            "subject": "I cannot get in",
+            "body": "My login code never arrives.",
+        }).data["data"]
+
+        self.assertEqual(
+            client.get(f"/api/v1/tickets/{created['id']}/").status_code, 200
+        )
+        self.assertEqual(
+            client.post(
+                f"/api/v1/tickets/{created['id']}/messages/",
+                {"body": "Still nothing."},
+            ).status_code,
+            201,
+        )
+
+    def test_signing_out_is_the_only_thing_that_stops_them(self):
+        """403, not "401 or 403".
+
+        This accepted either code, so no mutation of the permission layer
+        could make it fail. The looser assertion also carried the same wrong
+        belief the permission docstring did: DRF only answers 401 when an
+        authentication class offers a WWW-Authenticate header, and the one
+        this project configures does not. There is no deployment of this
+        codebase in which the 401 branch is reachable.
+        """
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        response = client.post("/api/v1/tickets/", {
+            "category": "account_access",
+            "subject": "x",
+            "body": "y",
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("WWW-Authenticate", response.headers)
+
+    def test_no_requester_facing_ticket_view_consults_a_role_or_a_group(self):
+        """Read as source, because a permission that is never exercised by a
+        test is a permission that can be added without any test noticing.
+
+        Narrow on purpose: it looks for the platform's own membership and
+        enrolment gates by name. It is not a general ban on the word "role" —
+        `requester_role` is a snapshot the ticket writes about the person, not
+        a check on them.
+        """
+        import re
+        from pathlib import Path
+
+        from django.conf import settings
+
+        source = (
+            Path(settings.BASE_DIR) / "apps" / "tickets" / "views.py"
+        ).read_text()
+        # Comments describe the rule; only code can enforce it.
+        code = "\n".join(
+            line for line in source.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        for gate in (
+            "GroupMembership",
+            "RoleAssignmentHistory",
+            "has_join_permission",
+            "StudentProfile",
+            "Workshop",
+            "IsGroupMember",
+        ):
+            with self.subTest(gate=gate):
+                self.assertNotIn(
+                    gate, code,
+                    f"{gate} appears in the requester-facing ticket views. "
+                    "The client settled on 2026-09-04 that raising a ticket "
+                    "needs a sign-in and nothing else; adding an enrolment "
+                    "check is a decision to take with them, not a tidy-up.",
+                )
+        self.assertTrue(re.search(r"permission_classes\s*=\s*\[IsAuthenticated\]", code))
+

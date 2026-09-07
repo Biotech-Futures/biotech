@@ -2,6 +2,18 @@ import process from 'node:process'
 import { defineConfig, devices } from '@playwright/test'
 
 /**
+ * Where the two apps are. The ticket suite drives BOTH frontends (a student
+ * in the portal, an agent in the admin app), so it needs two origins. When
+ * E2E_PORTAL_URL is set the harness has already started every server it
+ * wants tested (portal, admin app, backend) and Playwright must not start
+ * its own; the webServer block below switches off accordingly.
+ */
+export const PORTAL_URL =
+  process.env.E2E_PORTAL_URL ??
+  (process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173')
+export const ADMIN_URL = process.env.E2E_ADMIN_URL ?? 'http://localhost:3000'
+
+/**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
@@ -34,7 +46,7 @@ export default defineConfig({
     /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
     actionTimeout: 0,
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173',
+    baseURL: PORTAL_URL,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -96,15 +108,18 @@ export default defineConfig({
   /* Folder for test artifacts such as screenshots, videos, traces, etc. */
   // outputDir: 'test-results/',
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    /**
-     * Use the dev server by default for faster feedback loop.
-     * Use the preview server on CI for more realistic testing.
-     * Playwright will re-use the local server if there is already a dev-server running.
-     */
-    command: process.env.CI ? 'npm run preview' : 'npm run dev',
-    port: process.env.CI ? 4173 : 5173,
-    reuseExistingServer: !process.env.CI,
-  },
+  /* Run your local dev server before starting the tests — unless the
+   * harness said (via E2E_PORTAL_URL) that it runs the servers itself. */
+  webServer: process.env.E2E_PORTAL_URL
+    ? undefined
+    : {
+        /**
+         * Use the dev server by default for faster feedback loop.
+         * Use the preview server on CI for more realistic testing.
+         * Playwright will re-use the local server if there is already a dev-server running.
+         */
+        command: process.env.CI ? 'npm run preview' : 'npm run dev',
+        port: process.env.CI ? 4173 : 5173,
+        reuseExistingServer: !process.env.CI,
+      },
 })

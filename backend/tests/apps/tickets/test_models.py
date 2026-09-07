@@ -13,6 +13,7 @@ from apps.tickets.models import (
     TicketPriority,
     TicketStatus,
 )
+from apps.tickets.services import lifecycle
 
 User = get_user_model()
 
@@ -37,7 +38,7 @@ class TicketDefaultsTests(TestCase):
             "ticket_number": "SUP-2026-00001",
             "subject": "Cannot access group workspace",
             "body": "I get an error opening my group.",
-            "category": TicketCategory.PROGRAMS_GROUPS,
+            "category": TicketCategory.HELP_STUDENT_GROUP,
         }
         payload.update(overrides)
         return Ticket.objects.create(**payload)
@@ -137,3 +138,89 @@ class TicketTimelineTests(TestCase):
         self.assertEqual(Ticket._meta.db_table, "tickets")
         self.assertEqual(TicketMessage._meta.db_table, "ticket_messages")
         self.assertEqual(TicketAttachment._meta.db_table, "ticket_attachments")
+
+
+class DeletingAStudentDoesNotOrphanWhatTheyWroteTests(TestCase):
+    """A ticket body is free text a minor wrote about a problem.
+
+    It carries whatever they thought would help us: an address, a phone
+    number, a parent's email. The platform already has a rule for that class
+    of content — ``chat.Messages.sender_user`` is PROTECT, so an account that
+    has ever written a message cannot simply be deleted, and an admin who
+    means it passes ``force=True``, which purges the messages first.
+
+    Tickets were SET_NULL and so opted out of it. Deleting a student returned
+    "User deleted successfully" while every word they had written stayed in
+    the support queue under no name at all, and ``delete_user``'s own
+    docstring says "Delete a user and all related data".
+    """
+
+    def setUp(self):
+        from apps.groups.models import Countries
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.student = User.objects.create_user(
+            email="mia@example.com", password="pass1234",
+            first_name="Mia", last_name="Thompson", country=self.country,
+        )
+        self.ticket = lifecycle.create_ticket(
+            user=self.student,
+            category=TicketCategory.ACCOUNT_ACCESS,
+            subject="I am being bullied in my group chat",
+            body="My address is 12 Example St and my phone is 0400 000 000.",
+        )
+
+    def test_a_plain_delete_is_refused_rather_than_leaving_the_text_behind(self):
+        from apps.admin.services.user import delete_user
+
+        result = delete_user(self.student.pk)
+
+        self.assertEqual(
+            result["msg"],
+            "User cannot be deleted because other records reference them",
+        )
+        self.assertTrue(User.objects.filter(pk=self.student.pk).exists())
+        self.assertTrue(Ticket.objects.filter(pk=self.ticket.pk).exists())
+
+    def test_a_forced_delete_takes_the_tickets_with_it(self):
+        """force=True is the explicit, confirmed action, and it must be total.
+
+        Refusing without offering a way through would just move the problem:
+        an admin who genuinely has to erase somebody needs one.
+        """
+        from apps.admin.services.user import delete_user
+
+        result = delete_user(self.student.pk, force=True)
+
+        self.assertEqual(result["msg"], "User deleted successfully")
+        self.assertFalse(User.objects.filter(pk=self.student.pk).exists())
+        self.assertFalse(
+            Ticket.objects.filter(pk=self.ticket.pk).exists(),
+            "the account went and the text they wrote stayed",
+        )
+        self.assertFalse(
+            TicketMessage.objects.filter(ticket_id=self.ticket.pk).exists(),
+            "the ticket went and its messages stayed",
+        )
+
+    def test_deleting_an_agent_does_not_take_a_student_enquiry_with_them(self):
+        """Only tickets they RAISED. Assignment stays SET_NULL.
+
+        A ticket assigned to somebody belongs to whoever asked for help, so an
+        agent leaving must not delete it.
+        """
+        from apps.admin.services.user import delete_user
+
+        agent = User.objects.create_user(
+            email="agent@example.com", password="pass1234",
+            first_name="Sam", last_name="Reid",
+        )
+        SupportScope.objects.create(user=agent)
+        lifecycle.assign(ticket=self.ticket, actor=agent, assignee=agent)
+
+        result = delete_user(agent.pk, force=True)
+
+        self.assertEqual(result["msg"], "User deleted successfully")
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.assignee_id)
+        self.assertEqual(self.ticket.created_by_id, self.student.pk)

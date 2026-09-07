@@ -1,7 +1,35 @@
 {% comment %}
-Shared block: the ticket's identity and where it stands. Every ticket email
-carries it so the requester never has to open the portal just to find out
-which enquiry an email is about.
+Shared block: the ticket's identity, where it stands, and the way back to it.
+Every ticket email carries it so the requester never has to open the portal
+just to find out which enquiry an email is about.
+
+The button is the same "bulletproof" markup as login.html and
+password_reset.html — a VML rectangle for Outlook, an anchor for everything
+else. It replaced a line of 12px grey text at the foot of the email, which was
+the only route back to the conversation and read as small print. The
+recipients are school students and their guardians; the way to answer must not
+be the least visible thing on the page.
+
+Two of the strings below can arrive as one unbreakable word, and a table is
+never narrower than the longest word it holds. The subject is typed by the
+requester, and "I cannot open <a pasted link>" is the most natural way for a
+student to report a broken page. The address under the button is one word by
+definition. Without a break rule either of them widens the whole card past
+the screen, and on a 320px phone the button's own label ends up off to the
+right of it. The subject uses overflow-wrap so ordinary subjects still break
+at spaces; the address uses word-break, because a URL may be split anywhere.
+
+The greeting at the top of each of the three ticket emails is the third such
+string and carries the same overflow-wrap rule. It is the account holder's
+own first name, which is a 255 character field the account holder can edit.
+Named here because this is where the rule is explained; the test that keeps
+all three honest does not work from a list of places, it fills every field a
+requester can type into and looks for wherever the words come out.
+
+Use {% templatetag openblock %} comment {% templatetag closeblock %} and not
+the {% templatetag opencomment %} short form for any note spanning more than
+one line. The short form is single-line only, and a multi-line note written
+with it was rendered into a live email to a student.
 {% endcomment %}
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
                 <tr>
@@ -9,13 +37,33 @@ which enquiry an email is about.
                     <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
                       {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {{ STATUS_LABEL }}
                     </p>
-                    <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55;">
+                    <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55; overflow-wrap:anywhere;">
                       {{ TICKET_SUBJECT }}
                     </p>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin:18px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.6;">
-                <a href="{{ TICKET_URL }}" style="color:#307054; text-decoration:underline; font-weight:600;">Open this enquiry</a> to see the full conversation.
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td align="center" style="padding:24px 0 8px 0;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ TICKET_URL }}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="12%" strokecolor="#007253" fillcolor="#C3EBCA">
+                      <w:anchorlock/>
+                      <center style="color:#007253;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">Open this enquiry</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a class="cta-link" href="{{ TICKET_URL }}" style="background:#C3EBCA; border:1px solid #007253; border-radius:6px; color:#007253; display:inline-block; font-size:16px; font-weight:700; line-height:1.2; padding:14px 28px; text-align:center; text-decoration:none; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      Open this enquiry
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:8px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.6; text-align:center;">
+                Or paste this into your browser: <span style="color:#307054; word-break:break-all;">{{ TICKET_URL }}</span>
               </p>
+
+{% include "emails/_ticket_signoff.html" %}

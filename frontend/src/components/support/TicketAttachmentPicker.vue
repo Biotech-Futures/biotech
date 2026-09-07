@@ -1,5 +1,12 @@
 <template>
-  <div class="attach">
+  <div
+    class="attach"
+    :class="{ 'attach--over': isOver }"
+    @dragover.prevent="isOver = true"
+    @dragenter.prevent="isOver = true"
+    @dragleave="isOver = false"
+    @drop.prevent="onDrop"
+  >
     <label class="attach__button">
       <input
         ref="input"
@@ -12,7 +19,7 @@
       <i class="fas fa-paperclip"></i>
       <span>Attach files</span>
     </label>
-    <span class="attach__hint">{{ ATTACHMENT_HINT }}</span>
+    <span class="attach__hint">Drag and drop files here or click to attach. {{ ATTACHMENT_HINT }}</span>
 
     <ul v-if="modelValue.length" class="attach__list">
       <li v-for="(file, index) in modelValue" :key="`${file.name}-${index}`" class="attach__item">
@@ -34,11 +41,24 @@ import { ATTACHMENT_HINT, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '@/utils/
 
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,.docx'
 
+// The same list the input advertises, as a set the code can test against.
+// `accept` is a filter for the operating system's file dialog and nothing
+// else: it has no effect on a file dropped onto the page, so without this the
+// drop zone would hand a .exe to the uploader and let the server be the first
+// thing to say no.
+const ALLOWED_EXTENSIONS = ACCEPT.split(',')
+
 const props = defineProps<{ modelValue: File[] }>()
 const emit = defineEmits<{ 'update:modelValue': [File[]] }>()
 
 const input = ref<HTMLInputElement | null>(null)
 const error = ref('')
+const isOver = ref(false)
+
+function hasAllowedExtension(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return ALLOWED_EXTENSIONS.some((extension) => name.endsWith(extension))
+}
 
 function readableSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -49,24 +69,42 @@ function readableSize(bytes: number): string {
 // Checked here as well as on the server. The server is the one that decides,
 // but telling someone their 40 MB file is too big before they wait for it to
 // upload is the difference between a hint and a rejection.
-function onPick(event: Event) {
-  const picked = Array.from((event.target as HTMLInputElement).files || [])
+function take(picked: File[]) {
   if (!picked.length) return
   error.value = ''
 
-  const tooBig = picked.find((file) => file.size > MAX_ATTACHMENT_BYTES)
+  // Wrong type first: a file rejected for its type is not then also reported
+  // as too big, which would be two complaints about one mistake.
+  const wrongType = picked.find((file) => !hasAllowedExtension(file))
+  if (wrongType) {
+    error.value = `${wrongType.name} is not a PDF, PNG, JPG or DOCX.`
+  }
+  const rightType = picked.filter(hasAllowedExtension)
+
+  const tooBig = rightType.find((file) => file.size > MAX_ATTACHMENT_BYTES)
   if (tooBig) {
     error.value = `${tooBig.name} is larger than 10 MB.`
   }
 
-  const accepted = picked.filter((file) => file.size <= MAX_ATTACHMENT_BYTES)
+  const accepted = rightType.filter((file) => file.size <= MAX_ATTACHMENT_BYTES)
   const combined = [...props.modelValue, ...accepted]
   if (combined.length > MAX_ATTACHMENTS) {
     error.value = `You can attach up to ${MAX_ATTACHMENTS} files to one message.`
   }
 
   emit('update:modelValue', combined.slice(0, MAX_ATTACHMENTS))
+}
+
+function onPick(event: Event) {
+  take(Array.from((event.target as HTMLInputElement).files || []))
+  // Clearing it is what lets the same file be picked twice in a row: without
+  // this the input holds the old value and fires no change event.
   if (input.value) input.value.value = ''
+}
+
+function onDrop(event: DragEvent) {
+  isOver.value = false
+  take(Array.from(event.dataTransfer?.files || []))
 }
 
 function remove(index: number) {
@@ -83,6 +121,17 @@ function remove(index: number) {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
+  padding: 0.6rem;
+  border: 1px dashed transparent;
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+/* Only while something is being dragged over it. A permanent dashed box
+   around the button would read as a disabled field. */
+.attach--over {
+  border-color: var(--dark-green);
+  background: var(--bg-light);
 }
 
 .attach__button {

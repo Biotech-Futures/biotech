@@ -11,8 +11,14 @@ from datetime import timedelta
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
+from rest_framework import serializers
 
-from ..models import Ticket, TicketPriority, TicketStatus
+from ..models import (
+    OFF_THE_CLOCK_STATUSES,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
+)
 
 # The queue never shows soft-deleted tickets: deleting one is how an agent
 # fixes a mistake, so it must disappear from the queue, the search and any
@@ -30,19 +36,65 @@ def _sla_hours():
 
 
 def overdue_condition(now=None) -> Q:
-    """Not resolved, never answered, and past its deadline.
+    """The ball is with support, and has been for longer than it should be.
 
-    Overdue is worked out on the spot rather than stored. Storing it would
-    mean a scheduled job to flip the flag, and a ticket whose badge is wrong
-    until that job next runs.
+    The client wrote the rule out for us on 2026-09-04, after rejecting a
+    first-response-only test:
+
+        Raised
+        Responded to and if not closed
+        Responded to by the ticket owner
+        If a support agent hasn't then responded to it after 4 hours it
+        should be marked as overdue
+
+    So the clock runs whenever it is our move, restarts every time the
+    requester answers, and stops every time we do. The old rule read
+    ``first_response_at IS NULL``, which meant a single reply made a ticket
+    permanently safe however long it then sat — the exact behaviour the client
+    replaced. ``first_response_at`` is still written and is still what the p52
+    "time to first response" figure is computed from; it just no longer
+    decides this.
+
+    Still worked out on the spot rather than stored. What is stored is when
+    the clock started (``Ticket.awaiting_support_since``, maintained by
+    services/lifecycle), never the verdict — a stored verdict would need a
+    scheduled job to flip it and would be wrong between runs, while a stored
+    start time compared against ``now`` here cannot go stale.
+
+    The deadline follows the ticket's *current* priority, and priority is a
+    field support can correct. Re-triaging therefore moves the deadline, so a
+    badge can appear or disappear on a ticket nobody has answered. That is
+    what the client's two 2026-09-04 rules come to when both are held: the
+    bands are per priority, and the agent may change a priority the requester
+    chose. The anchor is left alone on a priority change, which is the safe
+    half of it. Re-arming the clock there would let an agent zero it with two
+    clicks on a dropdown, and an overdue count anybody can reset is not a
+    count.
+
+    Two independent guards keep a "pending user" ticket out, and that is
+    deliberate rather than an accident:
+
+      * the anchor is null, because every path into "pending user" clears it;
+      * and the status is excluded outright.
+
+    Delete either one and the other still holds, so a mutation test that
+    removes one guard will not go red. That is the nature of redundant
+    defence, and it is here because the two mechanisms fail differently: the
+    anchor could be left stale by a backfill or by a future write path that
+    forgets it, and the status could be corrected by hand to something the
+    anchor was never updated for. Anyone tempted to remove one should delete
+    both, watch the tests go red, and then put both back.
     """
     now = now or timezone.now()
     past_deadline = Q()
     for priority, hours in _sla_hours().items():
-        past_deadline |= Q(priority=priority, created_at__lt=now - timedelta(hours=hours))
+        past_deadline |= Q(
+            priority=priority,
+            awaiting_support_since__lt=now - timedelta(hours=hours),
+        )
     return (
-        ~Q(status=TicketStatus.RESOLVED)
-        & Q(first_response_at__isnull=True)
+        ~Q(status__in=OFF_THE_CLOCK_STATUSES)
+        & Q(awaiting_support_since__isnull=False)
         & past_deadline
     )
 
@@ -65,6 +117,42 @@ def overdue_ids(tickets, now=None) -> set:
 # "no filter" everywhere else on the platform.
 UNKNOWN_REGION = "__unknown__"
 
+# Same trick for "nobody owns this one". The summary card counts these, so
+# without a filter value the card was a number you could not click through to.
+# Intercepted before the int() below, which is why that coercion was kept here
+# rather than pushed into a serializer.
+UNASSIGNED = "__unassigned__"
+
+
+def database_id(raw, name):
+    """A query-string value read as a row id, or a 400.
+
+    Two separate things, and the second is the one that bites. A non-number
+    has to be refused because Django coerces at query-build time and raises
+    ValueError, which the platform's handler turns into a 500 rather than a
+    400.
+
+    And a digits-only value past 2^63 sails through int() and then overflows:
+    SQLite raises OverflowError — a 500 for a number somebody typed into the
+    query string — while PostgreSQL shrugs and matches nothing. The tests run
+    on SQLite and production runs on PostgreSQL, so the two disagree about the
+    same request, and CI is the strict one. No real id can be out there, so
+    the answer is the same 400 as for a non-number.
+
+    Shared rather than repeated: the audit endpoint grew its own copy of the
+    first half and not the second, so ?actor= with a huge number answered 200
+    on PostgreSQL and 500 on SQLite while ?assignee= answered 400 on both.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise serializers.ValidationError(
+            {name: f"{name} must be an integer."}
+        ) from exc
+    if not (-(2 ** 63) <= value < 2 ** 63):
+        raise serializers.ValidationError({name: f"{name} must be an integer."})
+    return value
+
 
 def apply_filters(queryset, *, region=None, status=None, category=None,
                   assignee=None, priority=None, search=None):
@@ -74,8 +162,38 @@ def apply_filters(queryset, *, region=None, status=None, category=None,
         queryset = queryset.filter(status=status)
     if category:
         queryset = queryset.filter(category=category)
-    if assignee:
-        queryset = queryset.filter(assignee_id=assignee)
+    if assignee == UNASSIGNED:
+        queryset = queryset.filter(assignee__isnull=True)
+        # Resolved is excluded as well. The sentinel exists so the summary
+        # card can be clicked through; summary() counts unowned tickets that
+        # are not resolved, so without the same exclusion here a card reading
+        # 3 opens a list of 5.
+        #
+        # Lifted for exactly two filters, and the pair is not "any other
+        # filter". Applied as a flat rule the exclusion went on to hide rows
+        # the agent had asked for by name: choosing Resolved in the status
+        # dropdown beside it emptied the table, and searching an unowned
+        # resolved ticket by its own number answered "No tickets match these
+        # filters" about a ticket that is right there in the database. Both
+        # are the queue asserting something untrue about its own contents.
+        #
+        # Region, category and priority are the other direction. None of
+        # them names a resolved ticket. They narrow the pile; they do not ask
+        # for anything outside it. And the card carries whatever is already on
+        # screen when it is clicked, because TicketQueuePage spreads the
+        # current filters into the link on purpose so a region the agent had
+        # chosen is not silently dropped. Letting those three lift the
+        # exclusion put the original mismatch straight back on the card's own
+        # path: a card reading 1 opening a list of 2, with the extra row
+        # resolved.
+        if not (status or search):
+            queryset = queryset.exclude(status=TicketStatus.RESOLVED)
+    elif assignee:
+        # The only filter that is not a string column. On a CharField any
+        # value is legal and simply matches nothing; on an FK id Django
+        # coerces at query-build time, and a non-number raises ValueError,
+        # which the platform's handler turns into a 500 rather than a 400.
+        queryset = queryset.filter(assignee_id=database_id(assignee, "assignee"))
     if priority:
         queryset = queryset.filter(priority=priority)
     if search:
@@ -102,12 +220,48 @@ def summary(now=None) -> dict:
 
 
 def support_capable_users():
-    """Everyone who can be assigned a ticket: agents and admins, deduplicated."""
+    """Everyone who can be assigned a ticket: agents and admins, deduplicated.
+
+    Active accounts only. Deactivating someone does not delete their support
+    or admin scope row — the two are independent on this platform — so
+    without this an agent who left in March stays in the assignee dropdown,
+    and a ticket handed to them leaves both the Unassigned and the Open
+    counters while nobody is actually working it.
+    """
     from django.contrib.auth import get_user_model
 
     User = get_user_model()
     return User.objects.filter(
-        Q(support_scope__isnull=False) | Q(adminscope__isnull=False)
+        Q(support_scope__isnull=False) | Q(adminscope__isnull=False),
+        is_active=True,
+    ).distinct().order_by("first_name", "last_name", "id")
+
+
+def assignee_filter_options():
+    """Who can appear in the queue's *assignee filter*.
+
+    Wider than who can be assigned, and deliberately so. Deactivating an agent
+    does not move the tickets already in their name, so filtering by them is
+    the only way to find that work in bulk — and dropping them from this list
+    would make thirty in-progress tickets invisible while nobody is working
+    them. Assignment itself stays restricted to active accounts.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    # Worked out separately rather than as another OR'd join condition:
+    # `tickets_assigned__deleted_at__isnull=True` also matches every user with
+    # no tickets at all, because the outer join hands back NULL for them.
+    owners = (
+        live_tickets()
+        .exclude(assignee__isnull=True)
+        .values_list("assignee_id", flat=True)
+        .distinct()
+    )
+    return User.objects.filter(
+        Q(support_scope__isnull=False)
+        | Q(adminscope__isnull=False)
+        | Q(pk__in=owners)
     ).distinct().order_by("first_name", "last_name", "id")
 
 

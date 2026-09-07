@@ -74,9 +74,25 @@ def _send(msg, kind: str, on_failure=None) -> None:
         if on_failure is not None:
             try:
                 on_failure(exc)
-            except Exception:
+            except Exception as callback_exc:
                 # A broken callback must not be what takes the pool down.
-                logger.exception("auth_email.failure_callback_failed kind=%s", kind)
+                #
+                # And not logger.exception here either, for exactly the reason
+                # given four lines above. This runs inside the `except exc`
+                # block, so Python chains the two: logger.exception prints the
+                # callback's traceback *and* the "During handling of the above
+                # exception" section, which is the send failure — the one
+                # carrying the recipient address in its args. The guard above
+                # kept that address out of the log and this line handed it
+                # straight back. Both the callback's failure and the send's
+                # failure are named by type only.
+                logger.error(
+                    "auth_email.failure_callback_failed kind=%s callback_error=%s "
+                    "send_error=%s",
+                    kind,
+                    type(callback_exc).__name__,
+                    type(exc).__name__,
+                )
         return
 
     logger.info(

@@ -26,8 +26,12 @@ def is_support(user) -> bool:
 class IsSupportScoped(BasePermission):
     """Mirror of ``apps.admin.permissions.IsAdminScoped`` for the support side.
 
-    Same two-step shape: not signed in -> 401, signed in but not support-capable
-    -> 403.
+    Same two-step shape: not signed in, and signed in but not support-capable.
+    Both answer 403 in this deployment. DRF only produces a 401 when an
+    authentication class offers a ``WWW-Authenticate`` header, and the only one
+    configured here is ``SessionAuthentication``, which does not. Written out
+    because the comment this replaced said 401 for the first step, and a client
+    branching on that code has a branch that never runs.
     """
 
     message = "You do not have support privileges."
