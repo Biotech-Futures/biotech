@@ -1,18 +1,6 @@
-/**
- * Pure formatting and derivation used by the submission portal.
- *
- * Kept out of the page component so it can be tested directly. Three of these
- * have to agree with rules enforced on the server — a counter that disagrees
- * with the server tells a student their answer is fine and then has the save
- * rejected, which is worse than having no counter at all.
- */
+/** Pure formatting for the submission portal, kept testable outside the page. */
 
-/**
- * Words in an answer.
- *
- * Must match the server and the client's Qualtrics regex, both of which
- * split on whitespace. Anything cleverer would disagree with what is saved.
- */
+/** Words in an answer. Splits on whitespace, matching the server exactly. */
 export function countWords(text: string | null | undefined): number {
   return (text || '').split(/\s+/).filter(Boolean).length
 }
@@ -29,12 +17,7 @@ export function formatFileSize(bytes: number | null | undefined): string {
   return `${bytes} bytes`
 }
 
-/**
- * How long until a deadline, in the largest useful unit.
- *
- * Days, then hours, then minutes: three weeks out nobody needs the minute
- * count, and ten minutes out they very much do.
- */
+/** How long until a deadline, in the largest useful unit. */
 export function describeTimeRemaining(
   closesAt: string | null | undefined,
   now: number = Date.now()
@@ -42,7 +25,9 @@ export function describeTimeRemaining(
   if (!closesAt) return ''
   const msLeft = new Date(closesAt).getTime() - now
   if (Number.isNaN(msLeft)) return ''
-  if (msLeft <= 0) return 'Closing now'
+  // Nothing once the moment has passed: a grace period runs on quietly behind
+  // this, and any wording would either publish it or keep saying "now".
+  if (msLeft <= 0) return ''
 
   const minutes = Math.floor(msLeft / 60000)
   const hours = Math.floor(minutes / 60)

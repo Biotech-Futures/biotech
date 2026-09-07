@@ -67,3 +67,5 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+# Pinned on, so turning it off in a local .env cannot stop the suite testing it.
+SUBMISSION_POSTER_CHECKS_ENABLED = True

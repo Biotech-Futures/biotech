@@ -1,8 +1,8 @@
 """Format checks for an uploaded poster.
 
-The programme asks for an A2 portrait poster carrying the team's code, a school
-logo in the top left, and the supervisor's contact details at the foot. These
-checks report how far a file meets that, split into two kinds:
+The programme asks for a portrait poster carrying the team's code, a school logo
+in the top left, and the supervisor's contact details at the foot. These checks
+report how far a file meets that, split into two kinds:
 
 * **Structural** checks read the PDF's page geometry. They are arithmetic on
   numbers the file states about itself, so they are certain, and a failure is
@@ -23,15 +23,9 @@ students to ignore every warning next to it — including the ones that are righ
 
 ## On the page size
 
-A2 portrait is enforced literally. The programme's own PowerPoint file is a
-different size — around 227mm x 323mm — but that file is an instruction deck
-with an example layout on its second slide, not a canvas teams build in, so
-posters are not expected to inherit its dimensions.
-
-Worth knowing what this rules out: a poster designed correctly but exported at
-A4 is the same shape and would print identically, yet is refused here. That is
-a deliberate consequence of enforcing the stated size rather than the stated
-proportions.
+Page size is not checked. A2 was enforced literally until the client confirmed
+the requirement is not strict; students are pointed at the programme's template
+on the poster step instead.
 """
 from __future__ import annotations
 
@@ -41,15 +35,6 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-
-# A2 portrait, in PDF points (72 to the inch): 420mm x 594mm.
-PT_PER_MM = 72.0 / 25.4
-A2_WIDTH_PT = 420 * PT_PER_MM
-A2_HEIGHT_PT = 594 * PT_PER_MM
-
-# Exporters round. 2% of A2's width is about 8mm: far too tight to admit A3
-# or A1, far too loose to be tripped by rounding.
-SIZE_TOLERANCE = 0.02
 
 # Where a logo is expected, as fractions of the page. Generous on purpose:
 # the requirement is "top left", not a coordinate.
@@ -65,18 +50,15 @@ BOTTOM_BAND = 0.33
 # Stored on the submission and read back by the page: a stable contract.
 SINGLE_PAGE = "single_page"
 PORTRAIT = "portrait"
-PAGE_SIZE = "page_size"
 TEAM_CODE = "team_code"
 SUPERVISOR_EMAIL = "supervisor_email"
 SCHOOL_LOGO = "school_logo"
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
-# Said instead of naming a finding the student cannot check for themselves.
-GENERIC_REFUSAL = (
-    "This poster does not match the required format. Please check it against "
-    "the programme's poster template and export it again."
-)
+# Said instead of naming a finding the student cannot check. Word for word the
+# same as PosterFormatError's detail, so one situation has one phrasing.
+GENERIC_REFUSAL = "This poster is not in the required format."
 
 
 @dataclass(frozen=True)
@@ -163,10 +145,6 @@ def _page_rotation(page) -> int:
         return 0
 
 
-def _close(value: float, target: float) -> bool:
-    return abs(value - target) <= target * SIZE_TOLERANCE
-
-
 def _structural_checks(reader) -> list[PosterCheck]:
     pages = len(reader.pages)
     checks = [
@@ -197,20 +175,6 @@ def _structural_checks(reader) -> list[PosterCheck]:
         )
     )
 
-    right_size = _close(width, A2_WIDTH_PT) and _close(height, A2_HEIGHT_PT)
-    checks.append(
-        PosterCheck(
-            PAGE_SIZE,
-            portrait and right_size,
-            "" if (portrait and right_size) else (
-                "The poster should be A2 (420 x 594 mm). This file is "
-                f"{width / PT_PER_MM:.0f} x {height / PT_PER_MM:.0f} mm."
-            ),
-            # A number in the export dialog they just used, so naming it
-            # tells them exactly what to change.
-            explicit=True,
-        )
-    )
     return checks
 
 

@@ -79,18 +79,6 @@
               </RouterLink>
             </li>
 
-            <!-- Students submit; grading-access admins can open any team's entry. -->
-            <li v-if="auth.isStudent || auth.isAdmin" class="sidebar-item">
-              <RouterLink
-                to="/submission"
-                class="sidebar-link"
-                :class="{ active: route.path.includes('/submission') }"
-              >
-                <i class="fas fa-flask sidebar-icon"></i>
-                <span>Submission</span>
-              </RouterLink>
-            </li>
-
             <li class="sidebar-item">
               <RouterLink
                 to="/events"
