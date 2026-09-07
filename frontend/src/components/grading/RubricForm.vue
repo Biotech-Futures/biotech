@@ -80,27 +80,47 @@ type FormRow = { mark: string; comment: string }
 const state = reactive<Record<number, FormRow>>({})
 const overallComment = ref('')
 
-// Mirror the server's overall comment whenever the submission (re)loads.
-watch(
-  () => props.submission,
-  (submission) => {
-    overallComment.value = submission?.overall_comment ?? ''
-  },
-  { immediate: true }
-)
+// "5" and "5.00" are the same mark — the server normalises decimals, so a
+// plain string compare would flag a just-saved value as an edit.
+const sameMark = (a: string, b: string) => {
+  if (a.trim() === b.trim()) return true
+  if (a.trim() === '' || b.trim() === '') return false
+  const na = Number(a)
+  const nb = Number(b)
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
+}
 
 // Preload form state from existing grades keyed by criterion id, with empty
 // defaults for un-graded criteria. Re-runs when the payload refetches after a
-// save round-trip so the form always mirrors the server.
+// save round-trip. A refetch of the SAME entry (e.g. the combined SAQs &
+// Poster view saving the other section) must not wipe edits in progress
+// here, so dirty rows survive it; a different entry resets everything.
+let boundSubmissionId: number | null = null
 watch(
-  () => [props.criteria, props.grades] as const,
-  ([criteria, grades]) => {
+  () => [props.submission, props.criteria, props.grades] as const,
+  ([submission, criteria, grades]) => {
+    const sameEntry = submission?.id != null && submission.id === boundSubmissionId
+    boundSubmissionId = submission?.id ?? null
+
     const byCriterion = new Map<number, Grade>()
     for (const g of grades) byCriterion.set(g.criterion, g)
-    for (const key of Object.keys(state)) delete state[Number(key)]
+    for (const key of Object.keys(state)) {
+      if (!criteria.some((c) => c.id === Number(key))) delete state[Number(key)]
+    }
     for (const c of criteria) {
       const g = byCriterion.get(c.id)
-      state[c.id] = { mark: g?.mark ?? '', comment: g?.comment ?? '' }
+      const server: FormRow = { mark: g?.mark ?? '', comment: g?.comment ?? '' }
+      const row = state[c.id]
+      const keepLocal =
+        sameEntry &&
+        row != null &&
+        (!sameMark(row.mark, server.mark) || row.comment !== server.comment)
+      if (!keepLocal) state[c.id] = server
+    }
+
+    const serverOverall = submission?.overall_comment ?? ''
+    if (!(sameEntry && overallComment.value !== serverOverall)) {
+      overallComment.value = serverOverall
     }
   },
   { immediate: true }
@@ -115,7 +135,7 @@ const isDirty = computed(() => {
     const row = state[c.id]
     if (!row) return false
     const g = byCriterion.get(c.id)
-    return row.mark.trim() !== (g?.mark ?? '').trim() || row.comment !== (g?.comment ?? '')
+    return !sameMark(row.mark, g?.mark ?? '') || row.comment !== (g?.comment ?? '')
   })
   const overallDirty = props.overallCommentLabel
     ? overallComment.value !== (props.submission?.overall_comment ?? '')

@@ -107,9 +107,11 @@ const routes: RouteRecordRaw[] = [
       { path: 'by-component', name: 'grading-by-component', component: () => import('@/views/grading/ByComponentPage.vue') },
       { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
       { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
-      // Marking pages hide the app's side navigation (meta.hideSidebar) —
-      // the preview/rubric split wants the full width.
-      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/ComponentGroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      // Both marking routes render the same page — the route name decides the
+      // chrome (jump card, Download all, tab navigation). They hide the app's
+      // side navigation (meta.hideSidebar): the preview/rubric split wants
+      // the full width.
+      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
       { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
       { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
       {

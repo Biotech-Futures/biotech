@@ -49,7 +49,11 @@
       </div>
     </header>
 
-    <div class="main-layout" v-if="!isLoginPage">
+    <div
+      class="main-layout"
+      v-if="!isLoginPage"
+      :class="{ 'main-layout--full': markingFullWidth }"
+    >
       <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
@@ -258,6 +262,7 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
+import { markingFullWidth } from '@/composables/markingLayout'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
@@ -855,6 +860,12 @@ select {
   margin: 0 auto;
   width: 100%;
   background-color: var(--white);
+}
+
+/* Marking pages spread edge to edge — the preview/rubric splits want every
+   pixel a wide monitor offers. */
+.main-layout.main-layout--full {
+  max-width: none;
 }
 
 .sidebar {

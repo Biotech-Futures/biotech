@@ -4,7 +4,7 @@
   </div>
 
   <div v-else class="submission-preview">
-    <div class="submission-preview__meta">
+    <div v-if="!hideSubmitted" class="submission-preview__meta">
       <p class="submission-preview__stamp">
         Submitted {{ submittedLabel }}<template v-if="submission.is_late"> (late)</template>
         <template v-if="lastGraderName">
@@ -116,6 +116,9 @@ const props = defineProps<{
   graderNames?: string[]
   /** Latest marker per rubric criterion — one tooltip line per part. */
   criterionMarkers?: { name: string; marker: string }[]
+  /** Hoisted-stamp views: the parent renders one shared "Submitted …" line
+   *  carrying the Open/Download actions, so the whole meta row is hidden. */
+  hideSubmitted?: boolean
 }>()
 
 const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? null))

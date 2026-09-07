@@ -81,15 +81,31 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the only supported file backend.
-USE_AZURE_BLOB_STORAGE = True
+# Azure Blob is the file backend whenever credentials are configured — the
+# env cannot switch a configured deployment off Azure. With no credentials,
+# USE_AZURE_BLOB_STORAGE=false in the env swaps every managed container and
+# plain FileField onto local disk under MEDIA_ROOT (the dev setup for running
+# config.settings without an Azure account; settings_local hardcodes the
+# same). Leaving it unset keeps missing credentials a loud failure at request
+# time: production must never silently write to ephemeral disk.
+_AZURE_CONFIGURED = bool(
+    AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
+)
+USE_AZURE_BLOB_STORAGE = _AZURE_CONFIGURED or config(
+    "USE_AZURE_BLOB_STORAGE", default="true", cast=env_bool
+)
 # Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
 # now, so naming the backend here is what actually routes plain FileFields
-# (the grading templates and director signatures) to Azure rather than to the
-# App Service's ephemeral local disk. django-storages picks up the account and
-# AZURE_CONTAINER from the settings above on its own.
+# (the grading templates and director signatures). django-storages picks up
+# the account and AZURE_CONTAINER from the settings above on its own.
 STORAGES = {
-    "default": {"BACKEND": "storages.backends.azure_storage.AzureStorage"},
+    "default": {
+        "BACKEND": (
+            "storages.backends.azure_storage.AzureStorage"
+            if USE_AZURE_BLOB_STORAGE
+            else "django.core.files.storage.FileSystemStorage"
+        )
+    },
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 MEDIA_ROOT = BASE_DIR / "media"
