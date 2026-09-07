@@ -25,12 +25,13 @@ const route = useRoute()
 
 const tabs = [
   { label: 'Submission Deadline', to: '/grading/management/submission-deadline' },
-  { label: 'Extend Deadline', to: '/grading/management/extend-deadline' },
-  { label: 'Release Marks', to: '/grading/management/release-marks' },
-  { label: 'Release Certificates', to: '/grading/management/release-certificates' },
-  { label: 'Document Setup', to: '/grading/management/document-setup' },
-  { label: 'Notify Finalists', to: '/grading/management/notify-finalists' },
-  { label: 'New Year', to: '/grading/management/new-year' }
+  { label: 'Extend Deadline', to: '/grading/management/extend-deadline' }
+  // Hidden for now — pages still exist at their URLs; restore by uncommenting.
+  // { label: 'Release Marks', to: '/grading/management/release-marks' },
+  // { label: 'Release Certificates', to: '/grading/management/release-certificates' },
+  // { label: 'Document Setup', to: '/grading/management/document-setup' },
+  // { label: 'Notify Finalists', to: '/grading/management/notify-finalists' },
+  // { label: 'New Year', to: '/grading/management/new-year' }
 ]
 </script>
 
