@@ -83,7 +83,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
-  { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
+  { path: '/groups/:id/meetings', name: 'group-meetings', component: () => import('@/views/GroupMeetingsPage.vue') },
+  { path: '/groups/:id/meetings/:meetingId', name: 'group-meeting-detail', component: () => import('@/views/GroupMeetingDetailPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
   { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
@@ -91,7 +92,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
-  { path: '/:pathMatch(.*)*', redirect: '/login' }
+  { path: '/:pathMatch(.*)*', redirect: '/login' },
 ];
 
 export default routes;

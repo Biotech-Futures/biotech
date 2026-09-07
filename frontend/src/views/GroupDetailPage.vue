@@ -91,6 +91,18 @@
             <button
               type="button"
               class="group-members-btn"
+              @click="router.push({
+                name: 'group-meetings',
+                params: { id: route.params.id }
+              })"
+            >
+              <i class="fas fa-calendar"></i>
+              Meetings
+            </button>
+
+            <button
+              type="button"
+              class="group-members-btn"
               :disabled="isLoadingMembers || !visibleGroupMembers.length"
               @click="showGroupMembersDialog = true"
             >
