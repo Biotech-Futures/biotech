@@ -1,0 +1,44 @@
+{% comment %}
+Plain-text alternative, written as text rather than derived from the HTML — see
+the note in submission_confirmation.txt for why deriving it does not work.
+
+Keep the wording here in step with submission_reminder.html.
+{% endcomment %}Hi Group {{ GROUP_NAME }},
+
+This is a reminder to check your team's submission for {{ BRAND_NAME }} {{ YEAR }}.
+
+Our records currently show the following:
+
+SUBMISSION COMPONENTS
+{% for item in REQUIRED_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+If either of these components is shown as Not Submitted, please upload it
+before the submission deadline on {{ DEADLINE }}.
+
+OPTIONAL COMPONENTS
+{% for item in OPTIONAL_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+The Scientific Report and Prototype are optional, so you are welcome to submit
+these if your team would like to, but they are not required.
+
+You can continue to update or complete your submission up until the deadline on
+{{ DEADLINE }}.
+{% if SUBMISSION_URL %}
+Open your submission: {{ SUBMISSION_URL }}
+{% endif %}
+Thank you for all the work your team has put into the {{ BRAND_NAME }}
+Challenge. We're looking forward to seeing your final submission!
+
+Kind regards,
+The {{ BRAND_NAME }} Team
+
+--
+{{ BRAND_NAME }}, NSW 2006 Australia
+Add {{ SENDER_EMAIL }} to your address book to keep receiving submission
+reminders.

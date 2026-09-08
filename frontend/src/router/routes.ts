@@ -83,14 +83,58 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
+  { path: '/submission', redirect: '/groups' },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
   { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
-  { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  {
+    // Admin-only grading section. meta.adminOnly is merged into every child
+    // route's meta by Vue Router, so the global guard covers the whole tree.
+    path: '/grading',
+    component: () => import('@/views/grading/GradingPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/grading/by-component' },
+      { path: 'by-component', name: 'grading-by-component', component: () => import('@/views/grading/ByComponentPage.vue') },
+      { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
+      { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
+      // Both marking routes render the same page — the route name decides the
+      // chrome (jump card, Download all, tab navigation). They hide the app's
+      // side navigation (meta.hideSidebar): the preview/rubric split wants
+      // the full width.
+      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
+      {
+        // Management: the run-the-competition levers, grouped under one tab.
+        path: 'management',
+        component: () => import('@/views/grading/ManagementPage.vue'),
+        children: [
+          { path: '', redirect: '/grading/management/submission-deadline' },
+          { path: 'new-year', name: 'grading-new-year', component: () => import('@/views/grading/YearPage.vue') },
+          // Legacy path from before the Season → Year rename.
+          { path: 'new-season', redirect: '/grading/management/new-year' },
+          { path: 'submission-deadline', name: 'grading-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
+          { path: 'extend-deadline', name: 'grading-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
+          { path: 'release-marks', name: 'grading-release', component: () => import('@/views/grading/ReleasePage.vue') },
+          { path: 'release-certificates', name: 'grading-release-certificates', component: () => import('@/views/grading/ReleaseCertificatesPage.vue') },
+          { path: 'document-setup', name: 'grading-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
+          { path: 'notify-finalists', name: 'grading-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') }
+        ]
+      },
+      // Legacy paths from before the Management grouping.
+      { path: 'deadline', redirect: '/grading/management/submission-deadline' },
+      { path: 'release', redirect: '/grading/management/release-marks' },
+      { path: 'settings', redirect: '/grading/management/document-setup' },
+      { path: 'notify-finalists', redirect: '/grading/management/notify-finalists' }
+    ]
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

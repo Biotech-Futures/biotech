@@ -1,0 +1,48 @@
+name: Daily submission reminders
+
+# Nudges teams whose entry is still outstanding, every day for the last week
+# before their deadline. The backend decides who is due — including honouring
+# any extension a team has been granted — so this only has to fire once a day.
+#
+# Firing more often than that is harmless: a team already written to today is
+# skipped, so a retry or an overlapping run cannot email anyone twice.
+#
+# Required configuration:
+#   secret  SUBMISSION_REMINDER_TOKEN         must match backend env of same name
+#   var     SUBMISSION_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
+#
+# 07:17 UTC is late afternoon in Sydney, where most teams are: a reminder that
+# lands during the day is acted on, one that lands overnight is buried by
+# morning. The odd minute avoids GitHub's top-of-hour cron congestion, which
+# can otherwise drift a run by ten minutes or more.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger submission reminder dispatch
+        env:
+          BACKEND_URL: ${{ vars.SUBMISSION_REMINDER_BACKEND_URL }}
+          REMINDER_TOKEN: ${{ secrets.SUBMISSION_REMINDER_TOKEN }}
+        run: |
+          if [ -z "${BACKEND_URL}" ]; then
+            echo "SUBMISSION_REMINDER_BACKEND_URL is not set (repository variable)." >&2
+            exit 1
+          fi
+          if [ -z "${REMINDER_TOKEN}" ]; then
+            echo "SUBMISSION_REMINDER_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding. -sS keeps
+          # the output quiet but still prints errors.
+          curl -fsS -X POST \
+            -H "X-Reminder-Token: ${REMINDER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/submissions/admin/send-reminders/"

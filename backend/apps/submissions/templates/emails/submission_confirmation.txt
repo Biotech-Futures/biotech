@@ -1,0 +1,54 @@
+{% comment %}
+Plain-text alternative, written as text rather than derived from the HTML.
+
+Deriving it with strip_tags() looked equivalent but was not: strip_tags removes
+tags and keeps whatever sat between them, so everything inside the base
+template's <style> block arrived as visible CSS above the message. Most clients
+render the HTML part and never show this, but those that fall back to text —
+and some screen readers — would have read out the stylesheet first.
+
+Keep the wording here in step with submission_confirmation.html.
+{% endcomment %}Hi Group {{ GROUP_NAME }},
+
+THANK YOU FOR SUBMITTING YOUR WORK
+
+Thank you for submitting your work for {{ BRAND_NAME }} {{ YEAR }}. We've
+received your submission. A summary of the components currently recorded for
+your team is below.
+
+REQUIRED COMPONENTS
+{% for item in REQUIRED_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+Both the Poster and SAQs are required for your submission to be considered
+complete.
+
+OPTIONAL COMPONENTS
+{% for item in OPTIONAL_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+The Scientific Report and Prototype are optional and will not affect whether
+your submission is considered complete.
+{% if INCOMPLETE %}
+YOUR SUBMISSION IS NOT YET COMPLETE
+
+Please review the statuses above carefully. Any required component shown as
+Absent must be submitted before the deadline.
+{% endif %}
+You can continue to update or complete your submission up until the deadline
+on {{ DEADLINE }}.
+
+Thank you for the work you and your team have put into the {{ BRAND_NAME }}
+Challenge. We're looking forward to seeing your ideas!
+
+Kind regards,
+The {{ BRAND_NAME }} Team
+
+--
+{{ BRAND_NAME }}, NSW 2006 Australia
+Add {{ SENDER_EMAIL }} to your address book to keep receiving submission
+confirmations.
