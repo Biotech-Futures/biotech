@@ -34,20 +34,19 @@
     <slot />
   </div>
 
-  <!-- Loaded only when opened: the portal is a large component and most visits
-       to the group page are for tasks. -->
+  <!-- Mounted on first open, then hidden rather than destroyed. -->
   <section
-    v-if="section === 'submission'"
+    v-show="section === 'submission'"
     class="group-section-body"
     data-testid="section-body-submission"
   >
-    <GroupSubmissionPage />
+    <GroupSubmissionPage v-if="hasOpenedSubmission" />
   </section>
 </template>
 
 <script setup lang="ts">
 /** The group page's section switcher: Tasks and Chat (the slot) and Submission. */
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -70,6 +69,15 @@ const groupId = computed(() => String(route.params.id ?? ''))
 /** Which section is showing, from the route so a refresh holds its place. */
 const section = computed(() =>
   route.name === SUBMISSION_ROUTE && canSeeSubmission.value ? 'submission' : 'tasks',
+)
+
+const hasOpenedSubmission = ref(false)
+watch(
+  section,
+  (value) => {
+    if (value === 'submission') hasOpenedSubmission.value = true
+  },
+  { immediate: true },
 )
 
 function goToSection(next: 'tasks' | 'submission') {

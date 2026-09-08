@@ -136,6 +136,18 @@ describe('switching between the sections', () => {
     expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
   })
 
+  it('keeps the portal mounted after leaving, so returning does not refetch', async () => {
+    // It used to be rebuilt on every return, refetching the entry.
+    const { wrapper } = await mountAt('/groups/1/submission', 'student')
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="section-tab-tasks"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="section-body-submission"]').isVisible()).toBe(false)
+  })
+
   it('lands on the group page route', async () => {
     // The regression this pins: this route once shared its name with the old
     // standalone portal route, and the second registration deleted the first.
