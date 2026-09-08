@@ -21,21 +21,40 @@
         <table class="by-group__table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>
+                <button type="button" class="by-group__sort" @click="setSort('id')">
+                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th>Group</th>
               <th>Submitted</th>
-              <th>Time</th>
+              <th>
+                <button type="button" class="by-group__sort" @click="setSort('time')">
+                  Time <i :class="sortIcon('time')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th>Late</th>
-              <th>Progress</th>
-              <th>Marker</th>
+              <th>
+                <button type="button" class="by-group__sort" @click="setSort('progress')">
+                  Progress <i :class="sortIcon('progress')" aria-hidden="true"></i>
+                </button>
+              </th>
+              <th>
+                Marker
+                <i
+                  class="fas fa-circle-info by-group__marker-info"
+                  data-tip="Hover over a marker's name to see who marked each part."
+                  aria-hidden="true"
+                ></i>
+              </th>
               <th class="by-group__cell--right"></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="rows.length === 0">
+            <tr v-if="displayRows.length === 0">
               <td colspan="8" class="by-group__empty">No groups.</td>
             </tr>
-            <tr v-for="r in rows" :key="r.group_id">
+            <tr v-for="r in displayRows" :key="r.group_id">
               <td class="by-group__muted">#{{ r.group_id }}</td>
               <td class="by-group__cell--strong">{{ r.group_name }}</td>
               <td>
@@ -95,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 import { fetchComponentRows } from '@/utils/gradingAPI'
@@ -139,6 +158,58 @@ interface GroupRow {
 
 const rows = ref<GroupRow[]>([])
 const isLoading = ref(false)
+
+// Same sorting behaviour as the per-component tables.
+type SortKey = 'id' | 'time' | 'progress'
+const sortKey = ref<SortKey>('time')
+const sortDirection = ref<'asc' | 'desc'>('desc')
+
+const setSort = (key: SortKey) => {
+  if (sortKey.value === key) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDirection.value = key === 'time' ? 'desc' : 'asc'
+  }
+}
+
+const sortIcon = (key: SortKey) => {
+  if (sortKey.value !== key) return 'fas fa-sort by-group__sort-icon by-group__sort-icon--idle'
+  return sortDirection.value === 'asc'
+    ? 'fas fa-sort-up by-group__sort-icon'
+    : 'fas fa-sort-down by-group__sort-icon'
+}
+
+const sortValue = (r: GroupRow): number | string | null => {
+  if (sortKey.value === 'id') return r.group_id
+  if (sortKey.value === 'time') return r.submitted_at
+  return r.submission_id != null ? r.graded : null
+}
+
+const displayRows = computed(() => {
+  const sorted = [...rows.value]
+  const dir = sortDirection.value === 'asc' ? 1 : -1
+  sorted.sort((a, b) => {
+    const va = sortValue(a)
+    const vb = sortValue(b)
+    // Nulls (no submission / no timestamp) always sort last.
+    if (va == null && vb == null) return 0
+    if (va == null) return 1
+    if (vb == null) return -1
+    if (va < vb) return -1 * dir
+    if (va > vb) return 1 * dir
+    return 0
+  })
+  // Sorting by progress: keep unsubmitted rows pinned at the bottom regardless
+  // of direction, so admins never mistake "0/N" for a legitimate low score.
+  if (sortKey.value === 'progress') {
+    return [
+      ...sorted.filter((r) => r.submission_id != null),
+      ...sorted.filter((r) => r.submission_id == null)
+    ]
+  }
+  return sorted
+})
 
 onMounted(async () => {
   isLoading.value = true
@@ -302,8 +373,62 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
-.by-group__marker {
-  cursor: help;
+.by-group__sort {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  /* Buttons don't pick up the header's uppercase styling on their own. */
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.by-group__sort:hover {
+  color: var(--dark-green);
+}
+
+.by-group__sort-icon {
+  font-size: 0.7rem;
+}
+
+.by-group__sort-icon--idle {
+  color: var(--border-light);
+}
+
+.by-group__marker-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.2rem;
+  position: relative;
+}
+
+/* Instant tooltip — native title has an uncontrollable hover delay. */
+.by-group__marker-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 1.4rem;
+  z-index: 20;
+  display: none;
+  background: #333;
+  color: #fff;
+  font: 400 10px/1.4 var(--font-family, sans-serif);
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  white-space: normal;
+  width: max-content;
+  max-width: 10rem;
+}
+
+.by-group__marker-info:hover::after {
+  display: block;
 }
 
 .by-group__empty {
