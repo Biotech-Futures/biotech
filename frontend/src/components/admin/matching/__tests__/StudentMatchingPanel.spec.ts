@@ -195,6 +195,46 @@ describe('StudentMatchingPanel', () => {
     expect(wrapper.text()).not.toContain('Nameless')
   })
 
+  it('confirms a newly formed group with its synthetic id intact', async () => {
+    const fetch = fetchMock({
+      match: {
+        recommendations: [
+          {
+            student: { id: 7, name: 'Priya Raman', interests: ['Genetics'] },
+            // The matcher proposes forming a group that has no row yet; the
+            // backend creates it from this id on confirm.
+            recommendGroup: {
+              id: 'new-Australia-7',
+              groupName: 'Suggested Group',
+              maxSize: 5,
+              tutor: null,
+              groupStudent: []
+            },
+            reason: 'Formed a new group.',
+            score: 92,
+            scoreBreakdown: null
+          }
+        ]
+      }
+    })
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+    await runMatch(wrapper)
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Suggested Group')
+    expect(wrapper.text()).toContain('Priya Raman')
+
+    await buttonByText(wrapper, 'Confirm')!.trigger('click')
+    await flushPromises()
+
+    const confirmCall = fetch.mock.calls.find((call) =>
+      String(call[0]).includes('/match/confirm/')
+    )
+    const body = JSON.parse((confirmCall![1] as RequestInit).body as string)
+    expect(body.assignments).toEqual([{ studentId: 7, groupId: 'new-Australia-7' }])
+  })
+
   it('keeps confirm disabled until a match has been run', async () => {
     vi.stubGlobal('fetch', fetchMock())
     wrapper = mount(StudentMatchingPanel)

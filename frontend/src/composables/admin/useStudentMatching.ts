@@ -2,16 +2,19 @@ import { computed, ref } from 'vue'
 import { confirmStudentAssignments, fetchStudentMatch } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import {
+  type MatchGroupId,
   type MatchStudent,
   type MatchTutor,
   type RecommendedStudent,
   type StudentMatchData,
-  parseStudentMatchData
+  parseStudentMatchData,
+  toConfirmGroupId
 } from '@/utils/adminMatching'
 
 /** A group rendered as a drop target, merged from notFullGroups + recommendations. */
 export interface BoardGroup {
-  id: number
+  /** Integer for existing groups, `new-*` for ones the matcher proposes forming. */
+  id: MatchGroupId
   groupName: string
   maxSize: number
   tutor: MatchTutor
@@ -76,7 +79,7 @@ export function useStudentMatching() {
    * number is stale, so the board needs to know where it came from rather than
    * presenting it as the fit for wherever the student now sits.
    */
-  const recommendedGroup = ref<Map<string, { id: number; groupName: string }>>(new Map())
+  const recommendedGroup = ref<Map<string, { id: MatchGroupId; groupName: string }>>(new Map())
 
   const search = ref('')
   const groupFilter = ref<GroupFilter>('all')
@@ -84,14 +87,15 @@ export function useStudentMatching() {
   // -- Board construction -----------------------------------------------------
 
   const seedBoard = (source: StudentMatchData) => {
-    const byId = new Map<number, BoardGroup>()
+    // Keyed by String(id) so integer and `new-*` ids share one namespace.
+    const byId = new Map<string, BoardGroup>()
     const nextBuckets: Record<string, RecommendedStudent[]> = {}
-    const nextRecommended = new Map<string, { id: number; groupName: string }>()
+    const nextRecommended = new Map<string, { id: MatchGroupId; groupName: string }>()
 
     // Not-full groups first: they render as empty drop targets even when the
     // matcher proposed nobody for them.
     for (const group of source.notFullGroups) {
-      byId.set(group.id, {
+      byId.set(String(group.id), {
         id: group.id,
         groupName: group.groupName,
         maxSize: group.maxSize ?? DEFAULT_MAX_SIZE,
@@ -103,8 +107,8 @@ export function useStudentMatching() {
     }
 
     for (const group of source.recommendations) {
-      if (!byId.has(group.id)) {
-        byId.set(group.id, {
+      if (!byId.has(String(group.id))) {
+        byId.set(String(group.id), {
           id: group.id,
           groupName: group.groupName,
           maxSize: group.maxSize ?? DEFAULT_MAX_SIZE,
@@ -139,12 +143,12 @@ export function useStudentMatching() {
     recommendedGroup.value.get(String(studentId)) ?? null
 
   /** True when the student is sitting where the matcher put them. */
-  const isInRecommendedGroup = (studentId: string | number, groupId: number) =>
-    recommendedGroupOf(studentId)?.id === groupId
+  const isInRecommendedGroup = (studentId: string | number, groupId: MatchGroupId) =>
+    String(recommendedGroupOf(studentId)?.id) === String(groupId)
 
   // -- Derived ----------------------------------------------------------------
 
-  const bucketFor = (groupId: number): RecommendedStudent[] =>
+  const bucketFor = (groupId: MatchGroupId): RecommendedStudent[] =>
     buckets.value[String(groupId)] ?? []
 
   const seatsUsed = (group: BoardGroup) =>
@@ -224,15 +228,24 @@ export function useStudentMatching() {
   const confirm = async (): Promise<boolean> => {
     if (confirming.value) return false
 
-    const payload = Object.entries(buckets.value).flatMap(([groupId, bucket]) =>
-      bucket.map((entry) => ({
-        studentId: Number(entry.student.id),
-        groupId: Number(groupId)
-      }))
-    )
+    const payload = Object.entries(buckets.value)
+      .flatMap(([groupId, bucket]) =>
+        bucket.map((entry) => ({
+          studentId: Number(entry.student.id),
+          // Bucket keys are strings, so a `new-*` id has to be handed back
+          // verbatim rather than coerced — the backend creates the real group
+          // from it on confirm.
+          groupId: toConfirmGroupId(groupId)
+        }))
+      )
       // `> 0`, not Number.isFinite: Number('') is 0, which is finite, so a
-      // missing id would otherwise be posted as student 0.
-      .filter((entry) => entry.studentId > 0 && entry.groupId > 0)
+      // missing id would otherwise be posted as student 0. toConfirmGroupId
+      // returns null for a group id that is neither `new-*` nor a usable
+      // integer, which drops it here for the same reason.
+      .filter(
+        (entry): entry is { studentId: number; groupId: string | number } =>
+          entry.studentId > 0 && entry.groupId !== null
+      )
 
     if (payload.length === 0) {
       error.value = 'No assignments to confirm.'

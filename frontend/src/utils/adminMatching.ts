@@ -42,6 +42,32 @@ const withAliases = (value: unknown, aliases: Record<string, string>): unknown =
  */
 const numericId = z.coerce.number().int().positive()
 
+/**
+ * Group ids are integers for existing groups, but the matcher also proposes
+ * groups that do not exist yet and labels them `new-<country>-<studentIds>`
+ * (services/match.py). `/match/confirm/` accepts both and creates the real row
+ * on confirm, so coercing this to a number would reject every run that forms a
+ * new group — which is most runs on a database with unmatched students.
+ */
+const groupIdSchema = z.union([z.string().min(1), z.number().int().positive()])
+
+export type MatchGroupId = z.infer<typeof groupIdSchema>
+
+/** True for the `new-*` placeholder ids the matcher invents for unformed groups. */
+export const isSyntheticGroupId = (value: MatchGroupId): value is string =>
+  typeof value === 'string' && value.startsWith('new-')
+
+/**
+ * The group id in the form `/match/confirm/` accepts, or null when it is
+ * neither a `new-*` id nor a usable integer. Mirrors the backend's own
+ * validation in `_normalize_confirm_assignments`.
+ */
+export const toConfirmGroupId = (value: MatchGroupId): string | number | null => {
+  if (isSyntheticGroupId(value)) return value
+  const numeric = Number(value)
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null
+}
+
 /** Interests arrive as plain strings or as `{ interestDesc }` / `{ name }`. */
 const interestList = z.preprocess((value) => {
   if (!Array.isArray(value)) return []
@@ -129,7 +155,7 @@ const groupShellAliases = (value: unknown) =>
 // Kept unwrapped so the grouped/not-full variants below can `.extend()` it —
 // z.preprocess() returns a wrapper that has no object methods.
 const groupShellObject = z.object({
-  id: numericId,
+  id: groupIdSchema,
   groupName: z.string().min(1),
   maxSize: z.number().int().nullable().default(null),
   tutor: tutorSchema,
@@ -338,13 +364,41 @@ export type MentorGroupRecommendation = z.infer<typeof mentorGroupRecommendation
 
 export type ParseResult<T> = { ok: true; data: T } | { ok: false; message: string }
 
+type Issue = z.core.$ZodIssue
+
+/**
+ * A failed union reports a single opaque `invalid_union` issue at the root, so
+ * every mismatch anywhere in the payload surfaces as "response: Invalid input".
+ * The detail lives in `errors`, one entry per branch. The branch that reached
+ * the deepest path is the shape the payload came closest to, so that is the one
+ * worth reporting — the others just failed on the top-level type.
+ */
+const unwrapIssues = (issues: readonly Issue[]): Issue[] =>
+  issues.flatMap((issue) => {
+    if (issue.code !== 'invalid_union') return [issue]
+
+    const branches = issue.errors.map((branch) =>
+      unwrapIssues(branch).map((nested) => ({
+        ...nested,
+        path: [...issue.path, ...nested.path]
+      }))
+    )
+    const depth = (branch: Issue[]) => Math.max(0, ...branch.map((entry) => entry.path.length))
+
+    return branches.reduce<Issue[]>(
+      (best, branch) => (depth(branch) > depth(best) ? branch : best),
+      []
+    )
+  })
+
 /** First few issues, with their paths — enough to find the offending field. */
 const describeIssues = (error: z.ZodError): string => {
-  const shown = error.issues.slice(0, 3).map((issue) => {
+  const issues = unwrapIssues(error.issues)
+  const shown = issues.slice(0, 3).map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join('.') : 'response'
     return `${path}: ${issue.message}`
   })
-  const extra = error.issues.length - shown.length
+  const extra = issues.length - shown.length
   return shown.join('; ') + (extra > 0 ? ` (+${extra} more)` : '')
 }
 

@@ -98,6 +98,43 @@ describe('parseStudentMatchData', () => {
     expect(result.message).toContain('Student matching')
   })
 
+  // The mirror-image regression: student ids must be integers, but *group* ids
+  // must not be. When the matcher forms a group that does not exist yet it
+  // labels it `new-<country>-<studentIds>` (services/match.py), and
+  // /match/confirm/ creates the real row from that id. Coercing it to a number
+  // broke every run that formed a new group.
+  it('accepts a synthetic new-* group id', () => {
+    const result = parseStudentMatchData([
+      {
+        student: { id: 1, name: 'Ava Nguyen' },
+        recommendGroup: {
+          id: 'new-Australia-1-4-9',
+          groupName: 'Suggested Group',
+          maxSize: 5,
+          tutor: null,
+          groupStudent: []
+        },
+        score: 88
+      }
+    ])
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.recommendations[0].id).toBe('new-Australia-1-4-9')
+  })
+
+  it('names the offending field rather than reporting an opaque union failure', () => {
+    const result = parseStudentMatchData([
+      { student: { id: 1, name: 'Ava' }, recommendGroup: null, score: 'not-a-number' }
+    ])
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    // A bare union error reports `response: Invalid input`, which names nothing.
+    expect(result.message).toContain('0.score')
+    expect(result.message).not.toContain('response:')
+  })
+
   it('rejects an empty-string id', () => {
     const result = parseStudentMatchData([
       { student: { id: '', name: 'Nameless' }, recommendGroup: null }

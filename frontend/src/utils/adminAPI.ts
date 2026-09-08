@@ -485,7 +485,8 @@ export const fetchAdminGroupList = (params: GroupListDetailParams = {}) =>
 
 export interface StudentAssignment {
   studentId: number
-  groupId: number
+  /** An existing group's integer id, or a `new-*` id for one to be created. */
+  groupId: number | string
 }
 
 /** Assign students to groups (POST /match/confirm/). Returns the count confirmed. */
