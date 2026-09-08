@@ -95,7 +95,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/events', name: 'admin-events', component: () => import('@/views/admin/AdminEventsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/resources', name: 'admin-resources', component: () => import('@/views/admin/AdminResourcesPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/announcements', name: 'admin-announcements', component: () => import('@/views/admin/AdminAnnouncementsPage.vue'), meta: { requiresAdmin: true } },
-  { path: '/admin/mentors', name: 'admin-mentors', component: () => import('@/views/admin/AdminMentorsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },

@@ -146,7 +146,6 @@ const quickLinks = [
   { to: '/admin/events', label: 'Events', icon: 'fa-calendar' },
   { to: '/admin/resources', label: 'Resources', icon: 'fa-book' },
   { to: '/admin/announcements', label: 'Announcements', icon: 'fa-bullhorn' },
-  { to: '/admin/mentors', label: 'Mentors', icon: 'fa-user-graduate' },
   { to: '/admin/tasks', label: 'Tasks', icon: 'fa-list-check' }
 ]
 

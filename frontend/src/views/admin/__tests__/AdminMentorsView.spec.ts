@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import AdminMentorsView from '@/views/admin/AdminMentorsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -55,13 +55,10 @@ describe('AdminMentorsView CSV import wiring', () => {
     const wrapper = mount(AdminMentorsView)
 
     expect(mocks.load).toHaveBeenCalledTimes(1)
-    const button = wrapper
-      .findAll('button')
-      .find((candidate) => candidate.text().includes('Import Mentors CSV'))
-    expect(button).toBeTruthy()
     expect(wrapper.find('[data-testid="mentor-import-sheet"]').attributes('data-open')).toBe('false')
 
-    await button!.trigger('click')
+    ;(wrapper.vm as unknown as { openMentorImport: () => void }).openMentorImport()
+    await nextTick()
     expect(wrapper.find('[data-testid="mentor-import-sheet"]').attributes('data-open')).toBe('true')
 
     wrapper.findComponent({ name: 'AdminMentorImportSheet' }).vm.$emit('imported', {

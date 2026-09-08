@@ -6,10 +6,6 @@
         {{ mentors.length }} mentor{{ mentors.length === 1 ? '' : 's' }} registered
       </p>
       <div class="admin-mentors__header-actions">
-        <button type="button" class="btn btn-sm btn-outline" :disabled="loading" @click="mentorImportOpen = true">
-          <i class="fas fa-file-arrow-up" aria-hidden="true"></i>
-          Import Mentors CSV
-        </button>
         <div class="admin-mentors__inactive-days">
           <label for="inactive-days-input" class="admin-mentors__inactive-label">Inactive after</label>
           <input
@@ -217,6 +213,10 @@ const {
 
 const mentorImportOpen = ref(false)
 
+const openMentorImport = () => {
+  mentorImportOpen.value = true
+}
+
 onMounted(() => {
   void load()
 })
@@ -224,6 +224,11 @@ onMounted(() => {
 const onMentorsImported = () => {
   void load()
 }
+
+defineExpose({
+  openMentorImport,
+  loading
+})
 </script>
 
 <style scoped>
