@@ -145,19 +145,21 @@
             <tr>
               <th>ID</th>
               <th>Group</th>
-              <th>Flagged at</th>
+              <th>Flagged Date</th>
+              <th>Flagged Time</th>
               <th>Flagged by</th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="5" class="finalists__empty">No finalists yet.</td>
+              <td colspan="6" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__muted">#{{ f.group_id }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleString() }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleDateString() }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleTimeString() }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
               <td class="finalists__cell--right">
                 <button
