@@ -208,16 +208,19 @@ class TemplateTestRenderView(APIView):
         # Local import: python-docx is heavier than anything else views pull in.
         from ..services import docx as docx_service
 
-        if kind == "marks-summary":
-            payload = docx_service.render_marks_summary(
-                docx_service.sample_marks_summary_context()
-            )
-        elif kind == "certificate":
-            payload = docx_service.render_participation_certificate(
-                docx_service.sample_certificate_context()
-            )
-        else:
-            return Response({"detail": "unknown template kind"}, status=404)
+        try:
+            if kind == "marks-summary":
+                payload = docx_service.render_marks_summary(
+                    docx_service.sample_marks_summary_context()
+                )
+            elif kind == "certificate":
+                payload = docx_service.render_participation_certificate(
+                    docx_service.sample_certificate_context()
+                )
+            else:
+                return Response({"detail": "unknown template kind"}, status=404)
+        except docx_service.TemplateNotConfigured:
+            return Response({"detail": "No template uploaded yet."}, status=404)
         return _docx_response(payload, kind)
 
     def post(self, request, kind: str):

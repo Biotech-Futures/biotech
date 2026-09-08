@@ -28,9 +28,6 @@
             </div>
             <p v-if="sig1" class="grading-settings__save-hint">Click Update to save signatures</p>
             <input ref="sig1Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig1 = fileOf($event)" />
-            <span v-if="settings.director_1_signature" class="grading-settings__file-hint">
-              Current: <code>{{ settings.director_1_signature }}</code>
-            </span>
           </div>
           <label class="grading-settings__field">
             <span>Director 2 name</span>
@@ -46,9 +43,6 @@
             </div>
             <p v-if="sig2" class="grading-settings__save-hint">Click Update to save signatures</p>
             <input ref="sig2Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig2 = fileOf($event)" />
-            <span v-if="settings.director_2_signature" class="grading-settings__file-hint">
-              Current: <code>{{ settings.director_2_signature }}</code>
-            </span>
           </div>
         </div>
       </section>
@@ -70,9 +64,6 @@
                 <span class="grading-settings__file-name">{{ summaryTpl?.name || baseName(settings.marks_summary_template) || 'No file selected.' }}</span>
               </div>
               <input ref="summaryInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('marks-summary', $event)" />
-              <span v-if="settings.marks_summary_template" class="grading-settings__file-hint">
-                Current: <code>{{ settings.marks_summary_template }}</code>
-              </span>
             </div>
             <p class="grading-settings__note">
               Expected variables (typed as text in the document) — green ones were found in
@@ -90,7 +81,7 @@
             <button
               type="button"
               class="btn btn-outline btn-sm"
-              :disabled="testing !== ''"
+              :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
               @click="testRender('marks-summary')"
             >
               {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
@@ -110,9 +101,6 @@
                 <span class="grading-settings__file-name">{{ certTpl?.name || baseName(settings.certificate_template) || 'No file selected.' }}</span>
               </div>
               <input ref="certInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('certificate', $event)" />
-              <span v-if="settings.certificate_template" class="grading-settings__file-hint">
-                Current: <code>{{ settings.certificate_template }}</code>
-              </span>
             </div>
             <p class="grading-settings__note">
               Expected fields (Word content controls — insert via Developer tab, with the
@@ -130,7 +118,7 @@
             <button
               type="button"
               class="btn btn-outline btn-sm"
-              :disabled="testing !== ''"
+              :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
               @click="testRender('certificate')"
             >
               {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
@@ -274,10 +262,10 @@ interface Placeholder {
   names: string[]
 }
 
-const token = (name: string): Placeholder => ({ label: `<<[${name}]>>`, names: [name] })
+const token = (name: string): Placeholder => ({ label: `{{${name}}}`, names: [name] })
 const series = (prefix: string, count: number, suffix = ''): Placeholder => {
   const names = Array.from({ length: count }, (_, i) => `${prefix}${i + 1}${suffix}`)
-  return { label: `<<[${names[0]}]>> … <<[${names[names.length - 1]}]>>`, names }
+  return { label: `{{${names[0]}}} … {{${names[names.length - 1]}}}`, names }
 }
 
 const SUMMARY_TOKENS: Placeholder[] = [
@@ -674,18 +662,6 @@ const save = async () => {
 .grading-settings__file-name {
   color: var(--text-muted);
   font-size: 0.85rem;
-}
-
-.grading-settings__file-hint {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  word-break: break-all;
-}
-
-.grading-settings__file-hint code {
-  background: var(--bg-light);
-  border-radius: 4px;
-  padding: 0.05rem 0.3rem;
 }
 
 .grading-settings__banner {

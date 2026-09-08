@@ -123,6 +123,19 @@
               </RouterLink>
             </li>
 
+            <!-- External: the React admin console (people / groups / events). -->
+            <li class="sidebar-item" v-if="auth.isAdmin">
+              <a
+                :href="ADMIN_PORTAL_URL"
+                target="_blank"
+                rel="noreferrer"
+                class="sidebar-link"
+              >
+                <i class="fas fa-user-shield sidebar-icon"></i>
+                <span>Admin Portal</span>
+              </a>
+            </li>
+
           </ul>
         </nav>
 
@@ -260,6 +273,10 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// The React admin console — same convention the old post-login redirect used:
+// the production domain is the default, overridable per environment.
+const ADMIN_PORTAL_URL =
+  import.meta.env.VITE_ADMIN_FRONTEND_URL || 'https://mentoringadmin.biotechfutures.org'
 const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 
 interface CollectionResponse {
