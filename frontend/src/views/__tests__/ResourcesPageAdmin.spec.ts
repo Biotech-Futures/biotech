@@ -148,9 +148,12 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
     })
 
-    it('renders elevated admin controls (Upload Resource button, Actions header, More buttons)', () => {
+    it('renders elevated admin controls (Upload Resource button, Actions header, More buttons, Checkboxes)', () => {
       expect(wrapper?.text()).toContain('Upload Resource')
+      expect(wrapper?.text()).not.toContain('Batch Mode')
       expect(wrapper?.find('.th-actions').exists()).toBe(true)
+      expect(wrapper?.find('.th-select').exists()).toBe(true)
+      expect(wrapper?.findAll('.td-select')).toHaveLength(2)
 
       const moreButtons = wrapper?.findAll('.resource-more-btn')
       expect(moreButtons?.length).toBe(2)
@@ -420,8 +423,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
     })
   })
 
-  describe('Batch Mode & Multi-Select', () => {
-    it('shows Batch Mode button for admin and hides it for student', async () => {
+  describe('Multi-Select & Bulk Actions', () => {
+    it('renders selection checkboxes for admin and hides them for student', async () => {
       const auth = useAuthStore()
       auth.user = studentUser
       auth.initialized = true
@@ -429,52 +432,33 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       wrapper = mount(ResourcesPage)
       await flushPromises()
 
+      expect(wrapper.find('.th-select').exists()).toBe(false)
+      expect(wrapper.findAll('.td-select')).toHaveLength(0)
       expect(wrapper.text()).not.toContain('Batch Mode')
 
       auth.user = adminUser
       await flushPromises()
 
-      expect(wrapper.text()).toContain('Batch Mode')
-    })
-
-    it('toggles Batch Mode and displays selection checkboxes', async () => {
-      const auth = useAuthStore()
-      auth.user = adminUser
-      auth.initialized = true
-
-      wrapper = mount(ResourcesPage)
-      await flushPromises()
-
-      expect(wrapper.find('.th-select').exists()).toBe(false)
-
-      const batchToggleBtn = wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))
-      expect(batchToggleBtn).toBeDefined()
-      await batchToggleBtn?.trigger('click')
-      await flushPromises()
-
       expect(wrapper.find('.th-select').exists()).toBe(true)
       expect(wrapper.findAll('.td-select')).toHaveLength(2)
-      expect(wrapper.text()).toContain('Exit Batch Mode')
+      expect(wrapper.text()).not.toContain('Batch Mode')
     })
 
-    it('selects rows via row click in batch mode without navigating', async () => {
+    it('selects rows via checkbox and triggers bulk actions', async () => {
       const auth = useAuthStore()
       auth.user = adminUser
       auth.initialized = true
 
       wrapper = mount(ResourcesPage)
-      await flushPromises()
-
-      // Enable batch mode
-      const batchToggleBtn = wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))
-      await batchToggleBtn?.trigger('click')
       await flushPromises()
 
       const rows = wrapper.findAll('.resource-row')
-      await rows[0].trigger('click')
+      const firstCheckbox = rows[0].find('.td-select input[type="checkbox"]')
+      expect(firstCheckbox.exists()).toBe(true)
+
+      await firstCheckbox.setValue(true)
       await flushPromises()
 
-      expect(mockPush).not.toHaveBeenCalled()
       expect(rows[0].classes()).toContain('resource-row--selected')
 
       // Bulk bar appears showing 1 selected
@@ -506,11 +490,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       })
       await flushPromises()
 
-      // Enable batch mode
-      await wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))?.trigger('click')
-      await flushPromises()
-
-      // Select all
+      // Select all via master checkbox
       await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
       await flushPromises()
 
@@ -558,10 +538,6 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       wrapper = mount(ResourcesPage, {
         attachTo: document.body
       })
-      await flushPromises()
-
-      // Enable batch mode
-      await wrapper.findAll('.btn').find((b) => b.text().includes('Batch Mode'))?.trigger('click')
       await flushPromises()
 
       // Select both

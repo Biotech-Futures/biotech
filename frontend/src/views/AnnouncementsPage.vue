@@ -24,16 +24,6 @@
         <div v-if="auth.isAdmin" class="announcements__admin-actions">
           <button
             type="button"
-            class="btn"
-            :class="batchMode ? 'btn-primary' : 'btn-outline'"
-            @click="toggleBatchMode"
-          >
-            <i :class="batchMode ? 'fas fa-check-square' : 'fas fa-list-check'" aria-hidden="true"></i>
-            <span>{{ batchMode ? 'Exit Batch Mode' : 'Batch Mode' }}</span>
-          </button>
-
-          <button
-            type="button"
             class="btn btn-primary"
             @click="openCreateAnnouncement"
           >
@@ -91,7 +81,7 @@
 
     <!-- Bulk Actions Bar -->
     <BulkActionsBar
-      v-if="auth.isAdmin && batchMode && selectedAnnouncementIds.length && !isLoading"
+      v-if="auth.isAdmin && selectedAnnouncementIds.length && !isLoading"
       :count="selectedAnnouncementIds.length"
       noun="announcement"
       :disabled="batchBusy"
@@ -177,7 +167,6 @@
           :key="item.id"
           :announcement="item"
           :is-admin="auth.isAdmin"
-          :batch-mode="batchMode"
           :selected="selectedAnnouncementIds.includes(item.id)"
           :active-menu-id="activeMenuId"
           @image-error="onImageError"
@@ -260,7 +249,6 @@ const groupFilter = ref<number>(0) // 0 = "All groups"
 const myGroups = ref<UserGroupOption[]>([])
 
 // Admin states
-const batchMode = ref(false)
 const selectedAnnouncementIds = ref<Array<number | string>>([])
 const batchBusy = ref(false)
 const activeMenuId = ref<number | string | null>(null)
@@ -388,13 +376,6 @@ function toggleAudienceFilter(value: string) {
 function onImageError({ id, url }: { id: number | string; url: string }) {
   const target = announcements.value.find(item => item.id === id)
   if (target) target.images = target.images.filter(image => image.url !== url)
-}
-
-function toggleBatchMode() {
-  batchMode.value = !batchMode.value
-  if (!batchMode.value) {
-    clearSelection()
-  }
 }
 
 function clearSelection() {

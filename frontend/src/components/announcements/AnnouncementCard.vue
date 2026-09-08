@@ -23,7 +23,7 @@
       <header class="announcement__header">
         <div class="announcement__header-left">
           <div
-            v-if="isAdmin && batchMode"
+            v-if="isAdmin"
             class="announcement__select-wrapper"
             @click.stop
           >
@@ -200,14 +200,12 @@ import {
 interface Props {
   announcement: Announcement
   isAdmin?: boolean
-  batchMode?: boolean
   selected?: boolean
   activeMenuId?: Announcement['id'] | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isAdmin: false,
-  batchMode: false,
   selected: false,
   activeMenuId: null
 })
@@ -371,7 +369,7 @@ const onImageError = (url: string) => {
 .announcement__checkbox {
   width: 1.125rem;
   height: 1.125rem;
-  accent-color: #2563eb;
+  accent-color: var(--dark-green);
   cursor: pointer;
 }
 

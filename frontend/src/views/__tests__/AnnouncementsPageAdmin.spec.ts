@@ -175,7 +175,7 @@ describe('AnnouncementsPage - Admin Integration', () => {
       auth.initialized = true
     })
 
-    it('renders "New Announcement" and "Batch Mode" buttons for admins', async () => {
+    it('renders "New Announcement" button and card controls for admins', async () => {
       wrapper = mount(AnnouncementsPage, {
         global: {
           stubs: {
@@ -189,7 +189,11 @@ describe('AnnouncementsPage - Admin Integration', () => {
       await flushPromises()
 
       expect(wrapper.text()).toContain('New Announcement')
-      expect(wrapper.text()).toContain('Batch Mode')
+      expect(wrapper.text()).not.toContain('Batch Mode')
+
+      // Checkboxes are always rendered for admins
+      const checkboxes = wrapper.findAll('.announcement__checkbox')
+      expect(checkboxes.length).toBe(2)
 
       // Announcement cards render the More actions button
       const moreBtns = wrapper.findAll('.announcement__more-btn')
@@ -397,7 +401,7 @@ describe('AnnouncementsPage - Admin Integration', () => {
       expect(wrapper.text()).toContain('Email notification sent successfully')
     })
 
-    it('toggles batch mode and shows checkboxes on announcement cards', async () => {
+    it('renders checkboxes constantly on announcement cards for admins', async () => {
       wrapper = mount(AnnouncementsPage, {
         global: {
           stubs: {
@@ -410,15 +414,6 @@ describe('AnnouncementsPage - Admin Integration', () => {
       })
       await flushPromises()
 
-      expect(wrapper.findAll('.announcement__checkbox')).toHaveLength(0)
-
-      // Click Batch Mode button
-      const batchBtn = wrapper.findAll('button').find(b => b.text().includes('Batch Mode'))
-      expect(batchBtn).toBeDefined()
-      await batchBtn!.trigger('click')
-      await flushPromises()
-
-      expect(wrapper.text()).toContain('Exit Batch Mode')
       const checkboxes = wrapper.findAll('.announcement__checkbox')
       expect(checkboxes.length).toBe(2)
     })
@@ -432,11 +427,6 @@ describe('AnnouncementsPage - Admin Integration', () => {
           }
         }
       })
-      await flushPromises()
-
-      // Enter Batch Mode
-      const batchBtn = wrapper.findAll('button').find(b => b.text().includes('Batch Mode'))
-      await batchBtn!.trigger('click')
       await flushPromises()
 
       // Select both cards

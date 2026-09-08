@@ -7,16 +7,6 @@
       </div>
       <div v-if="isAdmin" class="resource-header__actions">
         <button
-          type="button"
-          class="btn"
-          :class="batchMode ? 'btn-primary' : 'btn-outline'"
-          @click="toggleBatchMode"
-        >
-          <i :class="batchMode ? 'fas fa-check-square' : 'fas fa-list-check'" aria-hidden="true"></i>
-          <span>{{ batchMode ? 'Exit Batch Mode' : 'Batch Mode' }}</span>
-        </button>
-
-        <button
           class="btn btn-primary"
           type="button"
           @click="openCreateResource"
@@ -123,7 +113,7 @@
 
         <!-- Bulk Actions Bar for Admins -->
         <BulkActionsBar
-          v-if="isAdmin && batchMode && selectedResourceIds.length && !loading"
+          v-if="isAdmin && selectedResourceIds.length && !loading"
           :count="selectedResourceIds.length"
           noun="resource"
           :disabled="batchBusy"
@@ -153,7 +143,7 @@
           <table>
             <thead>
               <tr>
-                <th v-if="isAdmin && batchMode" class="th-select">
+                <th v-if="isAdmin" class="th-select">
                   <input
                     type="checkbox"
                     :checked="allOnPageSelected"
@@ -177,13 +167,13 @@
                 class="resource-row"
                 :class="{
                   'resource-row--menu-open': activeMenuResourceId === resource.id,
-                  'resource-row--selected': isAdmin && batchMode && selectedResourceIds.includes(resource.id)
+                  'resource-row--selected': isAdmin && selectedResourceIds.includes(resource.id)
                 }"
                 tabindex="0"
                 @click="onRowClick(resource.id, $event)"
                 @keydown.enter="onRowClick(resource.id, $event)"
               >
-                <td v-if="isAdmin && batchMode" class="td-select" @click.stop>
+                <td v-if="isAdmin" class="td-select" @click.stop>
                   <input
                     type="checkbox"
                     :checked="selectedResourceIds.includes(resource.id)"
@@ -359,7 +349,6 @@ const deleteConfirm = ref<{
   message: ''
 })
 
-const batchMode = ref(false)
 const selectedResourceIds = ref<number[]>([])
 const batchBusy = ref(false)
 const batchAccessModalOpen = ref(false)
@@ -613,13 +602,6 @@ const someOnPageSelected = computed(() => {
   return resources.value.some((r) => selectedResourceIds.value.includes(r.id))
 })
 
-const toggleBatchMode = () => {
-  batchMode.value = !batchMode.value
-  if (!batchMode.value) {
-    clearSelection()
-  }
-}
-
 const toggleResourceSelection = (id: number) => {
   const idx = selectedResourceIds.value.indexOf(id)
   if (idx > -1) {
@@ -649,10 +631,6 @@ const clearSelection = () => {
 const onRowClick = (resourceId: number, event?: Event) => {
   const target = event?.target
   if (target instanceof Element && target.closest('a, button, [data-row-ignore], .resource-menu')) {
-    return
-  }
-  if (isAdmin.value && batchMode.value) {
-    toggleResourceSelection(resourceId)
     return
   }
   openResourceDetailFromRow(resourceId, event)
