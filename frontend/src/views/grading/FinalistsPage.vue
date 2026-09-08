@@ -108,7 +108,7 @@
                 >
                   Open
                 </RouterLink>
-                <span v-else class="finalists__muted">No submission</span>
+                <span v-else class="finalists__muted">No sub.</span>
               </td>
             </tr>
           </tbody>
@@ -147,26 +147,18 @@
               <th>Group</th>
               <th>Flagged at</th>
               <th>Flagged by</th>
-              <th>Notified at</th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="6" class="finalists__empty">No finalists yet.</td>
+              <td colspan="5" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__muted">#{{ f.group_id }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
               <td>{{ new Date(f.flagged_at).toLocaleString() }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
-              <td>
-                <span v-if="f.notified" class="finalists__notified">
-                  <i class="fas fa-envelope-circle-check" aria-hidden="true"></i>
-                  {{ f.notified_at ? new Date(f.notified_at).toLocaleString() : 'Sent' }}
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
               <td class="finalists__cell--right">
                 <button
                   type="button"
@@ -476,10 +468,4 @@ const remove = async (id: number) => {
   display: block;
 }
 
-.finalists__notified {
-  color: var(--dark-green);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
 </style>
