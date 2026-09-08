@@ -527,9 +527,7 @@ import {
   isDeadlineNear as deadlineIsNear
 } from '@/utils/submissionFormat'
 import {
-  fetchPreviewObjectUrl,
   fetchSubmission,
-  releasePreview,
   removeSubmissionFile,
   reopenEntry,
   saveDraft,
@@ -840,6 +838,11 @@ function previewUrlFor(slot: SubmissionSlot) {
   return submissionFilePreviewUrl(groupId.value, slot)
 }
 
+/** Identifies the stored file, so a replaced one busts the frame's cache. */
+function previewVersion(slot: SubmissionSlot) {
+  return encodeURIComponent(storedFile(slot)?.storage_key ?? '')
+}
+
 function registerInput(slot: SubmissionSlot, el: unknown) {
   if (el instanceof HTMLInputElement) fileInputs[slot] = el
 }
@@ -952,30 +955,19 @@ function handleWriteError(error: unknown): string {
   return apiError.message
 }
 
-/** Discard the in-memory copy; without this the browser holds the whole file
- *  for the life of the tab. */
 function clearPreview() {
-  releasePreview(previewSource.value)
   previewSource.value = ''
   previewSlot.value = ''
   isPreviewLoading.value = false
 }
 
-/** Load one slot's file for display. Only ever called for PDF slots. */
+/** Navigated to, not fetched: Azure's redirect is unreadable by fetch(). */
 async function loadPreview(slot: SubmissionSlot) {
   clearPreview()
   if (!storedFile(slot)) return
 
   previewSlot.value = slot
-  isPreviewLoading.value = true
-  try {
-    previewSource.value = await fetchPreviewObjectUrl(groupId.value, slot)
-  } catch (error) {
-    setMessage(apiErrorFromUnknown(error).message, true)
-    previewSlot.value = ''
-  } finally {
-    isPreviewLoading.value = false
-  }
+  previewSource.value = `${previewUrlFor(slot)}?v=${previewVersion(slot)}`
 }
 
 /** Keep the preview in step with the tab and with what is attached. */
