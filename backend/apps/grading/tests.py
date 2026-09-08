@@ -32,6 +32,34 @@ from apps.submissions.models import Deadline, GroupExtension, Submission, Submis
 from apps.users.models import AdminScope, User
 
 
+def _build_docx(text: str) -> bytes:
+    """A one-paragraph docx for template fixtures."""
+    from docx import Document as NewDocument
+
+    doc = NewDocument()
+    doc.add_paragraph(text)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _seed_doc_templates():
+    """Upload token templates — no fallbacks ship in the repo any more."""
+    row = GradingSettings.load()
+    row.marks_summary_template = SimpleUploadedFile(
+        "marks.docx",
+        _build_docx(
+            "Team {{TeamCode}} S1 {{S1}} ({{S1Comment}}) total {{CombinedTotal}} "
+            "poster: {{PosterComment}}"
+        ),
+    )
+    row.certificate_template = SimpleUploadedFile(
+        "cert.docx", _build_docx("{{firstName}} {{lastName}} — {{projectTitle}}")
+    )
+    row.save()
+    return row
+
+
 class GradingURLsMountedTests(TestCase):
     """Sanity: the grading URLs must always resolve."""
 
@@ -749,6 +777,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertEqual(r2.json()["director_2_name"], "Bob B")
 
     def test_template_test_render_streams_synthetic_docx(self):
+        _seed_doc_templates()
         for kind in ("marks-summary", "certificate"):
             r = self.client.get(
                 reverse("grading:settings-test-render", kwargs={"kind": kind})
@@ -760,24 +789,22 @@ class GradingSettingsViewTests(_GradingFixture):
             xml = zipfile.ZipFile(io.BytesIO(r.content)).read("word/document.xml")
             self.assertIn(b"SAMPLE-TEAM-01" if kind == "marks-summary" else b"Jane", xml)
 
-    def test_template_scan_reports_the_bundled_templates(self):
+    def test_template_test_render_404s_when_nothing_uploaded(self):
         r = self.client.get(
-            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"})
+            reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"})
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        data = r.json()
-        self.assertEqual(data["dialect"], "tokens")
-        self.assertFalse(data["uploaded"])
-        self.assertIn("TeamCode", data["present"])
-        self.assertIn("CombinedTotal", data["present"])
-        self.assertEqual(data["unknown"], [])
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, r.content)
 
-        r = self.client.get(
-            reverse("grading:settings-template-scan", kwargs={"kind": "certificate"})
-        )
-        data = r.json()
-        self.assertEqual(data["dialect"], "controls")
-        self.assertIn("firstName", data["present"])
+    def test_template_scan_empty_when_nothing_uploaded(self):
+        for kind in ("marks-summary", "certificate"):
+            r = self.client.get(
+                reverse("grading:settings-template-scan", kwargs={"kind": kind})
+            )
+            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+            self.assertEqual(
+                r.json(),
+                {"uploaded": False, "dialect": "none", "present": [], "unknown": []},
+            )
 
     def test_template_scan_flags_unrecognised_tokens(self):
         from docx import Document as NewDocument
@@ -785,7 +812,7 @@ class GradingSettingsViewTests(_GradingFixture):
         from apps.grading.models import GradingSettings
 
         doc = NewDocument()
-        doc.add_paragraph("<<[TeamCode]>> <<[Typoed]>> <<[Director1Signature]>>")
+        doc.add_paragraph("{{TeamCode}} {{Typoed}} {{Director1Signature}}")
         buf = io.BytesIO()
         doc.save(buf)
 
@@ -876,7 +903,7 @@ class GradingSettingsViewTests(_GradingFixture):
             reverse("grading:settings"),
             {
                 "marks_summary_template": SimpleUploadedFile(
-                    "a.docx", self._docx_bytes("<<[TeamCode]>>")
+                    "a.docx", self._docx_bytes("{{TeamCode}}")
                 )
             },
             format="multipart",
@@ -889,7 +916,7 @@ class GradingSettingsViewTests(_GradingFixture):
             reverse("grading:settings"),
             {
                 "marks_summary_template": SimpleUploadedFile(
-                    "b.docx", self._docx_bytes("<<[TeamCode]>>")
+                    "b.docx", self._docx_bytes("{{TeamCode}}")
                 )
             },
             format="multipart",
@@ -923,7 +950,7 @@ class GradingSettingsViewTests(_GradingFixture):
             reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
             {
                 "file": SimpleUploadedFile(
-                    "draft.docx", self._docx_bytes("<<[TeamCode]>> <<[Typoed]>>")
+                    "draft.docx", self._docx_bytes("{{TeamCode}} {{Typoed}}")
                 )
             },
             format="multipart",
@@ -950,7 +977,7 @@ class GradingSettingsViewTests(_GradingFixture):
             reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"}),
             {
                 "file": SimpleUploadedFile(
-                    "draft.docx", self._docx_bytes("Team <<[TeamCode]>>")
+                    "draft.docx", self._docx_bytes("Team {{TeamCode}}")
                 )
             },
             format="multipart",
@@ -963,7 +990,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertFalse(GradingSettings.load().marks_summary_template)
 
     def test_curly_tokens_scan_and_render(self):
-        """{{Name}} is the advertised token syntax; <<[Name]>> stays accepted."""
+        """The {{Name}} token syntax works through scan and test render."""
         scan = self.client.post(
             reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
             {
@@ -1088,6 +1115,7 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertEqual(saq["criteria"][0]["mark"], "8.00")
 
     def test_summary_docx_streams(self):
+        _seed_doc_templates()
         self._release_now()
         self.client.force_authenticate(self.student_user)
         r = self.client.get(reverse("grading:me-summary"))
@@ -1099,6 +1127,7 @@ class StudentReadViewsTests(_GradingFixture):
     def test_certificate_docx_streams(self):
         # Certificates have their own gate — marks being released is neither
         # necessary nor sufficient.
+        _seed_doc_templates()
         self._release_now()
         self.client.force_authenticate(self.student_user)
         self.assertEqual(
@@ -1135,6 +1164,8 @@ class StudentReadViewsTests(_GradingFixture):
         from django.core.files.storage import default_storage
 
         from apps.users.models import StudentProfile, SupervisorProfile
+
+        _seed_doc_templates()
 
         supervisor = User.objects.create_user(
             email="super@example.com", first_name="Sue", last_name="Pervisor",
@@ -1208,6 +1239,7 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertEqual(r.json()["released_at"], released_at)
 
     def test_excluded_finalist_cannot_download_certificate(self):
+        _seed_doc_templates()
         self._release_certificates_now()
         rel = CertificatesRelease.load()
         rel.exclude_finalists = True
@@ -1466,10 +1498,10 @@ class ComponentAnalyticsTests(_GradingFixture):
 
 
 class ClientDocxTemplateTests(_GradingFixture):
-    """The client's real 2025 templates (bundled fallbacks) render correctly.
+    """Both template dialects render correctly from uploaded templates.
 
-    The marks release template uses <<[Field]>> tokens; the merit certificate
-    uses Word content controls with aliases. Both must come back with tokens
+    The marks release path uses {{Field}} tokens; the certificate path uses
+    Word content controls with aliases. Both must come back with placeholders
     replaced and our data in place.
     """
 
@@ -1478,10 +1510,35 @@ class ClientDocxTemplateTests(_GradingFixture):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             return z.read("word/document.xml").decode("utf8")
 
+    @staticmethod
+    def _control_template(aliases: list[str]) -> bytes:
+        """A docx whose only placeholders are content controls with aliases."""
+        base = _build_docx("Certificate")
+        sdt = "".join(
+            f'<w:sdt><w:sdtPr><w:alias w:val="{a}"/></w:sdtPr>'
+            f"<w:sdtContent><w:p><w:r><w:t>___</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+            for a in aliases
+        )
+        with zipfile.ZipFile(io.BytesIO(base)) as zin:
+            parts = {name: zin.read(name) for name in zin.namelist()}
+        xml = parts["word/document.xml"].decode("utf8")
+        cut = xml.find("<w:sectPr")
+        if cut != -1:
+            xml = xml[:cut] + sdt + xml[cut:]
+        else:
+            xml = xml.replace("</w:body>", sdt + "</w:body>")
+        parts["word/document.xml"] = xml.encode("utf8")
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+            for name, blob in parts.items():
+                zout.writestr(name, blob)
+        return out.getvalue()
+
     def test_marks_release_tokens_filled(self):
         from apps.grading.services.docx import marks_summary_context, render_marks_summary
         from apps.grading.views.student import _grades_payload
 
+        _seed_doc_templates()
         Grade.objects.create(
             submission=self.saq_submission, criterion=self.saq_c1,
             mark=Decimal("4.00"), comment="Nice claim.", graded_by=self.staff,
@@ -1497,7 +1554,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         data = render_marks_summary(marks_summary_context(self.group, 2026, components))
         xml = self._document_xml(data)
         self.assertNotIn("&lt;&lt;[", xml)
-        self.assertNotIn("<<[", xml)
+        self.assertNotIn("{{", xml)
         self.assertIn("BTF-TEST-1", xml)      # TeamCode
         self.assertIn("4.00", xml)            # S1 mark
         self.assertIn("Nice claim.", xml)     # S1 comment
@@ -1510,6 +1567,13 @@ class ClientDocxTemplateTests(_GradingFixture):
             render_participation_certificate,
         )
 
+        row = GradingSettings.load()
+        row.certificate_template = SimpleUploadedFile(
+            "cert.docx",
+            self._control_template(["firstName", "lastName", "projectTitle"]),
+        )
+        row.save()
+
         data = render_participation_certificate(
             certificate_context(
                 "Ada Grader", "BTF-TEST-1", 2026, first_name="Ada", last_name="Grader",
@@ -1519,6 +1583,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("Ada", xml)
         self.assertIn("Grader", xml)
         self.assertIn("BTF-TEST-1", xml)      # projectTitle falls back to group name
+        self.assertNotIn("___", xml)          # every control's placeholder replaced
 
 
 class DirectorSignatureTests(_GradingFixture):
@@ -1568,17 +1633,17 @@ class DirectorSignatureTests(_GradingFixture):
 
     def test_director_names_fill_their_tokens(self):
         self._configure(
-            "Signed: <<[Director1Name]>> and <<[Director2Name]>>", with_signatures=False
+            "Signed: {{Director1Name}} and {{Director2Name}}", with_signatures=False
         )
         with zipfile.ZipFile(io.BytesIO(self._render())) as z:
             xml = z.read("word/document.xml").decode("utf8")
         self.assertIn("Prof. Alice Adams", xml)
         self.assertIn("Dr. Bob Brown", xml)
-        self.assertNotIn("<<[", xml)
+        self.assertNotIn("{{", xml)
 
     def test_signature_tokens_become_images(self):
         self._configure(
-            "<<[Director1Signature]>> <<[Director2Signature]>> <<[Director1Name]>>",
+            "{{Director1Signature}} {{Director2Signature}} {{Director1Name}}",
             with_signatures=True,
         )
         payload = self._render()
@@ -1590,15 +1655,15 @@ class DirectorSignatureTests(_GradingFixture):
         # image once and both drawings point at it.
         self.assertEqual(xml.count("<w:drawing>"), 2, xml[:400])
         self.assertTrue([n for n in names if n.startswith("word/media/")], names)
-        self.assertNotIn("<<[", xml)
+        self.assertNotIn("{{", xml)
         self.assertIn("Prof. Alice Adams", xml)
 
     def test_missing_signature_leaves_document_renderable(self):
         # No signature uploaded: the token clears and the name still prints.
-        self._configure("<<[Director1Signature]>><<[Director1Name]>>", with_signatures=False)
+        self._configure("{{Director1Signature}}{{Director1Name}}", with_signatures=False)
         with zipfile.ZipFile(io.BytesIO(self._render())) as z:
             names = z.namelist()
             xml = z.read("word/document.xml").decode("utf8")
         self.assertFalse([n for n in names if n.startswith("word/media/")], names)
-        self.assertNotIn("<<[", xml)
+        self.assertNotIn("{{", xml)
         self.assertIn("Prof. Alice Adams", xml)

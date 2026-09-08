@@ -1,19 +1,14 @@
 """DOCX renderers for marks summaries and participation certificates.
 
-Templates live in two tiers:
-
-  1. ``GradingSettings.marks_summary_template`` / ``certificate_template`` —
-     client-provided, uploaded via the settings API. Takes precedence when
-     present.
-  2. Bundled fallbacks under ``apps/grading/templates/docx/*.docx`` — the
-     client's real 2025 templates, so the endpoints produce the real
-     documents out of the box.
+Templates come from Document Setup uploads only
+(``GradingSettings.marks_summary_template`` / ``certificate_template``);
+with nothing uploaded the render/scan paths report ``TemplateNotConfigured``
+rather than producing a document.
 
 Two template dialects are auto-detected per file:
 
-  * ``{{FieldName}}`` text tokens (legacy ``<<[FieldName]>>`` also accepted —
-    the client's BTF 2025 marks release template uses it). Replaced run-aware
-    so formatting and line breaks survive.
+  * ``{{FieldName}}`` text tokens — used by the bundled marks release
+    template. Replaced run-aware so formatting and line breaks survive.
   * Word content controls with an alias (``firstName``/``lastName``/
     ``projectTitle``) — the client's merit certificate template.
 
@@ -27,8 +22,6 @@ import re
 import zipfile
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
-
 from django.core.files.storage import default_storage
 from docx import Document
 from docx.oxml.ns import qn
@@ -45,26 +38,25 @@ logger = logging.getLogger(__name__)
 SIGNATURE_WIDTH = Inches(1.6)
 
 
-FALLBACK_DIR = Path(__file__).resolve().parent.parent / "templates" / "docx"
-
-# Two spellings of the same text token: ``{{FieldName}}`` is the advertised
-# syntax; ``<<[FieldName]>>`` stays accepted because the client's bundled 2025
-# templates use it.
-_TOKEN_RE = re.compile(r"<<\[(\w+)\]>>|\{\{\s*(\w+)\s*\}\}")
+# ``{{FieldName}}`` text tokens, tolerant of spaces inside the braces.
+_TOKEN_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
 def _token_name(match: re.Match) -> str:
-    return match.group(1) or match.group(2)
+    return match.group(1)
 
 
-def _open_template(setting_field, fallback_filename: str):
-    """Prefer the admin-uploaded docx; fall back to the in-repo template."""
-    if setting_field:
-        return default_storage.open(setting_field.name, "rb")
-    fallback = FALLBACK_DIR / fallback_filename
-    if not fallback.exists():
-        raise FileNotFoundError(f"no template configured and fallback {fallback} missing")
-    return fallback.open("rb")
+class TemplateNotConfigured(FileNotFoundError):
+    """No template uploaded via Document Setup."""
+
+
+def _open_template(setting_field):
+    """Open the admin-uploaded docx — Document Setup is the only source."""
+    if not setting_field:
+        raise TemplateNotConfigured(
+            "No template has been uploaded via Document Setup yet."
+        )
+    return default_storage.open(setting_field.name, "rb")
 
 
 def _document_xml(data: bytes) -> str:
@@ -72,13 +64,12 @@ def _document_xml(data: bytes) -> str:
         return z.read("word/document.xml").decode("utf8", errors="ignore")
 
 
-def _has_angle_tokens(xml: str) -> bool:
-    # Angle brackets inside text nodes are entity-escaped in the raw XML.
-    return "&lt;&lt;[" in xml or "<<[" in xml or "{{" in xml
+def _has_text_tokens(xml: str) -> bool:
+    return "{{" in xml
 
 
 # ---------------------------------------------------------------------------
-# <<[Field]>> token replacement
+# {{Field}} token replacement
 
 
 def _iter_paragraphs(container):
@@ -92,7 +83,7 @@ def _iter_paragraphs(container):
 
 
 def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = False) -> None:
-    """Replace ``<<[Name]>>`` tokens even when Word split them across runs.
+    """Replace ``{{Name}}`` tokens even when Word split them across runs.
 
     Works on the ``w:t`` text nodes directly: line breaks (``w:br``) and run
     formatting outside the token span are untouched. Unknown field names are
@@ -155,7 +146,7 @@ class _PartOwner:
 
 
 def _insert_images_in_paragraph(paragraph, images: dict) -> None:
-    """Swap ``<<[Name]>>`` image tokens for the picture they name.
+    """Swap ``{{Name}}`` image tokens for the picture they name.
 
     The token text is cleared in place and the picture appended to the same
     paragraph — signature tokens sit on their own line in practice, so the
@@ -330,7 +321,7 @@ def signature_images(settings, prefix: str) -> dict:
     """``{token_name: image_bytes}`` for whichever signatures are uploaded.
 
     ``prefix`` selects the naming convention of the calling dialect —
-    ``Director`` for ``<<[Director1Signature]>>`` tokens, ``director`` for
+    ``Director`` for ``{{Director1Signature}}`` tokens, ``director`` for
     ``director1Signature`` content controls.
     """
     images = {}
@@ -352,7 +343,7 @@ def render_marks_summary_data(data: bytes, context: dict) -> bytes:
     """Render marks-summary docx bytes — the saved template or a candidate
     upload being previewed before it replaces anything."""
     settings = GradingSettings.load()
-    if _has_angle_tokens(_document_xml(data)):
+    if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
             data,
             marks_release_fields(context),
@@ -366,7 +357,7 @@ def render_marks_summary_data(data: bytes, context: dict) -> bytes:
 def render_marks_summary(context: dict) -> bytes:
     """Materialise a marks summary docx (see ``marks_summary_context``)."""
     settings = GradingSettings.load()
-    with _open_template(settings.marks_summary_template, "marks_release.docx") as fh:
+    with _open_template(settings.marks_summary_template) as fh:
         data = fh.read()
     return render_marks_summary_data(data, context)
 
@@ -376,7 +367,7 @@ def render_certificate_data(data: bytes, context: dict) -> bytes:
     settings = GradingSettings.load()
     xml = _document_xml(data)
     fields = certificate_fields(context)
-    if _has_angle_tokens(xml):
+    if _has_text_tokens(xml):
         return _render_token_template(data, fields, signature_images(settings, "Director"))
     if "<w:sdt>" in xml or "w:alias" in xml:
         return _fill_content_controls(data, fields, signature_images(settings, "director"))
@@ -387,7 +378,7 @@ def render_certificate_data(data: bytes, context: dict) -> bytes:
 def render_participation_certificate(context: dict) -> bytes:
     """Materialise a certificate docx (see ``certificate_context``)."""
     settings = GradingSettings.load()
-    with _open_template(settings.certificate_template, "merit_certificate.docx") as fh:
+    with _open_template(settings.certificate_template) as fh:
         data = fh.read()
     return render_certificate_data(data, context)
 
@@ -474,7 +465,7 @@ _CONTROL_SIGNATURES = {"director1Signature", "director2Signature"}
 def _visible_text(xml: str) -> str:
     """Document text with markup removed, so run-split tokens read whole.
 
-    Word happily splits ``<<[TeamCode]>>`` across several ``w:t`` nodes;
+    Word happily splits ``{{TeamCode}}`` across several ``w:t`` nodes;
     dropping the tags first is what makes those tokens findable.
     """
     from html import unescape
@@ -526,14 +517,19 @@ def scan_template(kind: str) -> dict:
     """
     settings = GradingSettings.load()
     if kind == "marks-summary":
-        field, fallback = settings.marks_summary_template, "marks_release.docx"
+        field = settings.marks_summary_template
     elif kind == "certificate":
-        field, fallback = settings.certificate_template, "merit_certificate.docx"
+        field = settings.certificate_template
     else:
         raise ValueError(f"unknown template kind {kind!r}")
 
-    with _open_template(field, fallback) as fh:
-        data = fh.read()
+    try:
+        with _open_template(field) as fh:
+            data = fh.read()
+    except TemplateNotConfigured:
+        # Nothing uploaded: an empty report, not an error — the settings page
+        # simply shows every chip uncoloured.
+        return {"uploaded": False, "dialect": "none", "present": [], "unknown": []}
     return {"uploaded": bool(field), **scan_template_data(kind, data)}
 
 

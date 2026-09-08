@@ -20,6 +20,7 @@ from ..models import CertificatesRelease, FinalistFlag, Grade, Rubric, Submissio
 from ..permissions import CertificatesReleased, MarksReleased
 from ..services import content
 from ..services.docx import (
+    TemplateNotConfigured,
     certificate_context,
     marks_summary_context,
     render_marks_summary,
@@ -137,7 +138,12 @@ class MySummaryView(APIView):
         # Docx template iterates .criteria (see docx template) so shape mirrors JSON.
         for c in components:
             c["criteria"] = c["criteria"]  # already the shape docx expects
-        payload = render_marks_summary(marks_summary_context(group, year, components))
+        try:
+            payload = render_marks_summary(marks_summary_context(group, year, components))
+        except TemplateNotConfigured:
+            return Response(
+                {"detail": "The document template has not been set up yet."}, status=404
+            )
         return _docx_response(payload, f"marks-summary-{group.id}.docx")
 
 
@@ -168,15 +174,20 @@ class MyCertificateView(APIView):
         student_full_name = (
             request.user.get_full_name() if hasattr(request.user, "get_full_name") else ""
         ) or request.user.email
-        payload = render_participation_certificate(
-            certificate_context(
-                student_full_name,
-                group.group_name,
-                year,
-                first_name=request.user.first_name,
-                last_name=request.user.last_name,
+        try:
+            payload = render_participation_certificate(
+                certificate_context(
+                    student_full_name,
+                    group.group_name,
+                    year,
+                    first_name=request.user.first_name,
+                    last_name=request.user.last_name,
+                )
             )
-        )
+        except TemplateNotConfigured:
+            return Response(
+                {"detail": "The document template has not been set up yet."}, status=404
+            )
         return _docx_response(payload, f"certificate-{group.id}.docx")
 
 
