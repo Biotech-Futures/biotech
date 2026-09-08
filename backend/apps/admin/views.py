@@ -667,7 +667,16 @@ class ResourceListCreateView(APIView):
         if hasattr(request, "user") and request.user.is_authenticated:
             uploader = {"id": str(request.user.id),
                         "email": request.user.email}
-        result = create_resource(request.data, uploader)
+        try:
+            result = create_resource(request.data, uploader)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to create resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as exc:
+            return Response({"msg": str(exc), "data": None}, status=status.HTTP_400_BAD_REQUEST)
+
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
