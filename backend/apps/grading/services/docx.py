@@ -11,8 +11,9 @@ Templates live in two tiers:
 
 Two template dialects are auto-detected per file:
 
-  * ``<<[FieldName]>>`` text tokens — the client's marks release template
-    (BTF 2025). Replaced run-aware so formatting and line breaks survive.
+  * ``{{FieldName}}`` text tokens (legacy ``<<[FieldName]>>`` also accepted —
+    the client's BTF 2025 marks release template uses it). Replaced run-aware
+    so formatting and line breaks survive.
   * Word content controls with an alias (``firstName``/``lastName``/
     ``projectTitle``) — the client's merit certificate template.
 
@@ -46,7 +47,14 @@ SIGNATURE_WIDTH = Inches(1.6)
 
 FALLBACK_DIR = Path(__file__).resolve().parent.parent / "templates" / "docx"
 
-_TOKEN_RE = re.compile(r"<<\[(\w+)\]>>")
+# Two spellings of the same text token: ``{{FieldName}}`` is the advertised
+# syntax; ``<<[FieldName]>>`` stays accepted because the client's bundled 2025
+# templates use it.
+_TOKEN_RE = re.compile(r"<<\[(\w+)\]>>|\{\{\s*(\w+)\s*\}\}")
+
+
+def _token_name(match: re.Match) -> str:
+    return match.group(1) or match.group(2)
 
 
 def _open_template(setting_field, fallback_filename: str):
@@ -66,7 +74,7 @@ def _document_xml(data: bytes) -> str:
 
 def _has_angle_tokens(xml: str) -> bool:
     # Angle brackets inside text nodes are entity-escaped in the raw XML.
-    return "&lt;&lt;[" in xml or "<<[" in xml
+    return "&lt;&lt;[" in xml or "<<[" in xml or "{{" in xml
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +117,9 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
 
     # Right-to-left so earlier match offsets stay valid after each splice.
     for m in reversed(matches):
-        if only_known and m.group(1) not in fields:
+        if only_known and _token_name(m) not in fields:
             continue
-        value = str(fields.get(m.group(1), ""))
+        value = str(fields.get(_token_name(m), ""))
         s, e = m.span()
         start_i = end_i = None
         start_off = end_off = 0
@@ -157,7 +165,7 @@ def _insert_images_in_paragraph(paragraph, images: dict) -> None:
     if not ts:
         return
     combined = "".join(t.text or "" for t in ts)
-    found = [m.group(1) for m in _TOKEN_RE.finditer(combined) if m.group(1) in images]
+    found = [_token_name(m) for m in _TOKEN_RE.finditer(combined) if _token_name(m) in images]
     if not found:
         return
 
@@ -497,7 +505,7 @@ def scan_template_data(kind: str, data: bytes) -> dict:
             if not _TEXT_PART_RE.fullmatch(name):
                 continue
             xml = z.read(name).decode("utf8", errors="ignore")
-            tokens.update(m.group(1) for m in _TOKEN_RE.finditer(_visible_text(xml)))
+            tokens.update(_token_name(m) for m in _TOKEN_RE.finditer(_visible_text(xml)))
             controls.update(_ALIAS_RE.findall(xml))
 
     found = tokens | controls

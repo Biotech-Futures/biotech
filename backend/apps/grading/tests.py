@@ -962,6 +962,32 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertIn(b"SAMPLE-TEAM-01", xml)
         self.assertFalse(GradingSettings.load().marks_summary_template)
 
+    def test_curly_tokens_scan_and_render(self):
+        """{{Name}} is the advertised token syntax; <<[Name]>> stays accepted."""
+        scan = self.client.post(
+            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
+            {
+                "file": SimpleUploadedFile(
+                    "draft.docx", self._docx_bytes("{{TeamCode}} {{Typoed}}")
+                )
+            },
+            format="multipart",
+        )
+        self.assertEqual(scan.status_code, status.HTTP_200_OK, scan.content)
+        self.assertEqual(scan.json()["dialect"], "tokens")
+        self.assertIn("TeamCode", scan.json()["present"])
+        self.assertEqual(scan.json()["unknown"], ["Typoed"])
+
+        render = self.client.post(
+            reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"}),
+            {"file": SimpleUploadedFile("draft.docx", self._docx_bytes("Team {{TeamCode}}"))},
+            format="multipart",
+        )
+        self.assertEqual(render.status_code, status.HTTP_200_OK, render.content)
+        xml = zipfile.ZipFile(io.BytesIO(render.content)).read("word/document.xml")
+        self.assertIn(b"SAMPLE-TEAM-01", xml)
+        self.assertNotIn(b"{{TeamCode}}", xml)
+
     def test_candidate_post_without_file_400s(self):
         r = self.client.post(
             reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),

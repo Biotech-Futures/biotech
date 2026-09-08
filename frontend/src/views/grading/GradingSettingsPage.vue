@@ -274,10 +274,12 @@ interface Placeholder {
   names: string[]
 }
 
-const token = (name: string): Placeholder => ({ label: `<<[${name}]>>`, names: [name] })
+// Advertised syntax is {{Name}}; the legacy <<[Name]>> spelling is still
+// accepted by the renderer for the client's older templates.
+const token = (name: string): Placeholder => ({ label: `{{${name}}}`, names: [name] })
 const series = (prefix: string, count: number, suffix = ''): Placeholder => {
   const names = Array.from({ length: count }, (_, i) => `${prefix}${i + 1}${suffix}`)
-  return { label: `<<[${names[0]}]>> … <<[${names[names.length - 1]}]>>`, names }
+  return { label: `{{${names[0]}}} … {{${names[names.length - 1]}}}`, names }
 }
 
 const SUMMARY_TOKENS: Placeholder[] = [
