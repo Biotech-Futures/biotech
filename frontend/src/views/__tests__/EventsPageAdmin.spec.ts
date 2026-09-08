@@ -157,8 +157,8 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
       const w = await mountPage()
 
-      // Header should not have New Event button
-      expect(w.find('.page-head__actions').exists()).toBe(false)
+      // Header/tabs should not have New Event button
+      expect(w.find('.event-tabs-bar__actions').exists()).toBe(false)
       expect(w.text()).not.toContain('New Event')
 
       // Cards should not have select checkboxes or More buttons
@@ -175,8 +175,8 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
       const w = await mountPage()
 
-      // Header should have New Event button
-      const newEventBtn = w.find('.page-head__actions .btn-primary')
+      // Header should have New Event button in tabs bar
+      const newEventBtn = w.find('.event-tabs-bar__actions .btn-primary')
       expect(newEventBtn.exists()).toBe(true)
       expect(newEventBtn.text()).toContain('New Event')
 
@@ -194,7 +194,7 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
       const w = await mountPage()
 
-      const newEventBtn = w.find('.page-head__actions .btn-primary')
+      const newEventBtn = w.find('.event-tabs-bar__actions .btn-primary')
       await newEventBtn.trigger('click')
       await flushPromises()
 
@@ -384,7 +384,7 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       const w = await mountPage()
 
       // Open New Event
-      await w.find('.page-head__actions .btn-primary').trigger('click')
+      await w.find('.event-tabs-bar__actions .btn-primary').trigger('click')
       await flushPromises()
 
       const dialog = document.body.querySelector('.admin-sheet') as HTMLElement

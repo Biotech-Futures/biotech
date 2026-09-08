@@ -7,8 +7,25 @@
           {{ auth.roleLabel }} events available to your program access.
         </p>
       </div>
+    </div>
 
-      <div v-if="isAdmin" class="page-head__actions">
+    <div class="event-tabs-bar">
+      <div class="event-tabs" role="tablist" aria-label="Event view">
+        <button
+          v-for="tab in viewTabs"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="viewMode === tab.value"
+          class="event-tab"
+          :class="{ active: viewMode === tab.value }"
+          @click="setViewMode(tab.value)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="isAdmin" class="event-tabs-bar__actions">
         <button
           type="button"
           class="btn btn-primary"
@@ -18,21 +35,6 @@
           <span>New Event</span>
         </button>
       </div>
-    </div>
-
-    <div class="event-tabs" role="tablist" aria-label="Event view">
-      <button
-        v-for="tab in viewTabs"
-        :key="tab.value"
-        type="button"
-        role="tab"
-        :aria-selected="viewMode === tab.value"
-        class="event-tab"
-        :class="{ active: viewMode === tab.value }"
-        @click="setViewMode(tab.value)"
-      >
-        {{ tab.label }}
-      </button>
     </div>
 
     <section class="event-filterbar" aria-label="Event filters">
@@ -1581,13 +1583,29 @@ const onFormEditorDelete = () => {
   gap: 0.5rem;
 }
 
+/* Event tabs bar (selector + actions in-line) */
+.event-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.event-tabs-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* Segmented pill tabs */
 .event-tabs {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.3rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   background: var(--white);
   border: 1px solid var(--border-light);
   border-radius: 999px;
