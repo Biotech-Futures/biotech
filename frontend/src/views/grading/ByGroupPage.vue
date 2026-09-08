@@ -23,43 +23,62 @@
             <tr>
               <th>ID</th>
               <th>Group</th>
+              <th>Submitted</th>
+              <th>Time</th>
               <th>Late</th>
-              <th v-for="c in components" :key="c.code" :title="c.name">{{ c.code }}</th>
-              <th>Total</th>
+              <th>Progress</th>
               <th>Marker</th>
               <th class="by-group__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="rows.length === 0">
-              <td :colspan="components.length + 6" class="by-group__empty">No groups.</td>
+              <td colspan="8" class="by-group__empty">No groups.</td>
             </tr>
             <tr v-for="r in rows" :key="r.group_id">
               <td class="by-group__muted">#{{ r.group_id }}</td>
               <td class="by-group__cell--strong">{{ r.group_name }}</td>
+              <td>
+                <template v-if="r.submission_id != null && r.submitted_at">
+                  {{ new Date(r.submitted_at).toLocaleDateString() }}
+                </template>
+                <span v-else class="by-group__muted">—</span>
+              </td>
+              <td>
+                <template v-if="r.submission_id != null && r.submitted_at">
+                  {{ new Date(r.submitted_at).toLocaleTimeString() }}
+                </template>
+                <span v-else class="by-group__muted">—</span>
+              </td>
               <td>
                 <span v-if="r.is_late" class="by-group__late">
                   Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
-              <td v-for="c in components" :key="c.code">
-                <span v-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td class="by-group__cell--strong">
-                <span v-if="r.total != null">{{ r.total }}</span>
+              <td>
+                <span v-if="r.submission_id != null" class="by-group__progress">
+                  <i
+                    :class="
+                      r.total > 0 && r.graded >= r.total
+                        ? 'fas fa-circle-check by-group__done'
+                        : 'far fa-circle by-group__pending'
+                    "
+                    aria-hidden="true"
+                  ></i>
+                  {{ r.total > 0 ? `${r.graded}/${r.total}` : '—' }}
+                </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
               <td>
-                <span v-if="r.markers.length" class="by-group__marker" :title="markerTooltip(r)">
+                <span v-if="r.markers.length" class="by-group__marker" :title="r.markerTooltip">
                   {{ r.markers.join(', ') }}
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
               <td class="by-group__cell--right">
                 <RouterLink
-                  v-if="r.has_submission"
+                  v-if="r.submission_id != null"
                   :to="`/grading/groups/${r.group_id}`"
                   class="btn btn-outline btn-sm"
                 >
@@ -76,14 +95,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
-import {
-  fetchFinalistCandidates,
-  type FinalistCandidateRow,
-  type FinalistCandidatesResponse
-} from '@/utils/gradingAPI'
+import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const router = useRouter()
@@ -105,27 +120,78 @@ const open = () => {
   void router.push(`/grading/groups/${id}`)
 }
 
-// Same payload the finalists ranking uses: every group with per-component
-// totals and markers, sorted highest first — a marker's worklist.
-const resp = ref<FinalistCandidatesResponse | null>(null)
+// One row per group, aggregated across all four components: progress is
+// criteria graded / criteria defined over the whole entry, markers deduped.
+const CODES = ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE']
+
+interface GroupRow {
+  group_id: number
+  group_name: string
+  submission_id: number | null
+  submitted_at: string | null
+  is_late: boolean
+  late_by: string | null
+  graded: number
+  total: number
+  markers: string[]
+  markerTooltip: string
+}
+
+const rows = ref<GroupRow[]>([])
 const isLoading = ref(false)
-
-const rows = computed(() => resp.value?.rows ?? [])
-const components = computed(() => resp.value?.components ?? [])
-
-// One line per rubric criterion with whoever last marked it; falls back to
-// the flat marker list when no per-criterion data exists.
-const markerTooltip = (r: FinalistCandidateRow) =>
-  r.criterion_markers?.length
-    ? r.criterion_markers.map((m) => `${m.label}: ${m.marker}`).join('\n')
-    : `Marked by: ${r.markers.join(', ')}`
 
 onMounted(async () => {
   isLoading.value = true
   try {
-    resp.value = await fetchFinalistCandidates()
+    // Components fetch in parallel; one failing (e.g. no rubric yet) just
+    // drops its criteria from the totals rather than blanking the table.
+    const payloads = (
+      await Promise.all(CODES.map((code) => fetchComponentRows(code).catch(() => null)))
+    ).filter((p) => p != null)
+    if (!payloads.length) throw new Error('Could not load the group list.')
+
+    const totalCriteria = payloads.reduce((sum, p) => sum + p.criteria_total, 0)
+    const byGroup = new Map<number, GroupRow>()
+    const tooltipLines = new Map<number, string[]>()
+
+    for (const payload of payloads) {
+      for (const r of payload.rows) {
+        let g = byGroup.get(r.group_id)
+        if (!g) {
+          g = {
+            group_id: r.group_id,
+            group_name: r.group_name,
+            submission_id: r.submission_id,
+            submitted_at: r.submitted_at,
+            is_late: r.is_late,
+            late_by: r.late_by,
+            graded: 0,
+            total: totalCriteria,
+            markers: [],
+            markerTooltip: ''
+          }
+          byGroup.set(r.group_id, g)
+          tooltipLines.set(r.group_id, [])
+        }
+        g.graded += r.criteria_graded
+        const names = r.grader_names?.length
+          ? r.grader_names
+          : r.last_grader_name
+            ? [r.last_grader_name]
+            : []
+        for (const name of names) if (!g.markers.includes(name)) g.markers.push(name)
+        for (const m of r.criterion_markers ?? []) {
+          tooltipLines.get(r.group_id)!.push(`${payload.component.code} ${m.n}: ${m.marker}`)
+        }
+      }
+    }
+    for (const g of byGroup.values()) {
+      const lines = tooltipLines.get(g.group_id) ?? []
+      g.markerTooltip = lines.length ? lines.join('\n') : `Marked by: ${g.markers.join(', ')}`
+    }
+    rows.value = [...byGroup.values()].sort((a, b) => a.group_id - b.group_id)
   } catch (err) {
-    resp.value = null
+    rows.value = []
     error.value = apiErrorFromUnknown(err).message
   } finally {
     isLoading.value = false
@@ -220,6 +286,20 @@ onMounted(async () => {
 .by-group__late {
   color: #b45309;
   font-weight: 600;
+}
+
+.by-group__progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.by-group__done {
+  color: var(--dark-green);
+}
+
+.by-group__pending {
+  color: var(--text-muted);
 }
 
 .by-group__marker {
