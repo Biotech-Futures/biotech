@@ -1060,6 +1060,39 @@ describe('the word counter', () => {
   })
 })
 
+describe('how the preview loads the document', () => {
+  const openPosterTab = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('points the frame at the endpoint rather than fetching the bytes', async () => {
+    // fetch() could not read Azure's cross-origin redirect; a frame can.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const src = wrapper!.find('.preview-frame').attributes('src') ?? ''
+    expect(src).toContain('/files/poster/preview/')
+    expect(src).not.toMatch(/^blob:/)
+  })
+
+  it('keys the frame to the stored file so a replacement is not served from cache', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const src = wrapper!.find('.preview-frame').attributes('src') ?? ''
+    expect(src).toContain(encodeURIComponent(POSTER.storage_key))
+  })
+
+  it('shows nothing to preview when no file is attached', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await openPosterTab()
+
+    expect(wrapper!.find('.preview-frame').exists()).toBe(false)
+    expect(wrapper!.find('.preview-empty').exists()).toBe(true)
+  })
+})
+
 describe('collapsing a preview', () => {
   const openPosterTab = async () => {
     await buttonNamed(/Poster/)!.trigger('click')
