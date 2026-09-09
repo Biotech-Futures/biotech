@@ -27,9 +27,9 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.groups.models import Groups
-from apps.services.email_branding import brand_context
+from apps.services.email_branding import attach_inline_logo, brand_context
 
-from .emails import LOGO_CID, attach_green_logo, recipients_for, send_individually
+from .emails import recipients_for, send_individually
 from .models import Submission, SubmissionReminder
 from .serializers import missing_required_answers
 from .services import deadline_for_group
@@ -126,7 +126,6 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
     required, optional = components_for(submission)
     context = {
         **brand_context(),
-        "LOGO_URL": f"cid:{LOGO_CID}",
         "GROUP_NAME": group.group_name,
         "YEAR": timezone.now().year,
         "REQUIRED_COMPONENTS": required,
@@ -151,7 +150,7 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
             to=[address],
         )
         message.attach_alternative(html, "text/html")
-        attach_green_logo(message)
+        attach_inline_logo(message)
         messages.append(message)
     return messages
 
