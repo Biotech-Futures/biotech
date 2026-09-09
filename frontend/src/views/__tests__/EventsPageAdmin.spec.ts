@@ -453,5 +453,57 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
       expect(rsvpsSheet.textContent).toContain('Sam Student')
     })
+
+    it('displays attendee name directly from RSVP or via fetchAdminUser when missing from user list cache', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+
+      vi.spyOn(adminApi, 'fetchAdminEventRsvps').mockResolvedValueOnce([
+        {
+          id: 1,
+          eventId: 101,
+          userId: 999,
+          userName: 'Direct Attendee',
+          userEmail: 'direct@example.com',
+          rsvpStatus: 'accepted',
+          respondedAt: '2026-09-01T12:00:00Z'
+        },
+        {
+          id: 2,
+          eventId: 101,
+          userId: 888,
+          rsvpStatus: 'tentative',
+          respondedAt: '2026-09-01T13:00:00Z'
+        }
+      ])
+
+      const fetchUserSpy = vi.spyOn(adminApi, 'fetchAdminUser').mockResolvedValueOnce({
+        id: 888,
+        email: 'fetched@example.com',
+        firstName: 'Fallback',
+        lastName: 'Resolved',
+        role: 'student',
+        active: true
+      } as any)
+
+      const w = await mountPage()
+
+      await w.findAll('.event-card-more-btn')[0].trigger('click')
+      await flushPromises()
+
+      const rsvpMenuItem = w
+        .findAll('.event-card-dropdown-item')
+        .find((el) => el.text().includes('See RSVPs'))
+      await rsvpMenuItem?.trigger('click')
+      await flushPromises()
+
+      const rsvpsSheet = document.body.querySelector('.admin-event-rsvps') as HTMLElement
+      expect(rsvpsSheet).not.toBeNull()
+      expect(rsvpsSheet.textContent).toContain('Direct Attendee')
+      expect(rsvpsSheet.textContent).toContain('Fallback Resolved')
+      expect(rsvpsSheet.textContent).not.toContain('User #999')
+      expect(rsvpsSheet.textContent).not.toContain('User #888')
+      expect(fetchUserSpy).toHaveBeenCalledWith(888)
+    })
   })
 })

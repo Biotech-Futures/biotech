@@ -489,10 +489,20 @@ def delete_event(id_str: str, initiated_by=None) -> EventResponseDict:
 
 def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a raw RSVP values() dict to camelCase for the frontend."""
+    first_name = rsvp.get("user__first_name") or ""
+    last_name = rsvp.get("user__last_name") or ""
+    email = rsvp.get("user__email") or ""
+    full_name = f"{first_name} {last_name}".strip()
+    user_id = rsvp.get("user_id")
+
     return {
         "id": rsvp["id"],
         "eventId": rsvp.get("event_id"),
-        "userId": rsvp.get("user_id"),
+        "userId": user_id,
+        "userName": full_name or email or (f"User #{user_id}" if user_id else "Unknown"),
+        "userEmail": email,
+        "firstName": first_name,
+        "lastName": last_name,
         "rsvpStatus": rsvp.get("rsvp_status"),
         "respondedAt": rsvp.get("responded_at").isoformat() if rsvp.get("responded_at") else None,
     }
@@ -515,8 +525,18 @@ def query_event_rsvps(id_str: str) -> EventResponseDict:
     raw_rsvps = list(
         EventRsvp.objects
         .filter(event_id=event_id)
+        .select_related("user")
         .order_by("id")
-        .values()
+        .values(
+            "id",
+            "event_id",
+            "user_id",
+            "rsvp_status",
+            "responded_at",
+            "user__first_name",
+            "user__last_name",
+            "user__email",
+        )
     )
     rsvps = [_rsvp_to_camel(r) for r in raw_rsvps]
 
@@ -552,12 +572,22 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         responded_at=responded_at,
     )
 
+    user = User.objects.filter(id=rsvp.user_id).first()
+    first_name = user.first_name if user else ""
+    last_name = user.last_name if user else ""
+    email = user.email if user else ""
+    full_name = f"{first_name} {last_name}".strip()
+
     return {
         "msg": "Event RSVP created successfully",
         "data": {
             "id": rsvp.id,
             "eventId": rsvp.event_id,
             "userId": rsvp.user_id,
+            "userName": full_name or email or (f"User #{rsvp.user_id}" if rsvp.user_id else "Unknown"),
+            "userEmail": email,
+            "firstName": first_name,
+            "lastName": last_name,
             "rsvpStatus": rsvp.rsvp_status,
             "respondedAt": rsvp.responded_at.isoformat() if rsvp.responded_at else None,
         },
@@ -588,12 +618,23 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
         rsvp = EventRsvp.objects.get(id=rsvp_id)
         rsvp.rsvp_status = rsvp_status
         rsvp.save()
+
+        user = User.objects.filter(id=rsvp.user_id).first()
+        first_name = user.first_name if user else ""
+        last_name = user.last_name if user else ""
+        email = user.email if user else ""
+        full_name = f"{first_name} {last_name}".strip()
+
         return {
             "msg": "Event RSVP updated successfully",
             "data": {
                 "id": rsvp.id,
                 "eventId": rsvp.event_id,
                 "userId": rsvp.user_id,
+                "userName": full_name or email or (f"User #{rsvp.user_id}" if rsvp.user_id else "Unknown"),
+                "userEmail": email,
+                "firstName": first_name,
+                "lastName": last_name,
                 "rsvpStatus": rsvp.rsvp_status,
                 "respondedAt": rsvp.responded_at.isoformat() if rsvp.responded_at else None,
             },
