@@ -637,6 +637,7 @@ export interface AdminEventRsvpItem {
   userId: number
   userName?: string
   userEmail?: string
+  userRole?: string
   firstName?: string
   lastName?: string
   rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'

@@ -103,6 +103,10 @@
                 <span>User</span>
                 <i :class="sortIcon('name')" aria-hidden="true"></i>
               </th>
+              <th scope="col" class="th-sortable" @click="toggleSort('role')">
+                <span>User Type</span>
+                <i :class="sortIcon('role')" aria-hidden="true"></i>
+              </th>
               <th scope="col" class="th-sortable" @click="toggleSort('status')">
                 <span>Status</span>
                 <i :class="sortIcon('status')" aria-hidden="true"></i>
@@ -127,6 +131,9 @@
                     {{ userEmail(rsvp) }}
                   </span>
                 </div>
+              </td>
+              <td class="admin-event-rsvps__role-cell">
+                {{ roleLabel(userRole(rsvp)) }}
               </td>
               <td>
                 <span
@@ -158,6 +165,7 @@ import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
+import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
 
 const props = defineProps<{
@@ -175,7 +183,7 @@ const rsvps = ref<AdminEventRsvpItem[]>([])
 const searchFilter = ref('')
 const statusFilter = ref('')
 
-type SortColumn = 'name' | 'status' | 'date'
+type SortColumn = 'name' | 'role' | 'status' | 'date'
 type SortDir = 'asc' | 'desc'
 const sortCol = ref<SortColumn>('date')
 const sortDir = ref<SortDir>('desc')
@@ -312,6 +320,20 @@ const userEmail = (target: AdminEventRsvpItem | number) => {
   return u?.email || ''
 }
 
+const userRole = (target: AdminEventRsvpItem | number): string => {
+  if (typeof target === 'object' && target) {
+    if (target.userRole) return target.userRole
+    const u = usersMap.value.get(target.userId)
+    if (u?.role) return u.role
+    if (u?.isAdmin) return 'admin'
+    return 'student'
+  }
+  const u = usersMap.value.get(target)
+  if (u?.role) return u.role
+  if (u?.isAdmin) return 'admin'
+  return 'student'
+}
+
 const userInitials = (target: AdminEventRsvpItem | number) => {
   const name = userName(target)
   if (name && !name.startsWith('User #')) {
@@ -363,7 +385,8 @@ const filteredRsvps = computed(() => {
     list = list.filter((r) => {
       const name = userName(r).toLowerCase()
       const email = userEmail(r).toLowerCase()
-      return name.includes(q) || email.includes(q) || String(r.userId).includes(q)
+      const role = userRole(r).toLowerCase()
+      return name.includes(q) || email.includes(q) || role.includes(q) || String(r.userId).includes(q)
     })
   }
 
@@ -377,6 +400,9 @@ const sortedRsvps = computed(() => {
   list.sort((a, b) => {
     if (sortCol.value === 'name') {
       return dir * userName(a).localeCompare(userName(b))
+    }
+    if (sortCol.value === 'role') {
+      return dir * userRole(a).localeCompare(userRole(b))
     }
     if (sortCol.value === 'status') {
       return dir * (a.rsvpStatus || '').localeCompare(b.rsvpStatus || '')
@@ -715,6 +741,12 @@ const sortedRsvps = computed(() => {
 .rsvp-badge-pending {
   background: #f0e6f6;
   color: #6a329f;
+}
+
+.admin-event-rsvps__role-cell {
+  color: var(--charcoal);
+  font-size: 0.875rem;
+  white-space: nowrap;
 }
 
 @keyframes admin-spin {

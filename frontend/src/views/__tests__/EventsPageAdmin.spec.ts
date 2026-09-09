@@ -250,8 +250,10 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(adminApi.fetchAdminEventRsvps).toHaveBeenCalledWith(101)
       const rsvpsSheet = document.body.querySelector('.admin-event-rsvps')
       expect(rsvpsSheet).not.toBeNull()
+      expect(rsvpsSheet?.textContent).toContain('User Type')
       expect(rsvpsSheet?.textContent).toContain('Sam Student')
       expect(rsvpsSheet?.textContent).toContain('student@example.com')
+      expect(rsvpsSheet?.textContent).toContain('Student')
       expect(rsvpsSheet?.textContent).toContain('Going')
     })
 

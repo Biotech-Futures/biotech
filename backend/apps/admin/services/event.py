@@ -8,7 +8,7 @@ from django.db import transaction
 from apps.events.image_storage import extract_event_image_key, resolve_event_image_url
 from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
 from apps.groups.models import Groups, group_name_sort_key
-from apps.resources.models import Roles
+from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.users.models import User
 from apps.audit.services import log_audit_event
 
@@ -487,7 +487,7 @@ def delete_event(id_str: str, initiated_by=None) -> EventResponseDict:
     return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
 
 
-def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:
+def _rsvp_to_camel(rsvp: Dict[str, Any], role_name: Optional[str] = None) -> Dict[str, Any]:
     """Convert a raw RSVP values() dict to camelCase for the frontend."""
     first_name = rsvp.get("user__first_name") or ""
     last_name = rsvp.get("user__last_name") or ""
@@ -495,12 +495,20 @@ def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:
     full_name = f"{first_name} {last_name}".strip()
     user_id = rsvp.get("user_id")
 
+    final_role = role_name or rsvp.get("userRole") or rsvp.get("user_role")
+    if not final_role:
+        if rsvp.get("user__is_superuser") or rsvp.get("user__is_staff"):
+            final_role = "admin"
+        else:
+            final_role = "student"
+
     return {
         "id": rsvp["id"],
         "eventId": rsvp.get("event_id"),
         "userId": user_id,
         "userName": full_name or email or (f"User #{user_id}" if user_id else "Unknown"),
         "userEmail": email,
+        "userRole": final_role,
         "firstName": first_name,
         "lastName": last_name,
         "rsvpStatus": rsvp.get("rsvp_status"),
@@ -536,9 +544,26 @@ def query_event_rsvps(id_str: str) -> EventResponseDict:
             "user__first_name",
             "user__last_name",
             "user__email",
+            "user__is_staff",
+            "user__is_superuser",
         )
     )
-    rsvps = [_rsvp_to_camel(r) for r in raw_rsvps]
+
+    user_ids = [r["user_id"] for r in raw_rsvps if r.get("user_id")]
+    role_map: Dict[int, str] = {}
+    if user_ids:
+        now = timezone.now()
+        assignments = (
+            RoleAssignmentHistory.objects
+            .filter(user_id__in=user_ids)
+            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
+            .select_related("role")
+            .order_by("id")
+        )
+        for rah in assignments:
+            role_map[rah.user_id] = rah.role.role_name
+
+    rsvps = [_rsvp_to_camel(r, role_name=role_map.get(r.get("user_id"))) for r in raw_rsvps]
 
     return {"msg": "Event RSVPs retrieved successfully", "data": rsvps}
 
@@ -578,6 +603,14 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     email = user.email if user else ""
     full_name = f"{first_name} {last_name}".strip()
 
+    now = timezone.now()
+    current_role = RoleAssignmentHistory.objects.filter(
+        user_id=rsvp.user_id
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+    ).select_related('role').first()
+    role_name = current_role.role.role_name if current_role else ("admin" if (user and (user.is_staff or user.is_superuser)) else "student")
+
     return {
         "msg": "Event RSVP created successfully",
         "data": {
@@ -586,6 +619,7 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
             "userId": rsvp.user_id,
             "userName": full_name or email or (f"User #{rsvp.user_id}" if rsvp.user_id else "Unknown"),
             "userEmail": email,
+            "userRole": role_name,
             "firstName": first_name,
             "lastName": last_name,
             "rsvpStatus": rsvp.rsvp_status,
@@ -625,6 +659,14 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
         email = user.email if user else ""
         full_name = f"{first_name} {last_name}".strip()
 
+        now = timezone.now()
+        current_role = RoleAssignmentHistory.objects.filter(
+            user_id=rsvp.user_id
+        ).filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).select_related('role').first()
+        role_name = current_role.role.role_name if current_role else ("admin" if (user and (user.is_staff or user.is_superuser)) else "student")
+
         return {
             "msg": "Event RSVP updated successfully",
             "data": {
@@ -633,6 +675,7 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
                 "userId": rsvp.user_id,
                 "userName": full_name or email or (f"User #{rsvp.user_id}" if rsvp.user_id else "Unknown"),
                 "userEmail": email,
+                "userRole": role_name,
                 "firstName": first_name,
                 "lastName": last_name,
                 "rsvpStatus": rsvp.rsvp_status,
