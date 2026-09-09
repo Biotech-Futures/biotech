@@ -2,13 +2,11 @@
 
 Reports each component's status separately, which is what the client asked for:
 a team can see at a glance that their poster arrived but their report did not.
-"Absent" is their wording for not-yet-submitted and is not deadline-sensitive.
+"Not Submitted" is the wording for not-yet-submitted; it is not deadline-sensitive.
 """
 from __future__ import annotations
 
 import logging
-import os
-from email.mime.image import MIMEImage
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
@@ -17,7 +15,7 @@ from django.utils import timezone
 
 from apps.common.role_names import ROLE_STUDENT
 from apps.groups.models import GroupMembership
-from apps.services.email_branding import brand_context
+from apps.services.email_branding import attach_inline_logo, brand_context
 from apps.services.mailer import send_async
 
 from .models import Submission, SubmissionQuestion
@@ -27,30 +25,7 @@ from .services import deadline_for_group
 logger = logging.getLogger(__name__)
 
 SUBMITTED = "Submitted"
-ABSENT = "Absent"
-
-# The shared branding helper attaches the white logo, for emails with a dark
-# header bar. This one has none, so the green variant is attached here.
-LOGO_CID = "btf-logo-green"
-_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "btf-logo-green.png")
-_logo_bytes: bytes | None = None
-
-
-def attach_green_logo(msg) -> None:
-    """Embed the green logo inline. Best-effort: a missing asset falls back to alt text."""
-    global _logo_bytes
-    try:
-        if _logo_bytes is None:
-            with open(_LOGO_PATH, "rb") as fh:
-                _logo_bytes = fh.read()
-        img = MIMEImage(_logo_bytes, "png")
-        img.add_header("Content-ID", f"<{LOGO_CID}>")
-        img.add_header("Content-Disposition", "inline", filename="btf-logo.png")
-        # Promotes the container to multipart/related so the cid: reference resolves.
-        msg.mixed_subtype = "related"
-        msg.attach(img)
-    except OSError:
-        logger.warning("submission_email.logo_missing path=%s", _LOGO_PATH)
+NOT_SUBMITTED = "Not Submitted"
 
 
 def _format_deadline(closes_at) -> str:
@@ -70,7 +45,7 @@ def _component(label: str, present: bool, detail: str = "") -> dict:
     return {
         "label": label,
         "submitted": present,
-        "status": SUBMITTED if present else ABSENT,
+        "status": SUBMITTED if present else NOT_SUBMITTED,
         "detail": detail if present else "",
     }
 
@@ -215,7 +190,6 @@ def send_submission_confirmation(submission: Submission) -> int:
 
         context = {
             **brand_context(),
-            "LOGO_URL": f"cid:{LOGO_CID}",
             "GROUP_NAME": group.group_name,
             "YEAR": timezone.now().year,
             "REQUIRED_COMPONENTS": required,
@@ -249,7 +223,7 @@ def send_submission_confirmation(submission: Submission) -> int:
                 to=[address],
             )
             message.attach_alternative(html, "text/html")
-            attach_green_logo(message)
+            attach_inline_logo(message)
             messages.append(message)
 
         # Rendered here, sent off-thread: the worker does no ORM work, so it

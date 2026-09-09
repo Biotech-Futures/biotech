@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from apps.services import email_branding
 from apps.services.email_branding import brand_context
 from apps.submissions import emails as confirmation
 from apps.submissions import reminders
@@ -48,7 +49,8 @@ class _Person:
 
 
 def _logo_data_uri() -> str:
-    path = pathlib.Path(confirmation._LOGO_PATH)
+    # The white variant, matching the dark brand strip the shared base paints.
+    path = pathlib.Path(email_branding._LOGO_PATH)
     if not path.exists():
         return ""
     return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
@@ -93,12 +95,12 @@ class Command(BaseCommand):
         complete = {
             **shared,
             "REQUIRED_COMPONENTS": [
-                _component("Poster", True, "btf12-poster.pdf", absent_word="Absent"),
-                _component("Short Answer Questions (SAQs)", True, absent_word="Absent"),
+                _component("Poster", True, "btf12-poster.pdf", absent_word="Not Submitted"),
+                _component("Short Answer Questions (SAQs)", True, absent_word="Not Submitted"),
             ],
             "OPTIONAL_COMPONENTS": [
-                _component("Scientific Report", True, "btf12-report.pdf", absent_word="Absent"),
-                _component("Prototype", False, absent_word="Absent"),
+                _component("Scientific Report", True, "btf12-report.pdf", absent_word="Not Submitted"),
+                _component("Prototype", False, absent_word="Not Submitted"),
             ],
             "INCOMPLETE": False,
             "SUBMITTED_BY": _Person(),

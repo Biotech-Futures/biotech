@@ -128,12 +128,12 @@ class SubmissionEmailTests(TestCase):
         # The "not yet complete" warning would undermine a valid confirmation.
         self.assertNotIn("Your submission is not yet complete", body)
 
-    def test_missing_optional_components_are_marked_absent(self):
+    def test_missing_optional_components_are_marked_not_submitted(self):
         self._complete_and_submit()
         body = mail.outbox[0].alternatives[0][0]
 
         self.assertIn("Scientific Report", body)
-        self.assertIn("Absent", body)
+        self.assertIn("Not Submitted", body)
 
     def test_statuses_describe_the_submitted_copy_not_the_draft(self):
         # A team that reopens and edits must not receive an email implying the
@@ -150,7 +150,7 @@ class SubmissionEmailTests(TestCase):
 
         required, optional = build_components(Submission.objects.get(group=self.group))
         report = next(item for item in optional if item["label"] == "Scientific Report")
-        self.assertEqual(report["status"], "Absent")
+        self.assertEqual(report["status"], "Not Submitted")
         self.assertTrue(all(item["submitted"] for item in required))
 
     def test_a_prototype_link_alone_counts_as_submitted(self):

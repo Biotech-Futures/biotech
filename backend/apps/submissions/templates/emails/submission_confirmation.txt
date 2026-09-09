@@ -1,13 +1,6 @@
 {% comment %}
-Plain-text alternative, written as text rather than derived from the HTML.
-
-Deriving it with strip_tags() looked equivalent but was not: strip_tags removes
-tags and keeps whatever sat between them, so everything inside the base
-template's <style> block arrived as visible CSS above the message. Most clients
-render the HTML part and never show this, but those that fall back to text —
-and some screen readers — would have read out the stylesheet first.
-
-Keep the wording here in step with submission_confirmation.html.
+Written as text, not derived with strip_tags: that leaks the base's <style>
+block into the body. Keep in step with submission_confirmation.html.
 {% endcomment %}Hi Group {{ GROUP_NAME }},
 
 THANK YOU FOR SUBMITTING YOUR WORK
@@ -33,12 +26,11 @@ OPTIONAL COMPONENTS
 {% endfor %}
 The Scientific Report and Prototype are optional and will not affect whether
 your submission is considered complete.
-{% if INCOMPLETE %}
-YOUR SUBMISSION IS NOT YET COMPLETE
 
-Please review the statuses above carefully. Any required component shown as
-Absent must be submitted before the deadline.
-{% endif %}
+Please review the statuses above carefully. If either required component is
+shown as Not Submitted, you will need to submit it before the submission
+deadline.
+
 You can continue to update or complete your submission up until the deadline
 on {{ DEADLINE }}.
 
