@@ -100,7 +100,7 @@
           <thead>
             <tr>
               <th scope="col" class="th-sortable" @click="toggleSort('name')">
-                <span>Attendee</span>
+                <span>User</span>
                 <i :class="sortIcon('name')" aria-hidden="true"></i>
               </th>
               <th scope="col" class="th-sortable" @click="toggleSort('status')">
