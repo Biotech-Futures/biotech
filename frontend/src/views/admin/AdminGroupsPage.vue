@@ -44,7 +44,9 @@
       </div>
     </div>
 
-    <MatchedGroupsPanel v-if="activeTab === 'matched'" />
+    <StudentMatchingPanel v-if="activeTab === 'student-matching'" />
+    <MentorMatchingPanel v-else-if="activeTab === 'mentor-matching'" />
+    <MatchedGroupsPanel v-else-if="activeTab === 'matched'" />
 
     <template v-else>
     <div class="admin-groups__filters card">
@@ -259,6 +261,8 @@ import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
+import MentorMatchingPanel from '@/components/admin/matching/MentorMatchingPanel.vue'
+import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPanel.vue'
 import {
   fetchAdminGroupList,
   createGroup,
@@ -270,11 +274,12 @@ import {
 } from '@/utils/adminAPI'
 import { formatDateAU } from '@/utils/date'
 
-// "Groups" (the list built here) and "Matched Groups" (confirmed mentor
-// assignments, mentor replace/unassign) are tabs on one page — matching the
-// reference app, which nests both under one "Groups & Matching" section
-// rather than giving Matched Groups its own top-level admin route.
-const activeTab = ref<'groups' | 'matched'>('groups')
+// "Groups" (the list built here), "Student Matching", "Mentor Matching" and
+// "Matched Groups" (confirmed mentor assignments, mentor replace/unassign) are
+// tabs on one page — matching the reference app, which nests all four under one
+// "Groups & Matching" section rather than giving each its own admin route.
+// The two matching tabs live in their own components so this file stays a shell.
+const activeTab = ref<'groups' | 'student-matching' | 'mentor-matching' | 'matched'>('groups')
 
 const columns: AdminColumn[] = [
   { key: 'select', label: '', width: '42px' },
