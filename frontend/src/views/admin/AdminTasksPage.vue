@@ -118,7 +118,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm btn-danger"
+              class="btn btn-sm btn-outline"
               :disabled="loading || saving || taskActionBusy"
               @click.stop="openSingleDelete(toTask(row))"
             >
