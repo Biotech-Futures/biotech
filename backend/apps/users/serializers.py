@@ -46,6 +46,21 @@ class JoinPermissionBodySerializer(serializers.Serializer):
 class JoinPermissionRequestSerializer(serializers.Serializer):
     body = JoinPermissionBodySerializer()
 
+
+class StudentSelfProfileUpdateSerializer(serializers.Serializer):
+    """Fields a student may update only when no supervisor manages them."""
+
+    first_name = serializers.CharField(max_length=255, required=False)
+    last_name = serializers.CharField(max_length=255, required=False)
+    school_name = serializers.CharField(max_length=255, required=False)
+    year_lvl = serializers.ChoiceField(
+        choices=[str(level) for level in range(9, 13)],
+        required=False,
+    )
+    pg_firstname = serializers.CharField(max_length=255, required=False)
+    pg_lastname = serializers.CharField(max_length=255, required=False)
+    pg_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+
 class UserSerializer(serializers.ModelSerializer):
     current_role_id = serializers.SerializerMethodField()
     current_role_name = serializers.SerializerMethodField()

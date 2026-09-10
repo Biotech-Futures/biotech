@@ -118,8 +118,21 @@
           </div>
         </div>
 
-        <div v-if="user.student.hasDetails" class="profile-section" :class="{ 'supervisor-managed': hasLinkedSupervisor && supervisorManaged }">
-          <div class="profile-section-heading"><h3 class="profile-section-title">Student Details <span v-if="hasLinkedSupervisor && supervisorManaged" title="Managed by your supervisor" aria-label="Managed by your supervisor">🔒</span></h3><button v-if="hasLinkedSupervisor" class="btn btn-outline preview-toggle" type="button" @click="toggleSupervisorManaged">{{ supervisorManaged ? 'Preview: supervisor-managed' : 'Preview: student-managed' }}</button></div>
+        <div v-if="user.student.hasDetails" class="profile-section">
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Student Details <span v-if="hasLinkedSupervisor" class="registration-lock" role="img" aria-label="Registered by your supervisor. You cannot edit your own details." data-tooltip="Registered by your supervisor. You cannot edit your own details."><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
+            <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" @click="startStudentEdit">Edit details</button>
+          </div>
+          <form v-if="studentEditing" class="student-edit-form" @submit.prevent="saveStudentDetails">
+            <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
+            <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
+            <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
+            <fieldset><legend>Guardian details</legend><label>First name<input v-model.trim="studentDraft.pg_firstname" required maxlength="255" /></label><label>Last name<input v-model.trim="studentDraft.pg_lastname" required maxlength="255" /></label><label>Email<input v-model.trim="studentDraft.pg_email" type="email" maxlength="254" /></label></fieldset>
+            <p class="profile-note">Changing guardian details resets their permission confirmation.</p>
+            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
+          </form>
+          <template v-else>
           <div class="profile-field">
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.student.schoolName }}</span>
@@ -160,9 +173,10 @@
               <span v-else>{{ user.student.supervisorEmail }}</span>
             </span>
           </div>
+          </template>
         </div>
 
-        <div v-if="user.student.hasDetails" class="profile-section">
+        <div v-if="user.student.hasDetails && !studentEditing" class="profile-section">
           <h3 class="profile-section-title">Team members</h3>
           <p v-if="teamLoading" class="profile-note">Loading your team…</p>
           <p v-else-if="teamError" class="profile-note">{{ teamError }}</p>
@@ -183,7 +197,7 @@
           <p v-else class="profile-note">You have not been assigned to a team yet.</p>
         </div>
 
-        <div v-if="user.student.hasDetails" class="profile-section">
+        <div v-if="user.student.hasDetails && !studentEditing" class="profile-section">
           <h3 class="profile-section-title">Guardian details &amp; permission</h3>
           <div class="profile-field"><span class="profile-field-label">First Name:</span><span class="profile-field-value">{{ user.student.guardianFirstName }}</span></div>
           <div class="profile-field"><span class="profile-field-label">Last Name:</span><span class="profile-field-value">{{ user.student.guardianLastName }}</span></div>
@@ -252,9 +266,19 @@ const loading = ref(true)
 const error = ref('')
 const statusMessage = ref('')
 const timezoneSaving = ref(false)
+const studentSaving = ref(false)
+const studentEditing = ref(false)
+const studentDraft = ref({
+  first_name: '',
+  last_name: '',
+  school_name: '',
+  year_lvl: '9',
+  pg_firstname: '',
+  pg_lastname: '',
+  pg_email: '',
+})
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
-const supervisorManaged = ref(false)
 const teamMembers = ref([])
 const teamName = ref('')
 const teamLoading = ref(false)
@@ -311,6 +335,7 @@ const timeZoneOptions = computed(() => {
 
 const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
 const hasLinkedSupervisor = computed(() => Boolean(user.value?.student?.supervisorEmailAddress))
+const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !hasLinkedSupervisor.value)
 
 watch(
   () => auth.timeZone,
@@ -360,6 +385,61 @@ const clearStatusMessageTimer = () => {
   statusMessageTimer = null
 }
 
+const showTemporaryStatus = (message) => {
+  clearStatusMessageTimer()
+  statusMessage.value = message
+  statusMessageTimer = window.setTimeout(() => {
+    statusMessage.value = ''
+    statusMessageTimer = null
+  }, 3200)
+}
+
+const startStudentEdit = () => {
+  const source = auth.user || {}
+  studentDraft.value = {
+    first_name: source.first_name || '',
+    last_name: source.last_name || '',
+    school_name: source.school_name || '',
+    year_lvl: source.year_lvl || '9',
+    pg_firstname: source.pg_firstname || '',
+    pg_lastname: source.pg_lastname || '',
+    pg_email: source.pg_email || '',
+  }
+  error.value = ''
+  studentEditing.value = true
+}
+
+const cancelStudentEdit = () => {
+  if (studentSaving.value) return
+  studentEditing.value = false
+  error.value = ''
+}
+
+const saveStudentDetails = async () => {
+  if (!canEditStudentDetails.value) return
+  studentSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(studentDraft.value),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    studentEditing.value = false
+    showTemporaryStatus('Your details have been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your details could not be updated.'
+  } finally {
+    studentSaving.value = false
+  }
+}
+
 const selectAvatar = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
@@ -396,16 +476,6 @@ const selectAvatar = async (event) => {
   }
 }
 
-const toggleSupervisorManaged = () => {
-  supervisorManaged.value = !supervisorManaged.value
-  localStorage.setItem(supervisorManagedStorageKey(), String(supervisorManaged.value))
-  statusMessage.value = supervisorManaged.value
-    ? 'Preview mode: registration details are marked as supervisor-managed.'
-    : 'Preview mode: registration details are marked as student-managed.'
-}
-
-const supervisorManagedStorageKey = () => `btf-preview-supervisor-managed:${auth.user?.id || auth.user?.email || 'anonymous'}`
-
 const loadTeamMembers = async () => {
   teamLoading.value = true
   teamError.value = ''
@@ -417,7 +487,12 @@ const loadTeamMembers = async () => {
     teamName.value = groups[0].group_name || `Group ${groups[0].id}`
     const response = await fetch(`${API_BASE_URL}/groups/group-members/by-group/${groups[0].id}/`, { credentials: 'include', headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }) })
     if (!response.ok) throw new Error('Your team members could not be loaded.')
-    teamMembers.value = (await response.json()).map((member) => ({ id: member.id, name: member.user_name || 'Team member', role: member.membership_role || 'member' }))
+    // Student profiles are shown before the challenge begins, when a mentor
+    // has not yet been allocated. Keep the table focused on student teammates
+    // even if development data already has a mentor attached to the group.
+    teamMembers.value = (await response.json())
+      .filter((member) => !['mentor', 'teacher'].includes(String(member.membership_role || '').trim().toLowerCase()))
+      .map((member) => ({ id: member.id, name: member.user_name || 'Team member', role: member.membership_role || 'member' }))
   } catch (loadError) {
     teamError.value = loadError instanceof Error ? loadError.message : 'Your team members could not be loaded.'
   } finally { teamLoading.value = false }
@@ -536,7 +611,6 @@ async function loadProfile() {
       throw new Error('Your current user profile could not be loaded.')
     }
     avatarUrl.value = auth.user.profile_image_url || DEFAULT_PROFILE_AVATAR
-    supervisorManaged.value = localStorage.getItem(supervisorManagedStorageKey()) === 'true'
   } catch (loadError) {
     error.value = loadError instanceof Error
       ? loadError.message
@@ -727,9 +801,19 @@ onMounted(() => {
 .permission-status.received { color: var(--dark-green); }
 .profile-note { margin: 1rem 0 0; color: #5c6670; font-size: .92rem; }
 .profile-note a { color: var(--dark-green); }
-.profile-section-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-.preview-toggle { margin:0; font-size:.8rem; }
-.supervisor-managed .profile-field { opacity:.72; }
+.registration-lock { position:relative; display:inline-flex; width:.9rem; height:.9rem; margin-left:.3rem; color:#657069; vertical-align:-.08rem; cursor:help; }
+.registration-lock svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
+.registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
+.profile-edit-button { margin:0; font-size:.85rem; }
+.student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
+.student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
+.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
+.student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
+.student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
+.student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
+.student-edit-actions .btn { margin:0; }
 .team-table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border-light); border-radius:8px; }
 .team-table { width:100%; border-collapse:collapse; min-width:360px; }
 .team-table th, .team-table td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid var(--border-light); }
@@ -768,6 +852,10 @@ onMounted(() => {
   .timezone-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .student-edit-form, .student-edit-form fieldset {
+    grid-template-columns:1fr;
   }
 }
 </style>
