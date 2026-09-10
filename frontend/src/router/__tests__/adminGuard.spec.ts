@@ -19,11 +19,12 @@ const memberUser = {
   current_role_name: 'student'
 } as never
 
+// '/admin/matching' is deliberately absent — it redirects to /admin/groups
+// (matching is a tab there). Its redirect is covered by its own test below.
 const adminRoutes = [
   '/admin',
   '/admin/users',
   '/admin/groups',
-  '/admin/matching',
   '/admin/events',
   '/admin/resources',
   '/admin/announcements',
@@ -63,6 +64,25 @@ describe('admin router guard', () => {
       await router.push(path)
       expect(router.currentRoute.value.path).toBe(path)
     }
+  })
+
+  it('redirects /admin/matching to the Groups & Matching page', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+
+    await router.push('/admin/matching')
+    expect(router.currentRoute.value.path).toBe('/admin/groups')
+  })
+
+  // The Students page deep-links to /admin/matching?run=true to auto-run the
+  // matcher, so the redirect has to carry the query across.
+  it('preserves the query string when redirecting /admin/matching', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+
+    await router.push('/admin/matching?run=true')
+    expect(router.currentRoute.value.path).toBe('/admin/groups')
+    expect(router.currentRoute.value.query.run).toBe('true')
   })
 
   it('sends authenticated admins who visit /login to the admin dashboard', async () => {

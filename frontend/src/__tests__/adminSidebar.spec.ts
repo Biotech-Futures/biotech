@@ -21,10 +21,11 @@ const memberUser = {
   current_role_name: 'student'
 } as never
 
+// No '/admin/matching' entry: student and mentor matching are tabs on the
+// Groups & Matching page, so the sidebar links to /admin/groups instead.
 const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
-  '/admin/matching',
   '/admin/events',
   '/admin/resources',
   '/admin/announcements',
