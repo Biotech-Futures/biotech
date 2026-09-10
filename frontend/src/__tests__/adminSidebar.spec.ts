@@ -29,7 +29,6 @@ const adminSubLinks = [
   '/admin/events',
   '/admin/resources',
   '/admin/announcements',
-  '/admin/mentors',
   '/admin/tasks'
 ]
 

@@ -73,9 +73,28 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the only supported file backend.
-USE_AZURE_BLOB_STORAGE = True
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+# Azure Blob is the supported cloud file backend; fall back to local disk
+# storage when running in local development without Azure credentials.
+_has_azure_creds = bool(
+    AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
+)
+USE_AZURE_BLOB_STORAGE = config(
+    "USE_AZURE_BLOB_STORAGE",
+    default=_has_azure_creds,
+    cast=env_bool,
+)
+if not DEBUG and not USE_AZURE_BLOB_STORAGE:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "Azure Blob Storage must be enabled when DEBUG is false. "
+        "Set USE_AZURE_BLOB_STORAGE=true and provide Azure credentials."
+    )
+DEFAULT_FILE_STORAGE = (
+    "storages.backends.azure_storage.AzureStorage"
+    if USE_AZURE_BLOB_STORAGE
+    else "django.core.files.storage.FileSystemStorage"
+)
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 

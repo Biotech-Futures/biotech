@@ -1,14 +1,10 @@
 <template>
   <div class="admin-users">
-    <!-- Top actions: search + add (supervisors) or import/add (students) -->
+    <!-- Top actions: supervisor search only (add / CSV import move to the People tabs line) -->
     <AdminUsersToolbar
+      v-if="isSupervisorMode"
       :is-supervisor-mode="isSupervisorMode"
-      :is-student-mode="isStudentMode"
-      :add-label="addLabel"
-      :loading="loading"
       v-model:search="searchInput"
-      @add="openCreate"
-      @import-students="openStudentImport"
     />
 
     <!-- Users tab filters: search / role / country / state / in-group / status -->
@@ -333,7 +329,6 @@ const {
   fixedRole,
   userNoun,
   pluralNoun,
-  addLabel,
   displaySelected,
   applyFilterPatch,
   onSortChange,
@@ -421,6 +416,12 @@ const onSingleDeleteConfirmed = () => {
 
 onMounted(() => {
   void init()
+})
+
+defineExpose({
+  openCreate,
+  openStudentImport,
+  loading
 })
 </script>
 

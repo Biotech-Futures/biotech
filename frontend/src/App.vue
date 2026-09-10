@@ -185,15 +185,6 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
-                    to="/admin/mentors"
-                    class="sidebar-sublink"
-                    :class="{ active: route.path === '/admin/mentors' }"
-                  >
-                    <span>Mentors</span>
-                  </RouterLink>
-                </li>
-                <li class="sidebar-subitem">
-                  <RouterLink
                     to="/admin/tasks"
                     class="sidebar-sublink"
                     :class="{ active: route.path === '/admin/tasks' }"

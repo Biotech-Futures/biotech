@@ -1,34 +1,18 @@
 <template>
   <div
-    class="admin-users__actions"
-    :class="{ 'admin-users__actions--with-search': isSupervisorMode }"
+    v-if="isSupervisorMode"
+    class="admin-users__actions admin-users__actions--with-search"
   >
-    <template v-if="isSupervisorMode">
-      <div class="admin-users__search">
-        <i class="fas fa-magnifying-glass admin-users__search-icon" aria-hidden="true"></i>
-        <input
-          v-model="search"
-          type="search"
-          class="admin-users__search-input"
-          placeholder="Search supervisors..."
-          aria-label="Search supervisors"
-        />
-      </div>
-    </template>
-    <button
-      v-if="isStudentMode"
-      type="button"
-      class="btn btn-outline"
-      :disabled="loading"
-      @click="emit('import-students')"
-    >
-      <i class="fas fa-file-arrow-up" aria-hidden="true"></i>
-      <span>Import Students CSV</span>
-    </button>
-    <button type="button" class="btn btn-primary" :disabled="loading" @click="emit('add')">
-      <i class="fas fa-plus" aria-hidden="true"></i>
-      <span>{{ addLabel }}</span>
-    </button>
+    <div class="admin-users__search">
+      <i class="fas fa-magnifying-glass admin-users__search-icon" aria-hidden="true"></i>
+      <input
+        v-model="search"
+        type="search"
+        class="admin-users__search-input"
+        placeholder="Search supervisors..."
+        aria-label="Search supervisors"
+      />
+    </div>
   </div>
 </template>
 
@@ -38,21 +22,15 @@ import { computed } from 'vue'
 const props = withDefaults(
   defineProps<{
     isSupervisorMode: boolean
-    isStudentMode: boolean
-    addLabel: string
-    loading?: boolean
     search?: string
   }>(),
   {
-    loading: false,
     search: ''
   }
 )
 
 const emit = defineEmits<{
   (e: 'update:search', value: string): void
-  (e: 'add'): void
-  (e: 'import-students'): void
 }>()
 
 const search = computed({
@@ -62,32 +40,16 @@ const search = computed({
 </script>
 
 <style scoped>
-.admin-users__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
-}
-
-.admin-users__actions .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .admin-users__actions--with-search {
+  display: flex;
   justify-content: space-between;
+  margin-bottom: 1.25rem;
 }
 
 .admin-users__search {
   position: relative;
   width: 100%;
-}
-
-.admin-users__actions--with-search .admin-users__search {
   flex: 0 1 320px;
-  width: auto;
 }
 
 .admin-users__search-input {
@@ -111,7 +73,6 @@ const search = computed({
 }
 
 @media (max-width: 640px) {
-  .admin-users__actions,
   .admin-users__actions--with-search {
     flex-direction: column;
     align-items: stretch;

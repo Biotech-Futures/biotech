@@ -114,7 +114,6 @@ describe('AdminUsersView', () => {
 
     expect(wrapper.text()).toContain('Ada Lovelace')
     expect(wrapper.text()).toContain('Grace Hopper')
-    expect(wrapper.text()).toContain('Add User')
   })
 
   it('requests the supervisors role filter and hides the role filter control', async () => {
@@ -125,7 +124,6 @@ describe('AdminUsersView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Add Supervisor')
     expect(String(listCall(fetchMock)?.[0])).toContain('role=supervisor')
     expect(wrapper.find('#role-filter').exists()).toBe(false)
     expect(wrapper.find('#country-filter').exists()).toBe(false)
@@ -139,7 +137,6 @@ describe('AdminUsersView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Add Student')
     expect(String(listCall(fetchMock)?.[0])).toContain('role=student')
     expect(wrapper.find('#role-filter').exists()).toBe(false)
     expect(wrapper.find('#country-filter').exists()).toBe(true)
@@ -175,21 +172,6 @@ describe('AdminUsersView', () => {
     const toolbar = wrapper.find('[role="toolbar"]')
     expect(toolbar.exists()).toBe(true)
     expect(toolbar.text()).not.toContain('Delete')
-  })
-
-  it('opens the create form when "Add User" is clicked', async () => {
-    vi.stubGlobal('fetch', fetchMockFor([]))
-    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
-    await flushPromises()
-
-    const button = wrapper.findAll('button').find((b) => b.text().trim() === 'Add User')
-    expect(button).toBeDefined()
-    await button!.trigger('click')
-    await flushPromises()
-
-    const dialog = dialogs().find((d) => d.textContent!.includes('Add user'))
-    expect(dialog).toBeDefined()
-    expect(dialog!.querySelector('#f-email')).not.toBeNull()
   })
 
   it('offers a delete action from the editor for regular users', async () => {
@@ -552,16 +534,14 @@ describe('AdminUsersView', () => {
     expect(wrapper.text()).not.toContain('1 student selected')
   })
 
-  it('opens the student CSV import sheet from the Students toolbar only', async () => {
+  it('opens the student CSV import sheet from the Students mode only', async () => {
     vi.stubGlobal('fetch', fetchMockFor([buildUser()]))
     wrapper = mount(AdminUsersView, {
       props: { title: 'Students', noun: 'student', roleFilter: 'student' }
     })
     await flushPromises()
 
-    const importButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Import Students CSV')
-    expect(importButton).toBeDefined()
-    await importButton!.trigger('click')
+    ;(wrapper.vm as unknown as { openStudentImport: () => void }).openStudentImport()
     await flushPromises()
 
     expect(wrapper.findComponent(AdminStudentImportSheet).props('modelValue')).toBe(true)
@@ -570,7 +550,6 @@ describe('AdminUsersView', () => {
     wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
     await flushPromises()
 
-    expect(wrapper.findAll('button').some((b) => b.text().trim() === 'Import Students CSV')).toBe(false)
     expect(wrapper.findComponent(AdminStudentImportSheet).exists()).toBe(false)
   })
 
@@ -586,8 +565,7 @@ describe('AdminUsersView', () => {
       (call) => String(call[0]).includes('/user/') && !String(call[0]).includes('limit=200')
     ).length
 
-    const importButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Import Students CSV')
-    await importButton!.trigger('click')
+    ;(wrapper.vm as unknown as { openStudentImport: () => void }).openStudentImport()
     await flushPromises()
 
     wrapper.findComponent(AdminStudentImportSheet).vm.$emit('imported', {
