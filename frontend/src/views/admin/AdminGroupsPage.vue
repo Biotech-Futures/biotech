@@ -9,47 +9,56 @@
       </div>
     </div>
 
-    <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
-        role="tab"
-        :aria-selected="activeTab === 'groups'"
-        @click="activeTab = 'groups'"
-      >
-        Groups
-      </button>
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'student-matching' }"
-        role="tab"
-        :aria-selected="activeTab === 'student-matching'"
-        @click="activeTab = 'student-matching'"
-      >
-        Student Matching
-      </button>
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'mentor-matching' }"
-        role="tab"
-        :aria-selected="activeTab === 'mentor-matching'"
-        @click="activeTab = 'mentor-matching'"
-      >
-        Mentor Matching
-      </button>
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
-        role="tab"
-        :aria-selected="activeTab === 'matched'"
-        @click="activeTab = 'matched'"
-      >
-        Matched Groups
-      </button>
+    <div class="admin-groups__toolbar">
+      <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
+          role="tab"
+          :aria-selected="activeTab === 'groups'"
+          @click="activeTab = 'groups'"
+        >
+          Groups
+        </button>
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'student-matching' }"
+          role="tab"
+          :aria-selected="activeTab === 'student-matching'"
+          @click="activeTab = 'student-matching'"
+        >
+          Student Matching
+        </button>
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'mentor-matching' }"
+          role="tab"
+          :aria-selected="activeTab === 'mentor-matching'"
+          @click="activeTab = 'mentor-matching'"
+        >
+          Mentor Matching
+        </button>
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
+          role="tab"
+          :aria-selected="activeTab === 'matched'"
+          @click="activeTab = 'matched'"
+        >
+          Matched Groups
+        </button>
+      </div>
+
+      <div v-if="activeTab === 'groups'" class="admin-groups__actions">
+        <button type="button" class="btn btn-primary" @click="openCreate">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>Add group</span>
+        </button>
+      </div>
     </div>
 
     <StudentMatchingPanel v-if="activeTab === 'student-matching'" />
@@ -57,12 +66,6 @@
     <MatchedGroupsPanel v-else-if="activeTab === 'matched'" />
 
     <template v-else>
-    <div class="admin-groups__actions">
-      <button type="button" class="btn btn-primary" @click="openCreate">
-        <i class="fas fa-plus" aria-hidden="true"></i>
-        <span>Add group</span>
-      </button>
-    </div>
 
     <div class="admin-groups__filters card">
       <div class="admin-groups__filter-field admin-groups__search-field">
@@ -681,14 +684,28 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
-/* "Add group" action row — mirrors .admin-users__actions on the People page so
-   the button sits in the same place with the same styling. */
+.admin-groups__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-groups__toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* "Add group" action in toolbar */
 .admin-groups__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
 }
 
 .admin-groups__actions .btn {
@@ -798,7 +815,6 @@ const submitForm = async () => {
   flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.3rem;
-  margin-bottom: 1.25rem;
   background: var(--white);
   border: 1px solid var(--border-light);
   border-radius: 999px;
