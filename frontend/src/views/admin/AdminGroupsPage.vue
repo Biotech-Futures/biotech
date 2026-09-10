@@ -1,45 +1,52 @@
 <template>
   <div class="content-area admin-groups">
     <div class="page-head">
-      <div>
-        <h1>Groups</h1>
-        <p class="page-subtitle">Manage student groups and mentor assignments.</p>
-      </div>
+      <h1>Groups</h1>
+      <p class="page-subtitle">Manage student groups and mentor assignments.</p>
     </div>
 
-    <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
-        role="tab"
-        :aria-selected="activeTab === 'groups'"
-        @click="activeTab = 'groups'"
-      >
-        Groups
-      </button>
-      <button
-        type="button"
-        class="admin-groups__tab"
-        :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
-        role="tab"
-        :aria-selected="activeTab === 'matched'"
-        @click="activeTab = 'matched'"
-      >
-        Matched Groups
-      </button>
+    <div class="admin-groups__toolbar">
+      <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
+          role="tab"
+          :aria-selected="activeTab === 'groups'"
+          @click="activeTab = 'groups'"
+        >
+          Groups
+        </button>
+        <button
+          type="button"
+          class="admin-groups__tab"
+          :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
+          role="tab"
+          :aria-selected="activeTab === 'matched'"
+          @click="activeTab = 'matched'"
+        >
+          Matched Groups
+        </button>
+      </div>
+
+      <div class="admin-groups__actions">
+        <!-- Only the Groups tab has anything to add; the Matched Groups tab is
+             read-only, so the slot sits empty there rather than shifting the tabs. -->
+        <button
+          v-if="activeTab === 'groups'"
+          type="button"
+          class="btn btn-primary"
+          @click="openCreate"
+        >
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>Add group</span>
+        </button>
+      </div>
     </div>
 
     <MatchedGroupsPanel v-if="activeTab === 'matched'" />
 
     <template v-else>
-    <div class="admin-groups__actions">
-      <button type="button" class="btn btn-primary" @click="openCreate">
-        <i class="fas fa-plus" aria-hidden="true"></i>
-        <span>Add group</span>
-      </button>
-    </div>
-
     <div class="admin-groups__filters card">
       <div class="admin-groups__filter-field admin-groups__search-field">
         <label class="admin-groups__filter-label" for="group-search">Search</label>
@@ -654,14 +661,39 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
-/* "Add group" action row — mirrors .admin-users__actions on the People page so
-   the button sits in the same place with the same styling. */
+/* Page heading block — same spacing and muted subtitle as Tasks, Announcements
+   and Resources. `.page-head` carries no global styles, so each page that uses
+   it defines its own. */
+.page-head {
+  margin-bottom: 1.5rem;
+}
+
+.page-head h1 {
+  margin: 0 0 0.25rem;
+}
+
+.page-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Tabs and the "Add group" button share one row, mirroring .people-toolbar on
+   the People page. */
+.admin-groups__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
 .admin-groups__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
 }
 
 .admin-groups__actions .btn {
@@ -766,7 +798,6 @@ const submitForm = async () => {
   flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.3rem;
-  margin-bottom: 1.25rem;
   background: var(--white);
   border: 1px solid var(--border-light);
   border-radius: 999px;

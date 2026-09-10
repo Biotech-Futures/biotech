@@ -143,9 +143,6 @@ const quickLinks = [
   { to: '/admin/users', label: 'Users', icon: 'fa-users' },
   { to: '/admin/groups', label: 'Groups', icon: 'fa-layer-group' },
   { to: '/admin/matching', label: 'Matching', icon: 'fa-user-tie' },
-  { to: '/admin/events', label: 'Events', icon: 'fa-calendar' },
-  { to: '/admin/resources', label: 'Resources', icon: 'fa-book' },
-  { to: '/admin/announcements', label: 'Announcements', icon: 'fa-bullhorn' },
   { to: '/admin/tasks', label: 'Tasks', icon: 'fa-list-check' }
 ]
 

@@ -167,33 +167,6 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
-                    to="/admin/events"
-                    class="sidebar-sublink"
-                    :class="{ active: route.path === '/admin/events' }"
-                  >
-                    <span>Events</span>
-                  </RouterLink>
-                </li>
-                <li class="sidebar-subitem">
-                  <RouterLink
-                    to="/admin/resources"
-                    class="sidebar-sublink"
-                    :class="{ active: route.path === '/admin/resources' }"
-                  >
-                    <span>Resources</span>
-                  </RouterLink>
-                </li>
-                <li class="sidebar-subitem">
-                  <RouterLink
-                    to="/admin/announcements"
-                    class="sidebar-sublink"
-                    :class="{ active: route.path === '/admin/announcements' }"
-                  >
-                    <span>Announcements</span>
-                  </RouterLink>
-                </li>
-                <li class="sidebar-subitem">
-                  <RouterLink
                     to="/admin/tasks"
                     class="sidebar-sublink"
                     :class="{ active: route.path === '/admin/tasks' }"

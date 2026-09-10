@@ -1,7 +1,8 @@
 <template>
   <div class="content-area admin-people">
     <div class="page-head">
-        <h1>People</h1>
+      <h1>People</h1>
+      <p class="page-subtitle">Manage users, students, mentors and supervisors.</p>
     </div>
 
     <div class="people-toolbar">
@@ -129,6 +130,22 @@ const openActiveImport = () => {
 </script>
 
 <style scoped>
+/* Page heading block — same spacing and muted subtitle as Tasks, Announcements
+   and Resources. `.page-head` carries no global styles, so each page that uses
+   it defines its own. */
+.page-head {
+  margin-bottom: 1.5rem;
+}
+
+.page-head h1 {
+  margin: 0 0 0.25rem;
+}
+
+.page-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .people-toolbar {
   display: flex;
   flex-wrap: wrap;
