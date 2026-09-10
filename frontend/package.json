@@ -23,7 +23,7 @@
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",
     "vuedraggable": "^4.1.0",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
     "@tiptap/core": "^3.30.6",
     "@tiptap/extension-image": "^3.30.6",
     "@tiptap/extension-link": "^3.30.6",
