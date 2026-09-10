@@ -26,7 +26,7 @@ const memberUser = {
 const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
-  '/admin/events',
+  '/admin/tasks',
 ]
 
 let wrapper: VueWrapper | null = null
