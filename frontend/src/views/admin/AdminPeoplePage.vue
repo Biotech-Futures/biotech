@@ -2,6 +2,9 @@
   <div class="content-area admin-people">
     <div class="page-head">
         <h1>People</h1>
+        <p class="people-subtitle">
+          Manage accounts for every class of user.
+        </p>
     </div>
 
     <div class="people-toolbar">
@@ -142,6 +145,11 @@ const openActiveImport = () => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.people-subtitle {
+  color: var(--text-muted);
+  margin: -0.5rem 0 0.5rem;
 }
 
 .people-toolbar__actions {

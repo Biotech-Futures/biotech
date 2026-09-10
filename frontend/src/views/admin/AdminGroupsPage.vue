@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>Groups &amp; Matching</h1>
-        <p class="page-subtitle">
+        <p class="groups-subtitle">
           Manage student groups, run matching, and review mentor assignments.
         </p>
       </div>
@@ -695,6 +695,11 @@ const submitForm = async () => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.groups-subtitle {
+  color: var(--text-muted);
+  margin: -0.5rem 0 0.5rem;
 }
 
 .admin-groups__selection-banner {
