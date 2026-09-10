@@ -189,27 +189,6 @@
         </p>
       </div>
 
-      <!-- Target Groups -->
-      <div v-if="groups.length" class="admin-event-form__section">
-        Target Groups
-        <span class="admin-event-form__section-note">(leave unselected to target all groups)</span>
-      </div>
-      <fieldset v-if="groups.length" class="admin-event-form__checkbox-grid">
-        <legend class="sr-only">Target groups</legend>
-        <label
-          v-for="g in groups"
-          :key="g.id"
-          class="admin-event-form__checkbox-label"
-        >
-          <input
-            type="checkbox"
-            :value="g.id"
-            :checked="form.targetGroupIds.includes(g.id)"
-            @change="toggleGroup(g.id)"
-          />
-          <span>{{ g.groupName }}</span>
-        </label>
-      </fieldset>
 
       <!-- Target Roles -->
       <div v-if="roles.length" class="admin-event-form__section">
@@ -274,13 +253,11 @@ import { useAuthStore } from '@/stores/auth'
 import type {
   AdminEventDetail,
   CreateAdminEventPayload,
-  EventTargetGroupItem,
   EventTargetRoleItem,
   UpdateAdminEventPayload
 } from '@/utils/adminAPI'
 import {
   createAdminEvent,
-  fetchAdminEventMetaGroups,
   fetchAdminEventMetaRoles,
   fetchAdminEventTargets,
   updateAdminEvent,
@@ -320,7 +297,6 @@ interface EventFormData {
   startAt: string
   endsAt: string
   eventImage: string
-  targetGroupIds: number[]
   targetRoleIds: number[]
 }
 
@@ -373,7 +349,6 @@ const defaultFormData = (): EventFormData => {
     startAt: startStr,
     endsAt: endStr,
     eventImage: '',
-    targetGroupIds: [],
     targetRoleIds: []
   }
 }
@@ -382,7 +357,6 @@ const form = reactive<EventFormData>(defaultFormData())
 const formError = ref('')
 const saving = ref(false)
 
-const groups = ref<EventTargetGroupItem[]>([])
 const roles = ref<EventTargetRoleItem[]>([])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -447,14 +421,9 @@ function localInTzToUtcIso(value: string, timeZone: string = 'UTC'): string {
 
 const loadMeta = async () => {
   try {
-    const [groupsData, rolesData] = await Promise.all([
-      fetchAdminEventMetaGroups(),
-      fetchAdminEventMetaRoles()
-    ])
-    groups.value = groupsData
-    roles.value = rolesData
+    roles.value = await fetchAdminEventMetaRoles()
   } catch (err) {
-    console.warn('Failed to load event metadata (groups/roles):', err)
+    console.warn('Failed to load event metadata (roles):', err)
   }
 }
 
@@ -488,7 +457,6 @@ const initForm = async (currentEvent?: BackendEvent | AdminEventDetail | null) =
     startAt: toDatetimeLocalInTz(startRaw, tz),
     endsAt: toDatetimeLocalInTz(endRaw, tz),
     eventImage: raw.event_image || raw.eventImage || '',
-    targetGroupIds: raw.target_groups || [],
     targetRoleIds: raw.target_roles || []
   })
 
@@ -497,7 +465,6 @@ const initForm = async (currentEvent?: BackendEvent | AdminEventDetail | null) =
     try {
       const targets = await fetchAdminEventTargets(currentEvent.id)
       if (targets) {
-        form.targetGroupIds = targets.groupIds || []
         form.targetRoleIds = targets.roleIds || []
       }
     } catch (err) {
@@ -540,21 +507,11 @@ const onFileChange = (e: Event) => {
 const clearImage = () => {
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
-    previewUrl.value = null
   }
   selectedFile.value = null
   form.eventImage = ''
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
-  }
-}
-
-const toggleGroup = (id: number) => {
-  const idx = form.targetGroupIds.indexOf(id)
-  if (idx > -1) {
-    form.targetGroupIds.splice(idx, 1)
-  } else {
-    form.targetGroupIds.push(id)
   }
 }
 
@@ -621,7 +578,6 @@ const submitForm = async () => {
       eventTimezone: tz,
       startAt: startIso,
       endsAt: endsIso,
-      targetGroupIds: form.targetGroupIds,
       targetRoleIds: form.targetRoleIds
     }
 

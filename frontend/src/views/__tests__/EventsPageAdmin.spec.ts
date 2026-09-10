@@ -71,11 +71,6 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
     vi.spyOn(eventsApi, 'fetchMyEventRsvps').mockResolvedValue({} as any)
 
-    vi.spyOn(adminApi, 'fetchAdminEventMetaGroups').mockResolvedValue([
-      { id: 1, groupName: 'Team Alpha' },
-      { id: 2, groupName: 'Team Beta' }
-    ])
-
     vi.spyOn(adminApi, 'fetchAdminEventMetaRoles').mockResolvedValue([
       { id: 1, roleName: 'student' },
       { id: 2, roleName: 'mentor' }
@@ -205,7 +200,7 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(dialog?.textContent).toContain('Event Name *')
       expect(dialog?.textContent).toContain('Event Format *')
       expect(dialog?.textContent).toContain('Timezone *')
-      expect(dialog?.textContent).toContain('Target Groups')
+      expect(dialog?.textContent).not.toContain('Target Groups')
       expect(dialog?.textContent).toContain('Target Roles')
     })
 
