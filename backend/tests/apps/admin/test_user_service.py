@@ -1052,6 +1052,39 @@ class AdminUserServiceBulkDeleteTests(TestCase):
         self.assertIn("cannot be deleted", result["msg"])
         self.assertTrue(User.objects.filter(id=self.a.id).exists())
 
+    def test_single_delete_view_deletes_clean_user(self):
+        AdminScope.objects.create(user=self.admin)
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        response = client.delete(f"/api/v1/admin/user/{self.a.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(id=self.a.id).exists())
+
+    def test_single_delete_view_refuses_protected_user_without_force(self):
+        from apps.chat.models.messages import Messages
+        AdminScope.objects.create(user=self.admin)
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        group = Groups.objects.create(group_name="Protect View")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        response = client.delete(f"/api/v1/admin/user/{self.a.id}/")
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("cannot be deleted", response.data["msg"])
+        self.assertTrue(User.objects.filter(id=self.a.id).exists())
+
+    def test_single_delete_view_force_purges_protected_user(self):
+        from apps.chat.models.messages import Messages
+        AdminScope.objects.create(user=self.admin)
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        group = Groups.objects.create(group_name="Protect Force View")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        response = client.delete(
+            f"/api/v1/admin/user/{self.a.id}/", {"force": True}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(id=self.a.id).exists())
+
     def test_bulk_delete_reports_protected_as_failed(self):
         from apps.chat.models.messages import Messages
         group = Groups.objects.create(group_name="Protect G2")

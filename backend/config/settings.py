@@ -81,19 +81,24 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the file backend whenever credentials are configured — the
-# env cannot switch a configured deployment off Azure. With no credentials,
-# USE_AZURE_BLOB_STORAGE=false in the env swaps every managed container and
-# plain FileField onto local disk under MEDIA_ROOT (the dev setup for running
-# config.settings without an Azure account; settings_local hardcodes the
-# same). Leaving it unset keeps missing credentials a loud failure at request
-# time: production must never silently write to ephemeral disk.
+# Azure Blob is the supported cloud file backend whenever credentials are configured.
+# In local development without Azure credentials, fall back to local disk storage under MEDIA_ROOT.
+# Production (DEBUG=False) must never write to ephemeral disk: missing Azure credentials
+# or disabling Azure Blob Storage raises ImproperlyConfigured at startup.
 _AZURE_CONFIGURED = bool(
     AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
 )
 USE_AZURE_BLOB_STORAGE = _AZURE_CONFIGURED or config(
-    "USE_AZURE_BLOB_STORAGE", default="true", cast=env_bool
+    "USE_AZURE_BLOB_STORAGE",
+    default=False if DEBUG else True,
+    cast=env_bool,
 )
+if not DEBUG and not (_AZURE_CONFIGURED and USE_AZURE_BLOB_STORAGE):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Azure Blob Storage must be enabled and credentials configured when DEBUG is false. "
+        "Set USE_AZURE_BLOB_STORAGE=true and provide Azure credentials."
+    )
 # Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
 # now, so naming the backend here is what actually routes plain FileFields
 # (the grading templates and director signatures). django-storages picks up
@@ -108,6 +113,7 @@ STORAGES = {
     },
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -281,7 +287,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — local PostgreSQL for development
+# Database — local PostgreSQL for development. Local Docker/Postgres installs
+# commonly do not have TLS enabled, so default to disabled in DEBUG and allow
+# explicit override via DB_SSLMODE for production-like environments.
+_DB_SSLMODE = config("DB_SSLMODE", default="disable" if DEBUG else "require")
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -291,7 +300,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": config("DB_SSLMODE", default="require"),
+            "sslmode": _DB_SSLMODE,
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure

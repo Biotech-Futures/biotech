@@ -117,7 +117,6 @@ if settings.DEBUG:
     from django.urls import re_path
     from django.views.decorators.clickjacking import xframe_options_exempt
     from django.views.static import serve as media_serve
-
     urlpatterns += [
         path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
         path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
