@@ -21,13 +21,13 @@ const memberUser = {
   current_role_name: 'student'
 } as never
 
+// Events, resources and announcements are administered from the member-facing
+// pages themselves (admin-only controls behind auth.isAdmin), so they have no
+// entry of their own here.
 const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/matching',
-  '/admin/events',
-  '/admin/resources',
-  '/admin/announcements',
   '/admin/tasks'
 ]
 

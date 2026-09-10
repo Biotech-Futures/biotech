@@ -142,7 +142,6 @@ const widgets = [
 const quickLinks = [
   { to: '/admin/users', label: 'Users', icon: 'fa-users' },
   { to: '/admin/groups', label: 'Groups', icon: 'fa-layer-group' },
-  { to: '/admin/matching', label: 'Matching', icon: 'fa-user-tie' },
   { to: '/admin/tasks', label: 'Tasks', icon: 'fa-list-check' }
 ]
 
