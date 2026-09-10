@@ -18,6 +18,7 @@ it still keeps a legacy in-app ``v1/`` alias; only its canonical app-root
 patterns are exposed under ``/api/v1/events/...``.
 """
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
@@ -132,3 +133,10 @@ if settings.DEBUG:
             {"document_root": settings.MEDIA_ROOT},
         ),
     ]
+    
+    # Local managed storage returns /media/... URLs. Development servers must
+    # expose those files so event banners and other uploaded media can render.
+    # Local development stores uploaded event banners under MEDIA_ROOT instead
+    # of Azure Blob Storage. Django does not serve those files automatically,
+    # so expose MEDIA_URL while DEBUG is enabled. Production remains unchanged.
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

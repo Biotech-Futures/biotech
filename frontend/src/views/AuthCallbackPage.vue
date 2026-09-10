@@ -2,13 +2,24 @@
   <div class="callback-container">
     <div class="callback-content">
       <!--
-        The confirm step is what makes the login link safe: mail scanners follow
-        the link but never press a button, so the code is only spent by a person.
+        The confirm step keeps the magic link safe from email scanners.
+        The code is only spent after a real user presses the button.
       -->
       <div v-if="stage === 'confirm'" class="confirm-state">
+        <div class="brand">
+          <img :src="btfLogo" alt="BIOTech Connect" class="brand-logo" />
+          <span class="brand-name">BIOTech Connect</span>
+        </div>
+
         <h1 class="confirm-title">{{ t('confirmTitle') }}</h1>
-        <p class="confirm-body">{{ t('confirmBody') }}</p>
-        <p v-if="maskedEmail" class="confirm-email">{{ maskedEmail }}</p>
+
+        <p class="confirm-body">
+          {{ t('confirmBody') }}
+        </p>
+
+        <div v-if="maskedEmail" class="email-box">
+          {{ maskedEmail }}
+        </div>
 
         <button
           type="button"
@@ -19,7 +30,9 @@
           {{ submitting ? t('confirmWorking') : t('confirmAction') }}
         </button>
 
-        <p v-if="errorMessage" class="confirm-error" role="alert">{{ errorMessage }}</p>
+        <p v-if="errorMessage" class="confirm-error" role="alert">
+          {{ errorMessage }}
+        </p>
       </div>
 
       <div v-else class="loading-state">
@@ -31,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import btfLogo from '@/assets/btf-logo.png'
 import { computed, onMounted, ref } from 'vue'
 import type { LocationQueryValue } from 'vue-router'
 import { useRoute, useRouter } from 'vue-router'
@@ -156,83 +170,170 @@ onMounted(async () => {
 
 <style scoped>
 .callback-container {
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  background: var(--bg-light);
+  padding: 2rem;
+  box-sizing: border-box;
+
+  background:
+    radial-gradient(circle at 80% 20%, rgba(129, 214, 184, 0.28), transparent 32%),
+    radial-gradient(circle at 20% 80%, rgba(195, 235, 202, 0.35), transparent 30%),
+    #f3faf6;
+
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 .callback-content {
-  text-align: center;
-  padding: 2rem;
-  background: var(--white);
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  max-width: 400px;
   width: 100%;
-}
-
-.loading-state {
-  padding: 2rem 0;
+  max-width: 500px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 114, 83, 0.12);
+  border-radius: 24px;
+  padding: 3rem;
+  box-sizing: border-box;
+  box-shadow: 0 20px 50px rgba(20, 79, 59, 0.12);
 }
 
 .confirm-state {
-  padding: 1rem 0;
+  text-align: center;
+}
+
+.brand {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 2rem;
+}
+
+.brand-logo {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+}
+
+.brand-name {
+  color: #164c43;
+  font-size: 1.45rem;
+  font-weight: 700;
 }
 
 .confirm-title {
-  margin: 0 0 0.75rem;
-  font-size: 1.35rem;
-  color: var(--dark-green, #1a2e23);
+  margin: 0 0 0.8rem;
+  color: #164c43;
+  font-size: 2rem;
+  line-height: 1.2;
+  font-weight: 750;
 }
 
 .confirm-body {
-  margin: 0 0 0.5rem;
-  color: #3d4b43;
-  line-height: 1.6;
+  margin: 0 auto 1.25rem;
+  max-width: 360px;
+  color: #536660;
+  font-size: 1rem;
+  line-height: 1.65;
 }
 
-.confirm-email {
-  margin: 0 0 1.25rem;
-  font-weight: 600;
-  color: #1a2e23;
+.email-box {
+  margin: 0 0 1.7rem;
+  padding: 0.9rem 1rem;
+  background: #f4faf7;
+  border: 1px solid #d6e8df;
+  border-radius: 12px;
+  color: #183d35;
+  font-weight: 700;
+  font-size: 1rem;
 }
 
 .confirm-button {
   width: 100%;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--dark-green, #007253);
-  border-radius: 6px;
-  background: #c3ebca;
-  color: #007253;
+  padding: 1rem 1.25rem;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #17785f, #329b7c);
+  color: #ffffff;
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+  box-shadow: 0 8px 18px rgba(23, 120, 95, 0.2);
+}
+
+.confirm-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(23, 120, 95, 0.26);
 }
 
 .confirm-button:disabled {
   opacity: 0.65;
   cursor: default;
+  transform: none;
 }
 
 .confirm-error {
-  margin: 0.85rem 0 0;
+  margin: 1rem 0 0;
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  background: #fff2f1;
   color: #b3261e;
+  font-size: 0.9rem;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 2rem 0;
+  color: #536660;
 }
 
 .spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid var(--border-light);
-  border-top: 4px solid var(--dark-green);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+  width: 46px;
+  height: 46px;
   margin: 0 auto 1rem;
+  border: 4px solid #dcece5;
+  border-top-color: #17785f;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .callback-container {
+    padding: 1rem;
+  }
+
+  .callback-content {
+    padding: 2rem 1.4rem;
+    border-radius: 18px;
+  }
+
+  .brand-logo {
+    width: 46px;
+    height: 46px;
+  }
+
+  .brand-name {
+    font-size: 1.25rem;
+  }
+
+  .confirm-title {
+    font-size: 1.65rem;
+  }
 }
 </style>
