@@ -81,7 +81,7 @@ router.beforeEach((to, from, next) => {
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
-  } else if (requiresAdmin && !auth.isAdmin) {
+  } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 

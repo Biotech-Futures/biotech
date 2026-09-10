@@ -49,7 +49,11 @@
       </div>
     </header>
 
-    <div class="main-layout" v-if="!isLoginPage">
+    <div
+      class="main-layout"
+      v-if="!isLoginPage"
+      :class="{ 'main-layout--full': markingFullWidth }"
+    >
       <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
@@ -108,6 +112,7 @@
               </RouterLink>
             </li>
 
+            <!-- In-app Admin management (Users, Groups, Tasks) -->
             <li class="sidebar-item" v-if="auth.isAdmin">
               <div
                 class="sidebar-link sidebar-link--admin"
@@ -132,7 +137,6 @@
                   ></i>
                 </button>
               </div>
-
               <ul
                 :id="adminSubnavId"
                 class="sidebar-subnav"
@@ -167,6 +171,31 @@
                 </li>
               </ul>
             </li>
+            <!-- In-app Grading platform -->
+            <li class="sidebar-item" v-if="auth.isAdmin">
+              <RouterLink
+                to="/grading"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/grading') }"
+              >
+                <i class="fas fa-clipboard-check sidebar-icon"></i>
+                <span>Grading</span>
+              </RouterLink>
+            </li>
+
+            <!-- External: the React admin console (people / groups / events). -->
+            <li class="sidebar-item" v-if="auth.isAdmin">
+              <a
+                :href="ADMIN_PORTAL_URL"
+                target="_blank"
+                rel="noreferrer"
+                class="sidebar-link"
+              >
+                <i class="fas fa-user-shield sidebar-icon"></i>
+                <span>Admin Portal</span>
+              </a>
+            </li>
+
           </ul>
         </nav>
 
@@ -294,6 +323,7 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
+import { markingFullWidth } from '@/composables/markingLayout'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
@@ -303,6 +333,10 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// The React admin console — same convention the old post-login redirect used:
+// the production domain is the default, overridable per environment.
+const ADMIN_PORTAL_URL =
+  import.meta.env.VITE_ADMIN_FRONTEND_URL || 'https://mentoringadmin.biotechfutures.org'
 const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 
 interface CollectionResponse {
@@ -349,6 +383,7 @@ const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
+
 const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)
 const sidebarGroupError = ref('')
@@ -359,6 +394,24 @@ const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
 const isSidebarCollapsed = ref(false)
+
+// Marking pages start with the sidebar collapsed (meta.hideSidebar on the
+// route) so the preview/rubric split gets the width — the toggle stays, so
+// it can still be opened. Leaving restores how the user had it.
+const onMarkingPage = computed(() => route.meta.hideSidebar === true)
+let sidebarStateBeforeMarking = false
+watch(
+  onMarkingPage,
+  (entering, was) => {
+    if (entering) {
+      sidebarStateBeforeMarking = isSidebarCollapsed.value
+      isSidebarCollapsed.value = true
+    } else if (was) {
+      isSidebarCollapsed.value = sidebarStateBeforeMarking
+    }
+  },
+  { immediate: true }
+)
 const programSearchQuery = ref('')
 
 // Tracks whether the collapsible Admin submenu is hidden, so the stacked
@@ -900,6 +953,12 @@ select {
   background-color: var(--white);
 }
 
+/* Marking pages spread edge to edge — the preview/rubric splits want every
+   pixel a wide monitor offers. */
+.main-layout.main-layout--full {
+  max-width: none;
+}
+
 .sidebar {
   --sidebar-toggle-offset: 250px;
 
@@ -966,6 +1025,12 @@ select {
 @media (min-width: 1680px) {
   .sidebar-collapse-toggle {
     left: calc(50vw - 840px + var(--sidebar-toggle-offset) - 14px);
+  }
+
+  /* Full-width marking pages pin the sidebar to the viewport edge, so the
+     centred-layout shift above would float the toggle over the content. */
+  .main-layout--full .sidebar-collapse-toggle {
+    left: calc(var(--sidebar-toggle-offset) - 14px);
   }
 }
 

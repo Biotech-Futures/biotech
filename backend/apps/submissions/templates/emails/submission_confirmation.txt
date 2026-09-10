@@ -1,0 +1,46 @@
+{% comment %}
+Written as text, not derived with strip_tags: that leaks the base's <style>
+block into the body. Keep in step with submission_confirmation.html.
+{% endcomment %}Hi Group {{ GROUP_NAME }},
+
+THANK YOU FOR SUBMITTING YOUR WORK
+
+Thank you for submitting your work for {{ BRAND_NAME }} {{ YEAR }}. We've
+received your submission. A summary of the components currently recorded for
+your team is below.
+
+REQUIRED COMPONENTS
+{% for item in REQUIRED_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+Both the Poster and SAQs are required for your submission to be considered
+complete.
+
+OPTIONAL COMPONENTS
+{% for item in OPTIONAL_COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+The Scientific Report and Prototype are optional and will not affect whether
+your submission is considered complete.
+
+Please review the statuses above carefully. If either required component is
+shown as Not Submitted, you will need to submit it before the submission
+deadline.
+
+You can continue to update or complete your submission up until the deadline
+on {{ DEADLINE }}.
+
+Thank you for the work you and your team have put into the {{ BRAND_NAME }}
+Challenge. We're looking forward to seeing your ideas!
+
+Kind regards,
+The {{ BRAND_NAME }} Team
+
+--
+{{ BRAND_NAME }}, NSW 2006 Australia
+Add {{ SENDER_EMAIL }} to your address book to keep receiving submission
+confirmations.
