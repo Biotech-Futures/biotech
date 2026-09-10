@@ -169,33 +169,17 @@
                     <span>Tasks</span>
                   </RouterLink>
                 </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/grading"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/grading') }"
+                  >
+                    <span>Grading</span>
+                  </RouterLink>
+                </li>
               </ul>
             </li>
-            <!-- In-app Grading platform -->
-            <li class="sidebar-item" v-if="auth.isAdmin">
-              <RouterLink
-                to="/grading"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/grading') }"
-              >
-                <i class="fas fa-clipboard-check sidebar-icon"></i>
-                <span>Grading</span>
-              </RouterLink>
-            </li>
-
-            <!-- External: the React admin console (people / groups / events). -->
-            <li class="sidebar-item" v-if="auth.isAdmin">
-              <a
-                :href="ADMIN_PORTAL_URL"
-                target="_blank"
-                rel="noreferrer"
-                class="sidebar-link"
-              >
-                <i class="fas fa-user-shield sidebar-icon"></i>
-                <span>Admin Portal</span>
-              </a>
-            </li>
-
           </ul>
         </nav>
 
