@@ -1,9 +1,19 @@
 <template>
-  <div class="meetings-page">
-    <div class="page-header">
+  <div
+    class="meetings-page"
+    :class="{ 'meetings-page--embedded': props.embedded }"
+  >
+    <div
+      class="page-header"
+      :class="{ 'page-header--embedded': props.embedded }"
+    >
       <div>
-        <h1>Group Meetings</h1>
-        <p class="subtitle">
+        <h1>{{ props.embedded ? 'Meetings' : 'Group Meetings' }}</h1>
+
+        <p
+          v-if="!props.embedded"
+          class="subtitle"
+        >
           View upcoming and past meetings for your group.
         </p>
       </div>
@@ -201,6 +211,15 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+
+const props = withDefaults(
+  defineProps<{
+    embedded?: boolean
+  }>(),
+  {
+    embedded: false,
+  }
+)
 
 const meetings = ref<GroupMeeting[]>([])
 const selectedWhen = ref<MeetingWhen>('upcoming')
@@ -531,5 +550,109 @@ onMounted(() => {
 .create-message {
   margin-bottom: 20px;
   color: #444;
+}
+
+/* Compact layout when Meetings is embedded inside GroupDetailPage */
+.meetings-page--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 20px 16px;
+}
+
+.meetings-page--embedded .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.meetings-page--embedded .page-header h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.meetings-page--embedded .primary-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.meetings-page--embedded .tabs {
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.meetings-page--embedded .tab-button {
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.meetings-page--embedded .state-message {
+  padding: 28px 12px;
+  font-size: 14px;
+}
+
+.meetings-page--embedded .meeting-list {
+  gap: 10px;
+}
+
+.meetings-page--embedded .meeting-card {
+  padding: 14px;
+  border-radius: 8px;
+}
+
+.meetings-page--embedded .meeting-header {
+  gap: 8px;
+}
+
+.meetings-page--embedded .meeting-header h2 {
+  margin-bottom: 5px;
+  font-size: 16px;
+}
+
+.meetings-page--embedded .meeting-time {
+  font-size: 13px;
+}
+
+.meetings-page--embedded .manage-badge {
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.meetings-page--embedded .description,
+.meetings-page--embedded .agenda {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.meetings-page--embedded .meeting-actions {
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.meetings-page--embedded .secondary-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.meetings-page--embedded .create-form {
+  padding: 14px;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.meetings-page--embedded .create-form h2 {
+  font-size: 18px;
+}
+
+.meetings-page--embedded .form-input {
+  padding: 8px 10px;
+  font-size: 13px;
 }
 </style>

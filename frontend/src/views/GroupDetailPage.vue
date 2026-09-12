@@ -91,18 +91,6 @@
             <button
               type="button"
               class="group-members-btn"
-              @click="router.push({
-                name: 'group-meetings',
-                params: { id: route.params.id }
-              })"
-            >
-              <i class="fas fa-calendar"></i>
-              Meetings
-            </button>
-
-            <button
-              type="button"
-              class="group-members-btn"
               :disabled="isLoadingMembers || !visibleGroupMembers.length"
               @click="showGroupMembersDialog = true"
             >
@@ -172,8 +160,30 @@
 
       <!-- Desktop: two columns; mobile: single column via tabs -->
       <div class="split" :data-active="activeTab">
-        <!-- Left column: Tasks -->
-        <section class="pane pane--tasks card">
+      <!-- Left column: Tasks / Meetings workspace -->
+      <section class="pane pane--tasks card">
+
+        <div class="workspace-switch">
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'tasks' }"
+            @click="workspaceView = 'tasks'"
+          >
+            Tasks
+          </button>
+
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'meetings' }"
+            @click="workspaceView = 'meetings'"
+          >
+            Meetings
+          </button>
+        </div>
+
+        <template v-if="workspaceView === 'tasks'">
           <div class="card-header">
             <h3 class="card-title">Tasks</h3>
             <div class="task-header-actions">
@@ -858,6 +868,11 @@
               </form>
             </div>
           </Transition>
+        </template>
+        <GroupMeetingsPage
+          v-if="workspaceView === 'meetings'"
+          embedded
+        />
         </section>
 
         <!-- Right column: Discussion -->
@@ -1763,6 +1778,7 @@
 </template>
 
 <script setup>
+import GroupMeetingsPage from './GroupMeetingsPage.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -1816,6 +1832,7 @@ const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
+const workspaceView = ref('tasks')
 
 // Live task state
 const tasks = ref([])
@@ -6044,6 +6061,55 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* Tasks / Meetings workspace switch */
+.workspace-switch {
+  display: flex;
+  flex: 0 0 auto;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 4px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.workspace-switch-btn {
+  flex: 1;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #555;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workspace-switch-btn:hover {
+  background: #eeeeee;
+}
+
+.workspace-switch-btn.active {
+  background: #00856a !important;
+  color: white !important;
+}
+
+.pane--tasks > .card-header {
+  flex: 0 0 auto;
+}
+
+.pane--tasks > .tasks-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Header */
 .gd-head {
   display: flex;
@@ -6281,6 +6347,13 @@ onBeforeUnmount(() => {
   min-height: 320px;
   position: relative;
   container-type: inline-size;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Discussion pane */
