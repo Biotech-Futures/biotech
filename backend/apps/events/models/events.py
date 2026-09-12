@@ -70,7 +70,7 @@ class Events(models.Model):
             # dropped check_virtual_location_null without breaking legacy nullable rows.
             models.CheckConstraint(
                 condition=(
-                    (models.Q(event_format="in_person") & models.Q(location_link__isnull=True))
+                    models.Q(event_format="in_person")
                     | (models.Q(event_format="virtual") & models.Q(location__isnull=True))
                     | models.Q(event_format="hybrid")
                 ),
