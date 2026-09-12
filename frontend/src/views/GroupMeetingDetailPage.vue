@@ -44,112 +44,128 @@
     </div>
       </div>
 
-      <section v-if="meeting.description" class="detail-section">
-        <h2>Description</h2>
-        <p>{{ meeting.description }}</p>
-      </section>
+      <div class="meeting-content-grid">
 
-      <section v-if="meeting.agenda" class="detail-section">
-        <h2>Agenda</h2>
-        <p>{{ meeting.agenda }}</p>
-      </section>
+        <!-- LEFT COLUMN -->
+        <div class="meeting-left-column">
 
-      <section class="detail-section">
-        <h2>Meeting Details</h2>
+          <section class="detail-section meeting-info-panel">
+            <h2>{{ meeting.title }}</h2>
 
-        <p>
-          <strong>Starts:</strong>
-          {{ formatMeetingDate(meeting.start_datetime) }}
-        </p>
+            <p v-if="meeting.description" class="meeting-description">
+              {{ meeting.description }}
+            </p>
 
-        <p>
-          <strong>Ends:</strong>
-          {{ formatMeetingDate(meeting.ends_datetime) }}
-        </p>
+            <div class="meeting-meta">
+              <p>
+                <strong>Starts:</strong>
+                {{ formatMeetingDate(meeting.start_datetime) }}
+              </p>
 
-        <p>
-          <strong>Timezone:</strong>
-          {{ meeting.timezone_name || 'UTC' }}
-        </p>
+              <p>
+                <strong>Ends:</strong>
+                {{ formatMeetingDate(meeting.ends_datetime) }}
+              </p>
 
-        <a
-          v-if="meeting.join_link"
-          :href="meeting.join_link"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="join-button"
-        >
-          Join Meeting
-        </a>
-      </section>
+              <p>
+                <strong>Timezone:</strong>
+                {{ meeting.timezone_name || 'UTC' }}
+              </p>
+            </div>
 
-      <section class="detail-section">
-        <div class="section-heading">
-          <h2>Shared Note</h2>
+            <a
+              v-if="meeting.join_link"
+              :href="meeting.join_link"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="join-button"
+            >
+              Join Meeting
+            </a>
+          </section>
 
-          <button
-            class="secondary-button"
-            :disabled="savingNote"
-            @click="saveNote"
+          <section
+            v-if="meeting.agenda"
+            class="detail-section goals-panel"
           >
-            {{ savingNote ? 'Saving...' : 'Save Note' }}
-          </button>
+            <h2>Goals</h2>
+            <p>{{ meeting.agenda }}</p>
+          </section>
+
         </div>
 
-        <textarea
-          v-model="noteBody"
-          class="note-textarea"
-          rows="8"
-          placeholder="Write shared meeting notes here..."
-        />
+        <!-- RIGHT COLUMN -->
+        <div class="meeting-right-column">
 
-        <p v-if="noteMessage" class="small-message">
-          {{ noteMessage }}
-        </p>
-      </section>
+          <section class="detail-section shared-notes-panel">
+            <div class="section-heading">
+              <h2>Shared Meeting Notes</h2>
 
-      <section class="detail-section">
-        <div class="section-heading">
-          <h2>Summary</h2>
+              <button
+                class="secondary-button"
+                :disabled="savingNote"
+                @click="saveNote"
+              >
+                {{ savingNote ? 'Saving...' : 'Save Note' }}
+              </button>
+            </div>
 
-          <button
-            v-if="meeting.can_manage"
-            class="secondary-button"
-            :disabled="savingSummary"
-            @click="saveSummary"
-          >
-            {{ savingSummary ? 'Saving...' : 'Save Summary' }}
-          </button>
+            <textarea
+              v-model="noteBody"
+              class="note-textarea shared-note-textarea"
+              placeholder="Write shared meeting notes here..."
+              @focus="sendNotePresence(true)"
+              @blur="sendNotePresence(false)"
+            />
+
+            <p v-if="otherUserEditing" class="small-message">
+              Another group member is editing...
+            </p>
+
+            <p v-if="noteMessage" class="small-message">
+              {{ noteMessage }}
+            </p>
+          </section>
+
+          <section class="detail-section summary-panel">
+            <div class="section-heading">
+              <h2>Mentor Summary</h2>
+
+              <button
+                v-if="meeting.can_manage"
+                class="secondary-button"
+                :disabled="savingSummary"
+                @click="saveSummary"
+              >
+                {{ savingSummary ? 'Saving...' : 'Save Summary' }}
+              </button>
+            </div>
+
+            <textarea
+              v-if="meeting.can_manage"
+              v-model="summaryBody"
+              class="note-textarea summary-textarea"
+              placeholder="Write the meeting summary..."
+            />
+
+            <p
+              v-else-if="summaryBody"
+              class="summary-text"
+            >
+              {{ summaryBody }}
+            </p>
+
+            <p
+              v-else
+              class="small-message"
+            >
+              No summary yet.
+            </p>
+          </section>
+
         </div>
-
-        <textarea
-          v-if="meeting.can_manage"
-          v-model="summaryBody"
-          class="note-textarea"
-          rows="6"
-          placeholder="Write a meeting summary..."
-        />
-
-        <p
-          v-else-if="summaryBody"
-          class="summary-text"
-        >
-          {{ summaryBody }}
-        </p>
-
-        <p
-          v-else
-          class="small-message"
-        >
-          No summary yet.
-        </p>
-
-        <p v-if="summaryMessage" class="small-message">
-          {{ summaryMessage }}
-        </p>
-      </section>
-
-      <section v-if="editingMeeting" class="edit-section">
+      </div>    
+        <section v-if="editingMeeting" class="edit-section">
         <h2>Edit Meeting</h2>
 
         <label>
@@ -242,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -286,6 +302,57 @@ const editJoinLink = ref('')
 const cancellingMeeting = ref(false)
 
 const meetingId = Number(route.params.meetingId)
+
+const noteSocket = ref<WebSocket | null>(null)
+const otherUserEditing = ref(false)
+
+const connectNoteSocket = () => {
+  const meetingId = Number(route.params.meetingId)
+  if (!meetingId) return
+
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const host = import.meta.env.VITE_API_BASE_URL
+    ? new URL(import.meta.env.VITE_API_BASE_URL).host
+    : 'localhost:8000'
+
+  const socket = new WebSocket(
+    `${protocol}://${host}/ws/meetings/${meetingId}/note/`
+  )
+
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+
+      if (data.event === 'note.updated') {
+        noteBody.value = data.body || ''
+        noteRevision.value = data.revision
+      }
+
+      if (data.event === 'note.presence') {
+        otherUserEditing.value = Boolean(data.editing)
+      }
+    } catch (error) {
+      console.error('Invalid meeting note socket message:', error)
+    }
+  }
+
+  socket.onclose = () => {
+    noteSocket.value = null
+  }
+
+  noteSocket.value = socket
+}
+
+const sendNotePresence = (editing: boolean) => {
+  if (noteSocket.value?.readyState === WebSocket.OPEN) {
+    noteSocket.value.send(
+      JSON.stringify({
+        type: 'presence',
+        editing,
+      })
+    )
+  }
+}
 
 const loadMeeting = async () => {
   loading.value = true
@@ -472,6 +539,16 @@ const formatMeetingDate = (dateString: string) => {
 }
 
 onMounted(loadMeeting)
+onMounted(() => {
+  connectNoteSocket()
+})
+
+onBeforeUnmount(() => {
+  if (noteSocket.value) {
+    noteSocket.value.close()
+    noteSocket.value = null
+  }
+})
 </script>
 
 <style scoped>
@@ -565,6 +642,72 @@ onMounted(loadMeeting)
 .detail-section h2 {
   margin-top: 0;
   font-size: 20px;
+}
+
+.meeting-content-grid {
+  display: grid;
+  grid-template-columns: 34% 1fr;
+  gap: 18px;
+  align-items: stretch;
+  margin-top: 20px;
+}
+
+.meeting-left-column,
+.meeting-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.meeting-info-panel {
+  padding: 18px;
+}
+
+.meeting-info-panel h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.meeting-description {
+  margin-bottom: 16px;
+  color: #555;
+}
+
+.meeting-meta p {
+  margin: 6px 0;
+}
+
+.goals-panel {
+  padding: 16px 18px;
+}
+
+.shared-notes-panel {
+  padding: 18px;
+}
+
+.shared-note-textarea {
+  min-height: 250px;
+}
+
+.summary-panel {
+  padding: 16px 18px;
+}
+
+.summary-textarea {
+  min-height: 90px;
+}
+
+.join-button {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .meeting-content-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .section-heading {
