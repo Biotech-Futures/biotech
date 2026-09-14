@@ -14,6 +14,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
 from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
+from apps.resources.services.upload import _visibility_scope
 from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -845,7 +846,10 @@ def update_resource(
     if 'resource_description' in updates:
         resource.description = updates['resource_description'] or ''
     if 'visibility_scope' in updates:
-        resource.visibility_scope = updates['visibility_scope']
+        resource.visibility_scope = _visibility_scope(
+            updates['visibility_scope'],
+            role_ids=updates.get('role_ids', []),
+        )
     if 'group_id' in updates:
         resource.group_id = updates['group_id']
     if 'resource_kind' in updates:
