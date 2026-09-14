@@ -68,7 +68,7 @@
               </RouterLink>
             </li>
 
-            <li class="sidebar-item">
+            <li class="sidebar-item" v-if="!auth.isAdmin">
               <RouterLink
                 to="/groups"
                 class="sidebar-link"
@@ -112,30 +112,74 @@
               </RouterLink>
             </li>
 
+            <!-- In-app Admin management (Users, Groups, Tasks) -->
             <li class="sidebar-item" v-if="auth.isAdmin">
-              <RouterLink
-                to="/grading"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/grading') }"
+              <div
+                class="sidebar-link sidebar-link--admin"
+                :class="{ active: isAdminLandingActive }"
               >
-                <i class="fas fa-clipboard-check sidebar-icon"></i>
-                <span>Grading</span>
-              </RouterLink>
-            </li>
-
-            <!-- External: the React admin console (people / groups / events). -->
-            <li class="sidebar-item" v-if="auth.isAdmin">
-              <a
-                :href="ADMIN_PORTAL_URL"
-                target="_blank"
-                rel="noreferrer"
-                class="sidebar-link"
+                <RouterLink to="/admin" class="sidebar-link__main">
+                  <i class="fas fa-cog sidebar-icon"></i>
+                  <span>Admin</span>
+                </RouterLink>
+                <button
+                  type="button"
+                  class="sidebar-subnav-toggle"
+                  :class="{ 'is-open': !isAdminSubnavCollapsed }"
+                  :aria-expanded="!isAdminSubnavCollapsed"
+                  :aria-controls="adminSubnavId"
+                  :aria-label="isAdminSubnavCollapsed ? 'Expand admin submenu' : 'Collapse admin submenu'"
+                  @click="toggleAdminSubnav"
+                >
+                  <i
+                    :class="isAdminSubnavCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+              </div>
+              <ul
+                :id="adminSubnavId"
+                class="sidebar-subnav"
+                v-if="!isSidebarCollapsed && !isAdminSubnavCollapsed"
               >
-                <i class="fas fa-user-shield sidebar-icon"></i>
-                <span>Admin Portal</span>
-              </a>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/admin/users"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/users' }"
+                  >
+                    <span>Users</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/admin/groups"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/groups' }"
+                  >
+                    <span>Groups</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/admin/tasks"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/tasks' }"
+                  >
+                    <span>Tasks</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/grading"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/grading') }"
+                  >
+                    <span>Grading</span>
+                  </RouterLink>
+                </li>
+              </ul>
             </li>
-
           </ul>
         </nav>
 
@@ -319,6 +363,7 @@ const toggleTheme = () => {
 const isLoginPage = computed(() =>
   ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
+const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
@@ -352,6 +397,24 @@ watch(
   { immediate: true }
 )
 const programSearchQuery = ref('')
+
+// Tracks whether the collapsible Admin submenu is hidden, so the stacked
+// (mobile) sidebar stays compact. Defaults to collapsed on small screens and
+// expanded on large ones, matching the layout the user sees. Keeps in sync
+// with viewport changes (e.g. loading at desktop width then resizing down).
+const isAdminSubnavCollapsed = ref(false)
+const adminSubnavId = 'admin-subnav'
+let adminSubnavMediaQuery: MediaQueryList | null = null
+
+const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
+  if (event.matches) {
+    isAdminSubnavCollapsed.value = true
+  }
+}
+
+const toggleAdminSubnav = () => {
+  isAdminSubnavCollapsed.value = !isAdminSubnavCollapsed.value
+}
 
 const programSearchTargets = [
   { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
@@ -612,6 +675,12 @@ onMounted(() => {
   }
   applyTheme(isDark.value)
 
+  if (typeof window.matchMedia === 'function') {
+    adminSubnavMediaQuery = window.matchMedia('(max-width: 768px)')
+    syncAdminSubnavViewport(adminSubnavMediaQuery)
+    adminSubnavMediaQuery.addEventListener('change', syncAdminSubnavViewport)
+  }
+
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
   window.addEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
@@ -622,6 +691,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
+  adminSubnavMediaQuery?.removeEventListener('change', syncAdminSubnavViewport)
 })
 </script>
 
@@ -1004,6 +1074,118 @@ select {
   font-weight: 500;
 }
 
+.sidebar-link--admin {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-link--admin .sidebar-link__main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-link--admin:hover,
+.sidebar-link--admin.active {
+  background-color: var(--light-green);
+  border-left-color: var(--dark-green);
+}
+
+.sidebar-link--admin.active .sidebar-link__main span {
+  font-weight: 500;
+  color: var(--dark-green);
+}
+
+.sidebar-subnav-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--charcoal);
+  opacity: 0.7;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.sidebar-subnav-toggle:hover,
+.sidebar-subnav-toggle:focus-visible {
+  opacity: 1;
+  color: var(--dark-green);
+  outline: 2px solid var(--dark-green);
+  outline-offset: -2px;
+}
+
+.sidebar.is-collapsed .sidebar-subnav-toggle {
+  display: none;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin {
+  justify-content: center;
+  border-left-color: transparent;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main {
+  justify-content: center;
+  gap: 0;
+  padding: 0.78rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main span {
+  display: none;
+}
+
+.sidebar-subnav {
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0 0.4rem 0.25rem;
+}
+
+.sidebar-subitem {
+  margin: 0;
+}
+
+.sidebar-sublink {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem 0.5rem 2.55rem;
+  border-left: 3px solid transparent;
+  color: var(--charcoal);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.sidebar-sublink:hover {
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  border-left-color: var(--dark-green);
+}
+
+.sidebar-sublink.active {
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  border-left-color: var(--dark-green);
+  font-weight: 500;
+}
+
 .sidebar-group-switcher {
   margin-top: auto;
   padding: 1rem 0.85rem 0;
@@ -1339,12 +1521,12 @@ select {
     top: auto;
     left: auto;
     height: auto;
+    min-height: auto;
     width: 100%;
     min-width: 100%;
     overflow-y: visible;
     padding: 0.75rem;
     z-index: auto;
-    margin-bottom: -300px;
   }
 
   .sidebar.is-collapsed {
@@ -1364,6 +1546,25 @@ select {
 
   .sidebar.is-collapsed .sidebar-link span {
     display: inline;
+  }
+
+  .sidebar.is-collapsed .sidebar-link--admin {
+    justify-content: flex-start;
+  }
+
+  .sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main {
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main span {
+    display: inline;
+  }
+
+  .sidebar.is-collapsed .sidebar-subnav-toggle,
+  .sidebar-subnav-toggle {
+    display: flex;
   }
 
   .sidebar.is-collapsed .sidebar-group-switcher {
