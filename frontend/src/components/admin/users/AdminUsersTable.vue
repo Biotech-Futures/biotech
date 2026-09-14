@@ -120,7 +120,7 @@
         <button
           v-if="!isStudentMode"
           type="button"
-          class="btn btn-sm"
+          class="btn btn-sm admin-users__toggle-btn"
           :class="toAdminUser(row).isActive ? 'btn-outline' : 'btn-primary'"
           :title="toAdminUser(row).isActive ? 'Deactivate account' : 'Activate account'"
           @click="emit('toggle-active', toAdminUser(row))"
@@ -272,7 +272,16 @@ const emit = defineEmits<{
 
 .admin-users__row-actions {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 0.4rem;
+}
+
+.admin-users__toggle-btn {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
 }
 </style>

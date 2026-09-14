@@ -110,6 +110,29 @@ describe('AdminGroupsPage', () => {
     expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
   })
 
+  it('shows the Add group button only on the Groups tab and hides it on other tabs', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([groupA, groupB]))
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeDefined()
+
+    const studentTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Student Matching')
+    await studentTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
+
+    const mentorTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Mentor Matching')
+    await mentorTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
+
+    const groupsTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Groups')
+    await groupsTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeDefined()
+  })
+
   it('searches by group name after the debounce', async () => {
     vi.useFakeTimers()
     const fetchMock = fetchMockFor([groupA])

@@ -23,10 +23,6 @@ const adminRoutes = [
   '/admin',
   '/admin/users',
   '/admin/groups',
-  '/admin/matching',
-  '/admin/events',
-  '/admin/resources',
-  '/admin/announcements',
   '/admin/tasks'
 ]
 
