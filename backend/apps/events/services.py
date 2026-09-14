@@ -471,11 +471,12 @@ REMINDER_KINDS = {
                 "subject": "Starting soon: {event_name}",
                 "headline": "Starting soon",
                 "intro": (
-                    f"Just a quick reminder — your {settings.BRAND_NAME} event "
-                    "starts in about an hour."
+                    "Just a quick reminder — your {brand} event "
+                    "{lead_phrase}."
                 ),
                 "closing": "See you very soon!",
-                "preheader_phrase": "starts in about an hour",
+                "preheader_phrase": "{lead_phrase}",
+                "lead_is_dynamic": True,
             },
         ),
     },
@@ -603,6 +604,39 @@ def _format_event_times_for_user(event, user_tz_name: str):
     return when_full, date_label, time_label
 
 
+def _relative_start_phrase(lead: timedelta) -> str:
+    """Human phrase for how soon an event starts, from its real start time.
+
+    Rounds to the nearest 15 minutes so the copy tracks the actual lead
+    time: an event caught in the 1h window at 1h45m out reads "starts in
+    about an hour and 45 minutes", not a stock "starts in about an hour".
+    """
+    minutes = max(0, int(lead.total_seconds() // 60))
+    rounded = 15 * round(minutes / 15)
+
+    if rounded <= 0:
+        return "starts in a few minutes"
+    if rounded <= 15:
+        return "starts in about 15 minutes"
+    if rounded <= 30:
+        return "starts in about half an hour"
+    if rounded < 60:
+        return "starts in under an hour"
+
+    hours, tail = divmod(rounded, 60)
+    if tail == 0:
+        label = "an hour" if hours == 1 else f"{hours} hours"
+    elif hours == 1 and tail == 30:
+        label = "an hour and a half"
+    elif hours == 1:
+        label = f"an hour and {tail} minutes"
+    elif tail == 30:
+        label = f"{hours} and a half hours"
+    else:
+        label = f"{hours} hours {tail} minutes"
+    return f"starts in about {label}"
+
+
 def _send_audience_reminders(event, audience):
     rsvps = (
         EventRsvp.objects.filter(
@@ -614,6 +648,12 @@ def _send_audience_reminders(event, audience):
     )
 
     subject = audience["subject"].format(event_name=event.event_name)
+    intro = audience["intro"]
+    preheader_phrase = audience["preheader_phrase"]
+    if audience.get("lead_is_dynamic"):
+        lead_phrase = _relative_start_phrase(event.start_datetime - timezone.now())
+        intro = intro.format(brand=settings.BRAND_NAME, lead_phrase=lead_phrase)
+        preheader_phrase = preheader_phrase.format(lead_phrase=lead_phrase)
     location_text, location_map_url = _event_location_lines(event)
 
     from_email = settings.DEFAULT_FROM_EMAIL
@@ -634,9 +674,9 @@ def _send_audience_reminders(event, audience):
             **brand_context(),
             "First_Name": first_name,
             "HEADLINE": audience["headline"],
-            "INTRO": audience["intro"],
+            "INTRO": intro,
             "CLOSING": audience["closing"],
-            "PREHEADER": f"{event.event_name} {audience['preheader_phrase']}.",
+            "PREHEADER": f"{event.event_name} {preheader_phrase}.",
             "EVENT_NAME": event.event_name,
             "EVENT_WHEN_TEXT": when_full,
             "EVENT_DATE": date_label,

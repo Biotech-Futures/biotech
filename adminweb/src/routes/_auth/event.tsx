@@ -79,7 +79,6 @@ import {
   useUpdateEvent,
   useUploadEventImage,
   useQueryEventRsvps,
-  useQueryGroups,
   useQueryRoles,
   useQueryEventTargets,
 } from "@/query/event";
@@ -248,11 +247,8 @@ interface EventFormProps {
   errors: any;
   eventFormat: EventFormat;
   currentHostName: string;
-  groups: { id: number; groupName: string }[];
   roles: { id: number; roleName: string }[];
-  watchedGroupIds: number[];
   watchedRoleIds: number[];
-  onToggleGroup: (id: number) => void;
   onToggleRole: (id: number) => void;
   onSubmit: (e: React.FormEvent) => void;
   // image props
@@ -308,11 +304,8 @@ function EventForm({
   errors,
   eventFormat,
   currentHostName,
-  groups,
   roles,
-  watchedGroupIds,
   watchedRoleIds,
-  onToggleGroup,
   onToggleRole,
   onSubmit,
   existingImageUrl,
@@ -470,25 +463,6 @@ function EventForm({
         />
       </EventFormRow>
 
-      {groups.length > 0 && (
-        <EventFormRow label="Target Groups">
-          <div className="grid grid-cols-2 gap-2">
-            {groups.map((g) => (
-              <label
-                key={g.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={watchedGroupIds.includes(g.id)}
-                  onChange={() => onToggleGroup(g.id)}
-                />
-                {g.groupName}
-              </label>
-            ))}
-          </div>
-        </EventFormRow>
-      )}
 
       {roles.length > 0 && (
         <EventFormRow label="Target Roles">
@@ -650,7 +624,6 @@ function EventPage() {
     setPage(1);
   };
   const { data: usersData } = useQueryUsers();
-  const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
   const { data: eventTargetsData } = useQueryEventTargets(
     editingEvent?.id ?? null,
@@ -676,7 +649,6 @@ function EventPage() {
     () => new Map(allUsers.map((user) => [Number(user.id), user])),
     [allUsers],
   );
-  const groups = groupsData?.data ?? [];
   const roles = rolesData?.data ?? [];
 
   const authUserId = Number(currentUser?.id);
@@ -712,14 +684,12 @@ function EventPage() {
       eventTimezone: BROWSER_TZ,
       startAt: "",
       endsAt: "",
-      targetGroupIds: [],
       targetRoleIds: [],
     },
     resolver: zodResolver(createEventSchema),
   });
 
   const createEventFormat = (watch("eventFormat") ?? "in_person") as EventFormat;
-  const createGroupIds = watch("targetGroupIds") ?? [];
   const createRoleIds = watch("targetRoleIds") ?? [];
 
   useEffect(() => {
@@ -741,7 +711,6 @@ function EventPage() {
   });
 
   const editEventFormat = (watchEdit("eventFormat") ?? "in_person") as EventFormat;
-  const editGroupIds = watchEdit("targetGroupIds") ?? [];
   const editRoleIds = watchEdit("targetRoleIds") ?? [];
 
   // The upcoming/all toggle changes the matching set, so drop the selection.
@@ -768,7 +737,6 @@ function EventPage() {
         eventTimezone: tz,
         startAt: toDatetimeLocalInTz(editingEvent.startDatetime, tz),
         endsAt: toDatetimeLocalInTz(editingEvent.endsDatetime, tz),
-        targetGroupIds: targets?.groupIds ?? [],
         targetRoleIds: targets?.roleIds ?? [],
       });
       // Reset image state when switching events
@@ -1030,7 +998,6 @@ function EventPage() {
             eventTimezone: BROWSER_TZ,
             startAt: "",
             endsAt: "",
-            targetGroupIds: [],
             targetRoleIds: [],
           });
         }
@@ -1431,20 +1398,7 @@ function EventPage() {
               </EventDetailRow>
             )}
 
-            {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
-              <EventDetailRow label="Target Groups">
-                <div className="flex flex-wrap gap-1.5">
-                  {viewTargetsData!.data!.groupIds.map((id) => {
-                    const g = groups.find((x) => x.id === id);
-                    return g ? (
-                      <Badge key={id} variant="secondary">
-                        {g.groupName}
-                      </Badge>
-                    ) : null;
-                  })}
-                </div>
-              </EventDetailRow>
-            )}
+
             {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
               <EventDetailRow label="Target Roles">
                 <div className="flex flex-wrap gap-1.5">
@@ -1512,13 +1466,8 @@ function EventPage() {
             errors={errors}
             eventFormat={createEventFormat}
             currentHostName={currentHostName}
-            groups={groups}
             roles={roles}
-            watchedGroupIds={createGroupIds}
             watchedRoleIds={createRoleIds}
-            onToggleGroup={(id) =>
-              toggleId(createGroupIds, id, (v) => setValue("targetGroupIds", v))
-            }
             onToggleRole={(id) =>
               toggleId(createRoleIds, id, (v) => setValue("targetRoleIds", v))
             }
@@ -1701,15 +1650,8 @@ function EventPage() {
                 ? formatEventHost(editingEvent, usersById)
                 : currentHostName
             }
-            groups={groups}
             roles={roles}
-            watchedGroupIds={editGroupIds}
             watchedRoleIds={editRoleIds}
-            onToggleGroup={(id) =>
-              toggleId(editGroupIds, id, (v) =>
-                setEditValue("targetGroupIds", v),
-              )
-            }
             onToggleRole={(id) =>
               toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
             }
