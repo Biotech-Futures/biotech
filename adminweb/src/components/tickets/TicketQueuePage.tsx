@@ -132,12 +132,23 @@ export function TicketQueuePage() {
     regions.isError && "region",
   ].filter((name): name is string => Boolean(name));
 
+  // The page size the server actually used, which is not always the one asked
+  // for. views.py clamps limit to MAX_PAGE_SIZE, 100, and answers with what it
+  // served; the rows-per-page control offers 200 and a custom box that reaches
+  // 500. Dividing the total by the asked-for size called 450 rows three pages
+  // of 200 while the server was sending five pages of 100, and the pinned
+  // last-page button went to row 201 of 450 instead of the end.
+  //
+  // The control is fed the same number for the same reason: left on 200 it
+  // stands there claiming a page size the server is not honouring.
+  const served = queue.data?.limit ?? limit;
+
   // hasMore is the floor, not the total. `total` counts the walk's frozen set,
   // and a ticket somebody works mid-walk leaves it — so the count can fall
   // below the page being read, and Next would go dead with rows still ahead.
   const totalPages = Math.max(
     1,
-    Math.ceil((queue.data?.total ?? 0) / limit),
+    Math.ceil((queue.data?.total ?? 0) / served),
     queue.data?.hasMore ? page + 1 : page,
   );
 
@@ -300,6 +311,22 @@ export function TicketQueuePage() {
         page={page}
         totalPages={totalPages}
         onPageChange={goToPage}
+        // Deliberately the size that was ASKED for, not `served`.
+        //
+        // Feeding this control a derived value breaks it: radix Select does not
+        // fire onValueChange when the picked item equals the current value, and
+        // PageSizeSelect short-circuits on the same equality, so with a stored
+        // 200 the control reads "100" and then refuses both routes back to 100
+        // (measured: 0 re-renders, the request still carrying limit:200). It
+        // also made the number flicker 100 -> 200 -> 100 on every page click,
+        // because queue.data is undefined for a frame on every navigation.
+        //
+        // So the control still shows the asked-for size while the server is
+        // serving 100. That half of the finding is knowingly NOT fixed here:
+        // making it honest means snapping the stored size down to the cap,
+        // which is a different change and a product decision. The page count,
+        // the numbered nav and the pinned last-page button — the part that
+        // misstates queue depth — are fixed by `served` above.
         pageSize={limit}
         onPageSizeChange={(size) => {
           setLimit(size);
@@ -312,6 +339,14 @@ export function TicketQueuePage() {
       <TicketDetailPanel
         ticketId={openTicketId ?? null}
         assignees={assignees.data ?? []}
+        // `?? []` folds three different things into one empty array: a
+        // platform with nobody on it, a failed request, and a request that
+        // has not answered yet. The panel reads a missing owner as "they left
+        // the queue", so it has to be told which of the three it is holding.
+        // isPending and not isError alone: nothing on this page refetches the
+        // roster, and the banner above is not rendered while the query is
+        // still pending, so the cold open has no warning anywhere on screen.
+        assigneesUnavailable={assignees.isError || assignees.isPending}
         onClose={() => openTicket(null)}
         canDelete={Boolean(user?.isAdmin)}
         onDeleted={(id) =>

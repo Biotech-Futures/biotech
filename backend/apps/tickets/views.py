@@ -353,4 +353,10 @@ class TicketAttachmentDownloadView(APIView):
             mime_type=attachment.mime_type,
             size=attachment.size,
             as_attachment=True,
+            # Streamed, never a redirect. Both front ends fetch this endpoint
+            # with the app's own client so that a refusal can be rendered on
+            # the page instead of replacing it, and a fetch cannot follow a
+            # redirect into the blob container: the container publishes no
+            # Access-Control-Allow-Origin, so the second hop fails CORS.
+            prefer_stream=True,
         )

@@ -15,21 +15,43 @@
         </p>
         <p class="timeline__body">{{ message.body }}</p>
 
-        <!-- No target. The endpoint answers with Content-Disposition:
-             attachment, so the browser downloads the file and leaves this page
-             where it is, and nothing needs a tab. With target="_blank" WebKit
-             opened one per click and closed none of them: three clicks, three
-             empty tabs left behind (measured in WebKit 26.0; Safari itself was
-             not reachable to test, and the tidying up is the shell's job, not
-             the engine's). Chromium closes them, which is why this looked
-             fine. A download attribute does not help either: the file comes
-             from the API origin and the attribute is ignored cross-origin. -->
+        <!-- A button, not a link, and not for styling reasons.
+             This was an anchor pointing straight at the download endpoint, and
+             two things were wrong with that which pull in opposite directions,
+             so neither could be fixed on its own. With target="_blank" a tab
+             is opened per click and none are closed: three clicks, four tabs.
+             Re-measured 2026-09-14 on the merged tree with the target put
+             back, headless, via Playwright: WebKit 26.4 and Chromium
+             148.0.7778.96 both went 1 -> 2 -> 3 -> 4. An older note here said
+             Chromium closed them and that this was why the leak looked fine;
+             that does not reproduce and has been removed rather than repeated.
+             Without the target, a click is a top-level navigation the browser
+             commits to before it knows what
+             is coming back — so the moment the endpoint refuses, its error
+             page replaces this whole page and takes the half-typed reply
+             underneath with it. An agent deleting the ticket as a duplicate is
+             enough to cause that.
+             A button runs downloadTicketAttachment instead: it fetches, so a
+             refusal is a value rendered right here, and it never navigates, so
+             there is nothing for WebKit to leave lying around. A `download`
+             attribute on the old anchor would not have helped either — the
+             file comes from the API origin and the attribute is ignored
+             cross-origin. The blob: URL the helper builds is same-origin, so
+             there it works. -->
         <ul v-if="message.attachments.length" class="timeline__files">
           <li v-for="file in message.attachments" :key="file.id">
-            <a :href="attachmentUrl(ticketId, file.id)">
+            <button
+              type="button"
+              class="timeline__file"
+              :disabled="busy[file.id]"
+              @click="download(file)"
+            >
               <i class="fas fa-paperclip"></i>
               {{ file.filename }}
-            </a>
+            </button>
+            <span v-if="failed[file.id]" class="timeline__file-error" role="alert">{{
+              failed[file.id]
+            }}</span>
           </li>
         </ul>
       </div>
@@ -38,11 +60,47 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { formatLongDateAU } from '@/utils/date'
-import { attachmentUrl, type TicketMessage } from '@/utils/supportAPI'
+import {
+  attachmentErrorMessage,
+  downloadTicketAttachment,
+  type TicketAttachment,
+  type TicketMessage
+} from '@/utils/supportAPI'
 
 const props = defineProps<{ ticketId: number | string; messages: TicketMessage[] }>()
+
+// Which files are in flight, and what went wrong with which one. Both are
+// keyed by attachment id rather than held as one value: five files fit on a
+// message, they are five separate answers, and a failure on one must not label
+// another. Per-file rather than one global "busy" flag for the same reason —
+// a single flag makes a click on the second file do nothing at all while the
+// first is still downloading, which is a link behaviour this must not lose.
+const busy = ref<Record<number, boolean>>({})
+const failed = ref<Record<number, string>>({})
+
+function without<T>(map: Record<number, T>, id: number) {
+  const next = { ...map }
+  delete next[id]
+  return next
+}
+
+async function download(file: TicketAttachment) {
+  if (busy.value[file.id]) return
+  busy.value = { ...busy.value, [file.id]: true }
+  failed.value = without(failed.value, file.id)
+  try {
+    await downloadTicketAttachment(props.ticketId, file.id, file.filename)
+  } catch (err) {
+    // Deliberately not a redirect to the login page on a 401 or 403. Sending
+    // them anywhere is the thing this component exists to stop: whatever is in
+    // the reply box is still there, and it is theirs.
+    failed.value = { ...failed.value, [file.id]: attachmentErrorMessage(err) }
+  } finally {
+    busy.value = without(busy.value, file.id)
+  }
+}
 
 // Only the three types this side of the wall knows about. Internal notes are
 // already stripped by the backend's queryset — that is where the rule is
@@ -78,6 +136,7 @@ function rowClass(message: TicketMessage) {
    which is the number that gets used. */
 .timeline {
   --ticket-muted: #616970;
+  --ticket-danger: #a71d2a;
 
   overflow-wrap: anywhere;
   list-style: none;
@@ -90,6 +149,7 @@ function rowClass(message: TicketMessage) {
 
 :root[data-theme="dark"] .timeline {
   --ticket-muted: var(--text-muted);
+  --ticket-danger: var(--danger);
 }
 
 .timeline__row {
@@ -170,13 +230,36 @@ function rowClass(message: TicketMessage) {
   gap: 0.25rem;
 }
 
-.timeline__files a {
+/* Reads as the link it replaced: same colour, same size, underline on hover. */
+.timeline__file {
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--dark-green);
+  font-family: inherit;
   font-size: 0.85rem;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.timeline__files a:hover {
+.timeline__file:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.timeline__file:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* --ticket-danger is declared on .timeline above for the same reason
+   --ticket-muted is: --danger is 4.30:1 on --bg-light, under AA. Dark hands it
+   back to the theme, which is comfortable there. Same shape as
+   TicketDetailPage.vue, and ticketMutedContrast.spec.ts measures both. */
+.timeline__file-error {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--ticket-danger);
+  font-size: 0.8rem;
 }
 </style>

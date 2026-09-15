@@ -201,6 +201,27 @@ class Ticket(models.Model):
     #
     # Indexed because it is a predicate on the queue's main list query.
     awaiting_support_since = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Which of the two "off the clock" situations the column above is in,
+    # because that column cannot say. A timestamp there means the clock is
+    # RUNNING; null means it is not, and null was doing double duty for two
+    # different things:
+    #
+    #   * STOPPED — support answered, so nobody is waiting on us;
+    #   * PAUSED  — a real wait was running and an agent parked the ticket.
+    #
+    # set_status could not tell those apart on the way back out, so it guessed
+    # ("null, so start a clock now"), and the guess armed an answered ticket
+    # with a clock it never had: hours later it went red while the requester
+    # had said nothing at all. True here means PAUSED. It is written at the
+    # moment the clock comes off rather than worked out when it goes back on,
+    # because after the first hop the two situations look identical.
+    #
+    # A flag and not a duration on purpose. Resuming re-arms at now(), which
+    # is the behaviour the client settled on 2026-09-04, and this column does
+    # not change it — it only decides whether a clock starts at all. No index:
+    # it is read only after the anchor has already been found null, and it is
+    # never filtered on.
+    awaiting_support_paused = models.BooleanField(default=False)
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now, db_index=True)

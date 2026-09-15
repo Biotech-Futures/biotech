@@ -1,4 +1,5 @@
 import { myFetch } from "@/lib/myFetch";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   supportAgentSchema,
@@ -243,8 +244,61 @@ export function useBulkAssign() {
   });
 }
 
-export function ticketAttachmentUrl(ticketId: number, attachmentId: number) {
-  return `${myFetch.defaults.baseURL}${BASE}/${ticketId}/attachments/${attachmentId}/`;
+/** Fetch the file rather than pointing the browser at it.
+ *
+ *  The panel used to render an `<a href>` straight at this endpoint. Two
+ *  things were wrong with that. With `target="_blank"` WebKit opens a tab per
+ *  click and closes none of them, so three downloads leave three tabs behind.
+ *  Without the target, a click is a top-level navigation the browser commits
+ *  to before it knows the answer, so any refusal — the ticket deleted from the
+ *  button two inches away on this same panel, a session that aged out, a blob
+ *  missing from the container — replaces the whole admin app with DRF's
+ *  browsable-API error page and takes the reply being typed with it.
+ *
+ *  Fetching leaves the page alone: the refusal is a value the panel renders.
+ *  The bytes go to disk through a blob: URL, which is same-origin and so
+ *  honours `download`; the API's own URL never did, being cross-origin. Same
+ *  shape as downloadResourceFile in query/resource.ts, which already ships.
+ *
+ *  The backend streams this endpoint rather than redirecting to a signed Azure
+ *  URL (`prefer_stream=True` in apps/tickets/views_admin.py) so that this
+ *  request has one hop to make. Do not put the redirect back without giving
+ *  the blob container a CORS rule for this origin first: a fetch re-applies
+ *  CORS at the second hop and fails with a bare network error carrying no
+ *  status. `myFetch`'s ensureTrailingSlash interceptor supplies the slash.
+ */
+export async function downloadTicketAttachment(
+  ticketId: number,
+  attachmentId: number,
+  filename: string,
+) {
+  const res = await myFetch.get<Blob>(
+    `${BASE}/${ticketId}/attachments/${attachmentId}`,
+    { responseType: "blob" },
+  );
+  const url = window.URL.createObjectURL(res.data);
+  const link = document.createElement("a");
+  link.href = url;
+  // The name the panel is already showing, not the one in
+  // Content-Disposition: reading a response header cross-origin needs the
+  // server to list it in Access-Control-Expose-Headers, and it does not.
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/** What to put in front of an agent when the download is refused. */
+export function attachmentErrorMessage(error: unknown): string {
+  const status = isAxiosError(error) ? error.response?.status : undefined;
+  if (status === 401 || status === 403) {
+    return "Your session has expired. Reload this page and sign in again to open this file.";
+  }
+  if (status === 404) {
+    return "This file is gone — the ticket or the message it belonged to was deleted. Reload the queue.";
+  }
+  return "Could not download that file. Try again.";
 }
 
 

@@ -1,4 +1,4 @@
-import { apiErrorFromResponse } from './apiError'
+import { apiErrorFromResponse, apiErrorFromUnknown } from './apiError'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from './csrf'
 
@@ -318,11 +318,83 @@ export function replyToTicket(ticketId: number | string, body: string, files: Fi
   })
 }
 
-// A plain URL rather than a fetch: the browser follows it with the session
-// cookie attached, and the backend either streams the file or redirects to a
-// signed one.
+// The download endpoint's URL. Built for the fetch below, not for an href:
+// see downloadTicketAttachment for why nothing points the browser at it.
 export function attachmentUrl(ticketId: number | string, attachmentId: number | string) {
   return `${API_BASE_URL}/api/v1/tickets/${ticketId}/attachments/${attachmentId}/`
+}
+
+// Fetched, not followed.
+//
+// A link click is a top-level navigation the browser commits to before it
+// knows what is coming back. When the answer is a file the navigation is
+// cancelled and the page stays, which is why an <a href> to this endpoint
+// looked like it worked. When the answer is a 403 or a 404 it is an ordinary
+// document and it REPLACES this one: the Support Centre is gone and the reply
+// the student was half-way through typing goes with it, because that text only
+// ever lived in the component. Their Back button does not rescue it either —
+// the page rebuilds from scratch.
+//
+// None of the refusals are exotic. A support agent deleting the enquiry as a
+// duplicate, a session that aged out (24 h from login, not from last activity),
+// or a blob missing from the container all land here with a file still on
+// screen and still clickable.
+//
+// Fetching leaves the page alone: the refusal becomes a value the caller can
+// render beside the file. The bytes come back as a blob and go to disk through
+// a blob: URL, which is same-origin and therefore honours `download` — the
+// API's own URL never did, being cross-origin.
+//
+// Accept: application/json is load-bearing. The backend declares no
+// DEFAULT_RENDERER_CLASSES, so a browser's Accept header negotiates its way to
+// DRF's browsable-API HTML page and the status is all this side could read.
+//
+// The backend streams this endpoint rather than redirecting to a signed Azure
+// URL (prefer_stream=True in apps/tickets/views.py) precisely so this fetch has
+// one hop to make. Do not put that redirect back without giving the blob
+// container a CORS rule for this origin first: a fetch re-applies CORS at the
+// second hop and fails with a bare TypeError carrying no status at all.
+export async function downloadTicketAttachment(
+  ticketId: number | string,
+  attachmentId: number | string,
+  filename: string
+) {
+  const response = await fetch(attachmentUrl(ticketId, attachmentId), {
+    method: 'GET',
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } })
+  })
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response, 'We could not download that file.')
+  }
+
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  // The name the timeline is already showing, not the one in
+  // Content-Disposition: reading a response header cross-origin needs the
+  // server to list it in Access-Control-Expose-Headers, and this one does not.
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+// What to put in front of a student when the download is refused. The server's
+// own sentences ("Attachment not found") describe a database row, not a
+// situation, and neither of them was written for a fifteen-year-old.
+export function attachmentErrorMessage(error: unknown): string {
+  const status = apiErrorFromUnknown(error).status
+  if (status === 401 || status === 403) {
+    return 'Your sign-in has expired. Reload this page and sign in again to open this file.'
+  }
+  if (status === 404) {
+    return 'That file is not available any more. Reload this page to see the latest version of this enquiry.'
+  }
+  return 'We could not download that file. Please check your connection and try again.'
 }
 
 // Categories a requester can be SHOWN but never OFFERED.

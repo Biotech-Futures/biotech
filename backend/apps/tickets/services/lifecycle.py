@@ -142,6 +142,58 @@ def _touch(ticket, *, user_visible: bool, **extra):
         setattr(ticket, name, value)
 
 
+def _pause_clock(ticket):
+    """Fields that take a ticket off the overdue clock without forgetting why.
+
+    Read ``ticket`` after ``_lock``: this decides what the change *means*, and
+    deciding that from an uncommitted read is the mistake resolve() documents.
+
+    Two cases, and telling them apart is the whole point of the flag. A
+    running clock is PAUSED, so leaving the off-clock status later puts the
+    ticket back on one. A clock that was already stopped, because support
+    answered, has nothing to pause — and recording it as paused is exactly
+    what let an answered ticket resume onto a clock nobody ever started.
+    """
+    return {
+        "awaiting_support_since": None,
+        "awaiting_support_paused": (
+            ticket.awaiting_support_since is not None
+            or ticket.awaiting_support_paused
+        ),
+    }
+
+
+def _resume_clock(ticket, *, now=None):
+    """Fields that put a ticket back on the clock, if it was ever on one.
+
+    The mirror of _pause_clock. Three cases, against that one's two:
+
+      * already running: leave the anchor where it is, for the same reason
+        add_user_reply keeps it. The wait belongs to whoever has been waiting,
+        and no support-side click restarts it.
+      * paused: re-arm at now. Deliberately now, and deliberately not the wait
+        it was paused on: whether un-parking should give the earlier wait back
+        is a rules question the client settled, so today's answer stands and
+        this change does not touch it.
+      * stopped: stay stopped. Support answered and the requester has not come
+        back, so nothing is owed. Arming here is how an answered ticket went
+        red with the requester having said nothing.
+
+    A screening ticket is the one exception. It has no requester
+    (``created_by`` is null), so "stopped, waiting on them to come back" names
+    nobody — nothing in the product will ever start this clock again, an agent
+    moving it back is the only door out, and a flagged-content ticket about a
+    real student is the case that most needs to be chaseable. See
+    AScreeningTicketCanBeParkedOffTheClockTests, which pins that door open.
+    """
+    now = now or timezone.now()
+    if ticket.awaiting_support_since is not None:
+        return {"awaiting_support_paused": False}
+    if ticket.awaiting_support_paused or ticket.created_by_id is None:
+        return {"awaiting_support_since": now, "awaiting_support_paused": False}
+    return {"awaiting_support_since": None, "awaiting_support_paused": False}
+
+
 def _add_message(ticket, *, message_type, body, author=None, attachments=None):
     """Append one row to the timeline, with any already-stored files on it.
 
@@ -331,9 +383,18 @@ def add_user_reply(*, ticket, user, body, attachments=None) -> TicketMessage:
                 status=TicketStatus.IN_PROGRESS,
                 resolved_at=None,
                 awaiting_support_since=awaiting,
+                # The clock is running again, so any pause held for this
+                # ticket has been spent. Left behind it would resurface the
+                # next time an agent parked an answered ticket.
+                awaiting_support_paused=False,
             )
         else:
-            _touch(ticket, user_visible=True, awaiting_support_since=awaiting)
+            _touch(
+                ticket,
+                user_visible=True,
+                awaiting_support_since=awaiting,
+                awaiting_support_paused=False,
+            )
     return message
 
 
@@ -377,6 +438,8 @@ def reopen(*, ticket, actor) -> None:
             # kept a null anchor would be one nobody could ever see go red,
             # which is the same defect the client asked us to fix.
             awaiting_support_since=timezone.now(),
+            # Running, so no pause is outstanding.
+            awaiting_support_paused=False,
         )
 
 
@@ -470,6 +533,12 @@ def add_support_reply(
             ticket,
             user_visible=True,
             awaiting_support_since=None,
+            # Stopped, not paused, and that holds even when this same reply
+            # parks the ticket on the requester (``move_to_pending``). We have
+            # answered, nobody is waiting on us, and there is no wait left to
+            # resume. Clearing it here is what stops "reply, park, un-park"
+            # putting an answered ticket back onto a clock.
+            awaiting_support_paused=False,
             **moved,
         )
         # Sent from this one place, not from mark_pending() as well, or
@@ -817,7 +886,11 @@ def mark_pending(*, ticket, actor) -> None:
             # product tells the requester exactly this, both on their ticket
             # page and in the E2 email, and a red badge on the queue at the
             # same moment would be the product contradicting itself.
-            awaiting_support_since=None,
+            #
+            # Paused rather than cleared outright: this route has to record
+            # whether a wait was running, or the ticket comes back out through
+            # set_status unable to tell a park from an answer.
+            **_pause_clock(ticket),
         )
 
 
@@ -858,6 +931,20 @@ def resolve(*, ticket, actor) -> bool:
         # the first_response_at of the reply it lost the race to, so the
         # ticket read as resolved before it was ever answered.
         now = timezone.now()
+        # Computed off the LOCKED row, which is the load-bearing half: what a
+        # pause means depends on whether a clock was running, and deciding that
+        # from an uncommitted read is the mistake this function's own comment
+        # above documents.
+        #
+        # Not, as an earlier draft of this comment claimed, because "the update
+        # destroys the anchor it is measured from" — the queryset .update()
+        # below does not touch this in-memory instance at all; only the setattr
+        # loop further down does. That claim was checked by asserting the
+        # equality it denies immediately after the update (952 tests, OK, zero
+        # hits) and it is written down here because this repository has been
+        # burned three times by a measurement put in a comment, never re-run,
+        # and then cited as evidence by a later round.
+        paused = _pause_clock(ticket)
         changed = (
             # Redundant with _lock above and kept deliberately: this update is
             # the thing that decides whether the "we're done" email goes out,
@@ -874,7 +961,11 @@ def resolve(*, ticket, actor) -> bool:
                 # _touch because this path deliberately uses a conditional
                 # update to decide the winner of two concurrent Resolve
                 # clicks.
-                awaiting_support_since=None,
+                #
+                # Paused rather than cleared, for the same reason as
+                # mark_pending: un-resolving from the dropdown has to know
+                # whether a wait was running when the ticket was resolved.
+                **paused,
             )
         )
         if not changed:
@@ -884,7 +975,8 @@ def resolve(*, ticket, actor) -> bool:
         ticket.resolved_at = now
         ticket.updated_at = now
         ticket.support_updated_at = now
-        ticket.awaiting_support_since = None
+        for name, value in paused.items():
+            setattr(ticket, name, value)
 
         _add_message(
             ticket,
@@ -976,12 +1068,33 @@ def set_status(*, ticket, new_status, actor) -> bool:
         # The rule underneath both mistakes: support is off the clock in
         # exactly two states, so the clock restarts when a ticket leaves
         # either of them for one where the ball is ours again.
+        #
+        # Third go, and the reason the second was still wrong: "restarts when
+        # it leaves" was being applied to tickets with no clock to restart. An
+        # answered ticket's anchor is null, and going out through "pending
+        # user" and straight back in satisfies the narrowed condition just as
+        # well as coming off "resolved" does. So `or now()` armed a ticket
+        # support had already answered, and it went red hours later with the
+        # requester having said nothing -- which is the shape the paragraph
+        # four above records as a bug, surviving one door along.
+        #
+        # The condition could not simply be narrowed again, because by the
+        # time we are here the two situations hold the same value: null. So
+        # the rule is pause and resume rather than clear and re-arm, and which
+        # of the two it was is written down when the clock comes off, in
+        # ``awaiting_support_paused``. Leaving an off-clock status resumes a
+        # wait that was paused and starts nothing where there never was one.
+        #
+        # What deliberately has NOT changed: a resumed wait re-arms at now()
+        # rather than coming back at the length it had reached. Whether
+        # un-parking should give the earlier wait back is a rules question,
+        # and the client settled the rules.
         if new_status in OFF_THE_CLOCK_STATUSES:
-            awaiting = None
+            clock = _pause_clock(ticket)
         elif before_status in OFF_THE_CLOCK_STATUSES:
-            awaiting = ticket.awaiting_support_since or timezone.now()
+            clock = _resume_clock(ticket)
         else:
-            awaiting = ticket.awaiting_support_since
+            clock = {}
 
         # resolved_at goes back to null so "time to resolve" is not computed
         # from a resolution that was undone.
@@ -990,6 +1103,6 @@ def set_status(*, ticket, new_status, actor) -> bool:
             user_visible=True,
             status=new_status,
             resolved_at=None,
-            awaiting_support_since=awaiting,
+            **clock,
         )
     return True

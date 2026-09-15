@@ -272,18 +272,31 @@ def serve_managed_file(
     mime_type: str | None,
     size: int | None,
     as_attachment: bool,
+    prefer_stream: bool = False,
     on_open_failure_status: int = 404,
     on_open_failure_detail: str = "The stored file could not be opened for download.",
 ):
     safe_filename = sanitize_upload_filename(filename)
-    managed_url = resolve_url(
-        storage_key,
-        filename=safe_filename,
-        content_type=mime_type,
-        as_attachment=as_attachment,
-    )
+    managed_url = None
+    if not prefer_stream:
+        managed_url = resolve_url(
+            storage_key,
+            filename=safe_filename,
+            content_type=mime_type,
+            as_attachment=as_attachment,
+        )
     # Remote Azure storage returns a signed URL, while local/test storage
     # falls back to app-streamed bytes through Django.
+    #
+    # prefer_stream turns the redirect off for callers whose client is a
+    # fetch() rather than a link click, and is off by default so that every
+    # other caller keeps the exact path it has today. A cross-origin redirect
+    # is fine for a navigation and fatal for a fetch: the browser re-applies
+    # CORS at the Azure hop, the blob container publishes no
+    # Access-Control-Allow-Origin, and the download fails with a bare
+    # TypeError that carries no status to report. Streaming keeps the answer
+    # on our own origin, where the caller can read a status code and say
+    # something useful about it.
     if managed_url:
         parsed_url = urlparse(managed_url)
         if parsed_url.scheme and parsed_url.netloc:

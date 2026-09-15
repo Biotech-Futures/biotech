@@ -169,4 +169,63 @@ test.describe('ticket lifecycle across both apps', () => {
       studentPage.locator('span.ticket-badge').first(),
     ).toHaveText('Open', { timeout: 15000 })
   })
+
+
+  test('a refused attachment is answered on the page, not by replacing it', async ({
+    browser,
+  }) => {
+    /**
+     * The behavioural half of P7-2, which no unit test can carry: jsdom cannot
+     * navigate, so in jsdom the bug is invisible — clicking a broken <a href>
+     * there leaves the document standing and every "the draft survived"
+     * assertion passes WITH the bug present. This is the test that actually
+     * sees it.
+     *
+     * The refusal used here is an expired session, which is the common one:
+     * SESSION_COOKIE_AGE is 24 h from LOGIN, not from last activity, and
+     * nothing on the page polls, so the click is the first thing that tells
+     * the student. Clearing the context's cookies is that state exactly.
+     *
+     * `tabs` is asserted as well as the draft. The two halves of this bug pull
+     * against each other: the anchor used to carry target="_blank", which
+     * protected the page and leaked an empty WebKit tab per click; removing
+     * the target stopped the leak and started destroying drafts. A fix that
+     * trades one back for the other is not a fix.
+     */
+    test.setTimeout(180_000)
+
+    const context = await browser.newContext()
+    const studentPage = await context.newPage()
+    await loginToPortal(studentPage)
+
+    await studentPage.goto('/#/support')
+    await studentPage.getByLabel('Issue category').selectOption('account_access')
+    await studentPage.getByLabel('Subject').fill(`E2E attachment ${Date.now()}`)
+    await studentPage.getByLabel('Message').fill('Screenshot attached.')
+    await studentPage.locator('input[type="file"]').setInputFiles({
+      name: 'screenshot.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n% a real enough file\n'),
+    })
+    await studentPage.getByRole('button', { name: 'Submit ticket' }).click()
+    await studentPage.waitForURL(/#\/support\/tickets\/\d+/, { timeout: 15000 })
+    const ticketUrl = studentPage.url()
+
+    const DRAFT = 'I tried the reset link three times and it still says the token expired.'
+    await studentPage.getByLabel('Your reply').fill(DRAFT)
+
+    // The session ages out underneath them. Nothing on screen changes.
+    await context.clearCookies()
+
+    await studentPage.locator('button.timeline__file').first().click()
+
+    await expect(studentPage.locator('.timeline__file-error')).toBeVisible({
+      timeout: 15000,
+    })
+    // Still the app, still their words, and no tab left behind.
+    expect(studentPage.url()).toBe(ticketUrl)
+    await expect(studentPage.getByLabel('Your reply')).toHaveValue(DRAFT)
+    expect(context.pages()).toHaveLength(1)
+    await expect(studentPage).toHaveTitle(/BIOTech/)
+  })
 })

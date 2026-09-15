@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Same shape as the home page's test: the router is only here for navigation
 // and Link rendering, neither of which this file is about.
+// Which ticket the panel is open on. Mutable so one test can open it; every
+// other test in this file leaves it closed, the way it has always been.
+const search: { ticket: number | undefined } = { ticket: undefined };
+
 vi.mock("@tanstack/react-router", () => ({
   getRouteApi: () => ({
-    useSearch: () => ({ ticket: undefined }),
+    useSearch: () => search,
     useNavigate: () => vi.fn(),
   }),
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
@@ -92,9 +96,33 @@ const responses: Record<
   { data: QueuePage; isLoading: boolean; isError: boolean }
 > = {};
 
+// The ticket the detail panel renders when `search.ticket` is set. Its owner
+// is on the roster below and assignable, so nothing about this ticket can
+// honestly be called off the queue.
+const OWNED_TICKET = {
+  id: 1,
+  ticketNumber: "SUP-2026-00001",
+  subject: "Poster upload fails",
+  status: "in_progress",
+  priority: "normal",
+  category: "account_access",
+  channel: "portal",
+  region: "Australia",
+  overdue: false,
+  createdAt: "2026-09-01T00:00:00Z",
+  updatedAt: "2026-09-01T00:00:00Z",
+  supportUpdatedAt: "2026-09-01T00:00:00Z",
+  user: { id: 5, name: "Mia", email: "mia@example.com", anonymous: false },
+  assignee: { id: 9, name: "Sam Reid" },
+  messages: [] as unknown[],
+  attachments: [] as unknown[],
+};
+let ticketDetail: Record<string, unknown> = { ...idle };
+
 const SUPPORT_AGENTS = [{ id: 9, name: "Sam Reid", assignable: true }];
 const assignees = {
   ...idle,
+  isPending: false,
   data: SUPPORT_AGENTS as typeof SUPPORT_AGENTS | undefined,
 };
 const regions = { ...idle, data: [] as { value: string; label: string }[] };
@@ -114,7 +142,7 @@ vi.mock("@/query/ticket", () => ({
   useAssignees: () => assignees,
   useTicketRegions: () => regions,
   useBulkAssign: () => bulkAssign,
-  useTicketDetail: () => ({ ...idle }),
+  useTicketDetail: () => ticketDetail,
   useTicketHistory: () => ({ ...idle }),
   useUpdateTicket: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }),
   useDeleteTicket: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }),
@@ -138,7 +166,10 @@ afterEach(() => {
   bulkAssign.data = undefined;
   bulkAssign.variables = undefined;
   assignees.isError = false;
+  assignees.isPending = false;
   assignees.data = SUPPORT_AGENTS;
+  search.ticket = undefined;
+  ticketDetail = { ...idle };
   regions.isError = false;
   queueCalls.length = 0;
   walkCalls.length = 0;
@@ -627,5 +658,70 @@ describe("a bulk assign that partly failed", () => {
     render(<TicketQueuePage />);
 
     expect(screen.queryByText(/could not be assigned/)).toBeNull();
+  });
+});
+
+describe("what the detail panel is told about the roster", () => {
+  // P9-1. The page held the only copy of the difference between "the roster
+  // came back and this person is not on it" and "no roster came back", and it
+  // threw that difference away at `assignees.data ?? []`. The panel reads an
+  // owner's absence from that array as proof they left the queue, so with the
+  // roster missing it said that about whoever owned the ticket. Measured in
+  // Chromium against the demo database: one 500 on the roster endpoint, click
+  // the queue row for SUP-2026-00128, and the panel read "Dana Ellis (no
+  // longer on the queue)" while the row behind it read "Dana Ellis".
+  //
+  // These live here rather than in TicketDetailPanel.test.tsx on purpose: the
+  // panel's own tests pass the prop themselves, so they stay green even if
+  // this page never passes it, which is exactly the bug.
+  function openPanelOnAnOwnedTicket() {
+    search.ticket = OWNED_TICKET.id;
+    ticketDetail = { data: OWNED_TICKET, isLoading: false, isError: false };
+  }
+
+  const CLAIM = /no longer on the queue/;
+
+  function ownerControl() {
+    return screen.getByRole("combobox", { name: /change assignee/i });
+  }
+
+  it("does not call the owner gone when the roster request failed", () => {
+    openPanelOnAnOwnedTicket();
+    assignees.isError = true;
+    assignees.data = undefined;
+
+    render(<TicketQueuePage />);
+
+    expect(ownerControl().textContent).toBe("Sam Reid");
+    expect(ownerControl().textContent).not.toMatch(CLAIM);
+  });
+
+  it("does not call the owner gone while the roster is still loading", () => {
+    // The half the finding's own suggested fix missed. isError is false the
+    // whole time a query is pending, and the page banner is keyed on isError,
+    // so on a cold open there is no warning anywhere on screen to contradict
+    // the panel. Measured in Chromium on /tickets?ticket=128 with the roster
+    // endpoint working but delayed: the sentence was painted from t=305ms to
+    // t=567ms at a 300ms delay, and from t=310ms to t=4292ms at 4000ms, with
+    // document.querySelectorAll("[role=alert]") empty at every frame.
+    openPanelOnAnOwnedTicket();
+    assignees.isPending = true;
+    assignees.data = undefined;
+
+    render(<TicketQueuePage />);
+
+    expect(ownerControl().textContent).toBe("Sam Reid");
+    expect(ownerControl().textContent).not.toMatch(CLAIM);
+  });
+
+  it("still calls a revoked agent gone when the roster did come back", () => {
+    // The other direction. With a roster in hand, absence from it is a real
+    // fact about the person and the panel should go on saying it.
+    openPanelOnAnOwnedTicket();
+    assignees.data = [{ id: 9, name: "Sam Reid", assignable: false }];
+
+    render(<TicketQueuePage />);
+
+    expect(ownerControl().textContent).toBe("Sam Reid (no longer on the queue)");
   });
 });

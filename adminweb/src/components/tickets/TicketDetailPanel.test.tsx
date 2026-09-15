@@ -51,12 +51,20 @@ function ticketGone() {
   return failure(404, { msg: "Ticket not found", data: null });
 }
 
-vi.mock("@/query/ticket", () => ({
+// The download itself is the only thing stubbed out of this module.
+// attachmentErrorMessage stays REAL: it is what the three attachment tests are
+// about, and a stub of it would be the sentences asserting themselves.
+// Spreading importOriginal also means a function added to query/ticket.ts
+// later does not silently arrive here as undefined.
+const downloadTicketAttachment = vi.fn();
+vi.mock("@/query/ticket", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/query/ticket")>()),
   useTicketDetail: (id: number | null) => detail(id),
   useTicketHistory: () => history,
   useUpdateTicket: () => update,
   useReplyTicket: () => reply,
   useDeleteTicket: () => remove,
+  downloadTicketAttachment: (...args: unknown[]) => downloadTicketAttachment(...args),
 }));
 
 const { TicketDetailPanel } = await import("./TicketDetailPanel");
@@ -90,12 +98,14 @@ function show(
   ticket: Record<string, unknown>,
   assignees = [ACTIVE, OWNER],
   canDelete = false,
+  assigneesUnavailable = false,
 ) {
   detail.mockReturnValue({ data: ticket, isLoading: false, isError: false });
   return render(
     <TicketDetailPanel
       ticketId={ticket.id as number}
       assignees={assignees}
+      assigneesUnavailable={assigneesUnavailable}
       onClose={vi.fn()}
       canDelete={canDelete}
       onDeleted={vi.fn()}
@@ -170,6 +180,120 @@ describe("assignee control", () => {
     expect(
       screen.getByRole("combobox", { name: /change assignee/i }).textContent,
     ).toContain("Unassigned");
+  });
+
+  // P9-1. Every combination of "what state is the roster in" against "where
+  // does the owner stand on it", generated rather than hand-picked, because a
+  // hand-picked list of examples is the failure shape this file has been
+  // caught by before: the earlier version of the row was wrong in exactly the
+  // case nobody thought to list. The claim is a statement about a person, so
+  // it is earned in one column only, the one where a roster actually came
+  // back and the person is not assignable on it.
+  const ROSTERS = {
+    "came back": { unavailable: false },
+    "request failed": { unavailable: true },
+    "still loading": { unavailable: true },
+  } as const;
+
+  const OWNER_STANDS = {
+    "assignable on it": [ACTIVE, { id: 3, name: "Gone Agent", assignable: true }],
+    "listed but revoked": [ACTIVE, { id: 3, name: "Gone Agent", assignable: false }],
+    "not listed at all": [ACTIVE],
+  } as const;
+
+  for (const [rosterName, roster] of Object.entries(ROSTERS)) {
+    for (const [standName, listed] of Object.entries(OWNER_STANDS)) {
+      // A failed or pending roster hands the panel an empty array, which is
+      // the whole reason the array alone cannot answer the question.
+      const list = roster.unavailable ? [] : [...listed];
+      const earned = !roster.unavailable && standName !== "assignable on it";
+      const expected = earned
+        ? "Gone Agent (no longer on the queue)"
+        : "Gone Agent";
+
+      it(`roster ${rosterName}, owner ${standName}: trigger reads "${expected}"`, () => {
+        show(
+          ticketWith({ assignee: { id: 3, name: "Gone Agent" } }),
+          list,
+          false,
+          roster.unavailable,
+        );
+
+        expect(
+          screen.getByRole("combobox", { name: /change assignee/i }).textContent,
+        ).toBe(expected);
+      });
+    }
+  }
+
+  it("says why the dropdown is short when the roster is not there", () => {
+    // Two rows and no explanation reads as the whole platform, and makes
+    // "Unassigned" look like a considered choice rather than the only one
+    // left. Measured in Chromium with the roster endpoint 500ing: the
+    // dropdown offered exactly ["Unassigned", "Dana Ellis (no longer on the
+    // queue)"], taking that option wrote assignee_id NULL, and the dropdown
+    // then offered only ["Unassigned"], so the panel could not put the ticket
+    // back until the endpoint recovered.
+    show(ticketWith({ assignee: { id: OWNER.id, name: OWNER.name } }), [], false, true);
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: /change assignee/i }), {
+      key: "ArrowDown",
+    });
+
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual([
+      "Unassigned",
+      "Gone Agent",
+      "The assignee list has not loaded, so there is nobody else to pick here.",
+    ]);
+  });
+
+  it("keys on the roster being unavailable, not on the list being short", () => {
+    // P9-1, the constraint the fix exists to hold. "Is the array short" and
+    // "do we have a roster" are different questions, and only the second one
+    // is a reason to stop making a statement about a person. They agree in
+    // every state this app can currently produce, which is why keying on the
+    // array passes every other test in this file — so the disagreement is
+    // asserted directly here: unavailable, with an array still in hand.
+    show(ticketWith({ assignee: { id: 3, name: "Gone Agent" } }), [ACTIVE], false, true);
+
+    expect(
+      screen.getByRole("combobox", { name: /change assignee/i }).textContent,
+    ).toBe("Gone Agent");
+  });
+
+  it("leaves the roster-down explanation inert, not a choosable option", () => {
+    // The explanation carries a value, and Number("__unavailable") is NaN,
+    // which JSON.stringify writes as null — the same body the Unassigned row
+    // sends. Measured in Chromium against a clone of the demo database with
+    // `disabled` removed and nothing else changed: clicking the sentence sent
+    // PATCH {"assignee":null}, got a 200, and tickets.assignee_id for #128
+    // went 3 -> NULL. The attribute is the whole guard, so it is asserted
+    // rather than left to a browser note in a report.
+    show(ticketWith({ assignee: { id: OWNER.id, name: OWNER.name } }), [], false, true);
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: /change assignee/i }), {
+      key: "ArrowDown",
+    });
+
+    const row = screen.getByRole("option", { name: /has not loaded/ });
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("says nothing of the sort while the roster is in hand", () => {
+    // The other direction, so the row above cannot pass by always rendering.
+    show(ticketWith({ assignee: { id: OWNER.id, name: OWNER.name } }));
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: /change assignee/i }), {
+      key: "ArrowDown",
+    });
+
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual([
+      "Unassigned",
+      "Gone Agent (no longer on the queue)",
+      "Sam Reid",
+    ]);
   });
 });
 
@@ -259,6 +383,7 @@ describe("when a change is refused", () => {
       <TicketDetailPanel
         ticketId={8}
         assignees={[ACTIVE, OWNER]}
+        assigneesUnavailable={false}
         onClose={vi.fn()}
         canDelete={false}
         onDeleted={vi.fn()}
@@ -720,5 +845,172 @@ describe("the times this panel prints", () => {
         year: "numeric",
       }),
     );
+  });
+});
+
+
+describe("opening an attachment", () => {
+  /**
+   * ⚠️ Structural, not behavioural, and on purpose. jsdom cannot navigate:
+   * clicking an `<a href>` logs "Not implemented: navigation" and leaves the
+   * document standing, so a test that typed a draft, clicked a broken link and
+   * asserted the draft survived would pass WITH THE BUG PRESENT. What is
+   * pinned here is that there is no anchor at the endpoint and that a refusal
+   * is rendered in the panel; the behavioural proof is a real browser.
+   */
+  const WITH_FILES = {
+    id: 1,
+    messageType: "user_message",
+    author: { id: 9, name: "Mia Thompson" },
+    body: "Screenshots attached.",
+    createdAt: "2026-08-01T00:00:00Z",
+    attachments: [
+      { id: 7, filename: "gone.png", mimeType: "image/png", size: 1024 },
+      { id: 8, filename: "fine.png", mimeType: "image/png", size: 2048 },
+    ],
+  };
+
+  beforeEach(() => {
+    downloadTicketAttachment.mockReset();
+    downloadTicketAttachment.mockResolvedValue(undefined);
+  });
+
+  it("does not point the browser at the download endpoint", () => {
+    // The defect. An anchor here is a navigation the browser commits to before
+    // it knows the answer, so a refusal — the delete button is two inches away
+    // on this same panel — replaces the admin app with DRF's error page.
+    // Asserted on the endpoint rather than on the tag, because an anchor with
+    // a click handler and a live href is still middle-clickable into the bug.
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    // document.body, not the render container: this panel is a Radix sheet and
+    // renders into a portal, so `container` holds none of it. Caught by
+    // reverting the button to the anchor and watching this test stay green.
+    expect(screen.getByRole("button", { name: "gone.png" })).toBeTruthy();
+    const hrefs = Array.from(document.body.querySelectorAll("a")).map(
+      (link) => link.getAttribute("href") ?? "",
+    );
+    expect(hrefs.filter((href) => href.includes("/attachments/"))).toEqual([]);
+  });
+
+  it("fetches the file under the name the panel is showing", async () => {
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+
+    expect(downloadTicketAttachment).toHaveBeenCalledWith(7, 7, "gone.png");
+  });
+
+  it("says why the file did not open, in the panel, and stays on it", async () => {
+    downloadTicketAttachment.mockRejectedValue(ticketGone());
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+
+    expect(
+      screen.getByText(
+        "This file is gone — the ticket or the message it belonged to was deleted. Reload the queue.",
+      ),
+    ).toBeTruthy();
+    // Still the panel, still offering both files.
+    expect(screen.getByRole("button", { name: "fine.png" })).toBeTruthy();
+  });
+
+  it("tells an expired session apart from a file that is gone", async () => {
+    downloadTicketAttachment.mockRejectedValue(
+      failure(403, { error: "Not permitted", code: "forbidden", request_id: "abc" }),
+    );
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+
+    expect(
+      screen.getByText(
+        "Your session has expired. Reload this page and sign in again to open this file.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("lets a second file download while the first is still going", async () => {
+    // The regression a global "busy" flag would have introduced: a click on
+    // the neighbouring file doing nothing at all, silently, while the first is
+    // in flight — something the anchor it replaced never did.
+    let releaseFirst: () => void = () => {};
+    downloadTicketAttachment.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseFirst = resolve)),
+    );
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "fine.png" }));
+    });
+    await act(async () => {
+      releaseFirst();
+    });
+
+    expect(downloadTicketAttachment).toHaveBeenCalledTimes(2);
+    expect(downloadTicketAttachment).toHaveBeenCalledWith(7, 8, "fine.png");
+  });
+
+  it("ignores a second click on the file already downloading", async () => {
+    // Both clicks are dispatched inside ONE act(), so React has not
+    // re-rendered between them and the `disabled` attribute is not yet on the
+    // button. What stops the second call is the guard in the handler. Without
+    // this, deleting `if (busy[attachmentId]) return` left all 40 tests in
+    // this file green — measured 2026-09-14, the same fake-test shape that was
+    // already caught and fixed on the portal side but not here.
+    let release: () => void = () => {};
+    downloadTicketAttachment.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    const button = screen.getByRole("button", { name: "gone.png" });
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+      release();
+    });
+
+    expect(downloadTicketAttachment).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the same file be downloaded again once the first one finishes", async () => {
+    // The other half of the guard: busy has to be cleared in `finally`, or the
+    // button is disabled for the rest of the session after one click. Without
+    // this, deleting that setBusy left all 40 tests green — measured.
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+
+    expect(downloadTicketAttachment).toHaveBeenCalledTimes(2);
+    expect(
+      (screen.getByRole("button", { name: "gone.png" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("blames only the file that failed, not the one next to it", async () => {
+    downloadTicketAttachment.mockRejectedValue(ticketGone());
+    show(ticketWith({ messages: [WITH_FILES] }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "gone.png" }));
+    });
+
+    expect(screen.getAllByText(/This file is gone/)).toHaveLength(1);
   });
 });

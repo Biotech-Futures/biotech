@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -27,7 +27,8 @@ import {
   type TicketMessage,
 } from "@/schema/ticket";
 import {
-  ticketAttachmentUrl,
+  attachmentErrorMessage,
+  downloadTicketAttachment,
   useDeleteTicket,
   useReplyTicket,
   useTicketDetail,
@@ -51,6 +52,12 @@ import { ticketRefusalReason } from "@/lib/ticketError";
 type Props = {
   ticketId: number | null;
   assignees: AssigneeOption[];
+  /** Whether the list above is short because its query has not answered: still
+   *  in flight, or failed. Without it the panel cannot tell "this person is
+   *  off the queue" from "we have no roster to check them against", and says
+   *  the first about whoever owns the ticket. Same prop the bulk assign bar
+   *  already takes, for the same list. */
+  assigneesUnavailable: boolean;
   onClose: () => void;
   /** Only admins may delete (DEC-024), so the control is not rendered at all
    *  for a support agent. The server refuses them either way. */
@@ -85,6 +92,43 @@ function when(value: string) {
 }
 
 function MessageRow({ message, ticketId }: { message: TicketMessage; ticketId: number }) {
+  // Which files are in flight, and what went wrong with which one. Both keyed
+  // by attachment id: five files fit on a message, they are five separate
+  // answers, and a failure on one must not label another. Per-file rather than
+  // one global flag, or a click on the second file would do nothing while the
+  // first was still downloading. Declared above the early return below,
+  // because hooks cannot run conditionally.
+  const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const [failed, setFailed] = useState<Record<number, string>>({});
+
+  const inFlight = useRef<Record<number, boolean>>({});
+
+  async function download(attachmentId: number, filename: string) {
+    if (inFlight.current[attachmentId]) return;
+    inFlight.current[attachmentId] = true;
+    setBusy((was) => ({ ...was, [attachmentId]: true }));
+    setFailed((was) => {
+      const next = { ...was };
+      delete next[attachmentId];
+      return next;
+    });
+    try {
+      await downloadTicketAttachment(ticketId, attachmentId, filename);
+    } catch (error) {
+      // Deliberately not a redirect to the sign-in page on a 401 or 403.
+      // Navigating is the thing this is here to stop: whatever is in the reply
+      // box is still there, and it is the agent's.
+      setFailed((was) => ({ ...was, [attachmentId]: attachmentErrorMessage(error) }));
+    } finally {
+      delete inFlight.current[attachmentId];
+      setBusy((was) => {
+        const next = { ...was };
+        delete next[attachmentId];
+        return next;
+      });
+    }
+  }
+
   if (message.messageType === "system") {
     return (
       <li className="text-muted-foreground py-1 text-center text-xs">
@@ -139,14 +183,24 @@ function MessageRow({ message, ticketId }: { message: TicketMessage; ticketId: n
         <ul className="mt-2 space-y-1">
           {message.attachments.map((file) => (
             <li key={file.id}>
-              <a
-                className="text-primary text-xs underline"
-                href={ticketAttachmentUrl(ticketId, file.id)}
-                target="_blank"
-                rel="noopener"
+              {/* A button, not a link. An anchor at the download endpoint is a
+                  navigation the browser commits to before it knows the answer,
+                  so a refusal replaces this app with DRF's error page; with
+                  target="_blank" WebKit leaks an empty tab per click instead.
+                  See downloadTicketAttachment in query/ticket.ts. */}
+              <button
+                type="button"
+                className="text-primary cursor-pointer text-xs underline disabled:cursor-progress disabled:opacity-60"
+                disabled={busy[file.id]}
+                onClick={() => download(file.id, file.filename)}
               >
                 {file.filename}
-              </a>
+              </button>
+              {failed[file.id] && (
+                <span className="text-destructive block text-xs">
+                  {failed[file.id]}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -158,6 +212,7 @@ function MessageRow({ message, ticketId }: { message: TicketMessage; ticketId: n
 export function TicketDetailPanel({
   ticketId,
   assignees,
+  assigneesUnavailable,
   onClose,
   canDelete,
   onDeleted,
@@ -370,7 +425,14 @@ export function TicketDetailPanel({
                         (p) => p.id === ticket.assignee!.id && p.assignable,
                       ) && (
                         <SelectItem value={String(ticket.assignee.id)}>
-                          {ticket.assignee.name} (no longer on the queue)
+                          {/* The claim needs a roster behind it. With no
+                              roster the owner is missing from an empty list
+                              for a reason that has nothing to do with them,
+                              and the plain name is what the queue row beside
+                              this panel is already showing. */}
+                          {assigneesUnavailable
+                            ? ticket.assignee.name
+                            : `${ticket.assignee.name} (no longer on the queue)`}
                         </SelectItem>
                       )}
                     {assignees
@@ -380,6 +442,21 @@ export function TicketDetailPanel({
                           {person.name}
                         </SelectItem>
                       ))}
+                    {/* Otherwise the two rows above read as the whole
+                        platform, and "Unassigned" looks like the considered
+                        choice rather than the only one left. A disabled item,
+                        the shape the bulk assign bar already uses for this
+                        list. Worded for both states it covers: "could not be
+                        loaded" would itself be untrue while the request is
+                        still in flight. No "Reload to try again" here because
+                        the loading case fixes itself, and the error case has
+                        that sentence in the page banner above. */}
+                    {assigneesUnavailable && (
+                      <SelectItem value="__unavailable" disabled>
+                        The assignee list has not loaded, so there is nobody
+                        else to pick here.
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

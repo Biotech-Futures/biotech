@@ -1,19 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '@/utils/apiError'
+
 import {
   MAX_ATTACHMENTS,
   TICKET_CATEGORIES,
+  attachmentErrorMessage,
   attachmentUrl,
   categoryLabel,
+  downloadTicketAttachment,
   fetchMyTickets,
   priorityLabel,
   statusLabel,
   submitTicket
 } from '@/utils/supportAPI'
 
+// 🔴 This stub FORWARDS what it is handed; it must not invent headers.
+//
+// It used to answer `new Headers({ Accept: 'application/json' })` no matter
+// what, and that made every assertion about a request header read the mock
+// instead of the code. Measured: with the old stub, deleting the real
+// `Accept: application/json` from downloadTicketAttachment left all 32 tests
+// in this file green.
 vi.mock('@/utils/csrf', () => ({
   ensureCsrfCookie: () => Promise.resolve(true),
-  buildSessionHeaders: () => new Headers({ Accept: 'application/json' }),
+  buildSessionHeaders: (options: { headers?: HeadersInit } = {}) =>
+    new Headers(options.headers ?? {}),
   resetCsrfToken: () => {}
 }))
 
@@ -338,3 +350,157 @@ describe('the CSRF retry guard', () => {
   })
 })
 
+
+
+describe('downloading an attachment', () => {
+  // What the browser would have sent had a link been followed. DRF has no
+  // DEFAULT_RENDERER_CLASSES override, so this negotiates its way to the
+  // browsable-API HTML page and the refusal arrives as a document rather than
+  // as data — which, for a navigation, means it replaces the app.
+  const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+
+  let clicked: HTMLAnchorElement[] = []
+  let created: string[] = []
+  let revoked: string[] = []
+
+  beforeEach(() => {
+    clicked = []
+    created = []
+    revoked = []
+    // jsdom implements neither, and the click has to be caught before it
+    // reaches a real navigation attempt.
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      const url = `blob:mock/${created.length}`
+      created.push(url)
+      void blob
+      return url
+    }) as unknown as typeof URL.createObjectURL
+    URL.revokeObjectURL = vi.fn((url: string) => {
+      revoked.push(url)
+    }) as unknown as typeof URL.revokeObjectURL
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      clicked.push(this)
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function fileResponse() {
+    return {
+      ok: true,
+      status: 200,
+      blob: () => Promise.resolve(new Blob(['%PDF-1.4'], { type: 'application/pdf' })),
+      headers: new Headers()
+    } as unknown as Response
+  }
+
+  function refusedResponse(status: number, body: unknown) {
+    return {
+      ok: false,
+      status,
+      text: () => Promise.resolve(JSON.stringify(body)),
+      headers: new Headers()
+    } as unknown as Response
+  }
+
+  it('asks for JSON, so a refusal is not negotiated into an HTML page', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fileResponse())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await downloadTicketAttachment(42, 7, 'screenshot.png')
+
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers)
+    expect(headers.get('Accept')).toBe('application/json')
+    expect(headers.get('Accept')).not.toBe(BROWSER_ACCEPT)
+  })
+
+  it('sends the session cookie, or a private file answers 403 every time', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fileResponse())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await downloadTicketAttachment(42, 7, 'screenshot.png')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(attachmentUrl(42, 7))
+    expect(fetchMock.mock.calls[0][1].credentials).toBe('include')
+  })
+
+  it('saves the blob under the name the timeline is showing', async () => {
+    // Not the name in Content-Disposition: reading a response header
+    // cross-origin needs Access-Control-Expose-Headers, which this endpoint
+    // does not send. The `download` attribute only works at all because the
+    // blob: URL is same-origin; the API's URL never honoured it.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fileResponse()))
+
+    await downloadTicketAttachment(42, 7, 'screenshot.png')
+
+    expect(clicked).toHaveLength(1)
+    expect(clicked[0].download).toBe('screenshot.png')
+    expect(clicked[0].getAttribute('href')).toBe(created[0])
+    expect(revoked).toEqual(created)
+    // and it did not leave the anchor in the document
+    expect(document.querySelectorAll('a[download]')).toHaveLength(0)
+  })
+
+  it('throws with the status instead of letting the browser render the refusal', async () => {
+    // The whole point. Without this the helper would hand a Blob of HTML back
+    // to the caller as if it were the file, and the student would "download"
+    // Django's error page under the name of their screenshot.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(refusedResponse(404, { msg: 'Attachment not found', data: null }))
+    )
+
+    await expect(downloadTicketAttachment(42, 7, 'screenshot.png')).rejects.toMatchObject({
+      status: 404
+    })
+    expect(clicked).toHaveLength(0)
+  })
+
+  it('reads both envelopes this endpoint really sends', async () => {
+    // {msg, data} comes from the view, {detail} from serve_managed_file when
+    // the blob cannot be opened. Both are measured against the live endpoint.
+    for (const body of [{ msg: 'Attachment not found', data: null }, { detail: 'The stored file could not be opened for download.' }]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(refusedResponse(404, body)))
+      await expect(downloadTicketAttachment(42, 7, 'x.pdf')).rejects.toMatchObject({ status: 404 })
+    }
+  })
+})
+
+describe('what a refused download says to a student', () => {
+  // ⚠️ A HAND-PICKED list, and labelled as one. 401 and 403 are the session
+  // conditions, 404 is what all six queryset conditions and the missing blob
+  // collapse to, 500 is the unhandled path, and 0 stands for the fetch that
+  // never got an answer at all. It is not derived from anything: a status the
+  // endpoint learns to answer with later would not appear here on its own.
+  const SENTENCES: Record<number, string> = {
+    401: 'Your sign-in has expired. Reload this page and sign in again to open this file.',
+    403: 'Your sign-in has expired. Reload this page and sign in again to open this file.',
+    404: 'That file is not available any more. Reload this page to see the latest version of this enquiry.'
+  }
+  const FALLBACK = 'We could not download that file. Please check your connection and try again.'
+
+  for (const status of [401, 403, 404, 500, 502, 0]) {
+    it(`explains a ${status} without naming a status code`, () => {
+      const error = new ApiError(
+        { error: 'raw', code: `http_${status}`, request_id: 'a1b2c3d4e5f6' },
+        status || undefined
+      )
+      const sentence = attachmentErrorMessage(error)
+      expect(sentence).toBe(SENTENCES[status] ?? FALLBACK)
+      // Nothing in it that a fifteen-year-old has to decode.
+      expect(sentence).not.toMatch(/\b(40[0-9]|50[0-9]|HTTP|null|undefined)\b/)
+      expect(sentence).toMatch(/[.!]$/)
+    })
+  }
+
+  it('says something useful when the fetch itself failed', () => {
+    // A TypeError is what a blocked CORS preflight looks like from here, and
+    // it carries no status at all.
+    expect(attachmentErrorMessage(new TypeError('Failed to fetch'))).toBe(FALLBACK)
+  })
+})

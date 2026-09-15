@@ -23,10 +23,12 @@ from apps.audit.models import AuditLog
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import Countries
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.tickets.models.ticket import OFF_THE_CLOCK_STATUSES
 from apps.tickets.models import (
     SupportScope,
     Ticket,
     TicketCategory,
+    TicketMessageType,
     TicketPriority,
     TicketStatus,
 )
@@ -629,6 +631,433 @@ class OverdueTests(AdminTicketAPITestCase):
             ticket=ticket, new_status=TicketStatus.RESOLVED, actor=self.agent
         )
         self.assertEqual(self.overdue_count(), 0)
+
+    # ------------------------------------------------------------------
+    # The clock's third state. `awaiting_support_since` is a timestamp while
+    # the clock RUNS and null while it does not, and "does not" was covering
+    # two different things: STOPPED (we answered, nobody is waiting) and
+    # PAUSED (a real wait is held). set_status could not tell them apart on
+    # the way back out, so it guessed.
+    # ------------------------------------------------------------------
+
+    def test_parking_an_answered_ticket_and_un_parking_it_starts_no_clock(self):
+        """Two picks on the status dropdown, on a ticket support has answered.
+
+        The anchor is null after the reply because nobody is waiting on us.
+        Going out through "pending user" and straight back in used to reach
+        `ticket.awaiting_support_since or timezone.now()`, which armed a clock
+        the ticket had never been on.
+
+        The requester's message count is asserted rather than assumed, so this
+        test states *why* no clock may start: they have not said anything.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Done.")
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.awaiting_support_since)
+        said_so_far = ticket.messages.filter(author=self.requester).count()
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(
+            ticket.messages.filter(author=self.requester).count(), said_so_far,
+            "the requester wrote nothing between the two picks",
+        )
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "an answered ticket parked and un-parked is on no clock",
+        )
+        self.assertEqual(self.overdue_count(), 0)
+
+    def test_an_answered_ticket_parked_and_un_parked_is_not_red_a_day_later(self):
+        """The same two picks, read through the queue's own red card and after
+        enough time to matter rather than at the instant of the click.
+
+        The update below is a no-op when the anchor is null, which is the
+        correct state, and ages it past a Normal ticket's 24-hour window when
+        it is not. So the badge can only appear if a clock was started.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.NORMAL)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Done.")
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        Ticket.objects.filter(
+            pk=ticket.pk, awaiting_support_since__isnull=False
+        ).update(awaiting_support_since=timezone.now() - timedelta(hours=25))
+
+        self.assertEqual(
+            self.overdue_count(), 0,
+            "25 hours after two picks on the dropdown, with the requester "
+            "silent, the queue must not be showing a red badge",
+        )
+
+    def test_answering_a_parked_ticket_leaves_no_wait_to_resume(self):
+        """The way this fix could go wrong in the opposite direction.
+
+        Park a ticket with a real wait running, so the wait is held; then
+        answer it. The answer stops the clock outright and the held wait is
+        spent, so the un-park must start nothing. Getting this wrong would put
+        every "park, answer, tidy the status" ticket back on a clock, which is
+        the same defect one door along again.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.mark_pending(ticket=ticket, actor=self.agent)
+        ticket.refresh_from_db()
+        self.assertTrue(
+            ticket.awaiting_support_paused,
+            "a running clock is paused, not stopped, when the ticket is parked",
+        )
+
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Answered.")
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "answering spends the held wait, so the un-park resumes nothing",
+        )
+        self.assertEqual(self.overdue_count(), 0)
+
+    def test_a_wait_the_requester_is_serving_survives_being_parked(self):
+        """The case that rules out reading `first_response_at` instead.
+
+        Answered, then the requester came back, so the clock is running again
+        while `first_response_at` is set. A guard keyed on "have we ever
+        answered?" would refuse to resume here and the ticket could never go
+        red, with a person genuinely waiting. Measured: with that guard in
+        place this assertion fails.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Try this.")
+        lifecycle.add_user_reply(
+            ticket=ticket, user=self.requester, body="That did not work."
+        )
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.first_response_at)
+        self.assertIsNotNone(ticket.awaiting_support_since)
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNotNone(
+            ticket.awaiting_support_since,
+            "a wait the requester is serving must come back on the clock",
+        )
+        Ticket.objects.filter(pk=ticket.pk).update(
+            awaiting_support_since=timezone.now() - timedelta(hours=5)
+        )
+        self.assertEqual(self.overdue_count(), 1)
+
+    def test_parking_a_running_wait_and_un_parking_it_restarts_it_at_now(self):
+        """Pinned because it is deliberately NOT changed here.
+
+        A ticket 30 hours into a 24-hour window is parked and un-parked. The
+        wait it had already served does not come back: the clock restarts from
+        the un-park and the red badge goes away. That is a rules question
+        about whether moving a ticket back to Open should restart the clock,
+        the client settled the rules on 2026-09-04, and this fix leaves the
+        answer exactly where it found it.
+
+        The test exists so that changing it later is a deliberate act with a
+        client decision behind it, rather than a side effect of some other
+        fix. It is the direction A half of the same report.
+        """
+        ticket = self.aged(hours=30, priority=TicketPriority.NORMAL)
+        before = ticket.awaiting_support_since
+        self.assertEqual(self.overdue_count(), 1)
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.awaiting_support_since)
+        self.assertGreater(
+            ticket.awaiting_support_since, before,
+            "today's rule re-arms at the un-park rather than restoring the wait",
+        )
+        self.assertEqual(
+            self.overdue_count(), 0,
+            "the 30 hours are still forgiven, which is the settled rule",
+        )
+
+    # Every action an agent or a requester can take that the clock might care
+    # about. Sequences are generated from this rather than chosen, because a
+    # list of cases somebody thought of is not a coverage argument: the defect
+    # this fixes lived in the one two-step route nobody had written a case
+    # for, behind a comment declaring the one-step version already fixed.
+    CLOCK_ACTIONS = {
+        "user_reply": lambda s, t: lifecycle.add_user_reply(
+            ticket=t, user=s.requester, body="More from me."
+        ),
+        "support_reply": lambda s, t: lifecycle.add_support_reply(
+            ticket=t, actor=s.agent, body="From support."
+        ),
+        "reply_and_pend": lambda s, t: lifecycle.add_support_reply(
+            ticket=t, actor=s.agent, body="A screenshot please?",
+            move_to_pending=True,
+        ),
+        "mark_pending": lambda s, t: lifecycle.mark_pending(ticket=t, actor=s.agent),
+        "drag_to_open": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.OPEN, actor=s.agent
+        ),
+        "drag_to_progress": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.IN_PROGRESS, actor=s.agent
+        ),
+        "drag_to_pending": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.PENDING_USER, actor=s.agent
+        ),
+        "resolve": lambda s, t: lifecycle.resolve(ticket=t, actor=s.agent),
+        "claim": lambda s, t: lifecycle.claim(ticket=t, actor=s.agent),
+    }
+
+    def test_no_history_leaves_a_clock_running_with_the_ball_not_ours(self):
+        """The invariant the guess broke, over generated histories.
+
+        The clock may only run while the ball is with support, and the
+        timeline says whose it is: the newest thing the requester did (raising
+        the ticket, or writing again) has to be newer than the newest support
+        reply. Anything else means we answered and they have not come back,
+        so there is nothing for the clock to count.
+
+        Checked over every sequence of up to three actions rather than over
+        the handful anyone thought to write out, because "the shapes I thought
+        of" is exactly how the two-hop route survived the last fix.
+
+        The one carve-out is a screening ticket, which has no requester at
+        all; those are excluded here and covered by
+        AScreeningTicketCanBeParkedOffTheClockTests.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = (
+            [()]
+            + [(n,) for n in names]
+            + list(product(names, repeat=2))
+            + list(product(names, repeat=3))
+        )
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                # Unreachable sequences (resolving twice, dragging a ticket to
+                # the status it is already in) are not histories a database
+                # can hold.
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if ticket.awaiting_support_since is None:
+                continue
+
+            newest_support = ticket.messages.filter(
+                message_type=TicketMessageType.SUPPORT_REPLY,
+                deleted_at__isnull=True,
+            ).order_by("-created_at").values_list("created_at", flat=True).first()
+            newest_requester = max(
+                [ticket.created_at]
+                + list(
+                    ticket.messages.filter(
+                        message_type=TicketMessageType.USER_MESSAGE,
+                        deleted_at__isnull=True,
+                    ).values_list("created_at", flat=True)
+                )
+            )
+            if newest_support is not None and newest_support > newest_requester:
+                broken.append(" -> ".join(history) or "(nothing happened)")
+
+        self.assertGreater(checked, 200, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave the overdue clock "
+            "running on a ticket whose last word was support's:\n  "
+            + "\n  ".join(broken),
+        )
+
+    def test_no_history_leaves_a_pause_standing_on_a_running_clock(self):
+        """The new column's own invariant, over generated histories.
+
+        `awaiting_support_paused` answers "was a wait running when this ticket
+        went off the clock", so it is meaningful only while the anchor is
+        null. A True left standing beside a running anchor is a stale value
+        waiting to be read: the next write path that nulls the anchor without
+        going through _pause_clock would resume a wait that had already been
+        spent.
+
+        This is the test that makes the pause-clearing in add_user_reply and
+        reopen mean something. Both were measured unprotected without it: the
+        suite stayed green with either removed, because no reachable state
+        reads a stale flag *today*. That is an argument for writing the
+        invariant down, not for deleting the lines.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = [(n,) for n in names] + list(product(names, repeat=2))
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if (
+                ticket.awaiting_support_since is not None
+                and ticket.awaiting_support_paused
+            ):
+                broken.append(" -> ".join(history))
+
+        self.assertGreater(checked, 50, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave a pause standing on "
+            "a clock that is running:\n  " + "\n  ".join(broken),
+        )
+
+    def test_two_off_clock_hops_do_not_lose_a_never_answered_wait(self):
+        """Three picks on the status dropdown, nothing else.
+
+        Pending user, then Resolved, then Open. An agent parks a ticket
+        waiting on the student, gives up and resolves it, and a supervisor
+        moves it back to be chased. Support has never replied, so the
+        requester's question is still unanswered and the ticket must still be
+        able to go red.
+
+        The pause is recorded when the clock comes off. The SECOND hop takes
+        the clock off again while it is already off, so a pause that is
+        recomputed from the anchor at that moment reads null and writes
+        itself away, and the ticket comes out the far side on no clock at
+        all — structurally unable ever to go red, which is the defect this
+        whole column exists to remove.
+
+        Driven through the API rather than the service because the dropdown
+        is the only production route: TicketDetailPanel fires one PATCH per
+        selection and views_admin._apply calls set_status.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        self.assertIsNone(ticket.first_response_at, "support has never replied")
+
+        for status in (
+            TicketStatus.PENDING_USER, TicketStatus.RESOLVED, TicketStatus.OPEN,
+        ):
+            response = self.client.patch(
+                f"{QUEUE}{ticket.pk}/", {"status": status}, format="json"
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+        ticket.refresh_from_db()
+
+        self.assertIsNotNone(
+            ticket.awaiting_support_since,
+            "a never-answered ticket back in Open is with support and must be "
+            "on a clock",
+        )
+        Ticket.objects.filter(pk=ticket.pk).update(
+            awaiting_support_since=timezone.now() - timedelta(days=7)
+        )
+        self.assertEqual(
+            self.overdue_count(), 1,
+            "a week later, with the requester still waiting for a first "
+            "answer, the queue must show it red",
+        )
+
+    def test_no_history_leaves_the_ball_ours_with_no_clock_running(self):
+        """The other half of the invariant above it, over the same histories.
+
+        That test asks "is a clock running when it should not be". This one
+        asks the converse, which is the direction that makes a ticket
+        invisible rather than noisy: the ball is ours, and nothing is
+        counting. Written separately because a one-directional invariant is
+        how the two-hop route got through the last fix -- the generator built
+        the sequence, and the assertion could not see it.
+
+        The ball is ours when the newest thing the requester did is newer
+        than the newest support reply, and the ticket is not parked or
+        resolved. Screening tickets have no requester and are excluded, as
+        above.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = (
+            [()]
+            + [(n,) for n in names]
+            + list(product(names, repeat=2))
+            + list(product(names, repeat=3))
+        )
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if ticket.status in OFF_THE_CLOCK_STATUSES:
+                continue
+            if ticket.awaiting_support_since is not None:
+                continue
+
+            newest_support = ticket.messages.filter(
+                message_type=TicketMessageType.SUPPORT_REPLY,
+                deleted_at__isnull=True,
+            ).order_by("-created_at").values_list("created_at", flat=True).first()
+            newest_requester = max(
+                [ticket.created_at]
+                + list(
+                    ticket.messages.filter(
+                        message_type=TicketMessageType.USER_MESSAGE,
+                        deleted_at__isnull=True,
+                    ).values_list("created_at", flat=True)
+                )
+            )
+            if newest_support is None or newest_support < newest_requester:
+                broken.append(" -> ".join(history) or "(nothing happened)")
+
+        self.assertGreater(checked, 200, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave a ticket sitting with "
+            "support, its last word the requester's, and no clock counting:\n  "
+            + "\n  ".join(broken),
+        )
 
     def test_the_queue_row_carries_the_same_verdict_as_the_counter(self):
         self.aged(hours=5, priority=TicketPriority.HIGH)
