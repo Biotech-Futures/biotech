@@ -25,7 +25,13 @@ describe("admin home page", () => {
   it("shows an admin every section", () => {
     signedInAs({ name: "Ada Lin", email: "admin@example.com", isAdmin: true });
 
-    for (const heading of ["People", "Groups & Matching", "Content", "Support"]) {
+    for (const heading of [
+      "People",
+      "Groups & Matching",
+      "Content",
+      "Grading",
+      "Support",
+    ]) {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
   });
@@ -39,7 +45,7 @@ describe("admin home page", () => {
     // marking that one section support:true opened it to agents with 39
     // green — "nothing else" enforced on two thirds of the list. A review
     // pass caught it with exactly that mutation.
-    for (const section of ["People", "Groups & Matching", "Content"]) {
+    for (const section of ["People", "Groups & Matching", "Content", "Grading"]) {
       expect(
         screen.queryByRole("heading", { name: section }),
         `${section} was shown to a support agent`,

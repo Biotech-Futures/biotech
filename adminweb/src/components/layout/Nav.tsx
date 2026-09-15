@@ -24,6 +24,10 @@ import {
   ChartColumnIcon,
   ScrollTextIcon,
   UserCogIcon,
+  ClipboardListIcon,
+  UnlockIcon,
+  StarIcon,
+  SettingsIcon,
 } from "lucide-react";
 import { useAuthContext } from "@/provider/AuthProvider";
 
@@ -89,6 +93,30 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: "Resources", url: "/resource", icon: <FileTextIcon /> },
       { title: "Announcements", url: "/announcement", icon: <MegaphoneIcon /> },
       { title: "Tasks", url: "/task", icon: <CheckSquareIcon /> },
+    ],
+  },
+  {
+    // No `support` flag, so this section is gated on `isAdmin`. A support
+    // agent is correctly excluded: SupportScope implies neither staff nor
+    // AdminScope, so the link would only end in a 403.
+    //
+    // ⚠️ `isAdmin` is NOT equivalent to the backend gate. is_admin() is an
+    // AdminScope row and nothing else (apps/common/rbac.py:81-86), while
+    // IsGrader (apps/grading/permissions.py:11-17) is
+    // `is_staff or is_superuser or AdminScope`. So an account that is staff
+    // or superuser with no AdminScope row does not see this section even
+    // though the grading API would serve it. Left as-is on purpose: /users/me/
+    // ships only isAdmin and isSupport (apps/users/serializers.py:356-372),
+    // so the sidebar cannot express the difference without a backend change.
+    // That gap is main's to close and belongs in its own issue, not in a
+    // merge resolution.
+    label: "Grading",
+    items: [
+      { title: "Mark by Component", url: "/grading/by-component", icon: <ClipboardListIcon /> },
+      { title: "Mark by Group", url: "/grading/by-group", icon: <UsersIcon /> },
+      { title: "Certificate Setup", url: "/grading/settings", icon: <SettingsIcon /> },
+      { title: "Release Marks", url: "/grading/release", icon: <UnlockIcon /> },
+      { title: "Finalists", url: "/grading/finalists", icon: <StarIcon /> },
     ],
   },
   {

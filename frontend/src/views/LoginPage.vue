@@ -105,19 +105,6 @@
           <!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
           <!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
           <!--          </div>-->
-
-          <div class="language-switcher" role="tablist" aria-label="Language switcher">
-            <button
-              v-for="item in languageOptions"
-              :key="item.value"
-              type="button"
-              class="language-option"
-              :class="{ active: locale === item.value }"
-              @click="switchLanguage(item.value)"
-            >
-              {{ item.label }}
-            </button>
-          </div>
         </div>
 
         <!-- Auth card container. -->
@@ -450,7 +437,6 @@ import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
-  LOGIN_LANGUAGE_KEY,
   LOGIN_SEND_COOLDOWN_KEY,
   safeLocalStorageGet,
   safeLocalStorageRemove,
@@ -459,7 +445,7 @@ import {
 
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
-import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
+import { LOGIN_MESSAGES } from '@/data/login_language'
 
 /*
   Page-level instances.
@@ -494,7 +480,6 @@ const MAGIC_LINK_ERROR_KEYS = {
 /*
   Shared page data.
 */
-const languageOptions = LOGIN_LANGUAGE_OPTIONS
 const messages = LOGIN_MESSAGES
 
 /*
@@ -526,7 +511,7 @@ const otpErrorActive = ref(false)
 /*
   UI presentation state.
 */
-const locale = ref('en')
+const t = (key) => messages.en?.[key] || key
 
 /*
   DOM refs.
@@ -543,15 +528,11 @@ let otpErrorTimer = null
 let otpAutoSubmitTimer = null
 let codeExpiryTimer = null
 
-/*
-  Translation accessor.
-*/
-const t = (key) => messages[locale.value]?.[key] || messages.en?.[key] || key
 
 /*
   Basic derived values.
 */
-const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
+const currentDir = computed(() => 'ltr')
 const maskedEmail = computed(() => maskEmail(email.value))
 const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
 const authHeading = computed(() => t('signIn'))
@@ -672,14 +653,6 @@ const togglePasswordVisibility = () => {
   nextTick(() => passwordInputRef.value?.focus())
 }
 
-/*
-  Language switching and persistence.
-*/
-const switchLanguage = (lang) => {
-  locale.value = lang
-  clearMessages()
-  safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
-}
 
 /*
   OTP ref collection.
@@ -1227,15 +1200,8 @@ const resendCode = async () => {
 /*
   Document language and direction sync.
 */
-watch(
-  locale,
-  (nextLocale) => {
-    const direction = nextLocale === 'ar' ? 'rtl' : 'ltr'
-    document.documentElement.lang = nextLocale
-    document.documentElement.dir = direction
-  },
-  { immediate: true },
-)
+document.documentElement.lang = 'en'
+document.documentElement.dir = 'ltr'
 
 /*
   Step focus sync.
@@ -1267,10 +1233,6 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Restore saved language.
 */
-const savedLanguage = safeLocalStorageGet(LOGIN_LANGUAGE_KEY, 'en')
-if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
-  locale.value = savedLanguage
-}
 
 /*
   Lifecycle: initial focus.

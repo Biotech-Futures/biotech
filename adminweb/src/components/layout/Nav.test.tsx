@@ -37,7 +37,14 @@ const { NAV_SECTIONS: HOME_SECTIONS } = await import(
   "@/components/home/AdminHomePage"
 );
 
-const ALL_LABELS = ["Overview", "People", "Groups & Matching", "Content", "Support"];
+const ALL_LABELS = [
+  "Overview",
+  "People",
+  "Groups & Matching",
+  "Content",
+  "Grading",
+  "Support",
+];
 
 function sidebarAs(user: Record<string, unknown>) {
   useAuthContext.mockReturnValue({ user });
@@ -61,7 +68,7 @@ describe("sidebar visibility", () => {
     sidebarAs({ isSupport: true });
     expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Support" })).toBeTruthy();
-    for (const label of ["People", "Groups & Matching", "Content"]) {
+    for (const label of ["People", "Groups & Matching", "Content", "Grading"]) {
       expect(
         screen.queryByRole("heading", { name: label }),
         `${label} was shown to a support agent`,
@@ -72,7 +79,13 @@ describe("sidebar visibility", () => {
   it("shows somebody with neither role only the way back to the dashboard", () => {
     sidebarAs({});
     expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy();
-    for (const label of ["People", "Groups & Matching", "Content", "Support"]) {
+    for (const label of [
+      "People",
+      "Groups & Matching",
+      "Content",
+      "Grading",
+      "Support",
+    ]) {
       expect(
         screen.queryByRole("heading", { name: label }),
         `${label} was shown to a user with no role`,
@@ -135,6 +148,14 @@ describe("every destination is reachable from both lists", () => {
     "/tickets/audit",
     "/tickets/analytics",
     "/people/support-agents",
+    // Added with the grading module from origin/main. Same reasoning as the
+    // ticket screens above: five finished pages whose only way in is these
+    // two lists, so a merge that drops a link leaves them unreachable.
+    "/grading/by-component",
+    "/grading/by-group",
+    "/grading/settings",
+    "/grading/release",
+    "/grading/finalists",
   ];
 
   const sidebarUrls = NAV_SECTIONS.flatMap((s) => s.items.map((i) => i.url));

@@ -1,0 +1,124 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Required and optional are swapped from the client's copy, which contradicted
+their own confirmation email and the database. Keep in step with the .txt.
+{% endcomment %}
+
+{% block title %}{{ BRAND_NAME }}: Submission reminder for {{ GROUP_NAME }}{% endblock %}
+
+{% block preheader %}Your {{ BRAND_NAME }} {{ YEAR }} submission is not complete yet. Here is what we have so far.{% endblock %}
+
+{% block footer_reason %}submission reminders{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi Group {{ GROUP_NAME }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                This is a reminder to check your team&rsquo;s submission for {{ BRAND_NAME }} {{ YEAR }}.
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Our records currently show the following:
+              </p>
+
+              <p style="margin:26px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.4; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
+                Submission components
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:8px;">
+                <tr>
+                  <td style="padding:6px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                      {% for item in REQUIRED_COMPONENTS %}
+                      <tr>
+                        <td style="padding:12px 0; vertical-align:top;{% if not forloop.last %} border-bottom:1px solid #e3eae6;{% endif %}">
+                          <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.4; font-weight:600;">
+                            {{ item.label }}
+                          </p>
+                          {% if item.detail %}
+                          <p style="margin:3px 0 0 0; color:#6d7a72; font-size:12.5px; line-height:1.5; word-break:break-word;">
+                            {{ item.detail }}
+                          </p>
+                          {% endif %}
+                        </td>
+                        <td align="right" style="padding:12px 0; vertical-align:top; white-space:nowrap;{% if not forloop.last %} border-bottom:1px solid #e3eae6;{% endif %}">
+                          <span style="color:{% if item.submitted %}#307054{% else %}#a8342a{% endif %}; font-size:14px; line-height:1.4; font-weight:700;">
+                            {{ item.status }}
+                          </span>
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:10px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.6;">
+                If either of these components is shown as
+                <em>Not Submitted</em>, please upload it before
+                the submission deadline on
+                <strong style="color:#1a2e23;">{{ DEADLINE }}</strong>.
+              </p>
+
+              <p style="margin:26px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.4; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
+                Optional components
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:8px;">
+                <tr>
+                  <td style="padding:6px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                      {% for item in OPTIONAL_COMPONENTS %}
+                      <tr>
+                        <td style="padding:12px 0; vertical-align:top;{% if not forloop.last %} border-bottom:1px solid #e3eae6;{% endif %}">
+                          <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.4; font-weight:600;">
+                            {{ item.label }}
+                          </p>
+                          {% if item.detail %}
+                          <p style="margin:3px 0 0 0; color:#6d7a72; font-size:12.5px; line-height:1.5; word-break:break-word;">
+                            {{ item.detail }}
+                          </p>
+                          {% endif %}
+                        </td>
+                        <td align="right" style="padding:12px 0; vertical-align:top; white-space:nowrap;{% if not forloop.last %} border-bottom:1px solid #e3eae6;{% endif %}">
+                          <span style="color:{% if item.submitted %}#307054{% else %}#6d7a72{% endif %}; font-size:14px; line-height:1.4; font-weight:700;">
+                            {{ item.status }}
+                          </span>
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:10px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.6;">
+                The Scientific Report and Prototype are optional, so you are welcome to submit
+                these if your team would like to, but they are not required.
+              </p>
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                You can continue to update or complete your submission up until the deadline on
+                <strong style="color:#1a2e23;">{{ DEADLINE }}</strong>.
+              </p>
+
+              {% if SUBMISSION_URL %}
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:26px 0 0 0;">
+                <tr>
+                  <td align="center" style="border-radius:8px; background:#307054;">
+                    <a class="cta-link" href="{{ SUBMISSION_URL }}" style="display:inline-block; padding:13px 30px; color:#ffffff; font-size:15px; font-weight:700; text-decoration:none; border-radius:8px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      Open your submission
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              <p style="margin:26px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Thank you for all the work your team has put into the {{ BRAND_NAME }} Challenge.
+                We&rsquo;re looking forward to seeing your final submission!
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Kind regards,<br>
+                <strong style="color:#1a2e23;">The {{ BRAND_NAME }} Team</strong>
+              </p>
+{% endblock %}

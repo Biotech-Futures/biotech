@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EventImageCropDialog } from "@/components/event/EventImageCropDialog";
 import {
   Command,
   CommandInput,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RichEditor } from "@/components/announcement/RichEditor";
 import {
   Select,
   SelectContent,
@@ -77,7 +79,6 @@ import {
   useUpdateEvent,
   useUploadEventImage,
   useQueryEventRsvps,
-  useQueryGroups,
   useQueryRoles,
   useQueryEventTargets,
 } from "@/query/event";
@@ -85,6 +86,8 @@ import { useQueryUsers } from "@/query/user";
 import type { Event, EventFormat, EventRsvp } from "@/type/event";
 import { EVENT_FORMAT_LABELS } from "@/type/event";
 import { BRAND_NAME } from "@/lib/brand";
+import { resolvePublicUrl } from "@/util/url";
+import { buildEventUpdateWithImageIntent } from "@/lib/event-image-update";
 import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
@@ -149,16 +152,19 @@ interface ImageUploadFieldProps {
   onFileSelected: (file: File | null) => void;
   /** Preview URL derived from the selected file (object URL). */
   previewUrl: string | null;
+  /** Explicit removal handler used by edit mode to clear the persisted image. */
+  onRemove?: () => void;
 }
 
 function ImageUploadField({
   existingUrl,
   onFileSelected,
   previewUrl,
+  onRemove,
 }: ImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const displayUrl = previewUrl ?? existingUrl ?? null;
+  const displayUrl = previewUrl ?? (resolvePublicUrl(existingUrl) || null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -166,7 +172,11 @@ function ImageUploadField({
   };
 
   const handleClear = () => {
-    onFileSelected(null);
+    if (onRemove) {
+      onRemove();
+    } else {
+      onFileSelected(null);
+    }
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -197,23 +207,33 @@ function ImageUploadField({
         <input
           ref={inputRef}
           type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
           onChange={handleChange}
         />
       </div>
       {displayUrl && (
-        <div className="relative inline-block">
+        <div className="aspect-[4/1] w-full max-w-xl overflow-hidden rounded-md border bg-muted">
           <img
             src={displayUrl}
             alt="Event image preview"
-            className="h-32 w-auto rounded-md border object-cover"
+            className="h-full w-full object-cover"
           />
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        Accepted: JPG, PNG, GIF, WEBP · Max 5 MB
-      </p>
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <p>
+          Recommended size: 1280 × 320 px (4:1 ratio)
+        </p>
+
+        <p>
+          Accepted: JPG, PNG, WEBP · Maximum 5 MB
+        </p>
+
+        <p>
+          Uploading and cropping a file will override the Image URL.
+        </p>
+      </div>
     </div>
   );
 }
@@ -227,17 +247,15 @@ interface EventFormProps {
   errors: any;
   eventFormat: EventFormat;
   currentHostName: string;
-  groups: { id: number; groupName: string }[];
   roles: { id: number; roleName: string }[];
-  watchedGroupIds: number[];
   watchedRoleIds: number[];
-  onToggleGroup: (id: number) => void;
   onToggleRole: (id: number) => void;
   onSubmit: (e: React.FormEvent) => void;
   // image props
   existingImageUrl?: string | null;
   imagePreviewUrl: string | null;
   onImageFileSelected: (file: File | null) => void;
+  onImageRemove?: () => void;
 }
 
 function EventFormRow({
@@ -286,16 +304,14 @@ function EventForm({
   errors,
   eventFormat,
   currentHostName,
-  groups,
   roles,
-  watchedGroupIds,
   watchedRoleIds,
-  onToggleGroup,
   onToggleRole,
   onSubmit,
   existingImageUrl,
   imagePreviewUrl,
   onImageFileSelected,
+  onImageRemove,
 }: EventFormProps) {
   return (
     <form id={formId} className="grid gap-5 px-4 pb-4" onSubmit={onSubmit}>
@@ -316,7 +332,24 @@ function EventForm({
       </EventFormRow>
 
       <EventFormRow label="Description">
-        <Input placeholder="Optional" {...register("description")} />
+        <Controller
+          control={control}
+          name="description"
+          render={({ field }) => (
+            <RichEditor
+              value={field.value ?? ""}
+              onChange={field.onChange}
+              placeholder="Add event details..."
+              allowAttachments={false}
+              allowManualLinks={false}
+            />
+          )}
+        />
+        {errors.description && (
+          <p className="text-sm text-destructive">
+            {errors.description.message}
+          </p>
+        )}
       </EventFormRow>
 
       <EventFormRow label="Image URL">
@@ -426,28 +459,10 @@ function EventForm({
           existingUrl={existingImageUrl}
           onFileSelected={onImageFileSelected}
           previewUrl={imagePreviewUrl}
+          onRemove={onImageRemove}
         />
       </EventFormRow>
 
-      {groups.length > 0 && (
-        <EventFormRow label="Target Groups">
-          <div className="grid grid-cols-2 gap-2">
-            {groups.map((g) => (
-              <label
-                key={g.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={watchedGroupIds.includes(g.id)}
-                  onChange={() => onToggleGroup(g.id)}
-                />
-                {g.groupName}
-              </label>
-            ))}
-          </div>
-        </EventFormRow>
-      )}
 
       {roles.length > 0 && (
         <EventFormRow label="Target Roles">
@@ -582,8 +597,18 @@ function EventPage() {
   // image state for edit dialog
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
   const [editImagePreviewUrl, setEditImagePreviewUrl] = useState<string | null>(
-    null,
-  );
+    null);
+  const [editImageRemoved, setEditImageRemoved] = useState(false);
+
+  type CropTarget = "create" | "edit";
+
+  interface PendingCrop {
+    target: CropTarget;
+    file: File;
+  }
+
+  const [pendingCrop, setPendingCrop] =
+    useState<PendingCrop | null>(null);
 
   const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({
@@ -599,7 +624,6 @@ function EventPage() {
     setPage(1);
   };
   const { data: usersData } = useQueryUsers();
-  const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
   const { data: eventTargetsData } = useQueryEventTargets(
     editingEvent?.id ?? null,
@@ -625,7 +649,6 @@ function EventPage() {
     () => new Map(allUsers.map((user) => [Number(user.id), user])),
     [allUsers],
   );
-  const groups = groupsData?.data ?? [];
   const roles = rolesData?.data ?? [];
 
   const authUserId = Number(currentUser?.id);
@@ -661,14 +684,12 @@ function EventPage() {
       eventTimezone: BROWSER_TZ,
       startAt: "",
       endsAt: "",
-      targetGroupIds: [],
       targetRoleIds: [],
     },
     resolver: zodResolver(createEventSchema),
   });
 
   const createEventFormat = (watch("eventFormat") ?? "in_person") as EventFormat;
-  const createGroupIds = watch("targetGroupIds") ?? [];
   const createRoleIds = watch("targetRoleIds") ?? [];
 
   useEffect(() => {
@@ -690,7 +711,6 @@ function EventPage() {
   });
 
   const editEventFormat = (watchEdit("eventFormat") ?? "in_person") as EventFormat;
-  const editGroupIds = watchEdit("targetGroupIds") ?? [];
   const editRoleIds = watchEdit("targetRoleIds") ?? [];
 
   // The upcoming/all toggle changes the matching set, so drop the selection.
@@ -707,19 +727,22 @@ function EventPage() {
         hostUserId: editingEvent.hostUserId,
         eventName: editingEvent.eventName,
         description: editingEvent.description,
-        eventImage: editingEvent.eventImage ?? null,
+        // The API may return a generated local-media path or signed Azure URL.
+        // That is the uploaded image's display URL, not a user-entered Image URL.
+        // Keep this field blank and show the existing image via existingImageUrl.
+        eventImage: undefined,
         location: editingEvent.location,
         locationLink: editingEvent.locationLink,
         eventFormat: editingEvent.eventFormat,
         eventTimezone: tz,
         startAt: toDatetimeLocalInTz(editingEvent.startDatetime, tz),
         endsAt: toDatetimeLocalInTz(editingEvent.endsDatetime, tz),
-        targetGroupIds: targets?.groupIds ?? [],
         targetRoleIds: targets?.roleIds ?? [],
       });
       // Reset image state when switching events
       setEditImageFile(null);
       setEditImagePreviewUrl(null);
+      setEditImageRemoved(false);
     }
   }, [editingEvent, eventTargetsData, resetEdit]);
 
@@ -736,16 +759,84 @@ function EventPage() {
     };
   }, [editImagePreviewUrl]);
 
+  const clearCreateImage = () => {
+    if (createImagePreviewUrl) {
+      URL.revokeObjectURL(createImagePreviewUrl);
+    }
+
+    setCreateImageFile(null);
+    setCreateImagePreviewUrl(null);
+  };
+
   const handleCreateImageSelected = (file: File | null) => {
-    if (createImagePreviewUrl) URL.revokeObjectURL(createImagePreviewUrl);
-    setCreateImageFile(file);
-    setCreateImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+    if (!file) {
+      clearCreateImage();
+      return;
+    }
+
+    setPendingCrop({
+      target: "create",
+      file,
+    });
+  };
+
+  const clearEditImageSelection = () => {
+    if (editImagePreviewUrl) {
+      URL.revokeObjectURL(editImagePreviewUrl);
+    }
+
+    setEditImageFile(null);
+    setEditImagePreviewUrl(null);
   };
 
   const handleEditImageSelected = (file: File | null) => {
-    if (editImagePreviewUrl) URL.revokeObjectURL(editImagePreviewUrl);
-    setEditImageFile(file);
-    setEditImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+    if (!file) {
+      clearEditImageSelection();
+      return;
+    }
+
+    setEditImageRemoved(false);
+    setPendingCrop({
+      target: "edit",
+      file,
+    });
+  };
+
+  const handleEditImageRemove = () => {
+    clearEditImageSelection();
+    setEditImageRemoved(true);
+    setEditValue("eventImage", null, { shouldDirty: true });
+  };
+
+  const handleCropConfirmed = (croppedFile: File) => {
+    if (!pendingCrop) return;
+
+    if (pendingCrop.target === "create") {
+      if (createImagePreviewUrl) {
+        URL.revokeObjectURL(createImagePreviewUrl);
+      }
+
+      setCreateImageFile(croppedFile);
+      setCreateImagePreviewUrl(
+        URL.createObjectURL(croppedFile),
+      );
+    } else {
+      if (editImagePreviewUrl) {
+        URL.revokeObjectURL(editImagePreviewUrl);
+      }
+
+      setEditImageFile(croppedFile);
+      setEditImagePreviewUrl(
+        URL.createObjectURL(croppedFile),
+      );
+      setEditImageRemoved(false);
+    }
+
+    setPendingCrop(null);
+  };
+
+  const handleCropCancelled = () => {
+    setPendingCrop(null);
   };
 
   const eventsList = useMemo(
@@ -894,7 +985,8 @@ function EventPage() {
             });
           }
           setCreateEventOpen(false);
-          handleCreateImageSelected(null);
+          clearCreateImage();
+          setPendingCrop(null);
           reset({
             hostUserId: currentUserId,
             eventName: "",
@@ -906,7 +998,6 @@ function EventPage() {
             eventTimezone: BROWSER_TZ,
             startAt: "",
             endsAt: "",
-            targetGroupIds: [],
             targetRoleIds: [],
           });
         }
@@ -916,8 +1007,12 @@ function EventPage() {
 
   const onEditSubmit = async (formData: UpdateEvent) => {
     if (!editingEvent) return;
+    const updateData = buildEventUpdateWithImageIntent(
+      formData,
+      editImageRemoved,
+    );
     updateEvent(
-      { id: editingEvent.id, data: formData },
+      { id: editingEvent.id, data: updateData },
       {
         onSuccess: async () => {
           // Upload image if a new one was selected
@@ -928,7 +1023,9 @@ function EventPage() {
             });
           }
           setEditingEvent(null);
-          handleEditImageSelected(null);
+          clearEditImageSelection();
+          setEditImageRemoved(false);
+          setPendingCrop(null); 
           resetEdit();
         },
       },
@@ -1214,12 +1311,16 @@ function EventPage() {
               </p>
             </EventDetailRow>
             <EventDetailRow label="Description">
-              <p>{viewingEvent?.description || "---"}</p>
+              {viewingEvent?.description ? (
+                <RichEditor value={viewingEvent.description} readOnly />
+              ) : (
+                <p>---</p>
+              )}
             </EventDetailRow>
             {viewingEvent?.eventImage && (
               <EventDetailRow label="Image">
                 <img
-                  src={viewingEvent.eventImage}
+                  src={resolvePublicUrl(viewingEvent.eventImage)}
                   alt={viewingEvent.eventName}
                   className="w-full rounded-md object-cover"
                   style={{ maxHeight: 220 }}
@@ -1280,13 +1381,13 @@ function EventPage() {
             {viewingEvent?.eventImage && (
               <EventDetailRow label="Event Image">
                 <a
-                  href={viewingEvent.eventImage!}
+                  href={resolvePublicUrl(viewingEvent.eventImage)}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Click to open full image"
                 >
                   <img
-                    src={viewingEvent.eventImage!}
+                    src={resolvePublicUrl(viewingEvent.eventImage)}
                     alt="Event banner"
                     className="h-20 w-auto rounded-md border object-cover transition-opacity hover:opacity-80"
                   />
@@ -1297,20 +1398,7 @@ function EventPage() {
               </EventDetailRow>
             )}
 
-            {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
-              <EventDetailRow label="Target Groups">
-                <div className="flex flex-wrap gap-1.5">
-                  {viewTargetsData!.data!.groupIds.map((id) => {
-                    const g = groups.find((x) => x.id === id);
-                    return g ? (
-                      <Badge key={id} variant="secondary">
-                        {g.groupName}
-                      </Badge>
-                    ) : null;
-                  })}
-                </div>
-              </EventDetailRow>
-            )}
+
             {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
               <EventDetailRow label="Target Roles">
                 <div className="flex flex-wrap gap-1.5">
@@ -1344,19 +1432,22 @@ function EventPage() {
         onOpenChange={(open) => {
           setCreateEventOpen(open);
           if (!open) {
-            handleCreateImageSelected(null);
-            reset({
-              hostUserId: currentUserId,
-              eventName: "",
-              description: null,
-              location: null,
-              locationLink: null,
-              eventFormat: "in_person",
-              eventTimezone: BROWSER_TZ,
-              startAt: "",
-              endsAt: "",
-              targetGroupIds: [],
-              targetRoleIds: [],
+             clearCreateImage();
+              setPendingCrop(null);
+
+              reset({
+                hostUserId: currentUserId,
+                eventName: "",
+                description: null,
+                eventImage: null,
+                location: null,
+                locationLink: null,
+                eventFormat: "in_person",
+                eventTimezone: BROWSER_TZ,
+                startAt: "",
+                endsAt: "",
+                targetGroupIds: [],
+                targetRoleIds: [],
             });
           }
         }}
@@ -1375,13 +1466,8 @@ function EventPage() {
             errors={errors}
             eventFormat={createEventFormat}
             currentHostName={currentHostName}
-            groups={groups}
             roles={roles}
-            watchedGroupIds={createGroupIds}
             watchedRoleIds={createRoleIds}
-            onToggleGroup={(id) =>
-              toggleId(createGroupIds, id, (v) => setValue("targetGroupIds", v))
-            }
             onToggleRole={(id) =>
               toggleId(createRoleIds, id, (v) => setValue("targetRoleIds", v))
             }
@@ -1542,7 +1628,9 @@ function EventPage() {
         onOpenChange={(open) => {
           if (!open) {
             setEditingEvent(null);
-            handleEditImageSelected(null);
+            clearEditImageSelection();
+            setEditImageRemoved(false);
+            setPendingCrop(null);
           }
         }}
       >
@@ -1562,22 +1650,18 @@ function EventPage() {
                 ? formatEventHost(editingEvent, usersById)
                 : currentHostName
             }
-            groups={groups}
             roles={roles}
-            watchedGroupIds={editGroupIds}
             watchedRoleIds={editRoleIds}
-            onToggleGroup={(id) =>
-              toggleId(editGroupIds, id, (v) =>
-                setEditValue("targetGroupIds", v),
-              )
-            }
             onToggleRole={(id) =>
               toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
-            existingImageUrl={editingEvent?.eventImage ?? null}
+            existingImageUrl={
+              editImageRemoved ? null : (editingEvent?.eventImage ?? null)
+            }
             imagePreviewUrl={editImagePreviewUrl}
             onImageFileSelected={handleEditImageSelected}
+            onImageRemove={handleEditImageRemove}
           />
           <DialogFooter>
             <Button
@@ -1596,7 +1680,9 @@ function EventPage() {
               variant="outline"
               onClick={() => {
                 setEditingEvent(null);
-                handleEditImageSelected(null);
+                clearEditImageSelection();
+                setEditImageRemoved(false);
+                setPendingCrop(null);
               }}
             >
               Cancel
@@ -1631,6 +1717,14 @@ function EventPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Event image crop dialog */}
+      <EventImageCropDialog
+        file={pendingCrop?.file ?? null}
+        open={pendingCrop !== null}
+        onCancel={handleCropCancelled}
+        onConfirm={handleCropConfirmed}
+      />
     </div>
   );
 }
