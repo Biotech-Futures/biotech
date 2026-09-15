@@ -553,6 +553,7 @@ class ReceiveJoinPermissionTokenTests(TestCase):
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_responseID, "form-response-1")
+        self.assertIsNotNone(self.profile.joinperm_granted_at)
 
 
 class RegistrationGeographyTests(TestCase):
@@ -681,6 +682,7 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertIsNone(row["group_id"])
         self.assertEqual(row["pg_email"], "")
         self.assertEqual(row["joinperm_response_id"], "")
+        self.assertIsNone(row["joinperm_granted_at"])
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
@@ -714,6 +716,68 @@ class SupervisedStudentsViewTests(TestCase):
                 "student_ids": [self.outsider.id],
                 "pg_first_name": "Nope",
                 "pg_last_name": "Nope",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_supervisor_cannot_edit_profile_before_permission(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alexa",
+                "last_name": "Student",
+                "school_name": "Test High",
+                "year_lvl": "12",
+                "interests": ["Robotics"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_supervisor_can_edit_permitted_student_profile(self):
+        from apps.users.models import StudentProfile, UserInterest
+
+        profile = StudentProfile.objects.get(user=self.student)
+        profile.has_join_permission = True
+        profile.save(update_fields=["has_join_permission"])
+
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alexa",
+                "last_name": "Updated",
+                "school_name": "Waterpark High School",
+                "year_lvl": "12",
+                "interests": ["Robotics", "Genomics"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        row = response.json()
+        self.assertEqual(row["first_name"], "Alexa")
+        self.assertEqual(row["last_name"], "Updated")
+        self.assertEqual(row["school_name"], "Waterpark High School")
+        self.assertEqual(row["year_lvl"], "12")
+        self.assertEqual(sorted(row["interests"]), ["Genomics", "Robotics"])
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.first_name, "Alexa")
+        self.assertEqual(
+            sorted(UserInterest.objects.filter(user=self.student).values_list("interest__interest_desc", flat=True)),
+            ["Genomics", "Robotics"],
+        )
+
+    def test_supervisor_cannot_edit_unlinked_student_profile(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.outsider.id}/",
+            {
+                "first_name": "Nope",
+                "last_name": "Nope",
+                "school_name": "Test High",
+                "year_lvl": "11",
             },
             format="json",
         )

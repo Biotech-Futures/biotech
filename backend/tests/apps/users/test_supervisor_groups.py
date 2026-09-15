@@ -65,12 +65,12 @@ class SupervisedGroupsViewTests(TestCase):
         self.client.force_login(self.supervisor)
         created = self.client.post(
             "/api/v1/users/supervised-groups/",
-            {"group_name": "Aerospace Crew"},
+            {"interests": []},
             format="json",
         )
         self.assertEqual(created.status_code, 201)
         group_id = created.json()["id"]
-        self.assertEqual(created.json()["group_name"], "Aerospace Crew")
+        self.assertEqual(created.json()["group_name"], "BTF01")
         self.assertEqual(created.json()["members"][0]["role"], "supervisor")
 
         renamed = self.client.patch(
@@ -78,8 +78,8 @@ class SupervisedGroupsViewTests(TestCase):
             {"group_name": "Waterpark Aerospace"},
             format="json",
         )
-        self.assertEqual(renamed.status_code, 200)
-        self.assertEqual(renamed.json()["group_name"], "Waterpark Aerospace")
+        self.assertEqual(renamed.status_code, 400)
+        self.assertEqual(Groups.objects.get(pk=group_id).group_name, "BTF01")
 
         added = self.client.post(
             f"/api/v1/users/supervised-groups/{group_id}/members/",
@@ -154,6 +154,35 @@ class SupervisedGroupsViewTests(TestCase):
             ).exists()
         )
 
+    def test_empty_created_group_stays_owned_after_other_membership_sync(self):
+        self.client.force_login(self.supervisor)
+        empty = self.client.post("/api/v1/users/supervised-groups/", {"interests": []}, format="json")
+        filled = self.client.post("/api/v1/users/supervised-groups/", {"interests": []}, format="json")
+        empty_id = empty.json()["id"]
+        filled_id = filled.json()["id"]
+        self.assertEqual(empty.status_code, 201)
+        self.assertEqual(empty.json()["members"][0]["role"], "supervisor")
+
+        added = self.client.post(
+            f"/api/v1/users/supervised-groups/{filled_id}/members/",
+            {"user_ids": [self.student.id], "role": "student"},
+            format="json",
+        )
+        self.assertEqual(added.status_code, 200)
+
+        listed = self.client.get("/api/v1/users/supervised-groups/")
+        self.assertIn(empty_id, [row["id"] for row in listed.json()])
+        detail = self.client.get(f"/api/v1/users/supervised-groups/{empty_id}/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group_id=empty_id,
+                user=self.supervisor,
+                left_at__isnull=True,
+                membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
+            ).exists()
+        )
+
     def test_supervisor_cannot_add_unlinked_student(self):
         self.client.force_login(self.supervisor)
         group = Groups.objects.create(group_name="Private")
@@ -169,16 +198,15 @@ class SupervisedGroupsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_create_rejects_duplicate_name(self):
+    def test_create_assigns_next_btf_name(self):
         self.client.force_login(self.supervisor)
-        Groups.objects.create(group_name="New Group")
-        response = self.client.post(
-            "/api/v1/users/supervised-groups/",
-            {"group_name": "New Group"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Choose a different name", str(response.json()))
+        Groups.objects.create(group_name="BTF4")
+        first = self.client.post("/api/v1/users/supervised-groups/", {}, format="json")
+        second = self.client.post("/api/v1/users/supervised-groups/", {}, format="json")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(first.json()["group_name"], "BTF05")
+        self.assertEqual(second.json()["group_name"], "BTF06")
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
@@ -222,7 +250,7 @@ class SupervisedGroupsViewTests(TestCase):
                 "AI & Robotics and Smart Systems",
             },
         )
-        self.assertEqual(updated.json()["group_name"], "Multi Area Crew")
+        self.assertEqual(updated.json()["group_name"], created.json()["group_name"])
 
         catalog = self.client.get("/api/v1/users/supervised-groups/interests/")
         self.assertEqual(catalog.status_code, 200)

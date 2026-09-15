@@ -35,6 +35,9 @@ export type AvailableMentor = {
   first_name: string
   last_name: string
   email: string
+  group_id?: number | null
+  group_name?: string | null
+  school_name?: string | null
 }
 
 const headers = async (unsafe = false) => {
@@ -65,15 +68,12 @@ export async function fetchSupervisedGroups(): Promise<SupervisedGroup[]> {
   return groups.map((group) => ({ ...group, interests: group.interests || [] }))
 }
 
-export async function createSupervisedGroup(
-  groupName: string,
-  interests: string[] = [],
-): Promise<SupervisedGroup> {
+export async function createSupervisedGroup(interests: string[] = []): Promise<SupervisedGroup> {
   const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/`, {
     method: 'POST',
     credentials: 'include',
     headers: await headers(true),
-    body: JSON.stringify({ group_name: groupName, interests }),
+    body: JSON.stringify({ interests }),
   })
   return read(response)
 }

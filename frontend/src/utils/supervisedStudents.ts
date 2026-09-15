@@ -1,5 +1,6 @@
 import { apiErrorFromResponse } from './apiError'
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
+import { formatDateTimeAU } from './date'
 
 export type SupervisedStudent = {
   id: number
@@ -15,6 +16,7 @@ export type SupervisedStudent = {
   parent_guardian_flag: boolean
   has_join_permission: boolean
   joinperm_response_id: string | null
+  joinperm_granted_at: string | null
   group_id: number | null
   group_name: string | null
 }
@@ -58,7 +60,10 @@ export const toStudentRow = (student: SupervisedStudent) => ({
   school: student.school_name,
   yearLevel: student.year_lvl,
   interests: student.interests,
-  joinpermResponseId: student.joinperm_response_id || '',
+  permissionGiven: student.has_join_permission
+    ? formatDateTimeAU(student.joinperm_granted_at) || 'Recorded'
+    : '—',
+  permissionGivenAt: student.joinperm_granted_at,
   groupId: student.group_id,
   groupName: student.group_name,
 })
@@ -71,6 +76,32 @@ export async function saveGuardianDetails(payload: {
 }): Promise<SupervisedStudent[]> {
   await ensureCsrfCookie(API_BASE_URL)
   const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      includeCSRF: true,
+      headers: { Accept: 'application/json' },
+    }),
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+  return response.json()
+}
+
+export async function updateSupervisedStudentProfile(
+  studentId: number,
+  payload: {
+    first_name: string
+    last_name: string
+    school_name: string
+    year_lvl: string
+    interests: string[]
+  },
+): Promise<SupervisedStudent> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/${studentId}/`, {
     method: 'PATCH',
     credentials: 'include',
     headers: buildSessionHeaders({

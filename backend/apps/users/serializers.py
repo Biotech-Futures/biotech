@@ -337,6 +337,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     parent_guardian_flag = serializers.BooleanField()
     has_join_permission = serializers.BooleanField()
     joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
+    joinperm_granted_at = serializers.DateTimeField(allow_null=True)
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
 
@@ -393,6 +394,17 @@ class SupervisedMentorSerializer(serializers.Serializer):
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+
+
+class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255)
+    last_name = serializers.CharField(max_length=255)
+    school_name = serializers.CharField(max_length=255)
+    year_lvl = serializers.ChoiceField(choices=[(str(year), str(year)) for year in range(9, 13)])
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
 
 
 class SupervisedStudentGuardianSerializer(serializers.Serializer):

@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -7,12 +7,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
-from apps.groups.models import GroupInterest, GroupMembership, Groups
+from apps.groups.models import GroupAutoNameUnavailable, GroupInterest, GroupMembership, Groups
 from apps.groups.services import assign_mentor_to_group, sync_supervisor_memberships_for_student
 from apps.users.models import AreasOfInterest, MentorProfile, StudentProfile, SupervisorProfile, User
 from apps.users.serializers import (
     SupervisedGroupMemberChangeSerializer,
-    SupervisedGroupNameSerializer,
     SupervisedGroupSerializer,
     SupervisedGroupWriteSerializer,
     SupervisedInterestCatalogSerializer,
@@ -112,6 +111,15 @@ def _keep_supervisor_on_group(group, user):
     )
 
 
+def _owned_group_ids(user):
+    return list(_owned_groups(user).values_list("id", flat=True))
+
+
+def _restore_supervisor_on_groups(user, group_ids):
+    for group in Groups.objects.filter(pk__in=group_ids, deleted_at__isnull=True):
+        _keep_supervisor_on_group(group, user)
+
+
 class SupervisedGroupsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
@@ -122,28 +130,17 @@ class SupervisedGroupsView(APIView):
         groups = _owned_groups(request.user).order_by("group_name", "id")
         return Response(SupervisedGroupSerializer([_group_payload(group) for group in groups], many=True).data)
 
-    @extend_schema(request=SupervisedGroupNameSerializer, responses={201: SupervisedGroupSerializer})
+    @extend_schema(request=SupervisedGroupWriteSerializer, responses={201: SupervisedGroupSerializer})
     @transaction.atomic
     def post(self, request):
         _require_supervisor(request.user)
-        serializer = SupervisedGroupNameSerializer(data=request.data)
+        serializer = SupervisedGroupWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        name = serializer.validated_data["group_name"].strip()
-        if not name:
-            raise ValidationError({"group_name": ["Enter a group name."]})
-        if Groups.objects.filter(group_name__iexact=name, deleted_at__isnull=True).exists():
-            raise ValidationError({
-                "group_name": [f'A group named "{name}" already exists. Choose a different name.'],
-            })
         try:
-            group = Groups.objects.create(group_name=name)
-        except IntegrityError as exc:
-            raise ValidationError({"group_name": ["An active group with this name already exists."]}) from exc
-        GroupMembership.objects.create(
-            group=group,
-            user=request.user,
-            membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
-        )
+            group = Groups.create_auto_named()
+        except GroupAutoNameUnavailable as exc:
+            raise ValidationError({"group_name": [str(exc)]}) from exc
+        _keep_supervisor_on_group(group, request.user)
         if "interests" in request.data:
             _sync_group_interests(group, serializer.validated_data.get("interests") or [])
         return Response(SupervisedGroupSerializer(_group_payload(group)).data, status=status.HTTP_201_CREATED)
@@ -165,18 +162,9 @@ class SupervisedGroupDetailView(APIView):
         group = _owned_group(request.user, pk)
         serializer = SupervisedGroupWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        if "group_name" not in request.data and "interests" not in request.data:
-            raise ValidationError("Provide a group name and/or areas of interest.")
-        if "group_name" in request.data:
-            name = (serializer.validated_data.get("group_name") or "").strip()
-            if not name:
-                raise ValidationError({"group_name": ["This field may not be blank."]})
-            if Groups.objects.filter(group_name=name, deleted_at__isnull=True).exclude(pk=group.pk).exists():
-                raise ValidationError({"group_name": ["An active group with this name already exists."]})
-            group.group_name = name
-            group.save(update_fields=["group_name"])
-        if "interests" in request.data:
-            _sync_group_interests(group, serializer.validated_data.get("interests") or [])
+        if "interests" not in request.data:
+            raise ValidationError({"interests": ["Group names are assigned by the system. Update areas of interest instead."]})
+        _sync_group_interests(group, serializer.validated_data.get("interests") or [])
         return Response(SupervisedGroupSerializer(_group_payload(group)).data)
 
     @transaction.atomic
@@ -186,6 +174,7 @@ class SupervisedGroupDetailView(APIView):
         if group.deleted_at is None:
             group.deleted_at = timezone.now()
             group.save(update_fields=["deleted_at"])
+        owned_ids = [group_id for group_id in _owned_group_ids(request.user) if group_id != group.id]
         student_ids = list(
             GroupMembership.objects.filter(
                 group=group,
@@ -195,6 +184,7 @@ class SupervisedGroupDetailView(APIView):
         )
         for student_id in student_ids:
             sync_supervisor_memberships_for_student(student_id)
+        _restore_supervisor_on_groups(request.user, owned_ids)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -207,6 +197,7 @@ class SupervisedGroupMembersView(APIView):
     def post(self, request, pk):
         _require_supervisor(request.user)
         group = _owned_group(request.user, pk)
+        owned_ids = set(_owned_group_ids(request.user))
         serializer = SupervisedGroupMemberChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = serializer.validated_data.get("role") or "student"
@@ -257,9 +248,7 @@ class SupervisedGroupMembersView(APIView):
                 defaults={"membership_role": GroupMembership.MembershipRoleChoices.STUDENT},
             )
             sync_supervisor_memberships_for_student(user_id)
-        _keep_supervisor_on_group(group, request.user)
-        for vacated in Groups.objects.filter(pk__in=vacated_group_ids, deleted_at__isnull=True):
-            _keep_supervisor_on_group(vacated, request.user)
+        _restore_supervisor_on_groups(request.user, owned_ids | vacated_group_ids | {group.id})
         return Response(SupervisedGroupSerializer(_group_payload(group)).data)
 
     @extend_schema(request=SupervisedGroupMemberChangeSerializer, responses={200: SupervisedGroupSerializer})
@@ -267,6 +256,7 @@ class SupervisedGroupMembersView(APIView):
     def delete(self, request, pk):
         _require_supervisor(request.user)
         group = _owned_group(request.user, pk)
+        owned_ids = set(_owned_group_ids(request.user))
         serializer = SupervisedGroupMemberChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user_ids = serializer.validated_data["user_ids"]
@@ -284,7 +274,7 @@ class SupervisedGroupMembersView(APIView):
             membership.save(update_fields=["left_at"])
             if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
                 sync_supervisor_memberships_for_student(membership.user_id)
-        _keep_supervisor_on_group(group, request.user)
+        _restore_supervisor_on_groups(request.user, owned_ids | {group.id})
         return Response(SupervisedGroupSerializer(_group_payload(group)).data)
 
 

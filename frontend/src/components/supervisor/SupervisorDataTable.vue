@@ -508,6 +508,7 @@ const onOption = async (event: Event) => {
 .supervisor-table-page-size,
 .supervisor-table-page-jump {
   width: 4.5rem;
+  text-align: center;
 }
 
 .supervisor-table-search-input {
@@ -520,7 +521,7 @@ const onOption = async (event: Event) => {
   padding: 0.55rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  background: #f6f8f6;
+  background: #fafafa;
 }
 
 .supervisor-table-bulk p {
@@ -538,6 +539,7 @@ const onOption = async (event: Event) => {
 table {
   width: 100%;
   border-collapse: collapse;
+  color: #2d2d2d;
 }
 
 th,
@@ -545,13 +547,14 @@ td {
   padding: 0.75rem 0.9rem;
   text-align: left;
   border-bottom: 1px solid var(--border-light);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 th {
   cursor: pointer;
-  background: #f6f8f6;
+  background: #f9faf9;
   user-select: none;
+  font-weight: 600;
 }
 
 .supervisor-table-check-col,
@@ -594,6 +597,7 @@ th {
   gap: 1rem;
   margin-top: 0.75rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .supervisor-table-summary {

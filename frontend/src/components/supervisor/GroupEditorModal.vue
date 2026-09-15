@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div class="group-editor-backdrop" @click.self="emit('close')">
     <section class="group-editor" role="dialog" aria-modal="true" :aria-label="group.group_name">
       <header class="group-editor-header">
@@ -6,7 +7,7 @@
           <i class="fas fa-user-group group-editor-lead-icon" aria-hidden="true"></i>
           <div>
             <h2>{{ displayName }}</h2>
-            <p>{{ isCreate ? 'Configure this group, then create it.' : 'View group details and composition' }}</p>
+            <p>{{ isCreate ? 'Areas of interest and students are optional. The system will assign a BTF group number.' : 'View and edit group details' }}</p>
           </div>
         </div>
         <button type="button" class="group-editor-close" aria-label="Close" @click="emit('close')">
@@ -14,30 +15,20 @@
         </button>
       </header>
 
+      <div class="group-editor-body">
       <p v-if="error" class="group-editor-error">{{ error }}</p>
 
       <section class="group-editor-section">
         <p class="group-editor-label">Group Name</p>
-        <div class="group-name-row">
-          <input
-            v-if="isCreate || editingName"
-            ref="nameInput"
-            v-model="nameDraft"
-            class="group-name-input"
-            @keydown.enter.prevent="saveName"
-            @keydown.escape.prevent="cancelName"
-          />
-          <p v-else class="group-name-value">{{ group.group_name }}</p>
-          <button
-            v-if="!isCreate"
-            type="button"
-            class="icon-button"
-            :aria-label="editingName ? 'Save group name' : 'Edit group name'"
-            @click="editingName ? saveName() : startNameEdit()"
-          >
-            <i :class="editingName ? 'fas fa-check' : 'fas fa-pencil'" aria-hidden="true"></i>
-          </button>
-        </div>
+        <p class="group-name-value">{{ displayName }}</p>
+        <p v-if="!isCreate" class="group-editor-hint">Group ID {{ group.id }}</p>
+        <p class="group-editor-hint">
+          {{
+            isCreate
+              ? 'A group number will be assigned automatically when the group is created (e.g. BTF01, BTF02).'
+              : 'Group names are assigned by the system and may repeat across challenges. The group ID uniquely identifies this group.'
+          }}
+        </p>
       </section>
 
       <hr class="group-editor-rule" />
@@ -48,90 +39,16 @@
           Area(s) of Interest
           <span class="member-count">({{ selectedInterests.length }})</span>
         </p>
-        <p class="group-editor-hint">A group can have more than one area of interest.</p>
-        <div v-if="selectedInterests.length" class="interest-chips">
-          <span v-for="interest in selectedInterests" :key="interest" class="interest-chip">
-            {{ interest }}
-            <button type="button" :aria-label="`Remove ${interest}`" @click="removeInterest(interest)">
-              ×
-            </button>
-          </span>
-        </div>
-        <p v-else class="group-editor-empty">No areas tagged yet.</p>
+        <p class="group-editor-hint">Select one or more areas of interest, these will be used to assign an appropriate mentor</p>
         <div class="interest-options">
           <label v-for="option in interestOptions" :key="option" class="interest-option">
             <input
               type="checkbox"
               :checked="isSelectedInterest(option)"
-              :disabled="busy && !isCreate"
               @change="toggleInterest(option)"
             />
             <span>{{ option }}</span>
           </label>
-        </div>
-        <div class="interest-custom-row">
-          <input
-            v-model="customInterest"
-            class="group-name-input"
-            placeholder="Add another area"
-            @keydown.enter.prevent="addCustomInterest"
-          />
-          <button type="button" class="btn btn-outline btn-sm" @click="addCustomInterest">Add</button>
-        </div>
-      </section>
-
-      <hr class="group-editor-rule" />
-
-      <section class="group-editor-section">
-        <p class="group-editor-label">
-          <i class="fas fa-user-tie" aria-hidden="true"></i>
-          Supervisor/s
-          <span class="member-count">({{ supervisors.length }})</span>
-        </p>
-        <div class="person-bubbles">
-          <article v-for="person in supervisors" :key="`supervisor-${person.id}`" class="person-bubble">
-            <div>
-              <p class="person-name">{{ personName(person) }}</p>
-              <p class="person-email">{{ person.email }}</p>
-            </div>
-            <span class="person-tag">supervisor</span>
-          </article>
-          <p v-if="!supervisors.length" class="group-editor-empty">No supervisor assigned.</p>
-        </div>
-      </section>
-
-      <hr class="group-editor-rule" />
-
-      <section class="group-editor-section">
-        <div class="group-editor-section-head">
-          <p class="group-editor-label">
-            <i class="fas fa-user" aria-hidden="true"></i>
-            Mentor/s
-            <span class="member-count">({{ mentors.length }})</span>
-          </p>
-          <button type="button" class="btn btn-outline btn-sm" @click="picker = 'mentor'">
-            Assign Mentor
-          </button>
-        </div>
-        <div class="person-bubbles">
-          <article v-for="person in mentors" :key="`mentor-${person.id}`" class="person-bubble">
-            <div>
-              <p class="person-name">{{ personName(person) }}</p>
-              <p class="person-email">{{ person.email }}</p>
-            </div>
-            <div class="person-meta">
-              <span class="person-tag">mentor</span>
-              <button
-                type="button"
-                class="icon-button danger"
-                :aria-label="`Remove ${personName(person)}`"
-                @click="askRemove(person)"
-              >
-                <i class="fas fa-user-minus" aria-hidden="true"></i>
-              </button>
-            </div>
-          </article>
-          <p v-if="!mentors.length" class="group-editor-empty">No mentor assigned.</p>
         </div>
       </section>
 
@@ -171,52 +88,71 @@
         </div>
       </section>
 
-      <hr class="group-editor-rule" />
-
-      <section class="group-editor-section">
-        <p class="group-editor-label">
-          <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-          Suggested Students
-        </p>
-        <p class="group-editor-empty">No recommendations found.</p>
-      </section>
-
-      <hr class="group-editor-rule" />
+      </div>
 
       <div class="group-editor-footer">
         <template v-if="isCreate">
           <button type="button" class="btn btn-outline" @click="emit('close')">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="createGroup">
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="busy"
+            @click="createGroup"
+          >
             Create Group
           </button>
         </template>
-        <button
-          v-else
-          type="button"
-          class="btn btn-outline group-delete-button"
-          @click="pendingDelete = true"
-        >
-          Delete Group
-        </button>
+        <template v-else>
+          <button
+            type="button"
+            class="btn btn-outline group-delete-button"
+            @click="pendingDelete = true"
+          >
+            Delete Group
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="busy || selectedInterests.length < 1"
+            :title="selectedInterests.length < 1 ? 'Select at least one area of interest' : ''"
+            @click="saveGroup"
+          >
+            Save
+          </button>
+        </template>
       </div>
     </section>
 
     <div v-if="picker" class="picker-overlay">
     <section class="picker-card" role="dialog" aria-modal="true">
-      <h3>{{ picker === 'mentor' ? 'Assign Mentor' : 'Add Students' }}</h3>
+      <h3>Add Students</h3>
       <label v-for="option in pickerOptions" :key="option.id" class="picker-option">
         <input v-model="pickedIds" type="checkbox" :value="option.id" />
         <span>
           <strong>{{ personName(option) }}</strong>
           <small>{{ option.email }}</small>
+          <small v-if="assignedGroupName(option)" class="picker-group-note">
+            Student is already in {{ assignedGroupName(option) }}, assigning them to another group will remove them from {{ assignedGroupName(option) }}
+          </small>
         </span>
       </label>
       <p v-if="!pickerOptions.length" class="group-editor-empty">No people available to add.</p>
       <div class="picker-actions">
         <button type="button" class="btn btn-outline" @click="closePicker">Cancel</button>
-        <button type="button" class="btn btn-primary" :disabled="!pickedIds.length || busy" @click="applyPicker">
-          {{ picker === 'mentor' ? 'Assign' : 'Add' }}
+        <button type="button" class="btn btn-primary" :disabled="!pickedIds.length || busy" @click="applyPicker()">
+          Add
         </button>
+      </div>
+    </section>
+    </div>
+
+    <div v-if="pendingSchoolMix" class="picker-overlay">
+    <section class="picker-card" role="dialog" aria-modal="true">
+      <h3>{{ pendingSchoolMix.kind === 'outside' ? 'Match outside school?' : 'Match inside school?' }}</h3>
+      <p>{{ pendingSchoolMix.message }}</p>
+      <div class="picker-actions">
+        <button type="button" class="btn btn-outline" @click="pendingSchoolMix = null">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="busy" @click="applyPicker(true)">Confirm</button>
       </div>
     </section>
     </div>
@@ -248,19 +184,18 @@
     </section>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   addSupervisedGroupMembers,
   createSupervisedGroup,
   DEFAULT_GROUP_INTERESTS,
   deleteSupervisedGroup,
-  fetchInterestCatalog,
   personName,
   removeSupervisedGroupMembers,
-  renameSupervisedGroup,
   updateSupervisedGroup,
   type AvailableMentor,
   type GroupPerson,
@@ -270,13 +205,11 @@ import {
 const props = withDefaults(
   defineProps<{
     group: SupervisedGroup
-    mentorsAvailable: AvailableMentor[]
     studentsAvailable: AvailableMentor[]
     currentUserId: number | null
     mode?: 'create' | 'edit'
-    existingNames?: string[]
   }>(),
-  { mode: 'edit', existingNames: () => [] },
+  { mode: 'edit' },
 )
 
 const emit = defineEmits<{
@@ -287,45 +220,37 @@ const emit = defineEmits<{
 
 const error = ref('')
 const busy = ref(false)
-const editingName = ref(false)
-const nameDraft = ref(props.group.group_name)
-const nameInput = ref<HTMLInputElement | null>(null)
-const picker = ref<'mentor' | 'student' | null>(null)
+const picker = ref<'student' | null>(null)
 const pickedIds = ref<number[]>([])
 const pendingRemove = ref<GroupPerson | null>(null)
 const pendingDelete = ref(false)
+const pendingSchoolMix = ref<{ kind: 'inside' | 'outside'; message: string } | null>(null)
 const localMembers = ref<GroupPerson[]>([...props.group.members])
 const selectedInterests = ref<string[]>([...(props.group.interests || [])])
-const catalogInterests = ref<string[]>([...DEFAULT_GROUP_INTERESTS])
-const customInterest = ref('')
 
 const isCreate = computed(() => props.mode === 'create')
-const displayName = computed(() => (isCreate.value ? nameDraft.value.trim() || 'New Group' : props.group.group_name))
+const displayName = computed(() => (isCreate.value ? 'New Group' : props.group.group_name))
 const displayMembers = computed(() => (isCreate.value ? localMembers.value : props.group.members))
-const supervisors = computed(() => displayMembers.value.filter((member) => member.role === 'supervisor'))
-const mentors = computed(() => displayMembers.value.filter((member) => member.role === 'mentor'))
 const students = computed(() => displayMembers.value.filter((member) => member.role === 'student'))
 const memberIds = computed(() => new Set(displayMembers.value.map((member) => member.id)))
-const interestOptions = computed(() => {
-  const merged = [...catalogInterests.value, ...selectedInterests.value]
-  return [...new Set(merged)].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
-})
 const sameInterest = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()
+const interestOptions = computed(() => {
+  const extras = selectedInterests.value.filter(
+    (item) => !DEFAULT_GROUP_INTERESTS.some((official) => sameInterest(official, item)),
+  )
+  return [...DEFAULT_GROUP_INTERESTS, ...extras]
+})
 const isSelectedInterest = (interest: string) =>
   selectedInterests.value.some((item) => sameInterest(item, interest))
-const canonicalInterest = (interest: string) => {
-  const match = interestOptions.value.find((option) => sameInterest(option, interest))
-  return (match || interest).trim()
+const pickerOptions = computed(() =>
+  props.studentsAvailable.filter((person) => !memberIds.value.has(person.id)),
+)
+const assignedGroupName = (person: AvailableMentor) => {
+  const name = person.group_name?.trim()
+  if (!name) return ''
+  if (!isCreate.value && person.group_id === props.group.id) return ''
+  return name
 }
-
-const nameIsTaken = (name: string) => {
-  const needle = name.trim().toLowerCase()
-  return props.existingNames.some((existing) => existing.trim().toLowerCase() === needle)
-}
-const pickerOptions = computed(() => {
-  const source = picker.value === 'mentor' ? props.mentorsAvailable : props.studentsAvailable
-  return source.filter((person) => !memberIds.value.has(person.id))
-})
 
 watch(
   () => props.group.interests,
@@ -334,127 +259,75 @@ watch(
   },
 )
 
-onMounted(async () => {
-  try {
-    const extras = await fetchInterestCatalog()
-    catalogInterests.value = [
-      ...new Set([...DEFAULT_GROUP_INTERESTS, ...extras, ...selectedInterests.value]),
-    ]
-  } catch {
-    catalogInterests.value = [...new Set([...DEFAULT_GROUP_INTERESTS, ...selectedInterests.value])]
-  }
-})
-
 const persistInterests = async (next: string[]) => {
-  if (isCreate.value) {
-    selectedInterests.value = next
-    return
-  }
-  if (busy.value) return
   selectedInterests.value = next
-  busy.value = true
-  error.value = ''
-  try {
-    emit('updated', await updateSupervisedGroup(props.group.id, { interests: next }))
-  } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : 'Areas of interest could not be saved.'
-    selectedInterests.value = [...props.group.interests]
-  } finally {
-    busy.value = false
-  }
 }
 
 const toggleInterest = (interest: string) => {
   const next = isSelectedInterest(interest)
     ? selectedInterests.value.filter((item) => !sameInterest(item, interest))
-    : [...selectedInterests.value, canonicalInterest(interest)]
+    : [...selectedInterests.value, interest]
   void persistInterests(next)
-}
-
-const removeInterest = (interest: string) => {
-  void persistInterests(selectedInterests.value.filter((item) => !sameInterest(item, interest)))
-}
-
-const addCustomInterest = () => {
-  const next = canonicalInterest(customInterest.value)
-  if (!next) return
-  customInterest.value = ''
-  if (isSelectedInterest(next)) return
-  void persistInterests([...selectedInterests.value, next])
-}
-
-const startNameEdit = async () => {
-  nameDraft.value = props.group.group_name
-  editingName.value = true
-  await nextTick()
-  nameInput.value?.focus()
-}
-
-const cancelName = () => {
-  editingName.value = false
-  nameDraft.value = props.group.group_name
-}
-
-const saveName = async () => {
-  const next = nameDraft.value.trim()
-  if (!next) {
-    error.value = 'Enter a group name.'
-    return
-  }
-  if (isCreate.value) {
-    if (nameIsTaken(next)) {
-      error.value = `A group named "${next}" already exists. Choose a different name.`
-      return
-    }
-    error.value = ''
-    return
-  }
-  if (next === props.group.group_name) {
-    editingName.value = false
-    return
-  }
-  if (nameIsTaken(next)) {
-    error.value = `A group named "${next}" already exists. Choose a different name.`
-    return
-  }
-  busy.value = true
-  error.value = ''
-  try {
-    emit('updated', await renameSupervisedGroup(props.group.id, next))
-    editingName.value = false
-  } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : 'Group name could not be saved.'
-  } finally {
-    busy.value = false
-  }
 }
 
 const closePicker = () => {
   picker.value = null
   pickedIds.value = []
+  pendingSchoolMix.value = null
 }
 
-const applyPicker = async () => {
+const schoolLabel = (person?: AvailableMentor | null) => person?.school_name?.trim() || ''
+
+const listSchools = (schools: string[]) => {
+  if (schools.length <= 1) return schools[0] || 'another school'
+  if (schools.length === 2) return `${schools[0]} and ${schools[1]}`
+  return `${schools.slice(0, -1).join(', ')}, and ${schools[schools.length - 1]}`
+}
+
+const schoolMixPrompt = () => {
+  const incoming = props.studentsAvailable.filter((person) => pickedIds.value.includes(person.id))
+  const existingSchools = [...new Map(
+    students.value
+      .map((member) => schoolLabel(props.studentsAvailable.find((person) => person.id === member.id)))
+      .filter(Boolean)
+      .map((name) => [name.toLowerCase(), name]),
+  ).values()]
+  const incomingSchools = [...new Map(
+    incoming
+      .map((person) => schoolLabel(person))
+      .filter(Boolean)
+      .map((name) => [name.toLowerCase(), name]),
+  ).values()]
+  const combined = [...new Map(
+    [...existingSchools, ...incomingSchools].map((name) => [name.toLowerCase(), name]),
+  ).values()]
+  if (combined.length <= 1) return null
+  const names = incoming.map((person) => personName(person)).join(', ')
+  return {
+    kind: 'outside' as const,
+    message: `${names || 'These students'} would be grouped with students from ${listSchools(combined)}. This will match one or more students outside their school.`,
+  }
+}
+
+const applyPicker = async (skipSchoolConfirm = false) => {
   if (!picker.value || !pickedIds.value.length) return
-  if (isCreate.value) {
-    const source = picker.value === 'mentor' ? props.mentorsAvailable : props.studentsAvailable
-    const chosen = source.filter((person) => pickedIds.value.includes(person.id))
-    const role = picker.value === 'mentor' ? 'mentor' : 'student'
-    const next = localMembers.value.filter((member) => member.role !== role || role === 'student')
-    if (role === 'mentor') {
-      localMembers.value = [
-        ...next.filter((member) => member.role !== 'mentor'),
-        ...chosen.slice(0, 1).map((person) => ({ ...person, role })),
-      ]
-    } else {
-      const existing = new Set(next.map((member) => member.id))
-      localMembers.value = [
-        ...next,
-        ...chosen
-          .filter((person) => !existing.has(person.id))
-          .map((person) => ({ ...person, role })),
-      ]
+  if (!skipSchoolConfirm) {
+    const prompt = schoolMixPrompt()
+    if (prompt) {
+      pendingSchoolMix.value = prompt
+      return
     }
+  }
+  pendingSchoolMix.value = null
+  if (isCreate.value) {
+    const chosen = props.studentsAvailable.filter((person) => pickedIds.value.includes(person.id))
+    const existing = new Set(localMembers.value.map((member) => member.id))
+    localMembers.value = [
+      ...localMembers.value,
+      ...chosen
+        .filter((person) => !existing.has(person.id))
+        .map((person) => ({ ...person, role: 'student' })),
+    ]
     closePicker()
     return
   }
@@ -463,11 +336,7 @@ const applyPicker = async () => {
   try {
     emit(
       'updated',
-      await addSupervisedGroupMembers(
-        props.group.id,
-        picker.value === 'mentor' ? pickedIds.value.slice(0, 1) : pickedIds.value,
-        picker.value === 'mentor' ? 'mentor' : 'student',
-      ),
+      await addSupervisedGroupMembers(props.group.id, pickedIds.value, 'student'),
     )
     closePicker()
   } catch (saveError) {
@@ -517,22 +386,32 @@ const confirmRemove = async () => {
 }
 
 const createGroup = async () => {
-  const next = nameDraft.value.trim() || 'New Group'
-  if (nameIsTaken(next)) {
-    error.value = `A group named "${next}" already exists. Choose a different name.`
+  busy.value = true
+  error.value = ''
+  try {
+    let created = await createSupervisedGroup(selectedInterests.value)
+    const studentIds = localMembers.value.filter((member) => member.role === 'student').map((member) => member.id)
+    if (studentIds.length) created = await addSupervisedGroupMembers(created.id, studentIds, 'student')
+    emit('updated', created)
+    emit('close')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Group could not be created.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const saveGroup = async () => {
+  if (selectedInterests.value.length < 1) {
+    error.value = 'Please select at least one area of interest.'
     return
   }
   busy.value = true
   error.value = ''
   try {
-    let created = await createSupervisedGroup(next, selectedInterests.value)
-    const mentorIds = localMembers.value.filter((member) => member.role === 'mentor').map((member) => member.id)
-    const studentIds = localMembers.value.filter((member) => member.role === 'student').map((member) => member.id)
-    if (mentorIds.length) created = await addSupervisedGroupMembers(created.id, mentorIds.slice(0, 1), 'mentor')
-    if (studentIds.length) created = await addSupervisedGroupMembers(created.id, studentIds, 'student')
-    emit('updated', created)
+    emit('updated', await updateSupervisedGroup(props.group.id, { interests: selectedInterests.value }))
   } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : 'Group could not be created.'
+    error.value = saveError instanceof Error ? saveError.message : 'Group could not be saved.'
   } finally {
     busy.value = false
   }
@@ -543,38 +422,48 @@ const createGroup = async () => {
 .group-editor-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1100;
   display: grid;
-  place-items: center;
-  padding: 1.5rem;
+  place-items: start center;
+  padding: 5.5rem 1rem 1.25rem;
   background: rgba(23, 66, 67, 0.4);
 }
 
 .group-editor,
 .picker-card {
-  width: min(40rem, 100%);
+  width: min(32rem, 100%);
   background: var(--white);
   border-radius: 12px;
   box-shadow: 0 16px 40px var(--shadow);
 }
 
 .group-editor {
-  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 6.75rem);
+  overflow: hidden;
+  padding: 1rem 1.15rem 1.1rem;
+}
+
+.group-editor-body {
+  min-height: 0;
   overflow: auto;
-  padding: 1.35rem 1.5rem 1.5rem;
+  padding-right: 0.25rem;
 }
 
 .picker-overlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 1200;
   display: grid;
-  place-items: center;
-  padding: 1.5rem;
+  place-items: start center;
+  padding: 5.5rem 1rem 1.25rem;
   background: rgba(23, 66, 67, 0.35);
 }
 
 .picker-card {
+  max-height: calc(100vh - 6.75rem);
+  overflow: auto;
   padding: 1.25rem;
 }
 
@@ -709,6 +598,34 @@ const createGroup = async () => {
   font-size: 0.9rem;
 }
 
+.interest-option input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.interest-option input[type="checkbox"]:checked {
+  background: var(--dark-green, #017151);
+  border-color: var(--dark-green, #017151);
+}
+
+.interest-option input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: #fff;
+  font-size: 0.75rem;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
 .interest-custom-row {
   align-items: center;
 }
@@ -781,8 +698,38 @@ const createGroup = async () => {
 }
 
 .picker-option {
+  align-items: flex-start;
   gap: 0.65rem;
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.picker-option input[type="checkbox"] {
+  margin-top: 0.15rem;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.picker-option input[type="checkbox"]:checked {
+  background: var(--dark-green, #017151);
+  border-color: var(--dark-green, #017151);
+}
+
+.picker-option input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: #fff;
+  font-size: 0.75rem;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .picker-option span {
@@ -793,16 +740,31 @@ const createGroup = async () => {
   color: #6c757d;
 }
 
+.picker-group-note {
+  margin-top: 0.15rem;
+  color: #8a6d3b;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .picker-actions {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1rem;
 }
 
+.group-editor-header,
+.group-editor-footer {
+  flex-shrink: 0;
+}
+
 .group-editor-footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-light);
 }
 
 .group-delete-button {

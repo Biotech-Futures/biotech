@@ -1,12 +1,14 @@
 <template>
   <div class="content-area supervisor-groups-page">
-    <p v-if="error" class="supervisor-error">{{ error }}</p>
-    <p v-else-if="loading" class="supervisor-muted">Loading groups...</p>
+    <p v-if="loading" class="supervisor-muted">Loading groups...</p>
 
     <section v-else class="waiting-area" aria-label="Waiting Area" @dragover.prevent @drop="onDropWaiting">
+      <p v-if="flashMessage" class="waiting-flash" role="status">{{ flashMessage }}</p>
       <div class="waiting-area-header">
         <h1>Waiting Area</h1>
-        <span class="waiting-count">{{ waitingStudents.length }}</span>
+        <span class="waiting-count">
+          {{ waitingStudents.length }} {{ waitingStudents.length === 1 ? 'Student' : 'Students' }}
+        </span>
       </div>
       <p class="waiting-copy">
         Students in this area will be assigned to a group on the challenge start date.
@@ -36,6 +38,7 @@
           <label class="group-select-all">
             <input
               type="checkbox"
+              class="group-check"
               :checked="allGroupsSelected"
               :indeterminate.prop="someGroupsSelected"
               :aria-label="allGroupsSelected ? 'Deselect all groups' : 'Select all groups'"
@@ -43,17 +46,10 @@
             />
             <h2>My Groups</h2>
           </label>
-          <label class="groups-options">
-            Options
-            <select :value="optionChoice" @change="onGroupOption">
-              <option value="">Select</option>
-              <option value="select-all">Select all groups</option>
-              <option value="clear-selection" :disabled="!selectedGroupIds.size">Clear selection</option>
-              <option value="delete-selected" :disabled="!selectedGroupIds.size">Delete selected groups</option>
-            </select>
-          </label>
         </div>
-        <button type="button" class="btn btn-primary" @click="openCreateGroup">Create Group</button>
+        <div class="groups-board-toolbar-actions">
+          <button type="button" class="btn btn-primary" @click="openCreateGroup">Create Group</button>
+        </div>
       </div>
       <p v-if="selectedGroupIds.size" class="groups-bulk">
         {{ selectedGroupIds.size }} selected
@@ -73,19 +69,17 @@
           <div class="group-card-title">
             <input
               type="checkbox"
+              class="group-check"
               :checked="selectedGroupIds.has(group.id)"
               :aria-label="`Select ${group.name}`"
               @change="toggleGroup(group.id)"
             />
             <div>
               <h2>{{ group.name }}</h2>
-              <p>{{ group.supervisorName }}</p>
+              <p class="group-id">Group ID {{ group.id }}</p>
             </div>
           </div>
           <div class="group-card-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="editGroup(group.id)">
-              Edit Group
-            </button>
             <span class="group-count">{{ group.students.length }}/{{ groupLimit }}</span>
           </div>
         </div>
@@ -97,7 +91,7 @@
         </div>
         <p v-else class="supervisor-muted">No areas of interest tagged yet.</p>
 
-        <h3>Existing Students</h3>
+        <h3>Students</h3>
         <ul class="student-rows">
           <li v-for="student in group.students" :key="student.id">
             <button
@@ -109,41 +103,36 @@
               {{ studentName(student) }}
             </button>
           </li>
-          <li v-if="!group.students.length" class="supervisor-muted">No students in this group.</li>
+          <li v-if="!group.students.length" class="supervisor-muted">
+            No students in this group. Drop a student here.
+          </li>
         </ul>
-
-        <div class="drop-zone">
-          <p>Recommended / Moved</p>
-          <p class="drop-hint">drop students here</p>
-          <label>
-            Move a student into this group
-            <select :disabled="moveBusy" @change="onSelectMove($event, group.id)">
-              <option value="">Select a student</option>
-              <option
-                v-for="student in movableStudents(group.id)"
-                :key="student.id"
-                :value="student.id"
-              >
-                {{ studentName(student) }}
-              </option>
-            </select>
-          </label>
-        </div>
       </article>
     </section>
 
     <GroupEditorModal
       v-if="editorGroup"
       :group="editorGroup"
-      :mode="editorMode"
-      :existing-names="existingGroupNames"
-      :mentors-available="mentors"
+      mode="create"
       :students-available="studentChoices"
       :current-user-id="auth.user?.id ?? null"
       @close="closeEditor"
       @updated="onGroupUpdated"
       @deleted="onGroupDeleted"
     />
+
+    <div v-if="pendingSchoolMove" class="bulk-delete-backdrop">
+      <section class="bulk-delete-card" role="dialog" aria-modal="true" aria-labelledby="school-match-title">
+        <h3 id="school-match-title">
+          {{ pendingSchoolMove.kind === 'outside' ? 'Match outside school?' : 'Match inside school?' }}
+        </h3>
+        <p>{{ pendingSchoolMove.message }}</p>
+        <div class="bulk-delete-actions">
+          <button type="button" class="btn btn-outline" @click="pendingSchoolMove = null">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="confirmSchoolMove">Confirm</button>
+        </div>
+      </section>
+    </div>
 
     <div v-if="pendingBulkDelete" class="bulk-delete-backdrop">
       <section class="bulk-delete-card" role="dialog" aria-modal="true">
@@ -164,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import GroupEditorModal from '@/components/supervisor/GroupEditorModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
@@ -172,7 +161,6 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import {
   addSupervisedGroupMembers,
   deleteSupervisedGroup,
-  fetchAvailableMentors,
   fetchSupervisedGroups,
   removeSupervisedGroupMembers,
   type AvailableMentor,
@@ -189,18 +177,45 @@ const groupLimit = GROUP_LIMIT
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const loading = ref(true)
-const error = ref('')
+const flashMessage = ref('')
+let flashTimer: ReturnType<typeof setTimeout> | null = null
 const students = ref<SupervisedStudent[]>([])
 const assignment = ref<Record<number, number | null>>({})
 const supervisedGroups = ref<SupervisedGroup[]>([])
-const mentors = ref<AvailableMentor[]>([])
 const editorGroup = ref<SupervisedGroup | null>(null)
-const editorMode = ref<'create' | 'edit'>('edit')
 const selectedGroupIds = ref<Set<number>>(new Set())
-const optionChoice = ref('')
 const pendingBulkDelete = ref(false)
+const pendingSchoolMove = ref<{
+  studentId: number
+  groupId: number
+  kind: 'inside' | 'outside'
+  message: string
+} | null>(null)
 const bulkBusy = ref(false)
 const moveBusy = ref(false)
+
+const clearFlash = () => {
+  if (flashTimer) {
+    clearTimeout(flashTimer)
+    flashTimer = null
+  }
+  flashMessage.value = ''
+}
+
+const showFlash = (message: string) => {
+  if (flashTimer) {
+    clearTimeout(flashTimer)
+    flashTimer = null
+  }
+  flashMessage.value = message
+  if (!message) return
+  flashTimer = setTimeout(() => {
+    flashMessage.value = ''
+    flashTimer = null
+  }, 5000)
+}
+
+onUnmounted(clearFlash)
 
 const studentChoices = computed<AvailableMentor[]>(() =>
   students.value.map((student) => ({
@@ -208,11 +223,50 @@ const studentChoices = computed<AvailableMentor[]>(() =>
     first_name: student.first_name,
     last_name: student.last_name,
     email: student.email,
+    group_id: student.group_id,
+    group_name: student.group_name,
+    school_name: student.school_name,
   })),
 )
 
 const studentName = (student: SupervisedStudent) =>
   fullName(student.first_name, student.last_name, student.email)
+
+const normalizeSchool = (value?: string | null) => (value || '').trim().toLowerCase()
+
+const listSchools = (schools: string[]) => {
+  if (schools.length <= 1) return schools[0] || 'another school'
+  if (schools.length === 2) return `${schools[0]} and ${schools[1]}`
+  return `${schools.slice(0, -1).join(', ')}, and ${schools[schools.length - 1]}`
+}
+
+const schoolsInGroup = (groupId: number, exceptStudentId?: number) => {
+  const seen = new Map<string, string>()
+  for (const student of students.value) {
+    if (assignment.value[student.id] !== groupId || student.id === exceptStudentId) continue
+    const label = student.school_name?.trim()
+    if (!label) continue
+    const key = label.toLowerCase()
+    if (!seen.has(key)) seen.set(key, label)
+  }
+  return [...seen.values()]
+}
+
+const schoolMovePrompt = (student: SupervisedStudent, groupId: number) => {
+  const studentSchool = student.school_name?.trim()
+  if (!studentSchool) return null
+  const destSchools = schoolsInGroup(groupId, student.id)
+  const groupName = supervisedGroups.value.find((group) => group.id === groupId)?.group_name || 'this group'
+  const name = studentName(student)
+  const isOutside =
+    destSchools.length > 0 &&
+    destSchools.some((school) => normalizeSchool(school) !== normalizeSchool(studentSchool))
+  if (!isOutside) return null
+  return {
+    kind: 'outside' as const,
+    message: `${name} is from ${studentSchool}. ${groupName} has students from ${listSchools(destSchools)}. Assigning them will match this student outside their school.`,
+  }
+}
 
 const waitingStudents = computed(() =>
   students.value.filter((student) => !assignment.value[student.id]),
@@ -233,22 +287,10 @@ const groups = computed(() => {
       return {
         id: owned.id,
         name: owned.group_name,
-        supervisorName: auth.displayName,
         students: members,
         sharedInterests,
       }
     })
-})
-
-const existingGroupNames = computed(() => {
-  const names = [
-    ...groups.value.map((group) => group.name),
-    ...supervisedGroups.value.map((group) => group.group_name),
-  ]
-  if (editorMode.value === 'edit' && editorGroup.value) {
-    return names.filter((name) => name !== editorGroup.value?.group_name)
-  }
-  return [...new Set(names)]
 })
 
 const allGroupsSelected = computed(
@@ -270,17 +312,6 @@ const toggleSelectAll = () => {
     ? new Set()
     : new Set(groups.value.map((group) => group.id))
 }
-
-const onGroupOption = (event: Event) => {
-  const value = (event.target as HTMLSelectElement).value
-  optionChoice.value = ''
-  if (value === 'select-all') selectedGroupIds.value = new Set(groups.value.map((group) => group.id))
-  if (value === 'clear-selection') selectedGroupIds.value = new Set()
-  if (value === 'delete-selected' && selectedGroupIds.value.size) pendingBulkDelete.value = true
-}
-
-const movableStudents = (groupId: number) =>
-  students.value.filter((student) => assignment.value[student.id] !== groupId)
 
 const applyOwnedGroup = (group: SupervisedGroup) => {
   const index = supervisedGroups.value.findIndex((item) => item.id === group.id)
@@ -317,18 +348,18 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
   if (groupId != null) {
     const dest = supervisedGroups.value.find((group) => group.id === groupId)
     if (!dest) {
-      error.value = 'You can only move students into groups you supervise.'
+      showFlash('You can only move students into groups you supervise.')
       return
     }
     const destCount = students.value.filter((student) => assignment.value[student.id] === groupId).length
     if (destCount >= GROUP_LIMIT) {
-      error.value = `This group already has ${GROUP_LIMIT} students.`
+      showFlash(`This group already has ${GROUP_LIMIT} students.`)
       return
     }
   }
 
   moveBusy.value = true
-  error.value = ''
+  clearFlash()
   const previous = fromGroupId
   assignment.value = { ...assignment.value, [studentId]: groupId }
   try {
@@ -342,7 +373,7 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
     setStudentGroup(studentId, groupId)
   } catch (moveError) {
     assignment.value = { ...assignment.value, [studentId]: previous }
-    error.value = moveError instanceof Error ? moveError.message : 'Student could not be moved.'
+    showFlash(moveError instanceof Error ? moveError.message : 'Student could not be moved.')
   } finally {
     moveBusy.value = false
   }
@@ -359,14 +390,22 @@ const onDropWaiting = (event: DragEvent) => {
 
 const onDrop = (event: DragEvent, groupId: number) => {
   const studentId = Number(event.dataTransfer?.getData('text/plain'))
-  if (Number.isFinite(studentId)) void moveStudent(studentId, groupId)
+  if (!Number.isFinite(studentId)) return
+  const student = students.value.find((item) => item.id === studentId)
+  if (!student) return
+  const prompt = schoolMovePrompt(student, groupId)
+  if (prompt) {
+    pendingSchoolMove.value = { studentId, groupId, ...prompt }
+    return
+  }
+  void moveStudent(studentId, groupId)
 }
 
-const onSelectMove = (event: Event, groupId: number) => {
-  const select = event.target as HTMLSelectElement
-  const studentId = Number(select.value)
-  if (studentId) void moveStudent(studentId, groupId)
-  select.value = ''
+const confirmSchoolMove = () => {
+  const pending = pendingSchoolMove.value
+  if (!pending) return
+  pendingSchoolMove.value = null
+  void moveStudent(pending.studentId, pending.groupId)
 }
 
 const syncAssignmentsFromGroup = (group: SupervisedGroup) => {
@@ -400,28 +439,14 @@ const onGroupUpdated = (group: SupervisedGroup) => {
     if (member.role === 'student') dropStudentFromOtherGroups(member.id, group.id)
   }
   applyOwnedGroup(group)
-  editorMode.value = 'edit'
-  editorGroup.value = group
 }
 
 const closeEditor = () => {
   editorGroup.value = null
-  editorMode.value = 'edit'
-}
-
-const editGroup = (groupId: number) => {
-  const found = supervisedGroups.value.find((group) => group.id === groupId)
-  if (!found) {
-    error.value = 'You can only edit groups you supervise.'
-    return
-  }
-  editorMode.value = 'edit'
-  editorGroup.value = found
 }
 
 const openCreateGroup = () => {
-  error.value = ''
-  editorMode.value = 'create'
+  clearFlash()
   editorGroup.value = {
     id: 0,
     group_name: 'New Group',
@@ -442,7 +467,7 @@ const openCreateGroup = () => {
 
 const deleteSelectedGroups = async () => {
   bulkBusy.value = true
-  error.value = ''
+  clearFlash()
   try {
     for (const groupId of [...selectedGroupIds.value]) {
       await deleteSupervisedGroup(groupId)
@@ -450,7 +475,7 @@ const deleteSelectedGroups = async () => {
     }
     pendingBulkDelete.value = false
   } catch (deleteError) {
-    error.value = deleteError instanceof Error ? deleteError.message : 'Selected groups could not be deleted.'
+    showFlash(deleteError instanceof Error ? deleteError.message : 'Selected groups could not be deleted.')
   } finally {
     bulkBusy.value = false
   }
@@ -458,24 +483,22 @@ const deleteSelectedGroups = async () => {
 
 onMounted(async () => {
   loading.value = true
-  error.value = ''
+  clearFlash()
   try {
-    const [roster, owned, mentorList] = await Promise.all([
+    const [roster, owned] = await Promise.all([
       fetchSupervisedStudents(buildSessionHeaders({ headers: { Accept: 'application/json' } })),
       fetchSupervisedGroups(),
-      fetchAvailableMentors(),
       groupsStore.load(true),
     ])
     students.value = roster
     supervisedGroups.value = owned
-    mentors.value = mentorList
     const next: Record<number, number | null> = {}
     for (const student of roster) {
       next[student.id] = student.group_id
     }
     assignment.value = next
   } catch (loadError) {
-    error.value = loadError instanceof Error ? loadError.message : 'Groups could not be loaded.'
+    showFlash(loadError instanceof Error ? loadError.message : 'Groups could not be loaded.')
   } finally {
     loading.value = false
   }
@@ -486,14 +509,32 @@ onMounted(async () => {
 .waiting-area,
 .group-card {
   background: var(--white);
-  border: 1px solid var(--border-light);
+  border: 1px solid #e0e0e0;
   border-radius: 10px;
-  box-shadow: 0 2px 4px var(--shadow);
 }
 
 .waiting-area {
+  position: relative;
   padding: 1.25rem 1.5rem;
   margin-bottom: 1.5rem;
+}
+
+.waiting-flash {
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 1.15rem;
+  z-index: 2;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #f0b4b0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--danger, #b42318);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
 }
 
 .waiting-area-header,
@@ -520,15 +561,25 @@ onMounted(async () => {
   margin: 0.45rem 0 0.85rem;
 }
 
+.group-id {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #6c757d;
+}
+
 .waiting-count,
 .group-count {
-  min-width: 2.5rem;
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
-  background: var(--accent-green-soft, #e7f3ea);
-  color: var(--dark-green);
+  background: #f0f0f0;
+  color: #333;
   font-weight: 700;
   text-align: center;
+  white-space: nowrap;
+}
+
+.group-count {
+  min-width: 2.5rem;
 }
 
 .waiting-bubbles {
@@ -537,13 +588,14 @@ onMounted(async () => {
   gap: 0.6rem;
 }
 
-.student-bubble,
-.student-row {
-  border: 1px solid var(--border-light);
-  background: #f7faf7;
-  border-radius: 8px;
-  padding: 0.45rem 0.75rem;
+.student-bubble {
+  border: 1px solid #d0d0d0;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
   cursor: grab;
+  color: #333;
+  font-size: 0.9rem;
 }
 
 .waiting-empty {
@@ -558,6 +610,7 @@ onMounted(async () => {
 
 .groups-board-toolbar,
 .groups-board-heading,
+.groups-board-toolbar-actions,
 .group-select-all,
 .group-card-title,
 .groups-bulk,
@@ -576,29 +629,58 @@ onMounted(async () => {
 .groups-board-heading,
 .group-select-all,
 .group-card-title,
-.groups-bulk {
+.groups-bulk,
+.groups-board-toolbar-actions {
   gap: 0.65rem;
 }
 
-.groups-board-toolbar h2,
-.groups-options {
+.groups-board-toolbar h2 {
   margin: 0;
   font-size: 1.2rem;
 }
 
-.groups-options {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: #6c757d;
-  font-size: 0.9rem;
+.group-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
 }
 
-.groups-options select {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--white);
+.group-check:checked {
+  background: var(--dark-green, #017151);
+  border-color: var(--dark-green, #017151);
+}
+
+.group-check:checked::after {
+  content: '✓';
+  color: #fff;
+  font-size: 0.75rem;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.group-check:indeterminate {
+  background: var(--dark-green, #017151);
+  border-color: var(--dark-green, #017151);
+}
+
+.group-check:indeterminate::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.55rem;
+  height: 2px;
+  background: #fff;
+  transform: translate(-50%, -50%);
 }
 
 .groups-bulk {
@@ -608,7 +690,7 @@ onMounted(async () => {
 }
 
 .group-card.selected {
-  outline: 2px solid var(--dark-green);
+  outline: 2px solid #333;
 }
 
 .group-card-actions {
@@ -620,7 +702,7 @@ onMounted(async () => {
 .bulk-delete-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1100;
   display: grid;
   place-items: center;
   padding: 1.5rem;
@@ -650,25 +732,29 @@ onMounted(async () => {
 
 .group-card h2 {
   font-size: 1.2rem;
+  color: var(--dark-green);
 }
 
 .group-card h3 {
-  margin: 1rem 0 0.5rem;
-  font-size: 0.95rem;
+  margin: 0.85rem 0 0.4rem;
+  font-size: 0.9rem;
+  color: #333;
+  font-weight: 600;
 }
 
 .interest-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  margin-top: 0.4rem;
 }
 
 .interest-tag {
-  padding: 0.2rem 0.55rem;
+  padding: 0.18rem 0.5rem;
   border-radius: 999px;
-  background: var(--accent-green-soft, #e7f3ea);
-  color: var(--dark-green);
-  font-size: 0.85rem;
+  background: #f0f0f0;
+  color: #333;
+  font-size: 0.82rem;
 }
 
 .student-rows {
@@ -677,48 +763,19 @@ onMounted(async () => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  min-height: 2.5rem;
 }
 
 .student-row {
   width: 100%;
   text-align: left;
-}
-
-.drop-zone {
-  margin-top: 1rem;
-  padding: 0.9rem;
-  border: 1px dashed var(--dark-green);
-  border-radius: 8px;
-  background: #f8fbf8;
-}
-
-.drop-zone p {
-  margin: 0;
-  font-weight: 600;
-}
-
-.drop-hint {
-  font-weight: 400 !important;
-  color: #6c757d;
-  margin: 0.25rem 0 0.75rem !important;
-}
-
-.drop-zone label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  color: #6c757d;
-  font-size: 0.9rem;
-}
-
-.drop-zone select {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-light);
+  border: 1px solid #e0e0e0;
+  background: #fafafa;
   border-radius: 6px;
-}
-
-.supervisor-error {
-  color: var(--danger, #b42318);
+  padding: 0.4rem 0.7rem;
+  cursor: grab;
+  color: #333;
+  font-size: 0.9rem;
 }
 </style>

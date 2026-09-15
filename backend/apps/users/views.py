@@ -30,6 +30,7 @@ from .serializers import (
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
     SupervisedStudentGuardianSerializer,
+    SupervisedStudentProfileUpdateSerializer,
     SupervisedStudentSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
@@ -398,6 +399,7 @@ class SupervisedStudentsView(APIView):
                 "parent_guardian_flag": profile.parent_guardian_flag,
                 "has_join_permission": profile.has_join_permission,
                 "joinperm_response_id": profile.joinperm_responseID or "",
+                "joinperm_granted_at": profile.joinperm_granted_at,
                 "group_id": None if group is None or group.deleted_at else group.id,
                 "group_name": None if group is None or group.deleted_at else group.group_name,
             })
@@ -447,6 +449,106 @@ class SupervisedStudentsView(APIView):
             )
 
         return self.get(request)
+
+
+def _supervised_student_row(profile):
+    interests = list(
+        UserInterest.objects.filter(user_id=profile.user_id)
+        .order_by("interest__interest_desc")
+        .values_list("interest__interest_desc", flat=True)
+    )
+    membership = (
+        GroupMembership.objects.filter(
+            user_id=profile.user_id,
+            left_at__isnull=True,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        .select_related("group")
+        .order_by("id")
+        .first()
+    )
+    group = membership.group if membership else None
+    return {
+        "id": profile.user_id,
+        "first_name": profile.user.first_name,
+        "last_name": profile.user.last_name,
+        "email": profile.user.email,
+        "school_name": profile.school_name or "",
+        "year_lvl": profile.year_lvl or "",
+        "interests": interests,
+        "pg_first_name": profile.pg_first_name or "",
+        "pg_last_name": profile.pg_last_name or "",
+        "pg_email": profile.pg_email or "",
+        "parent_guardian_flag": profile.parent_guardian_flag,
+        "has_join_permission": profile.has_join_permission,
+        "joinperm_response_id": profile.joinperm_responseID or "",
+        "joinperm_granted_at": profile.joinperm_granted_at,
+        "group_id": None if group is None or group.deleted_at else group.id,
+        "group_name": None if group is None or group.deleted_at else group.group_name,
+    }
+
+
+class SupervisedStudentDetailView(APIView):
+    """Update a supervised student profile after parent/guardian permission."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(
+        request=SupervisedStudentProfileUpdateSerializer,
+        responses={200: SupervisedStudentSerializer},
+    )
+    @transaction.atomic
+    def patch(self, request, pk):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        profile = (
+            StudentProfile.objects.select_related("user")
+            .filter(supervisor_id=request.user.id, user_id=pk)
+            .first()
+        )
+        if profile is None:
+            raise PermissionDenied("This student is not on your roster.")
+        if not profile.has_join_permission:
+            raise PermissionDenied(
+                "This student profile can be edited after parent/guardian permission is recorded."
+            )
+
+        serializer = SupervisedStudentProfileUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        user = profile.user
+        user.first_name = data["first_name"].strip()
+        user.last_name = data["last_name"].strip()
+        user.save(update_fields=["first_name", "last_name"])
+
+        profile.school_name = data["school_name"].strip()
+        profile.year_lvl = data["year_lvl"]
+        profile.save(update_fields=["school_name", "year_lvl"])
+
+        if "interests" in data:
+            descriptions = []
+            seen = set()
+            for item in data["interests"]:
+                label = str(item).strip()
+                key = label.lower()
+                if not label or key in seen:
+                    continue
+                seen.add(key)
+                descriptions.append(label)
+            UserInterest.objects.filter(user=user).delete()
+            for label in descriptions:
+                interest, _created = AreasOfInterest.objects.get_or_create(
+                    interest_desc__iexact=label,
+                    defaults={"interest_desc": label},
+                )
+                UserInterest.objects.create(user=user, interest=interest)
+
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
 
 
 class UserRegisterView(APIView):
@@ -612,6 +714,8 @@ class ReceiveJoinPermissionView(APIView):
 
         sp.has_join_permission = True
         sp.joinperm_responseID = databody["ResponseID"]
+        if sp.joinperm_granted_at is None:
+            sp.joinperm_granted_at = timezone.now()
         sp.save()
 
         return Response(data["body"])

@@ -10,7 +10,17 @@
     <p v-else-if="loading" class="supervisor-muted">Loading students...</p>
 
     <section v-for="section in sections" :key="section.id" class="supervisor-section">
-      <h2>{{ section.title }}</h2>
+      <div class="supervisor-section-head">
+        <h2>{{ section.title }}</h2>
+        <button
+          v-if="section.id === 'fullyRegistered' && section.rows.length"
+          type="button"
+          class="btn btn-outline btn-sm"
+          @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
+        >
+          Download all consent PDFs
+        </button>
+      </div>
       <SupervisorDataTable
         :columns="section.columns"
         :rows="section.rows"
@@ -73,6 +83,23 @@
         </div>
       </form>
     </div>
+
+    <div v-if="emailConfirm" class="supervisor-modal-backdrop" @click.self="closeEmailConfirm">
+      <section class="supervisor-modal" role="dialog" aria-modal="true" aria-labelledby="email-confirm-title">
+        <h3 id="email-confirm-title">Email parent/guardian?</h3>
+        <p>
+          Open your email app to contact
+          {{ emailConfirm.names.length === 1 ? emailConfirm.names[0] : `${emailConfirm.names.length} parents/guardians` }}?
+        </p>
+        <ul v-if="emailConfirm.names.length" class="email-confirm-list">
+          <li v-for="name in emailConfirm.names" :key="name">{{ name }}</li>
+        </ul>
+        <div class="supervisor-modal-actions">
+          <button type="button" class="btn btn-outline" @click="closeEmailConfirm">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="confirmEmailGuardians">Open email</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -104,6 +131,12 @@ const guardianSaving = ref(false)
 const guardianError = ref('')
 const guardianModal = ref<{ studentIds: number[] } | null>(null)
 const guardianForm = ref({ firstName: '', lastName: '', email: '' })
+const emailConfirm = ref<{
+  addresses: string[]
+  subject: string
+  body: string
+  names: string[]
+} | null>(null)
 
 const studentLink = (row: Record<string, unknown>) => ({
   name: 'student-summary',
@@ -130,6 +163,11 @@ const registeredColumns: SupervisorColumn[] = [
   { key: 'interests', label: 'Area(s) of Interest' },
 ]
 
+const fullyRegisteredColumns: SupervisorColumn[] = [
+  ...registeredColumns,
+  { key: 'permissionGiven', label: 'Permission' },
+]
+
 const pendingDetailsActions: SupervisorTableOption[] = [
   { value: 'email-students', label: 'Email student', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
@@ -142,7 +180,7 @@ const pendingPermissionActions: SupervisorTableOption[] = [
 ]
 
 const fullyRegisteredActions: SupervisorTableOption[] = [
-  { value: 'view-consent', label: 'Download consent PDFs' },
+  { value: 'view-consent-all', label: 'Download all consent PDFs' },
   { value: 'view-consent-selected', label: 'Download selected consent PDFs', needsSelection: true },
 ]
 
@@ -177,10 +215,10 @@ const sections = computed(() => [
     id: 'fullyRegistered' as const,
     title: 'Fully Registered with Parent/Guardian Permission',
     filename: 'fully-registered-students',
-    columns: registeredColumns,
+    columns: fullyRegisteredColumns,
     optionGroups: actionGroup(fullyRegisteredActions),
     rowActions: [{ value: 'view-consent', label: 'Download PDF' }],
-    bulkActions: [{ value: 'view-consent-selected', label: 'Download consent PDFs' }],
+    bulkActions: [{ value: 'view-consent-selected', label: 'Download selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
       .map(toStudentRow),
@@ -262,6 +300,16 @@ const closeGuardianModal = () => {
   guardianError.value = ''
 }
 
+const closeEmailConfirm = () => {
+  emailConfirm.value = null
+}
+
+const confirmEmailGuardians = () => {
+  if (!emailConfirm.value) return
+  openMailto(emailConfirm.value.addresses, emailConfirm.value.subject, emailConfirm.value.body)
+  closeEmailConfirm()
+}
+
 const submitGuardianDetails = async () => {
   if (!guardianModal.value) return
   guardianSaving.value = true
@@ -299,11 +347,17 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
   }
   if (value === 'email-guardians') {
     const addresses = uniqueEmails(rows, 'pgEmail')
-    openMailto(
-      addresses.length ? addresses : uniqueEmails(rows, 'email'),
-      'Parent/guardian permission needed',
-      inviteText(sectionId, rows),
-    )
+    const resolved = addresses.length ? addresses : uniqueEmails(rows, 'email')
+    if (!resolved.length) {
+      notice.value = 'No email addresses are available for the selected students.'
+      return
+    }
+    emailConfirm.value = {
+      addresses: resolved,
+      subject: 'Parent/guardian permission needed',
+      body: inviteText(sectionId, rows),
+      names: rows.map((row) => row.parentGuardian || row.student),
+    }
     return
   }
   if (value === 'copy-invite') {
@@ -314,9 +368,26 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     openGuardianModal(rows)
     return
   }
-  if (value === 'view-consent' || value === 'view-consent-selected') {
-    downloadConsentDocuments(rows)
-    notice.value = rows.length === 1 ? 'Downloaded guardian consent PDF.' : `Downloaded ${rows.length} consent PDFs.`
+  if (value === 'view-consent' || value === 'view-consent-selected' || value === 'view-consent-all') {
+    const source = value === 'view-consent-all'
+      ? asRows(sections.value.find((section) => section.id === 'fullyRegistered')?.rows || [])
+      : rows
+    if (!source.length) {
+      notice.value = 'No consent records are available to download.'
+      return
+    }
+    downloadConsentDocuments(source)
+      .then(() => {
+        error.value = ''
+        notice.value =
+          source.length === 1
+            ? 'Downloaded BIOTech Futures consent PDF.'
+            : `Downloaded ${source.length} BIOTech Futures consent PDFs.`
+      })
+      .catch(() => {
+        notice.value = ''
+        error.value = 'Consent PDF could not be generated.'
+      })
   }
 }
 
@@ -349,16 +420,36 @@ onMounted(loadStudents)
   margin-bottom: 2.25rem;
 }
 
-.supervisor-section h2 {
+.supervisor-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin: 0 0 0.85rem;
+}
+
+.supervisor-section h2 {
+  margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
+}
+
+.email-confirm-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #3d4a4a;
 }
 
 .supervisor-row-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.supervisor-row-actions .btn {
+  min-width: 5.5rem;
+  text-align: center;
+  justify-content: center;
 }
 
 .supervisor-modal-backdrop {

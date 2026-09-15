@@ -20,6 +20,11 @@ export function createColumns({
 }: ColumnsOptions = {}): ColumnDef<Group>[] {
   return [
     {
+      accessorKey: "id",
+      header: "Group ID",
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.id}</span>,
+    },
+    {
       accessorKey: "name",
       header: "Group Name",
       cell: ({ row }) => {
