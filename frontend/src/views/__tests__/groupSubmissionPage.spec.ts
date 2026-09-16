@@ -233,6 +233,23 @@ describe('submitting', () => {
     expect(submitEntry).not.toHaveBeenCalled()
   })
 
+  it('clears an error banner by itself after four seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      await mountPage(buildDetail({ submission: { answers: {}, poster: POSTER } }))
+      await goToLastStep()
+      await buttonNamed(/^Submit$/)!.trigger('click')
+      await flushPromises()
+      expect(wrapper!.find('.submission-message').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4000)
+
+      expect(wrapper!.find('.submission-message').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sends the student to the first unanswered question, not merely back a step', async () => {
     await mountPage(
       buildDetail({

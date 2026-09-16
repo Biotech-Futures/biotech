@@ -190,7 +190,8 @@ def _structural_checks(reader) -> list[PosterCheck]:
             A_SERIES_SIZE,
             size is not None,
             "" if size else (
-                "The poster should be an A-series size, such as A2 or A3. "
+                # A2 is still what is expected; other A sizes are only tolerated.
+                "The poster should be A2 size. "
                 f"This file is {round(width / POINTS_PER_MM)} × "
                 f"{round(height / POINTS_PER_MM)} mm."
             ),

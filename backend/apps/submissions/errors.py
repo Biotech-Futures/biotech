@@ -61,8 +61,6 @@ class PosterFormatRejected(APIException):
 
     def __init__(self, problems):
         super().__init__()
-        # Named individually: there are at most three and each says what to
-        # change, where "wrong format" alone would leave them guessing.
         self.extra = {"problems": list(problems)}
 
 

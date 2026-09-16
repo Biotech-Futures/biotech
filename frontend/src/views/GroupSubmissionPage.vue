@@ -858,9 +858,7 @@ function setMessage(text: string, error = false) {
   message.value = text
   isError.value = error
 
-  // Confirmations are noise once read, so they clear themselves. Errors stay
-  // until dismissed — the student needs to act on them.
-  if (text && !error) {
+  if (text) {
     messageTimer = setTimeout(() => {
       message.value = ''
       messageTimer = null

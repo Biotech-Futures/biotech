@@ -93,8 +93,17 @@ class PosterFormatUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         problems = " ".join(response.data["problems"])
-        self.assertIn("A-series", problems)
+        self.assertIn("A2", problems)
         self.assertIn("216 × 279 mm", problems)
+
+    def test_only_the_first_problem_is_named(self):
+        # Two pages, landscape and US Letter all at once.
+        response = self._upload(_upload_file(US_LETTER[1], US_LETTER[0], pages=2))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["problems"], ["The poster should be a single page. This file has 2."]
+        )
 
     def test_a_multi_page_pdf_is_refused(self):
         response = self._upload(_upload_file(*A2, pages=2))

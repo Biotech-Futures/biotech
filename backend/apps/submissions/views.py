@@ -210,7 +210,8 @@ class GroupSubmissionFileView(APIView):
             if checks.blocking:
                 # Only findings a student can verify are named; the rest
                 # become one general instruction.
-                raise PosterFormatRejected(student_facing_problems(checks.blocking))
+                # One at a time, so several problems never read as one paragraph.
+                raise PosterFormatRejected(student_facing_problems(checks.blocking)[:1])
             poster_flag = checks.as_flag()
 
         submission, _ = Submission.objects.get_or_create(group=group)
