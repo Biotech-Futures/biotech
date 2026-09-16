@@ -1,10 +1,4 @@
-"""The poster format checks as the upload endpoint applies them.
-
-The checks themselves are covered in ``test_poster_checks``. What is tested
-here is the wiring: that a wrongly-shaped poster is refused with something a
-student can act on, that a correct one is stored along with what was found, and
-that the finding travels with the entry when it is submitted.
-"""
+"""The poster format checks as applied by the upload endpoint."""
 from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -39,8 +33,7 @@ class PosterFormatUploadTests(TestCase):
         self.addCleanup(reset_managed_storage_caches)
 
         role = Roles.objects.create(role_name="student")
-        # The group name is the team code the poster is expected to carry, so
-        # it has to look like a real one rather than a description.
+        # The group name is the team code the poster is checked for.
         self.group = Groups.objects.create(group_name="BTF7")
         self.student = User.objects.create_user(
             email="poster@test.local", password="testUser@123",
@@ -72,7 +65,6 @@ class PosterFormatUploadTests(TestCase):
     def _submission(self):
         return Submission.objects.get(group=self.group)
 
-    # ------------------------------------------------------------- refusing
     def test_a_landscape_poster_is_refused_and_not_stored(self):
         response = self._upload(_upload_file(A2[1], A2[0]))
 
@@ -81,8 +73,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
     def test_a_landscape_poster_is_told_plainly_that_it_is_landscape(self):
-        # Orientation is obvious on sight, so saying so is reporting a fact
-        # back rather than making a judgement the student cannot check.
         problems = " ".join(self._upload(_upload_file(A2[1], A2[0])).data["problems"])
 
         self.assertIn("portrait", problems.lower())
@@ -111,7 +101,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("single page", " ".join(response.data["problems"]).lower())
 
-    # ------------------------------------------------------------ accepting
     def test_an_a2_poster_is_accepted(self):
         response = self._upload(_upload_file(*A2, text="BTF7 a@b.edu.au"))
 
@@ -131,7 +120,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertTrue(flag["has_text"])
 
     def test_a_poster_missing_its_team_code_is_accepted_but_flagged(self):
-        # The whole point of the soft half: it goes through, and says so.
         response = self._upload(_upload_file(*A2, text="a@b.edu.au only"))
 
         self.assertEqual(response.status_code, 200)
@@ -156,7 +144,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(self._submission().poster_checks["unreadable"])
 
-    # -------------------------------------------------------- staying in step
     def test_replacing_the_poster_replaces_what_was_found_about_it(self):
         self._upload(_upload_file(*A2, text="nothing useful"))
         self.assertTrue(self._submission().poster_checks["warnings"])
@@ -197,8 +184,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(codes, {SUPERVISOR_EMAIL})
 
     def test_the_recorded_finding_keeps_the_detail_the_student_is_spared(self):
-        # The audiences differ on purpose: the student is pointed at the
-        # template, a reviewer still sees which check failed.
         self._upload(_upload_file(*A2, text="no code here"))
 
         warnings = self._submission().poster_checks["warnings"]
@@ -213,10 +198,7 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("cohort", payload["submission"])
         self.assertIsInstance(payload["submission"]["cohort"], int)
 
-    # -------------------------------------------------- the check switched off
     def test_a_landscape_poster_is_accepted_when_the_check_is_off(self):
-        # Landscape is refused outright while the check is on, so this proves
-        # the switch lets a real poster through rather than merely not raising.
         with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
             response = self._upload(_upload_file(A2[1], A2[0]))
 
@@ -230,8 +212,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_nothing_is_recorded_when_the_check_is_off(self):
-        # Not an empty finding, which a marker would read as "inspected and
-        # clean". Nothing at all, which reads as "not inspected".
         with override_settings(SUBMISSION_POSTER_CHECKS_ENABLED=False):
             self._upload(_upload_file(*A2, text="no code here"))
 
@@ -246,8 +226,6 @@ class PosterFormatUploadTests(TestCase):
         self.assertIsNone(payload["submission"]["poster_checks"])
 
     def test_the_check_is_on_unless_it_is_switched_off(self):
-        # The setting defaults on, so an environment that never mentions it
-        # keeps enforcing the format the client asked for.
         response = self._upload(_upload_file(A2[1], A2[0]))
 
         self.assertEqual(response.status_code, 400)

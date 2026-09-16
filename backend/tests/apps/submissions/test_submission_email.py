@@ -1,10 +1,4 @@
-"""Tests for the submission confirmation email.
-
-The email is the only record a team gets of what the platform actually
-received, so the statuses it reports have to match the stored submission
-exactly — a "Submitted" against a component that never arrived would be worse
-than sending nothing.
-"""
+"""Tests for the submission confirmation email."""
 from datetime import timedelta
 
 from django.core import mail
@@ -77,7 +71,6 @@ class SubmissionEmailTests(TestCase):
         submission.save()
         return self.client.post(self.submit_url, {}, format="json")
 
-    # ------------------------------------------------------------ recipients
     def test_mentors_and_supervisors_are_emailed_like_students(self):
         self.assertEqual(
             recipients_for(self.group),
@@ -88,8 +81,6 @@ class SubmissionEmailTests(TestCase):
         )
 
     def test_everyone_on_the_team_is_emailed(self):
-        # One each rather than one listing the team: a server rejects a message,
-        # not a recipient, so one bad address would cost everyone their copy.
         self._complete_and_submit()
 
         self.assertCountEqual(
@@ -114,7 +105,6 @@ class SubmissionEmailTests(TestCase):
         self.assertEqual(len({message.body for message in mail.outbox}), 1)
         self.assertEqual(len({message.subject for message in mail.outbox}), 1)
 
-    # -------------------------------------------------------------- contents
     def test_sent_on_submit_with_the_group_in_the_subject(self):
         self._complete_and_submit()
 
@@ -128,7 +118,6 @@ class SubmissionEmailTests(TestCase):
         self.assertIn("Poster", body)
         self.assertIn("Short Answer Questions (SAQs)", body)
         self.assertIn("Submitted", body)
-        # The "not yet complete" warning would undermine a valid confirmation.
         self.assertNotIn("Your submission is not yet complete", body)
 
     def test_missing_optional_components_are_marked_not_submitted(self):
@@ -139,8 +128,6 @@ class SubmissionEmailTests(TestCase):
         self.assertIn("Not Submitted", body)
 
     def test_statuses_describe_the_submitted_copy_not_the_draft(self):
-        # A team that reopens and edits must not receive an email implying the
-        # edits were recorded; only a completed submission changes the record.
         self._complete_and_submit()
         mail.outbox.clear()
 
@@ -168,10 +155,7 @@ class SubmissionEmailTests(TestCase):
         prototype = next(item for item in optional if item["label"] == "Prototype")
         self.assertEqual(prototype["status"], "Submitted")
 
-    # --------------------------------------------------------------- failure
     def test_a_failed_send_does_not_fail_the_submission(self):
-        # The submission is already saved by this point; losing the email is a
-        # far better outcome than telling a team their entry did not go through.
         with self.settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"):
             from unittest.mock import patch
 

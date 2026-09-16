@@ -1,8 +1,5 @@
 {% extends "emails/base.html" %}
-{% comment %}
-Required and optional are swapped from the client's copy, which contradicted
-their own confirmation email and the database. Keep in step with the .txt.
-{% endcomment %}
+{# Keep the wording in step with submission_reminder.txt. #}
 
 {% block title %}{{ BRAND_NAME }}: Submission reminder for {{ GROUP_NAME }}{% endblock %}
 

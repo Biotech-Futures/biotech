@@ -6,11 +6,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Behaviour tests for the section switcher: who is offered the tab, that host
-// content is hidden not destroyed, and where the tab lands.
 
-// Stubbed: these specs are about whether the portal is mounted, not what it
-// renders. `__esModule` is required or defineAsyncComponent will not unwrap it.
+// `__esModule` is required or defineAsyncComponent will not unwrap the mock.
 vi.mock('@/views/GroupSubmissionPage.vue', () => ({
   __esModule: true,
   default: { name: 'GroupSubmissionPageStub', template: '<div data-testid="portal-stub" />' },
@@ -27,8 +24,7 @@ const Host = {
   `,
 }
 
-// Mirrors the real records, including the redirect that keeps already-delivered
-// email links working.
+// Includes the redirect that keeps links in sent emails working.
 const ROUTES: RouteRecordRaw[] = [
   { path: '/groups/:id', name: 'group-detail', component: Host },
   { path: '/groups/:id/submission', name: 'group-submission', component: Host },
@@ -53,15 +49,12 @@ const mountAt = async (path: string, role: string | null = null) => {
 }
 
 describe('the real route table', () => {
-  // Read as text, not imported: importing the table pulls every view into the
-  // Vitest TS project, where Node's types break two unrelated pages.
+  // Read as text: importing the table would pull every view into the Vitest TS project.
   const source = readFileSync(resolve(process.cwd(), 'src/router/routes.ts'), 'utf8')
   const records = [...source.matchAll(/path:\s*'([^']*)',\s*name:\s*'([^']+)'/g)]
   const names = records.map(([, , name]) => name)
 
   it('found the route records it means to check', () => {
-    // Guards the regex above: a reformatted table fails loudly here rather than
-    // leaving the checks below passing over an empty list.
     expect(names.length).toBeGreaterThanOrEqual(15)
   })
 
@@ -78,8 +71,7 @@ describe('the real route table', () => {
   })
 
   it('still answers the old path the emails link to', () => {
-    // Both emails send students to '/#/submission/{group.id}', and reminders
-    // already delivered cannot be changed.
+    // Emails already sent link to /#/submission/{id}.
     expect(source).toMatch(/path:\s*'\/submission\/:id'/)
     expect(source).toMatch(/\/groups\/\$\{to\.params\.id\}\/submission/)
   })
@@ -100,7 +92,6 @@ describe('who is offered the Submission tab', () => {
   })
 
   it('hides the whole strip from an admin', async () => {
-    // Admins review entries through grading; the group page stays as it was.
     const { wrapper } = await mountAt('/groups/1', 'admin')
 
     expect(wrapper.find('nav.group-sections').exists()).toBe(false)
@@ -124,15 +115,12 @@ describe('switching between the sections', () => {
   })
 
   it('hides the host content rather than destroying it', async () => {
-    // The group page keeps live task and chat state. A v-if here would tear it
-    // down and rebuild it on every tab press.
     const { wrapper } = await mountAt('/groups/1/submission', 'student')
 
     expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
   })
 
   it('keeps the portal mounted after leaving, so returning does not refetch', async () => {
-    // It used to be rebuilt on every return, refetching the entry.
     const { wrapper } = await mountAt('/groups/1/submission', 'student')
     expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
 
@@ -144,8 +132,6 @@ describe('switching between the sections', () => {
   })
 
   it('lands on the group page route', async () => {
-    // The regression this pins: this route once shared its name with the old
-    // standalone portal route, and the second registration deleted the first.
     const { wrapper, router } = await mountAt('/groups/1', 'student')
 
     await wrapper.find('[data-testid="section-tab-submission"]').trigger('click')

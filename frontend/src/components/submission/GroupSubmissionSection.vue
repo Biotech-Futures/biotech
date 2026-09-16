@@ -1,6 +1,4 @@
 <template>
-  <!-- Only when there is a choice: the server refuses mentors and supervisors, so
-       a tab would lead somewhere they cannot go. -->
   <nav v-if="canSeeSubmission" class="group-sections" aria-label="Group sections">
     <button
       type="button"
@@ -24,8 +22,7 @@
     </button>
   </nav>
 
-  <!-- Hidden, not destroyed: the group page keeps live task and chat state that a
-       v-if would tear down on every tab change. -->
+  <!-- Hidden rather than destroyed, so live task and chat state survives tab changes. -->
   <div
     class="group-section-slot"
     :class="{ 'is-hidden': section !== 'tasks' }"
@@ -50,8 +47,7 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Must stay unique across the route table: vue-router does not warn on a
-// duplicate name, it deletes the earlier record.
+// vue-router silently replaces a route that reuses this name, so keep it unique.
 const SUBMISSION_ROUTE = 'group-submission'
 
 const GroupSubmissionPage = defineAsyncComponent(
@@ -66,7 +62,6 @@ const canSeeSubmission = computed(() => auth.isStudent || auth.isMentor || auth.
 
 const groupId = computed(() => String(route.params.id ?? ''))
 
-/** Which section is showing, from the route so a refresh holds its place. */
 const section = computed(() =>
   route.name === SUBMISSION_ROUTE && canSeeSubmission.value ? 'submission' : 'tasks',
 )
@@ -95,8 +90,6 @@ function goToSection(next: 'tasks' | 'submission') {
   border-bottom: 1px solid var(--border-light);
 }
 
-/* Deliberately the same shape as the group page's own .tab-btn, but its own
-   class: that one is a mobile-only control and these are shown at every width. */
 .group-section-btn {
   background: transparent;
   border: none;
@@ -112,8 +105,7 @@ function goToSection(next: 'tasks' | 'submission') {
   border-bottom-color: var(--dark-green);
 }
 
-/* `contents` keeps the page's panes as direct flex children of .group-detail;
-   a real box would break .split's `flex: 1 1 auto` sizing. */
+/* Keeps the page's panes as direct flex children of .group-detail. */
 .group-section-slot {
   display: contents;
 }
@@ -122,8 +114,7 @@ function goToSection(next: 'tasks' | 'submission') {
   display: none;
 }
 
-/* .group-detail is a fixed height with overflow hidden on desktop, so this long
-   form has to do its own scrolling. */
+/* .group-detail hides overflow on desktop, so the form scrolls itself. */
 .group-section-body {
   flex: 1 1 auto;
   min-height: 0;

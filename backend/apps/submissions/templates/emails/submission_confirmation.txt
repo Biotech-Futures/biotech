@@ -1,7 +1,4 @@
-{% comment %}
-Written as text, not derived with strip_tags: that leaks the base's <style>
-block into the body. Keep in step with submission_confirmation.html.
-{% endcomment %}Hi Group {{ GROUP_NAME }},
+{# Keep the wording in step with submission_confirmation.html. #}Hi Group {{ GROUP_NAME }},
 
 THANK YOU FOR SUBMITTING YOUR WORK
 

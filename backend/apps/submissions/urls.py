@@ -10,11 +10,9 @@ from .views import (
     SendSubmissionRemindersView,
 )
 
-# Mounted at /api/v1/submissions/ only. No legacy unprefixed alias: nothing
-# predates this feature, so there are no existing clients to keep working.
+# Mounted at /api/v1/submissions/.
 urlpatterns = [
-    # Called by a scheduler, not a person: it authenticates with a shared
-    # secret rather than a session.
+    # Called by a scheduler with a shared token rather than a session.
     path(
         "admin/send-reminders/",
         SendSubmissionRemindersView.as_view(),
@@ -35,7 +33,7 @@ urlpatterns = [
         GroupSubmissionReopenView.as_view(),
         name="group-submission-reopen",
     ),
-    # ``slot`` is one of poster / report / prototype; the view 404s anything else.
+    # slot is poster, report or prototype.
     path(
         "groups/<int:group_id>/files/<str:slot>/",
         GroupSubmissionFileView.as_view(),
@@ -46,8 +44,7 @@ urlpatterns = [
         GroupSubmissionFileDownloadView.as_view(),
         name="group-submission-file-download",
     ),
-    # Poster and report only — see GroupSubmissionFilePreviewView for why the
-    # prototype slot is deliberately excluded.
+    # Poster and report only.
     path(
         "groups/<int:group_id>/files/<str:slot>/preview/",
         GroupSubmissionFilePreviewView.as_view(),

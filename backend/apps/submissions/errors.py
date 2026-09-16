@@ -1,11 +1,4 @@
-"""Submission-specific API errors.
-
-Follows the shape used in ``config/errors.py`` (a ``default_detail`` plus a
-stable machine-readable ``default_code``) but stays app-local, so adding the
-submission feature does not require editing a shared module. Errors that
-already exist centrally — notably ``GroupAccessDenied`` — are reused rather
-than duplicated here.
-"""
+"""Submission API errors, in the same shape as ``config/errors.py``."""
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
@@ -49,8 +42,6 @@ class RequiredAnswersMissing(APIException):
 
     def __init__(self, prompts):
         super().__init__()
-        # Naming the questions lets the page point at them rather than making
-        # the student hunt for which one is blank.
         self.extra = {"missing": list(prompts)}
 
 
