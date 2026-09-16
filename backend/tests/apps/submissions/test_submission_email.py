@@ -78,23 +78,26 @@ class SubmissionEmailTests(TestCase):
         return self.client.post(self.submit_url, {}, format="json")
 
     # ------------------------------------------------------------ recipients
-    def test_only_students_are_emailed(self):
-        # Mentors and supervisors have no part in submissions, so they do not
-        # receive a copy of the team's entry summary either.
+    def test_mentors_and_supervisors_are_emailed_like_students(self):
         self.assertEqual(
             recipients_for(self.group),
-            ["student1@test.local", "student2@test.local"],
+            [
+                "mentor@test.local", "student1@test.local",
+                "student2@test.local", "supervisor@test.local",
+            ],
         )
 
-    def test_every_student_on_the_team_is_emailed(self):
+    def test_everyone_on_the_team_is_emailed(self):
         # One each rather than one listing the team: a server rejects a message,
         # not a recipient, so one bad address would cost everyone their copy.
         self._complete_and_submit()
 
-        self.assertEqual(len(mail.outbox), 2)
         self.assertCountEqual(
             [message.to[0] for message in mail.outbox],
-            ["student1@test.local", "student2@test.local"],
+            [
+                "mentor@test.local", "student1@test.local",
+                "student2@test.local", "supervisor@test.local",
+            ],
         )
 
     def test_no_student_can_see_a_teammates_address(self):

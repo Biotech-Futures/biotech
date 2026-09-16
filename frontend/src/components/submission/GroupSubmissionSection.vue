@@ -62,7 +62,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const canSeeSubmission = computed(() => auth.isStudent)
+const canSeeSubmission = computed(() => auth.isStudent || auth.isMentor || auth.isSupervisor)
 
 const groupId = computed(() => String(route.params.id ?? ''))
 

@@ -86,30 +86,25 @@ describe('the real route table', () => {
 })
 
 describe('who is offered the Submission tab', () => {
-  it('offers it to a student', async () => {
-    const { wrapper } = await mountAt('/groups/1', 'student')
+  it.each(['student', 'mentor', 'supervisor'])('offers it to a %s', async (role) => {
+    const { wrapper } = await mountAt('/groups/1', role)
 
     expect(wrapper.find('[data-testid="section-tab-tasks"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="section-tab-submission"]').exists()).toBe(true)
   })
 
-  it.each(['mentor', 'supervisor'])('hides the whole strip from a %s', async (role) => {
-    // The server refuses them, so nothing leaks. A visible tab that 403s is a dead
-    // end, and for these roles the page should look as it did before.
-    const { wrapper } = await mountAt('/groups/1', role)
+  it.each(['mentor', 'supervisor'])('opens the portal for a %s on the submission URL', async (role) => {
+    const { wrapper } = await mountAt('/groups/1/submission', role)
 
-    expect(wrapper.find('[data-testid="section-tab-submission"]').exists()).toBe(false)
-    expect(wrapper.find('nav.group-sections').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
   })
 
-  it('shows a mentor the tasks view even on the submission URL', async () => {
-    // Typed by hand, or followed from a student's link. Falling back to tasks
-    // is friendlier than rendering an empty page.
-    const { wrapper } = await mountAt('/groups/1/submission', 'mentor')
+  it('hides the whole strip from an admin', async () => {
+    // Admins review entries through grading; the group page stays as it was.
+    const { wrapper } = await mountAt('/groups/1', 'admin')
 
-    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="section-body-tasks"]').classes()).not.toContain('is-hidden')
+    expect(wrapper.find('nav.group-sections').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
   })
 })
 

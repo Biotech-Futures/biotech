@@ -162,9 +162,12 @@ class SubmissionApiTests(TestCase):
 
         self.student = _make_user("student@test.local", "student", self.roles)
         self.mentor = _make_user("mentor@test.local", "mentor", self.roles)
+        self.supervisor = _make_user("supervisor@test.local", "supervisor", self.roles)
         self.outsider = _make_user("outsider@test.local", "student", self.roles)
 
-        for user, role in ((self.student, "student"), (self.mentor, "mentor")):
+        for user, role in (
+            (self.student, "student"), (self.mentor, "mentor"), (self.supervisor, "supervisor"),
+        ):
             GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
 
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=1), is_active=True)
@@ -221,13 +224,18 @@ class SubmissionApiTests(TestCase):
         response = self._client_for(self.outsider).get(self.detail_url)
         self.assertEqual(response.status_code, 403)
 
-    def test_mentor_may_not_read(self):
-        # Mentors guide the group's work but have no part in assessment, so a
-        # team's entry is not theirs to see — even though they are members.
-        response = self._client_for(self.mentor).get(self.detail_url)
+    def test_mentor_and_supervisor_on_the_team_may_read(self):
+        # The client asked for the same access as students.
+        for member in (self.mentor, self.supervisor):
+            with self.subTest(member=member.email):
+                response = self._client_for(member).get(self.detail_url)
+                self.assertEqual(response.status_code, 200)
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.data["code"], "student_role_required")
+    def test_mentor_not_on_the_team_is_refused(self):
+        other = Groups.objects.create(group_name="BTF-ELSEWHERE")
+        url = reverse("group-submission", kwargs={"group_id": other.id})
+
+        self.assertEqual(self._client_for(self.mentor).get(url).status_code, 403)
 
     # ---------------------------------------------------------------- writing
     def test_student_saves_a_draft(self):
@@ -254,11 +262,22 @@ class SubmissionApiTests(TestCase):
         submission = Submission.objects.get(group=self.group)
         self.assertEqual(submission.answers, {self.first_key: "Kept"})
 
-    def test_mentor_may_not_write(self):
-        response = self._client_for(self.mentor).put(
-            self.detail_url, {"answers": {self.first_key: "x"}}, format="json"
-        )
-        self.assertEqual(response.status_code, 403)
+    def test_mentor_and_supervisor_on_the_team_may_write(self):
+        for member in (self.mentor, self.supervisor):
+            with self.subTest(member=member.email):
+                response = self._client_for(member).put(
+                    self.detail_url, {"answers": {self.first_key: member.email}}, format="json"
+                )
+                self.assertEqual(response.status_code, 200)
+
+    def test_supervisor_on_the_team_may_submit(self):
+        self._answer_everything()
+        self._attach_poster()
+
+        response = self._client_for(self.supervisor).post(self.submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Submission.objects.get(group=self.group).submitted_by, self.supervisor)
 
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(

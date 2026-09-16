@@ -13,7 +13,6 @@ from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from apps.common.role_names import ROLE_STUDENT
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import attach_inline_logo, brand_context
 from apps.services.mailer import send_async
@@ -90,26 +89,20 @@ def build_components(submission: Submission) -> tuple[list[dict], list[dict]]:
 
 
 def recipients_for(group) -> list[str]:
-    """Every student on the team.
+    """Every member of the team: students, mentors and supervisors alike.
 
-    Mentors and supervisors are excluded: the client confirmed submissions are
-    none of their business. Inactive accounts are excluded deliberately too —
-    an unvalidated address is one the programme should not write to.
+    Inactive accounts are excluded deliberately: an unvalidated address is one
+    the programme should not write to.
     """
     memberships = (
         GroupMembership.objects.filter(group=group, left_at__isnull=True)
         .select_related("user")
     )
-    emails = []
-    for membership in memberships:
-        user = membership.user
-        if not user or not user.email or not user.is_active:
-            continue
-        # Blank on older rows, so fall back to the user's actual role.
-        from apps.common.rbac import user_has_role
-
-        if membership.membership_role == ROLE_STUDENT or user_has_role(user, ROLE_STUDENT):
-            emails.append(user.email)
+    emails = [
+        membership.user.email
+        for membership in memberships
+        if membership.user and membership.user.email and membership.user.is_active
+    ]
     return sorted(set(emails))
 
 

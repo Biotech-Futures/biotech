@@ -13,8 +13,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.rbac import group_participant_qs, is_admin, user_has_role
-from apps.common.role_names import ROLE_STUDENT
+from apps.common.rbac import group_participant_qs, is_admin
 from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
@@ -27,7 +26,6 @@ from .errors import (
     PosterFormatRejected,
     PosterRequired,
     RequiredAnswersMissing,
-    StudentRoleRequired,
     SubmissionLocked,
     SubmissionsClosed,
     SubmissionsNotConfigured,
@@ -57,11 +55,10 @@ def _get_group(group_id: int) -> Groups:
 
 
 def _require_can_view(user, group_id: int) -> None:
-    """Students on the team can read it; so can admins, for oversight.
+    """Any member of the team can read it; so can admins, for oversight.
 
-    Mentors and supervisors are excluded although they are group members:
-    neither is involved in assessment. Enforced here because the page is
-    reachable by URL, so hiding the nav entry would not be enough.
+    Students, mentors and supervisors alike: the client asked for the same
+    access for all three. Enforced here because the page is reachable by URL.
 
     Staff and superusers pass alongside AdminScope admins so the definition
     matches grading's ``IsGrader``: anyone who can mark an entry can read the
@@ -71,20 +68,16 @@ def _require_can_view(user, group_id: int) -> None:
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
-    if not user_has_role(user, ROLE_STUDENT):
-        raise StudentRoleRequired()
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Editing is limited to students on the team.
+    """Editing is limited to members of the team.
 
     Admins can view an entry but not author it, so a submission always reflects
-    what the team wrote. If mentors are ever allowed to submit, change it here.
+    what the team wrote.
     """
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
-    if not user_has_role(user, ROLE_STUDENT):
-        raise StudentRoleRequired()
 
 
 def _require_unlocked(submission) -> None:

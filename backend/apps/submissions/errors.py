@@ -22,12 +22,6 @@ class SubmissionsNotConfigured(APIException):
     default_code = "submissions_not_configured"
 
 
-class StudentRoleRequired(APIException):
-    status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Only students in this team can edit its submission."
-    default_code = "student_role_required"
-
-
 class SubmissionLocked(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
