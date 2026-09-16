@@ -5,6 +5,8 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -321,6 +323,8 @@ class GroupSubmissionFilePreviewView(APIView):
     session. Making it a property of the URL keeps that boundary explicit.
     """
 
+    # The page embeds this in a frame, which DENY would block when served locally.
+    @method_decorator(xframe_options_exempt)
     def get(self, request, group_id: int, slot: str):
         if slot not in PDF_SLOTS:
             raise Http404(f"'{slot}' cannot be previewed in the browser.")

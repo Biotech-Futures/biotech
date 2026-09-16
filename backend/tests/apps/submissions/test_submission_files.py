@@ -211,6 +211,13 @@ class SubmissionFileTests(TestCase):
         # "inline" is what makes the browser display it rather than download it.
         self.assertIn("inline", response.headers.get("Content-Disposition", ""))
 
+    def test_preview_can_be_shown_in_a_frame(self):
+        self._upload("poster", _pdf_upload())
+
+        response = self.client.get(self._preview_url("poster"))
+
+        self.assertNotIn("X-Frame-Options", response.headers)
+
     def test_download_still_forces_a_download(self):
         self._upload("poster", _pdf_upload())
         url = reverse(
