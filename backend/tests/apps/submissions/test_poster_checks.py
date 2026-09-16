@@ -4,13 +4,15 @@ The PDFs here are built by hand rather than fetched, so each test states the
 one property it is about — a page size, a rotation, an image, a line of text —
 and nothing else varies between them.
 
-The sizes are real. 643 x 915 points is the exact size of the programme's own
-PowerPoint file. Page size is no longer checked at all, so these sizes now
-serve to prove that none of them is refused.
+The sizes are real. 643 x 915 points is the exact size of the programme's 2026
+PowerPoint template, which is not an A-series size and so is refused.
 """
 from django.test import SimpleTestCase
 
 from apps.submissions.poster_checks import (
+    A_SERIES_MM,
+    A_SERIES_SIZE,
+    POINTS_PER_MM,
     PORTRAIT,
     SCHOOL_LOGO,
     SINGLE_PAGE,
@@ -21,10 +23,15 @@ from apps.submissions.poster_checks import (
 
 
 # Points, at 72 to the inch.
-A2 = (1190.55, 1683.78)          # 420mm x 594mm — what the programme asks for
-INSTRUCTION_DECK = (643.0, 915.0)  # the programme's PowerPoint file
-A4 = (595.28, 841.89)            # 210mm x 297mm — right shape, wrong size
-US_LETTER = (612.0, 792.0)       # the nearest wrong shape by accident
+A2 = (1190.55, 1683.78)          # 420mm x 594mm
+INSTRUCTION_DECK = (643.0, 915.0)  # the programme's 2026 template, 227mm x 323mm
+A4 = (595.28, 841.89)            # 210mm x 297mm
+US_LETTER = (612.0, 792.0)       # 216mm x 279mm
+POSTER_18_BY_24 = (1296.0, 1728.0)  # 18in x 24in, two of last year's posters
+
+
+def _mm(short, long):
+    return (short * POINTS_PER_MM, long * POINTS_PER_MM)
 
 
 def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
@@ -138,19 +145,35 @@ class PosterShapeTests(SimpleTestCase):
     def test_a2_is_accepted(self):
         self.assertEqual(_check(_build_pdf(*A2)).blocking, [])
 
-    def test_any_portrait_page_size_is_accepted(self):
-        # The client confirmed the A2 requirement is not strict. A4, US Letter
-        # and the programme's own instruction deck were all refused on size
-        # until then; students are pointed at the template instead.
-        for size in (A4, US_LETTER, INSTRUCTION_DECK):
-            with self.subTest(size=size):
-                self.assertEqual(_check(_build_pdf(*size)).blocking, [])
+    def test_every_a_series_size_is_accepted(self):
+        for name, dims in A_SERIES_MM.items():
+            with self.subTest(size=name):
+                self.assertEqual(_check(_build_pdf(*_mm(*dims))).blocking, [])
 
-    def test_landscape_is_still_refused(self):
-        # Orientation is a separate requirement and still enforced.
+    def test_non_metric_sizes_are_refused(self):
+        for size in (US_LETTER, POSTER_18_BY_24, INSTRUCTION_DECK):
+            with self.subTest(size=size):
+                self.assertEqual(_codes(_check(_build_pdf(*size)).blocking), {A_SERIES_SIZE})
+
+    def test_a_size_a_few_millimetres_out_is_still_accepted(self):
+        # Last year one A2 poster exported 2mm short; that is rounding, not a choice.
+        self.assertEqual(_check(_build_pdf(*_mm(420, 592))).blocking, [])
+
+    def test_a_size_beyond_the_tolerance_is_refused(self):
+        result = _check(_build_pdf(*_mm(420, 588)))
+
+        self.assertEqual(_codes(result.blocking), {A_SERIES_SIZE})
+
+    def test_the_refusal_states_the_size_in_millimetres(self):
+        (check,) = _check(_build_pdf(*US_LETTER)).blocking
+
+        self.assertIn("216 × 279 mm", check.message)
+        self.assertTrue(check.explicit)
+
+    def test_landscape_a2_is_refused_for_orientation_not_size(self):
         result = _check(_build_pdf(A2[1], A2[0]))
 
-        self.assertIn(PORTRAIT, _codes(result.blocking))
+        self.assertEqual(_codes(result.blocking), {PORTRAIT})
 
     def test_more_than_one_page_is_refused(self):
         result = _check(_build_pdf(*A2, pages=2))

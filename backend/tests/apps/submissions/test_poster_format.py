@@ -21,7 +21,7 @@ from apps.submissions.poster_checks import SUPERVISOR_EMAIL, TEAM_CODE
 from apps.users.models import User
 
 from .seed_data import install_question_set
-from .test_poster_checks import A2, INSTRUCTION_DECK, US_LETTER, _build_pdf
+from .test_poster_checks import A2, A4, US_LETTER, _build_pdf
 
 
 def _upload_file(width, height, *, text="", pages=1, name="poster.pdf"):
@@ -88,11 +88,13 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("portrait", problems.lower())
         self.assertIn("landscape", problems.lower())
 
-    def test_a_page_of_any_size_is_accepted(self):
-        # The client confirmed A2 is not strict, so size is no longer checked.
+    def test_a_non_metric_page_is_refused_and_told_its_size(self):
         response = self._upload(_upload_file(*US_LETTER, text="BTF7 a@b.edu.au"))
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
+        problems = " ".join(response.data["problems"])
+        self.assertIn("A-series", problems)
+        self.assertIn("216 × 279 mm", problems)
 
     def test_a_multi_page_pdf_is_refused(self):
         response = self._upload(_upload_file(*A2, pages=2))
@@ -107,9 +109,8 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(self._submission().poster)
 
-    def test_the_programmes_own_template_size_is_accepted(self):
-        # It was refused on size until the client relaxed the requirement.
-        response = self._upload(_upload_file(*INSTRUCTION_DECK, text="BTF7 a@b.edu.au"))
+    def test_an_a4_poster_is_accepted(self):
+        response = self._upload(_upload_file(*A4, text="BTF7 a@b.edu.au"))
 
         self.assertEqual(response.status_code, 200)
 

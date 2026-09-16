@@ -23,9 +23,8 @@ students to ignore every warning next to it — including the ones that are righ
 
 ## On the page size
 
-Page size is not checked. A2 was enforced literally until the client confirmed
-the requirement is not strict; students are pointed at the programme's template
-on the poster step instead.
+Any A-series size is accepted, A0 to A6. The client relaxed A2 but asked for a
+metric size, and last year's posters were all A1 to A4 when they were metric.
 """
 from __future__ import annotations
 
@@ -47,9 +46,19 @@ LOGO_MAX_AREA = 0.20
 # A third of the page is what "the bottom" fairly means on something this tall.
 BOTTOM_BAND = 0.33
 
+# Short side, long side, in millimetres.
+A_SERIES_MM = {
+    "A0": (841, 1189), "A1": (594, 841), "A2": (420, 594), "A3": (297, 420),
+    "A4": (210, 297), "A5": (148, 210), "A6": (105, 148),
+}
+# Absorbs export rounding: last year one A2 poster came out 2mm short.
+SIZE_TOLERANCE_MM = 5
+POINTS_PER_MM = 72 / 25.4
+
 # Stored on the submission and read back by the page: a stable contract.
 SINGLE_PAGE = "single_page"
 PORTRAIT = "portrait"
+A_SERIES_SIZE = "a_series_size"
 TEAM_CODE = "team_code"
 SUPERVISOR_EMAIL = "supervisor_email"
 SCHOOL_LOGO = "school_logo"
@@ -175,7 +184,31 @@ def _structural_checks(reader) -> list[PosterCheck]:
         )
     )
 
+    size = _a_series_size(width, height)
+    checks.append(
+        PosterCheck(
+            A_SERIES_SIZE,
+            size is not None,
+            "" if size else (
+                "The poster should be an A-series size, such as A2 or A3. "
+                f"This file is {round(width / POINTS_PER_MM)} × "
+                f"{round(height / POINTS_PER_MM)} mm."
+            ),
+            # Stated in millimetres, so the student can compare it themselves.
+            explicit=True,
+        )
+    )
+
     return checks
+
+
+def _a_series_size(width: float, height: float) -> str | None:
+    """The A-series name this page matches in either orientation, if any."""
+    short, long = sorted((width / POINTS_PER_MM, height / POINTS_PER_MM))
+    for name, (a, b) in A_SERIES_MM.items():
+        if abs(short - a) <= SIZE_TOLERANCE_MM and abs(long - b) <= SIZE_TOLERANCE_MM:
+            return name
+    return None
 
 
 # ------------------------------------------------------------ placement
