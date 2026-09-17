@@ -242,3 +242,76 @@ class PasswordResetToken(models.Model):
         count = expired.count()
         expired.delete()
         return count
+
+
+class SystemEmailTemplate(models.Model):
+    """An admin's edits to one system email type.
+
+    One row per edited type. A missing row, or a blank subject/body, means the
+    email uses the template file named in the email registry, so every email
+    behaves as it did before this table existed until an admin changes it.
+    """
+
+    # Matches a key in apps.services.email_registry, e.g. "login_code".
+    key = models.SlugField(max_length=64, unique=True)
+    subject = models.CharField(max_length=255, blank=True, default="")
+    body_html = models.TextField(blank=True, default="")
+    body_text = models.TextField(blank=True, default="")
+    is_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'system_email_template'
+        verbose_name = "System Email Template"
+        verbose_name_plural = "System Email Templates"
+        ordering = ['key']
+
+    def __str__(self):
+        return f"SystemEmailTemplate({self.key}, {'on' if self.is_enabled else 'off'})"
+
+    @property
+    def has_custom_content(self):
+        """True when both subject and body override the template file."""
+        return bool(self.subject.strip() and self.body_html.strip())
+
+
+class SystemEmailSettings(models.Model):
+    """Global switches for system emails. Always a single row (pk=1)."""
+
+    SINGLETON_PK = 1
+
+    emails_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'system_email_settings'
+        verbose_name = "System Email Settings"
+        verbose_name_plural = "System Email Settings"
+
+    def __str__(self):
+        return f"SystemEmailSettings(emails {'on' if self.emails_enabled else 'off'})"
+
+    def save(self, *args, **kwargs):
+        # Pin the row to one primary key so a second row can never exist.
+        self.pk = self.SINGLETON_PK
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls):
+        """Return the settings row, creating it with defaults if missing."""
+        obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
+        return obj
