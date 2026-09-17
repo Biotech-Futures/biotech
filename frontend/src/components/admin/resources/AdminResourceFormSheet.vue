@@ -236,9 +236,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
-import RichEditor from '@/components/admin/announcements/RichEditor.vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/announcements/RichEditor.vue')
+)
 import type {
   AdminResourceDetail,
   AdminResourceRoleItem,

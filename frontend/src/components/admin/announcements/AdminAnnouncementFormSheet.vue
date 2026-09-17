@@ -183,10 +183,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, defineAsyncComponent, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
-import RichEditor from '@/components/admin/announcements/RichEditor.vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/announcements/RichEditor.vue')
+)
 import {
   fetchAdminAnnouncement,
   createAdminAnnouncement,
