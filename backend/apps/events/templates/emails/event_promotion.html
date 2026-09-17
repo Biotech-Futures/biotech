@@ -1,0 +1,76 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_NAME }}: You're in{% endblock %}
+
+{% block extra_styles %}
+      .info-label { display: block !important; padding-bottom: 2px !important; }
+      .info-value { display: block !important; padding-bottom: 10px !important; }
+{% endblock %}
+
+{% block preheader %}A spot opened up. You're now confirmed for {{ EVENT_NAME }}.{% endblock %}
+
+{% block footer_reason %}event updates{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ First_Name|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                You're in
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                A spot just opened up and you've been moved from the waitlist to confirmed for {{ EVENT_NAME }}.
+              </p>
+
+              <!-- Event info card -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:22px;">
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <p style="margin:0 0 12px 0; color:#1a2e23; font-size:16px; line-height:1.35; font-weight:700;">
+                      {{ EVENT_NAME }}
+                    </p>
+
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                      <tr>
+                        <td class="info-label" style="padding:2px 12px 6px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:80px; vertical-align:top;">
+                          When
+                        </td>
+                        <td class="info-value" style="padding:2px 0 6px 0; color:#1a2e23; font-size:14px; line-height:1.55;">
+                          {{ EVENT_WHEN_TEXT }}
+                        </td>
+                      </tr>
+                      {% if EVENT_JOIN_LINK %}
+                      <tr>
+                        <td class="info-label" style="padding:2px 12px 6px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:80px; vertical-align:top;">
+                          Join
+                        </td>
+                        <td class="info-value" style="padding:2px 0 6px 0; color:#1a2e23; font-size:14px; line-height:1.55;">
+                          <a href="{{ EVENT_JOIN_LINK }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ EVENT_JOIN_LINK }}</a>
+                        </td>
+                      </tr>
+                      {% endif %}
+                      {% if EVENT_LOCATION_TEXT %}
+                      <tr>
+                        <td class="info-label" style="padding:2px 12px 0 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:80px; vertical-align:top;">
+                          Where
+                        </td>
+                        <td class="info-value" style="padding:2px 0 0 0; color:#1a2e23; font-size:14px; line-height:1.55;">
+                          {{ EVENT_LOCATION_TEXT }}
+                        </td>
+                      </tr>
+                      {% endif %}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                See you there!
+              </p>
+
+              <p style="margin:18px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.55;">
+                The {{ BRAND_NAME }} Team
+              </p>
+{% endblock %}

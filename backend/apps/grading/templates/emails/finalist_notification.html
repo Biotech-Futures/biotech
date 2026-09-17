@@ -1,0 +1,30 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_NAME }}: Congratulations, finalist{% endblock %}
+
+{% block preheader %}{{ GROUP_NAME }} has been selected as a finalist for the {{ BRAND_NAME }} Challenge.{% endblock %}
+
+{% block footer_reason %}competition updates{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi,
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Congratulations
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Your group ({{ GROUP_NAME }}) has been selected as a finalist for the {{ BRAND_NAME }} Challenge.
+                The {{ BRAND_NAME }} team will be in touch with details about presenting at the symposium.
+              </p>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Kind regards,
+              </p>
+
+              <p style="margin:6px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.55;">
+                The {{ BRAND_NAME }} Team
+              </p>
+{% endblock %}
