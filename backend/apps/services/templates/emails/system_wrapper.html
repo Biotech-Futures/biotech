@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% comment %}
+  Branded layout for an admin-edited email. BODY_HTML has already been
+  sanitised on save and had its merge tags filled and escaped, so it is
+  inserted as-is. Never render admin text as a template.
+{% endcomment %}
+
+{% block title %}{{ EMAIL_SUBJECT }}{% endblock %}
+
+{% block content %}
+              <div style="color:#3d4b43; font-size:15px; line-height:1.65;">
+{{ BODY_HTML|safe }}
+              </div>
+{% endblock %}
