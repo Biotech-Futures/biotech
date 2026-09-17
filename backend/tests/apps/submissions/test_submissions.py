@@ -1,9 +1,4 @@
-"""Tests for the team submission deadline rule and endpoints.
-
-Focused on the places where a bug actually costs something: a team locked out
-early, an entry accepted after closing, or someone reaching a team they are not
-part of.
-"""
+"""Tests for the submission deadline rule and endpoints."""
 from datetime import timedelta
 
 from django.conf import settings
@@ -38,8 +33,6 @@ def _make_user(email, role_name, roles):
 
 
 class DeadlineRuleTests(TestCase):
-    """The rule itself, isolated from HTTP."""
-
     def setUp(self):
         self.group = Groups.objects.create(group_name="BTF-DEADLINE")
 
@@ -86,8 +79,6 @@ class DeadlineRuleTests(TestCase):
         self.assertFalse(deadline_for_group(other.id).is_open)
 
     def test_grace_period_keeps_submissions_open_past_the_announced_date(self):
-        # The announced date has passed but the buffer has not: still open, and
-        # flagged as being inside the grace window.
         Deadline.objects.create(
             closes_at=timezone.now() - timedelta(hours=2), grace_hours=24, is_active=True
         )
@@ -106,8 +97,6 @@ class DeadlineRuleTests(TestCase):
         self.assertFalse(info.is_in_grace)
 
     def test_students_are_shown_the_announced_date_not_the_buffer(self):
-        # The whole point of the buffer is that it is not published — students
-        # see one date and the server quietly accepts a little longer.
         closes = timezone.now() + timedelta(days=1)
         Deadline.objects.create(closes_at=closes, grace_hours=24, is_active=True)
 
@@ -116,8 +105,6 @@ class DeadlineRuleTests(TestCase):
         self.assertEqual(info.enforced_until, closes + timedelta(hours=24))
 
     def test_an_extension_does_not_inherit_the_global_grace(self):
-        # An extension carries its own buffer (default none) rather than
-        # inheriting the global deadline's grace hours.
         Deadline.objects.create(
             closes_at=timezone.now() - timedelta(days=2), grace_hours=24, is_active=True
         )
@@ -129,8 +116,6 @@ class DeadlineRuleTests(TestCase):
         self.assertEqual(info.enforced_until, extended)
 
     def test_an_extension_grace_keeps_submissions_open_past_the_granted_date(self):
-        # The extension's own grace hours work like the global one: students
-        # see extended_until, the server quietly accepts a little longer.
         extended = timezone.now() - timedelta(hours=2)
         GroupExtension.objects.create(
             group=self.group, extended_until=extended, grace_hours=24
@@ -143,8 +128,6 @@ class DeadlineRuleTests(TestCase):
         self.assertTrue(info.is_in_grace)
 
     def test_extension_is_applied_exactly_as_entered(self):
-        # An earlier extension shortens the window rather than being corrected
-        # upwards — the deliberate choice in services.deadline_for_group.
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=5), is_active=True)
         GroupExtension.objects.create(
             group=self.group, extended_until=timezone.now() - timedelta(hours=1)
@@ -162,9 +145,12 @@ class SubmissionApiTests(TestCase):
 
         self.student = _make_user("student@test.local", "student", self.roles)
         self.mentor = _make_user("mentor@test.local", "mentor", self.roles)
+        self.supervisor = _make_user("supervisor@test.local", "supervisor", self.roles)
         self.outsider = _make_user("outsider@test.local", "student", self.roles)
 
-        for user, role in ((self.student, "student"), (self.mentor, "mentor")):
+        for user, role in (
+            (self.student, "student"), (self.mentor, "mentor"), (self.supervisor, "supervisor"),
+        ):
             GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
 
         Deadline.objects.create(closes_at=timezone.now() + timedelta(days=1), is_active=True)
@@ -172,8 +158,6 @@ class SubmissionApiTests(TestCase):
         self.detail_url = reverse("group-submission", kwargs={"group_id": self.group.id})
         self.submit_url = reverse("group-submission-submit", kwargs={"group_id": self.group.id})
 
-        # Installed, not read: the real set arrives by data migration and CI
-        # disables migrations, so relying on it failed there but passed locally.
         self.question_keys = [q.key for q in install_question_set()]
         install_instructions()
         self.first_key = self.question_keys[0]
@@ -184,7 +168,6 @@ class SubmissionApiTests(TestCase):
         return client
 
     def _answer_everything(self):
-        """Fill every required question, so submit is testing what it claims."""
         submission, _ = Submission.objects.get_or_create(group=self.group)
         submission.answers = {
             question.key: "An answer."
@@ -193,12 +176,7 @@ class SubmissionApiTests(TestCase):
         submission.save(update_fields=["answers"])
 
     def _attach_poster(self):
-        """Satisfy the "a poster is required to submit" rule.
-
-        Written straight onto the record rather than uploaded, so these tests
-        stay about deadlines and permissions; real uploads are covered in
-        test_submission_files.py.
-        """
+        """Record a poster directly; real uploads are covered in test_submission_files."""
         submission, _ = Submission.objects.get_or_create(group=self.group)
         submission.poster = {
             "storage_key": "test/poster.pdf",
@@ -208,7 +186,6 @@ class SubmissionApiTests(TestCase):
         }
         submission.save(update_fields=["poster"])
 
-    # ---------------------------------------------------------------- reading
     def test_member_reads_empty_submission(self):
         response = self._client_for(self.student).get(self.detail_url)
 
@@ -221,15 +198,18 @@ class SubmissionApiTests(TestCase):
         response = self._client_for(self.outsider).get(self.detail_url)
         self.assertEqual(response.status_code, 403)
 
-    def test_mentor_may_not_read(self):
-        # Mentors guide the group's work but have no part in assessment, so a
-        # team's entry is not theirs to see — even though they are members.
-        response = self._client_for(self.mentor).get(self.detail_url)
+    def test_mentor_and_supervisor_on_the_team_may_read(self):
+        for member in (self.mentor, self.supervisor):
+            with self.subTest(member=member.email):
+                response = self._client_for(member).get(self.detail_url)
+                self.assertEqual(response.status_code, 200)
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.data["code"], "student_role_required")
+    def test_mentor_not_on_the_team_is_refused(self):
+        other = Groups.objects.create(group_name="BTF-ELSEWHERE")
+        url = reverse("group-submission", kwargs={"group_id": other.id})
 
-    # ---------------------------------------------------------------- writing
+        self.assertEqual(self._client_for(self.mentor).get(url).status_code, 403)
+
     def test_student_saves_a_draft(self):
         response = self._client_for(self.student).put(
             self.detail_url,
@@ -241,7 +221,6 @@ class SubmissionApiTests(TestCase):
         submission = Submission.objects.get(group=self.group)
         self.assertEqual(submission.answers, {self.first_key: "Our project"})
         self.assertEqual(submission.prototype_url, "https://example.com/demo")
-        # Saving a draft must not look like submitting.
         self.assertIsNone(submission.submitted_at)
 
     def test_partial_save_keeps_untouched_fields(self):
@@ -254,11 +233,22 @@ class SubmissionApiTests(TestCase):
         submission = Submission.objects.get(group=self.group)
         self.assertEqual(submission.answers, {self.first_key: "Kept"})
 
-    def test_mentor_may_not_write(self):
-        response = self._client_for(self.mentor).put(
-            self.detail_url, {"answers": {self.first_key: "x"}}, format="json"
-        )
-        self.assertEqual(response.status_code, 403)
+    def test_mentor_and_supervisor_on_the_team_may_write(self):
+        for member in (self.mentor, self.supervisor):
+            with self.subTest(member=member.email):
+                response = self._client_for(member).put(
+                    self.detail_url, {"answers": {self.first_key: member.email}}, format="json"
+                )
+                self.assertEqual(response.status_code, 200)
+
+    def test_supervisor_on_the_team_may_submit(self):
+        self._answer_everything()
+        self._attach_poster()
+
+        response = self._client_for(self.supervisor).post(self.submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Submission.objects.get(group=self.group).submitted_by, self.supervisor)
 
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(
@@ -267,7 +257,6 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
-    # ------------------------------------------------------------- submitting
     def test_submitting_without_a_poster_is_refused(self):
         client = self._client_for(self.student)
         client.put(self.detail_url, {"answers": {self.first_key: "Done"}}, format="json")
@@ -280,7 +269,6 @@ class SubmissionApiTests(TestCase):
     def test_submitting_with_a_required_question_blank_is_refused(self):
         client = self._client_for(self.student)
         self._attach_poster()
-        # q1 answered, the other required questions left blank.
         client.put(self.detail_url, {"answers": {self.first_key: "Only this one"}}, format="json")
 
         response = client.post(self.submit_url, {}, format="json")
@@ -302,8 +290,6 @@ class SubmissionApiTests(TestCase):
         self.assertFalse(submission.is_late)
 
     def test_resubmitting_updates_the_same_row(self):
-        # Revising is deliberate now: an entry must be reopened before it can be
-        # edited again. The full lifecycle is covered in test_submission_lifecycle.
         client = self._client_for(self.student)
         reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
         self._attach_poster()
@@ -319,7 +305,6 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(Submission.objects.filter(group=self.group).count(), 1)
         self.assertEqual(Submission.objects.get(group=self.group).submitted_answers, answers)
 
-    # ---------------------------------------------------------------- questions
     def test_questions_are_returned_in_order(self):
         response = self._client_for(self.student).get(self.detail_url)
 
@@ -327,20 +312,15 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(keys, self.question_keys)
 
     def test_upload_limits_are_published_per_slot(self):
-        # The page states each limit, so they come from the server rather than
-        # hardcoded copies that could drift from the settings.
         response = self._client_for(self.student).get(self.detail_url)
         limits = response.data["max_file_sizes"]
 
         self.assertEqual(limits["poster"], settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE)
         self.assertEqual(limits["report"], settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE)
         self.assertEqual(limits["prototype"], settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE)
-        # The whole point of splitting them: a prototype may be far larger.
         self.assertGreater(limits["prototype"], limits["poster"])
 
     def test_instructions_are_returned_per_section(self):
-        # Guidance is admin-editable, so the page renders what the server sends.
-        # Each section carries a heading and a supporting line.
         response = self._client_for(self.student).get(self.detail_url)
         instructions = response.data["instructions"]
 
@@ -362,8 +342,6 @@ class SubmissionApiTests(TestCase):
         )
 
     def test_a_write_after_the_deadline_is_refused(self):
-        # The rule itself is covered above; this pins that the *endpoint* returns
-        # this code, which is what the page's mid-edit handling reads.
         Deadline.objects.all().update(closes_at=timezone.now() - timedelta(hours=1))
 
         response = self._client_for(self.student).put(
@@ -406,12 +384,9 @@ class SubmissionApiTests(TestCase):
         exactly = client.put(self.detail_url, {"answers": {key: "one two three four five"}}, format="json")
 
         self.assertEqual(over.status_code, 400)
-        # The limit is inclusive — exactly 150 words must be accepted.
         self.assertEqual(exactly.status_code, 200)
 
     def test_the_over_limit_message_names_the_question_not_its_key(self):
-        # A student has no reason to know what "solution_purpose" refers to —
-        # the message has to be built from wording they were actually shown.
         question = SubmissionQuestion.active().first()
         question.max_words = 5
         question.save()
@@ -428,8 +403,6 @@ class SubmissionApiTests(TestCase):
         self.assertNotIn(question.key, body)
 
     def test_word_count_ignores_extra_whitespace(self):
-        # Matches the regex the client's Qualtrics form validates with, which
-        # simply splits on runs of whitespace.
         key = SubmissionQuestion.active().first().key
         SubmissionQuestion.objects.filter(key=key).update(max_words=3)
 
@@ -439,7 +412,6 @@ class SubmissionApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    # ---------------------------------------------------------------- closing
     def test_writes_refused_after_deadline(self):
         Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=1))
         client = self._client_for(self.student)

@@ -1,10 +1,4 @@
-"""Tests for the cohort stamped on a submitted entry.
-
-The cohort exists so a judging or reporting tool can ask "every entry in the
-2026 competition" without inferring it from ``submitted_at``. The cases below
-are the ones where the two genuinely disagree — which is the whole reason the
-column is stored rather than derived.
-"""
+"""Tests for the cohort stamped on a submitted entry."""
 from datetime import timedelta
 
 from django.test import TestCase, override_settings
@@ -66,8 +60,6 @@ class SubmissionCohortTests(TestCase):
         self.assertEqual(Submission.objects.get(group=self.group).cohort, expected)
 
     def test_an_extension_does_not_move_a_team_into_another_cohort(self):
-        # The case the column exists for: a team extended into the following year
-        # still competes in the same cohort, so the programme's deadline decides.
         closes = timezone.now().replace(month=9, day=18) + timedelta(days=1)
         Deadline.objects.create(closes_at=closes, is_active=True)
         GroupExtension.objects.create(
@@ -81,12 +73,8 @@ class SubmissionCohortTests(TestCase):
         )
 
     def test_cohort_is_indexed_for_bulk_lookup(self):
-        # A judging tool's first query is "every entry in this cohort"; without
-        # an index that is a full scan of every submission ever made.
         field = Submission._meta.get_field("cohort")
         self.assertTrue(field.db_index)
 
     def test_current_cohort_falls_back_to_the_current_year(self):
-        # No deadline configured is a misconfiguration, not a normal state, but
-        # it must not raise while stamping an entry.
         self.assertEqual(current_cohort(), timezone.localtime().year)
