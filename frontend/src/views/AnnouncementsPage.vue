@@ -196,6 +196,7 @@
 
     <!-- Admin Form Side Sheet -->
     <AdminAnnouncementFormSheet
+      v-if="auth.isAdmin"
       v-model="formSheetOpen"
       :announcement="editingAnnouncement"
       @saved="onFormSaved"
@@ -204,6 +205,7 @@
 
     <!-- Reusable Confirmation Dialog -->
     <ConfirmDialog
+      v-if="auth.isAdmin"
       v-model="confirmDialog.open"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
