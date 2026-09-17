@@ -40,14 +40,12 @@
 
         <!-- Description -->
         <div class="form-field form-field--full">
-          <label class="form-label" for="ev-desc">Description</label>
-          <textarea
-            id="ev-desc"
-            v-model.trim="form.description"
-            class="form-input"
-            rows="3"
+          <label class="form-label">Description</label>
+          <RichEditor
+            :key="editorKey"
+            v-model="form.description"
             placeholder="Event overview, agenda, or prerequisites..."
-          ></textarea>
+          />
         </div>
 
         <!-- Event Format -->
@@ -249,6 +247,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import RichEditor from '@/components/admin/announcements/RichEditor.vue'
 import { useAuthStore } from '@/stores/auth'
 import type {
   AdminEventDetail,
@@ -286,6 +285,12 @@ const open = computed({
 })
 
 const isEditing = computed(() => Boolean(props.event?.id))
+const editorSessionKey = ref(0)
+
+const editorKey = computed(() => {
+  const modeKey = props.event?.id ? `edit-event-${props.event.id}` : 'new-event'
+  return `${modeKey}-${editorSessionKey.value}`
+})
 
 interface EventFormData {
   eventName: string
@@ -477,6 +482,7 @@ watch(
   () => props.modelValue,
   (isOpening) => {
     if (isOpening) {
+      editorSessionKey.value += 1
       void initForm(props.event)
     }
   }
@@ -559,6 +565,26 @@ const validateForm = (): boolean => {
   return true
 }
 
+const normalizeDescriptionForSave = (value: string): string | null => {
+  const source = value.trim()
+  if (!source) return null
+
+  if (typeof document !== 'undefined') {
+    const template = document.createElement('template')
+    template.innerHTML = source
+    const text = (template.content.textContent || '').replace(/\u00a0/g, ' ').trim()
+    const hasVisualContent = Boolean(template.content.querySelector('img, table, hr'))
+    return text || hasVisualContent ? source : null
+  }
+
+  const text = source
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .trim()
+  return text ? source : null
+}
+
 const submitForm = async () => {
   formError.value = ''
   if (!validateForm()) return
@@ -571,7 +597,7 @@ const submitForm = async () => {
 
     const payload: CreateAdminEventPayload | UpdateAdminEventPayload = {
       eventName: form.eventName.trim(),
-      description: form.description.trim() || null,
+      description: normalizeDescriptionForSave(form.description),
       eventFormat: form.eventFormat,
       location: form.eventFormat !== 'virtual' ? form.location.trim() || null : null,
       locationLink: form.locationLink.trim() || null,

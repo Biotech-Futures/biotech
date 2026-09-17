@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import EventsPage from '@/views/EventsPage.vue'
+import AdminEventFormSheet from '@/components/admin/events/AdminEventFormSheet.vue'
 import { useAuthStore } from '@/stores/auth'
 import * as eventsApi from '@/utils/eventsAPI'
 import * as adminApi from '@/utils/adminAPI'
@@ -10,6 +11,31 @@ vi.mock('vue-router', () => ({
   useRoute: vi.fn(() => ({ params: {}, name: 'events' })),
   useRouter: vi.fn(() => ({ push: vi.fn() }))
 }))
+
+vi.mock('@/components/admin/announcements/RichEditor.vue', () => {
+  let mountCount = 0
+
+  return {
+    default: {
+      name: 'RichEditor',
+      props: ['modelValue', 'placeholder'],
+      emits: ['update:modelValue'],
+      data() {
+        return {
+          mountId: ++mountCount
+        }
+      },
+      template: `
+        <textarea
+          class="rich-editor-stub"
+          :data-mount-id="mountId"
+          :value="modelValue"
+          @input="$emit('update:modelValue', $event.target.value)"
+        ></textarea>
+      `
+    }
+  }
+})
 
 const mockEvent1: eventsApi.BackendEvent = {
   id: 101,
@@ -140,6 +166,25 @@ describe('EventsPage - Admin Integration & Role Access', () => {
         }
       },
       attachTo: document.body
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  const mountEventForm = async (props: {
+    modelValue: boolean
+    event?: eventsApi.BackendEvent | null
+  }) => {
+    wrapper = mount(AdminEventFormSheet, {
+      props,
+      global: {
+        stubs: {
+          FormSheet: {
+            props: ['modelValue', 'title', 'description'],
+            template: '<section class="admin-sheet"><h2>{{ title }}</h2><slot /></section>'
+          }
+        }
+      }
     })
     await flushPromises()
     return wrapper
@@ -411,6 +456,52 @@ describe('EventsPage - Admin Integration & Role Access', () => {
           eventFormat: 'in_person'
         })
       )
+    })
+
+    it.each(['<p></p>', '<p>&nbsp;</p>'])(
+      'submits visually empty rich-text description as null for %s',
+      async (emptyHtml) => {
+        const auth = useAuthStore()
+        auth.user = adminUser
+
+        const w = await mountEventForm({
+          modelValue: true,
+          event: null
+        })
+
+        await w.find<HTMLInputElement>('#ev-name').setValue('Annual Biotech Showcase')
+        await w.find<HTMLTextAreaElement>('.rich-editor-stub').setValue(emptyHtml)
+        await w.find('form').trigger('submit')
+        await flushPromises()
+
+        expect(adminApi.createAdminEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventName: 'Annual Biotech Showcase',
+            description: null
+          })
+        )
+      }
+    )
+
+    it('remounts the rich editor when reopening the same edit form', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+
+      const w = await mountEventForm({
+        modelValue: true,
+        event: mockEvent1
+      })
+
+      const firstMountId = w.find<HTMLTextAreaElement>('.rich-editor-stub').attributes('data-mount-id')
+
+      await w.setProps({ modelValue: false })
+      await flushPromises()
+      await w.setProps({ modelValue: true })
+      await flushPromises()
+
+      const secondMountId = w.find<HTMLTextAreaElement>('.rich-editor-stub').attributes('data-mount-id')
+      expect(secondMountId).not.toBe(firstMountId)
+      expect(w.find<HTMLTextAreaElement>('.rich-editor-stub').element.value).toBe(mockEvent1.description)
     })
 
     it('filters attendees in AdminEventRsvpsSheet via search input', async () => {
