@@ -1,17 +1,6 @@
-"""Render the submission emails to disk and serve them for review.
+"""Render the submission emails against sample data and serve them locally for review.
 
-A development helper, for showing the programme team what a student actually
-receives before the wording is signed off. Nothing here touches the database or
-sends anything — the templates are rendered against a made-up team so the page
-can be looked at without first arranging a real submission.
-
-    python manage.py preview_submission_emails --settings=config.settings_local
-    python manage.py preview_submission_emails --port 8900
-
-The inline logo is swapped for a data URI. In a real message it is a ``cid:``
-reference to an attached image part, which a mail client resolves and a browser
-cannot, so previewing the file as sent would show a broken image where the
-masthead belongs.
+    python manage.py preview_submission_emails --settings=config.settings_local --port 8900
 """
 from __future__ import annotations
 
@@ -131,8 +120,6 @@ class Command(BaseCommand):
         for filename, (template, context) in pages.items():
             (out / filename).write_text(render_to_string(template, context), encoding="utf-8")
 
-        # The plain-text parts too: some clients show these instead, and the
-        # wording has to hold up on its own.
         for filename, (template, context) in {
             "confirmation.txt": ("emails/submission_confirmation.txt", complete),
             "reminder.txt": ("emails/submission_reminder.txt", outstanding),

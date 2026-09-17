@@ -100,8 +100,12 @@
           <thead>
             <tr>
               <th scope="col" class="th-sortable" @click="toggleSort('name')">
-                <span>Attendee</span>
+                <span>User</span>
                 <i :class="sortIcon('name')" aria-hidden="true"></i>
+              </th>
+              <th scope="col" class="th-sortable" @click="toggleSort('role')">
+                <span>User Type</span>
+                <i :class="sortIcon('role')" aria-hidden="true"></i>
               </th>
               <th scope="col" class="th-sortable" @click="toggleSort('status')">
                 <span>Status</span>
@@ -117,16 +121,19 @@
             <tr v-for="rsvp in sortedRsvps" :key="rsvp.id">
               <td class="admin-event-rsvps__attendee-cell">
                 <div class="admin-event-rsvps__avatar" aria-hidden="true">
-                  {{ userInitials(rsvp.userId) }}
+                  {{ userInitials(rsvp) }}
                 </div>
                 <div class="admin-event-rsvps__attendee-info">
                   <span class="admin-event-rsvps__name">
-                    {{ userName(rsvp.userId) }}
+                    {{ userName(rsvp) }}
                   </span>
                   <span class="admin-event-rsvps__email">
-                    {{ userEmail(rsvp.userId) }}
+                    {{ userEmail(rsvp) }}
                   </span>
                 </div>
+              </td>
+              <td class="admin-event-rsvps__role-cell">
+                {{ roleLabel(userRole(rsvp)) }}
               </td>
               <td>
                 <span
@@ -157,7 +164,8 @@
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
-import { fetchAdminEventRsvps, fetchAdminUsers } from '@/utils/adminAPI'
+import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
+import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
 
 const props = defineProps<{
@@ -175,7 +183,7 @@ const rsvps = ref<AdminEventRsvpItem[]>([])
 const searchFilter = ref('')
 const statusFilter = ref('')
 
-type SortColumn = 'name' | 'status' | 'date'
+type SortColumn = 'name' | 'role' | 'status' | 'date'
 type SortDir = 'asc' | 'desc'
 const sortCol = ref<SortColumn>('date')
 const sortDir = ref<SortDir>('desc')
@@ -234,13 +242,35 @@ const loadData = async (eventId: number) => {
       usersMap.value.size === 0 ? fetchAdminUsers({ limit: 200 }) : Promise.resolve(null)
     ])
 
-    rsvps.value = rsvpData
+    rsvps.value = rsvpData || []
 
     if (usersData?.items) {
       const nextMap = new Map(usersMap.value)
       for (const u of usersData.items) {
         nextMap.set(u.id, u)
       }
+      usersMap.value = nextMap
+    }
+
+    // Resolve any remaining attendees whose names were not populated in rsvpData and are missing from usersMap
+    const unresolvedUserIds = [
+      ...new Set(
+        rsvps.value
+          .filter((r) => (!r.userName || r.userName.startsWith('User #')) && !usersMap.value.has(r.userId))
+          .map((r) => r.userId)
+      )
+    ]
+
+    if (unresolvedUserIds.length > 0) {
+      const userResults = await Promise.allSettled(
+        unresolvedUserIds.map((uid) => fetchAdminUser(uid))
+      )
+      const nextMap = new Map(usersMap.value)
+      userResults.forEach((res) => {
+        if (res.status === 'fulfilled' && res.value?.id) {
+          nextMap.set(res.value.id, res.value)
+        }
+      })
       usersMap.value = nextMap
     }
   } catch (err: any) {
@@ -260,29 +290,61 @@ watch(
   }
 )
 
-const userName = (userId: number) => {
-  const u = usersMap.value.get(userId)
+const userName = (target: AdminEventRsvpItem | number) => {
+  if (typeof target === 'object' && target) {
+    if (target.userName && !target.userName.startsWith('User #')) {
+      return target.userName
+    }
+    const u = usersMap.value.get(target.userId)
+    if (u) {
+      const name = `${u.firstName || ''} ${u.lastName || ''}`.trim()
+      return name || u.email || `User #${target.userId}`
+    }
+    return target.userName || `User #${target.userId}`
+  }
+  const u = usersMap.value.get(target)
   if (u) {
     const name = `${u.firstName || ''} ${u.lastName || ''}`.trim()
-    return name || u.email || `User #${userId}`
+    return name || u.email || `User #${target}`
   }
-  return `User #${userId}`
+  return `User #${target}`
 }
 
-const userEmail = (userId: number) => {
-  const u = usersMap.value.get(userId)
+const userEmail = (target: AdminEventRsvpItem | number) => {
+  if (typeof target === 'object' && target) {
+    if (target.userEmail) return target.userEmail
+    const u = usersMap.value.get(target.userId)
+    return u?.email || ''
+  }
+  const u = usersMap.value.get(target)
   return u?.email || ''
 }
 
-const userInitials = (userId: number) => {
-  const u = usersMap.value.get(userId)
-  if (u) {
-    const first = (u.firstName || '')[0] || ''
-    const last = (u.lastName || '')[0] || ''
-    const res = (first + last).toUpperCase()
-    if (res) return res
-    if (u.email) return u.email[0].toUpperCase()
+const userRole = (target: AdminEventRsvpItem | number): string => {
+  if (typeof target === 'object' && target) {
+    if (target.userRole) return target.userRole
+    const u = usersMap.value.get(target.userId)
+    if (u?.role) return u.role
+    if (u?.isAdmin) return 'admin'
+    return 'student'
   }
+  const u = usersMap.value.get(target)
+  if (u?.role) return u.role
+  if (u?.isAdmin) return 'admin'
+  return 'student'
+}
+
+const userInitials = (target: AdminEventRsvpItem | number) => {
+  const name = userName(target)
+  if (name && !name.startsWith('User #')) {
+    const parts = name.split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return name.slice(0, 2).toUpperCase()
+  }
+  const email = userEmail(target)
+  if (email) return email.slice(0, 2).toUpperCase()
   return 'U'
 }
 
@@ -303,7 +365,6 @@ const toggleSort = (col: SortColumn) => {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
     sortCol.value = col
-    sortDir.value = col === 'date' ? 'desc' : 'asc'
   }
 }
 
@@ -322,9 +383,10 @@ const filteredRsvps = computed(() => {
   if (searchFilter.value) {
     const q = searchFilter.value.toLowerCase()
     list = list.filter((r) => {
-      const name = userName(r.userId).toLowerCase()
-      const email = userEmail(r.userId).toLowerCase()
-      return name.includes(q) || email.includes(q) || String(r.userId).includes(q)
+      const name = userName(r).toLowerCase()
+      const email = userEmail(r).toLowerCase()
+      const role = userRole(r).toLowerCase()
+      return name.includes(q) || email.includes(q) || role.includes(q) || String(r.userId).includes(q)
     })
   }
 
@@ -337,7 +399,10 @@ const sortedRsvps = computed(() => {
 
   list.sort((a, b) => {
     if (sortCol.value === 'name') {
-      return dir * userName(a.userId).localeCompare(userName(b.userId))
+      return dir * userName(a).localeCompare(userName(b))
+    }
+    if (sortCol.value === 'role') {
+      return dir * userRole(a).localeCompare(userRole(b))
     }
     if (sortCol.value === 'status') {
       return dir * (a.rsvpStatus || '').localeCompare(b.rsvpStatus || '')
@@ -676,6 +741,12 @@ const sortedRsvps = computed(() => {
 .rsvp-badge-pending {
   background: #f0e6f6;
   color: #6a329f;
+}
+
+.admin-event-rsvps__role-cell {
+  color: var(--charcoal);
+  font-size: 0.875rem;
+  white-space: nowrap;
 }
 
 @keyframes admin-spin {

@@ -1,15 +1,6 @@
-"""Send the daily reminder to teams whose entry is still outstanding.
+"""Send today's submission reminders; safe to re-run, as teams already reminded today are skipped.
 
-Run once a day on a schedule. It is safe to run more often than that, and safe
-to re-run after a failure: a team already written to today is skipped, so a
-retry cannot double up on them.
-
-    python manage.py send_submission_reminders
-    python manage.py send_submission_reminders --dry-run
-
-``--dry-run`` reports who would be written to without sending anything and
-without recording that they were reminded, which is the safe way to check a
-schedule before it goes live.
+    python manage.py send_submission_reminders [--dry-run]
 """
 from django.core.management.base import BaseCommand
 

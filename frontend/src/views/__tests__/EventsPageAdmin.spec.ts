@@ -71,11 +71,6 @@ describe('EventsPage - Admin Integration & Role Access', () => {
 
     vi.spyOn(eventsApi, 'fetchMyEventRsvps').mockResolvedValue({} as any)
 
-    vi.spyOn(adminApi, 'fetchAdminEventMetaGroups').mockResolvedValue([
-      { id: 1, groupName: 'Team Alpha' },
-      { id: 2, groupName: 'Team Beta' }
-    ])
-
     vi.spyOn(adminApi, 'fetchAdminEventMetaRoles').mockResolvedValue([
       { id: 1, roleName: 'student' },
       { id: 2, roleName: 'mentor' }
@@ -205,7 +200,7 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(dialog?.textContent).toContain('Event Name *')
       expect(dialog?.textContent).toContain('Event Format *')
       expect(dialog?.textContent).toContain('Timezone *')
-      expect(dialog?.textContent).toContain('Target Groups')
+      expect(dialog?.textContent).not.toContain('Target Groups')
       expect(dialog?.textContent).toContain('Target Roles')
     })
 
@@ -250,8 +245,10 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(adminApi.fetchAdminEventRsvps).toHaveBeenCalledWith(101)
       const rsvpsSheet = document.body.querySelector('.admin-event-rsvps')
       expect(rsvpsSheet).not.toBeNull()
+      expect(rsvpsSheet?.textContent).toContain('User Type')
       expect(rsvpsSheet?.textContent).toContain('Sam Student')
       expect(rsvpsSheet?.textContent).toContain('student@example.com')
+      expect(rsvpsSheet?.textContent).toContain('Student')
       expect(rsvpsSheet?.textContent).toContain('Going')
     })
 
@@ -452,6 +449,58 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       expect(rsvpsSheet.textContent).toContain('Sam Student')
+    })
+
+    it('displays attendee name directly from RSVP or via fetchAdminUser when missing from user list cache', async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+
+      vi.spyOn(adminApi, 'fetchAdminEventRsvps').mockResolvedValueOnce([
+        {
+          id: 1,
+          eventId: 101,
+          userId: 999,
+          userName: 'Direct Attendee',
+          userEmail: 'direct@example.com',
+          rsvpStatus: 'accepted',
+          respondedAt: '2026-09-01T12:00:00Z'
+        },
+        {
+          id: 2,
+          eventId: 101,
+          userId: 888,
+          rsvpStatus: 'tentative',
+          respondedAt: '2026-09-01T13:00:00Z'
+        }
+      ])
+
+      const fetchUserSpy = vi.spyOn(adminApi, 'fetchAdminUser').mockResolvedValueOnce({
+        id: 888,
+        email: 'fetched@example.com',
+        firstName: 'Fallback',
+        lastName: 'Resolved',
+        role: 'student',
+        active: true
+      } as any)
+
+      const w = await mountPage()
+
+      await w.findAll('.event-card-more-btn')[0].trigger('click')
+      await flushPromises()
+
+      const rsvpMenuItem = w
+        .findAll('.event-card-dropdown-item')
+        .find((el) => el.text().includes('See RSVPs'))
+      await rsvpMenuItem?.trigger('click')
+      await flushPromises()
+
+      const rsvpsSheet = document.body.querySelector('.admin-event-rsvps') as HTMLElement
+      expect(rsvpsSheet).not.toBeNull()
+      expect(rsvpsSheet.textContent).toContain('Direct Attendee')
+      expect(rsvpsSheet.textContent).toContain('Fallback Resolved')
+      expect(rsvpsSheet.textContent).not.toContain('User #999')
+      expect(rsvpsSheet.textContent).not.toContain('User #888')
+      expect(fetchUserSpy).toHaveBeenCalledWith(888)
     })
   })
 })

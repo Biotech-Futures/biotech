@@ -617,10 +617,6 @@ export interface AdminEvent {
   [key: string]: unknown
 }
 
-export interface EventTargetGroupItem {
-  id: number
-  groupName: string
-}
 
 export interface EventTargetRoleItem {
   id: number
@@ -636,6 +632,11 @@ export interface AdminEventRsvpItem {
   id: number
   eventId: number
   userId: number
+  userName?: string
+  userEmail?: string
+  userRole?: string
+  firstName?: string
+  lastName?: string
   rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
   respondedAt: string | null
 }
@@ -669,7 +670,6 @@ export interface CreateAdminEventPayload {
   startAt: string
   endsAt: string
   eventImage?: string | null
-  targetGroupIds?: number[]
   targetRoleIds?: number[]
 }
 
@@ -684,7 +684,6 @@ export interface UpdateAdminEventPayload {
   startAt?: string
   endsAt?: string
   eventImage?: string | null
-  targetGroupIds?: number[]
   targetRoleIds?: number[]
 }
 
@@ -725,9 +724,6 @@ export const fetchAdminEventRsvps = (id: number | string) =>
 
 export const fetchAdminEventTargets = (id: number | string) =>
   adminGet<AdminEnvelope<AdminEventTargetsData>>(`/event/${id}/targets/`).then((env) => env.data)
-
-export const fetchAdminEventMetaGroups = () =>
-  adminGet<AdminEnvelope<EventTargetGroupItem[]>>('/event/meta/groups/').then((env) => env.data || [])
 
 export const fetchAdminEventMetaRoles = () =>
   adminGet<AdminEnvelope<EventTargetRoleItem[]>>('/event/meta/roles/').then((env) => env.data || [])
