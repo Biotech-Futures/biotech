@@ -158,6 +158,19 @@ describe('AdminEventFormSheet — image update intent (port of buildEventUpdateW
     await flushPromises()
   }
 
+  it('rejects non-image files before opening the crop dialog', async () => {
+    const dialog = await mountAndOpenEdit()
+
+    const fileInput = dialog.querySelector('.admin-event-file-input') as HTMLInputElement
+    const file = new File(['text'], 'notes.txt', { type: 'text/plain' })
+    Object.defineProperty(fileInput, 'files', { value: [file] })
+    fileInput.dispatchEvent(new Event('change'))
+    await flushPromises()
+
+    expect(dialog.textContent).toContain('Please select a valid image file.')
+    expect(document.body.querySelector('.stub-crop-dialog')).toBeNull()
+  })
+
   it('does not optimistically send the new image on the PUT — it uploads separately only after the crop is confirmed', async () => {
     const dialog = await mountAndOpenEdit()
 

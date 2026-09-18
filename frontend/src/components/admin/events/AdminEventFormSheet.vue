@@ -545,6 +545,12 @@ const onFileChange = (e: Event) => {
   const file = target.files?.[0]
   if (!file) return
 
+  if (!file.type.startsWith('image/')) {
+    formError.value = 'Please select a valid image file.'
+    target.value = ''
+    return
+  }
+
   if (file.size > 5 * 1024 * 1024) {
     formError.value = 'File is too large. Maximum allowed size is 5 MB.'
     target.value = ''
