@@ -1,7 +1,13 @@
 """Request-shape validation for admin endpoints."""
+import nh3
 from rest_framework import serializers
 
 from apps.admin.services.user import ROLES
+from apps.services.email_registry import (
+    get_email_type,
+    is_known_email_type,
+    unknown_merge_tags,
+)
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -49,3 +55,88 @@ def _format_row(row_errors) -> str:
         f"{field} - {' '.join(str(m) for m in messages)}"
         for field, messages in row_errors.items()
     )
+
+
+class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
+    """PATCH /api/v1/admin/email-template/<key>/ body.
+
+    Every field is optional (PATCH semantics) so toggling an email does not
+    disturb its wording and vice versa. The serializer rejects wording that
+    references a merge tag the email type cannot fill, refuses to switch off a
+    locked type, and sanitises the body with nh3 before it is ever stored.
+    """
+
+    subject = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=255
+    )
+    body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    enabled = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        key = self.context.get("key", "")
+        if not is_known_email_type(key):
+            # Leave the 404 decision to the service/view; validating tags or
+            # locked state against a non-existent type would raise KeyError.
+            return attrs
+
+        email_type = get_email_type(key)
+        if attrs.get("enabled") is False and email_type.locked:
+            raise serializers.ValidationError(
+                {
+                    "enabled": [
+                        f"The '{email_type.name}' email is required for signing "
+                        "in and cannot be switched off."
+                    ]
+                }
+            )
+
+        for field in ("subject", "body"):
+            value = attrs.get(field)
+            if value is None:
+                continue
+            unknown = unknown_merge_tags(key, value)
+            if unknown:
+                raise serializers.ValidationError(
+                    {
+                        field: [
+                            "Unsupported merge tag(s): "
+                            f"'{', '.join(sorted(unknown))}'"
+                        ]
+                    }
+                )
+
+        # nh3 keeps the formatting an admin can produce in the editor and
+        # strips scripts, event handlers and javascript: URLs.
+        if attrs.get("body"):
+            attrs["body"] = nh3.clean(attrs["body"])
+        return attrs
+
+
+class SystemEmailPreviewSerializer(serializers.Serializer):
+    """Optional unsaved wording for preview / test-send.
+
+    Absent fields mean "use the saved/default wording"; an explicit empty
+    string means "clear it", which is why both are allowed and null is not
+    silently coerced to empty.
+    """
+
+    subject = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=255
+    )
+    body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
+class SystemEmailSettingsUpdateSerializer(serializers.Serializer):
+    """PATCH /api/v1/admin/email-settings/ body."""
+
+    enabled = serializers.BooleanField()
+
+
+def serializer_error_message(errors) -> str:
+    """Flatten DRF's error map into one human-readable message."""
+    if isinstance(errors, dict):
+        return "; ".join(
+            f"{field} - {' '.join(str(m) for m in messages)}"
+            for field, messages in errors.items()
+        )
+    return " ".join(str(error) for error in errors)
