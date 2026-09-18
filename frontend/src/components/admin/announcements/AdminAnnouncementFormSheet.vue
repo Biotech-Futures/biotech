@@ -188,7 +188,7 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 
 const RichEditor = defineAsyncComponent(
-  () => import('@/components/admin/announcements/RichEditor.vue')
+  () => import('@/components/admin/RichEditor.vue')
 )
 import {
   fetchAdminAnnouncement,

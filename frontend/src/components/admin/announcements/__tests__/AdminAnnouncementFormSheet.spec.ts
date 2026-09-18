@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminAnnouncementFormSheet from '@/components/admin/announcements/AdminAnnouncementFormSheet.vue'
-import RichEditor from '@/components/admin/announcements/RichEditor.vue'
+import RichEditor from '@/components/admin/RichEditor.vue'
 import * as adminApi from '@/utils/adminAPI'
 
 let wrapper: VueWrapper | null = null
