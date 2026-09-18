@@ -244,6 +244,7 @@
   </FormSheet>
 
   <EventImageCropDialog
+    v-if="cropDialogOpen"
     v-model="cropDialogOpen"
     :file="pendingCropFile"
     @confirm="onCropConfirm"
@@ -252,10 +253,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
-import RichEditor from '@/components/admin/announcements/RichEditor.vue'
-import EventImageCropDialog from '@/components/admin/events/EventImageCropDialog.vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/announcements/RichEditor.vue')
+)
+const EventImageCropDialog = defineAsyncComponent(
+  () => import('@/components/admin/events/EventImageCropDialog.vue')
+)
 import { useAuthStore } from '@/stores/auth'
 import type {
   AdminEventDetail,

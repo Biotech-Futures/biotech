@@ -12,30 +12,34 @@ vi.mock('vue-router', () => ({
   useRouter: vi.fn(() => ({ push: vi.fn() }))
 }))
 
-vi.mock('@/components/admin/announcements/RichEditor.vue', () => {
-  let mountCount = 0
+// RichEditor is loaded via defineAsyncComponent in AdminEventFormSheet.vue
+// (see PR #369's lazy-loading pattern). vi.mock intercepts the module import
+// itself, but Vue Test Utils' component-tree walking inspects the vnode
+// *before* an async component resolves — against the raw mocked module
+// namespace rather than its unwrapped default export, which crashes with
+// "No __isTeleport export is defined on the mock". Stubbing by name in
+// each mount()'s global.stubs (below) matches the resolved component at
+// render time instead, sidestepping the async boundary entirely.
+let richEditorStubMountCount = 0
 
-  return {
-    default: {
-      name: 'RichEditor',
-      props: ['modelValue', 'placeholder'],
-      emits: ['update:modelValue'],
-      data() {
-        return {
-          mountId: ++mountCount
-        }
-      },
-      template: `
-        <textarea
-          class="rich-editor-stub"
-          :data-mount-id="mountId"
-          :value="modelValue"
-          @input="$emit('update:modelValue', $event.target.value)"
-        ></textarea>
-      `
+const RichEditorStub = {
+  name: 'RichEditor',
+  props: ['modelValue', 'placeholder'],
+  emits: ['update:modelValue'],
+  data() {
+    return {
+      mountId: ++richEditorStubMountCount
     }
-  }
-})
+  },
+  template: `
+    <textarea
+      class="rich-editor-stub"
+      :data-mount-id="mountId"
+      :value="modelValue"
+      @input="$emit('update:modelValue', $event.target.value)"
+    ></textarea>
+  `
+}
 
 const mockEvent1: eventsApi.BackendEvent = {
   id: 101,
@@ -158,7 +162,8 @@ describe('EventsPage - Admin Integration & Role Access', () => {
     wrapper = mount(EventsPage, {
       global: {
         stubs: {
-          RouterLink: true
+          RouterLink: true,
+          RichEditor: RichEditorStub
         },
         mocks: {
           $route: { params: {}, name: 'events' },
@@ -182,7 +187,8 @@ describe('EventsPage - Admin Integration & Role Access', () => {
           FormSheet: {
             props: ['modelValue', 'title', 'description'],
             template: '<section class="admin-sheet"><h2>{{ title }}</h2><slot /></section>'
-          }
+          },
+          RichEditor: RichEditorStub
         }
       }
     })
