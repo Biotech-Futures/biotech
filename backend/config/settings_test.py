@@ -61,4 +61,11 @@ UNREAD_DIGEST_DISPATCH_SYNC = True
 # repo's .gitignore excludes settings_local.py, so CI's checked-in copy may
 # not have the override.
 USE_AZURE_BLOB_STORAGE = False
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+# Same reason the flag above is forced: settings.py points STORAGES at Azure,
+# and only replacing the dict keeps CI off a backend it has no credentials for.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+# Pinned on, so turning it off in a local .env cannot stop the suite testing it.
+SUBMISSION_POSTER_CHECKS_ENABLED = True

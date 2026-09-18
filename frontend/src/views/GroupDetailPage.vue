@@ -140,6 +140,8 @@
         </section>
       </div>
 
+      <GroupSubmissionSection>
+
       <!-- Mobile tabs (hidden on desktop) -->
       <nav class="mobile-tabs">
         <button
@@ -1746,6 +1748,7 @@
           </div>
         </section>
       </div>
+      </GroupSubmissionSection>
     </template>
   </div>
 </template>
@@ -1755,6 +1758,7 @@ import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
+import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'

@@ -12,7 +12,6 @@ interface AdminAwareAuth {
   } | null
 }
 
-const ADMIN_FRONTEND_URL = import.meta.env.VITE_ADMIN_FRONTEND_URL || 'https://mentoringadmin.biotechfutures.org'
 const TIMEZONE_PROMPT_SESSION_PREFIX = 'timezone-mismatch-prompted'
 
 const shouldPromptForTimezoneMismatch = (auth: AdminAwareAuth) => {
@@ -39,7 +38,7 @@ export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) =
   }
 
   if (auth.isAdmin) {
-    window.location.assign(ADMIN_FRONTEND_URL)
+    await router.replace('/admin')
     return
   }
 

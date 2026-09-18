@@ -18,6 +18,7 @@ it still keeps a legacy in-app ``v1/`` alias; only its canonical app-root
 patterns are exposed under ``/api/v1/events/...``.
 """
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
@@ -76,6 +77,10 @@ _api_v1_patterns = [
     path("events/", include(event_canonical_urlpatterns)),
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
+    path("grading/", include("apps.grading.urls")),
+    # Submissions is v1-only: it has no legacy unprefixed callers to support,
+    # so it is deliberately left out of _DUAL_MOUNTS.
+    path("submissions/", include("apps.submissions.urls")),
     path("", include("apps.users.urls")),
 ]
 
@@ -110,8 +115,27 @@ urlpatterns = [
 # Schema + Swagger/Redoc UIs mount only under DEBUG (local dev). In production
 # they don't exist at all — the public host exposes no discoverable API map.
 if settings.DEBUG:
+    from django.urls import re_path
+    from django.views.decorators.clickjacking import xframe_options_exempt
+    from django.views.static import serve as media_serve
     urlpatterns += [
         path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
         path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
         path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+        # Local-storage uploads (submissions, signatures) are only reachable in
+        # dev this way; production serves files from Azure Blob via SAS URLs.
+        # xframe exempt so the SPA's submission-preview <iframe> can embed them
+        # (XFrameOptionsMiddleware would otherwise stamp DENY on the response).
+        re_path(
+            r"^media/(?P<path>.*)$",
+            xframe_options_exempt(media_serve),
+            {"document_root": settings.MEDIA_ROOT},
+        ),
     ]
+    
+    # Local managed storage returns /media/... URLs. Development servers must
+    # expose those files so event banners and other uploaded media can render.
+    # Local development stores uploaded event banners under MEDIA_ROOT instead
+    # of Azure Blob Storage. Django does not serve those files automatically,
+    # so expose MEDIA_URL while DEBUG is enabled. Production remains unchanged.
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

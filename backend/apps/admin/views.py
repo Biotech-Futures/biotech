@@ -122,7 +122,11 @@ class UserDetailView(APIView):
         return Response(result, status=code)
 
     def delete(self, request, user_id):
-        result = delete_user(int(user_id), initiated_by=request.user)
+        # force=True also purges records that PROTECT the user (chat messages,
+        # uploaded resources, workshops, match runs) — permanently. The admin
+        # portal gates this behind an explicit opt-in + typed confirmation.
+        force = bool(request.data.get("force"))
+        result = delete_user(int(user_id), initiated_by=request.user, force=force)
         code = status.HTTP_200_OK if result.get(
             "msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -663,7 +667,16 @@ class ResourceListCreateView(APIView):
         if hasattr(request, "user") and request.user.is_authenticated:
             uploader = {"id": str(request.user.id),
                         "email": request.user.email}
-        result = create_resource(request.data, uploader)
+        try:
+            result = create_resource(request.data, uploader)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to create resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as exc:
+            return Response({"msg": str(exc), "data": None}, status=status.HTTP_400_BAD_REQUEST)
+
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -774,9 +787,21 @@ class ResourceUploadView(APIView):
 class ResourceFileReplaceView(APIView):
     """POST /api/v1/resource/{id}/upload - Replace resource file"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
-
     def post(self, request, resource_id):
-        result = replace_resource_file(resource_id, request.data)
+        uploaded_file = request.FILES.get("file")
+        if uploaded_file is None:
+            return Response(
+                {"msg": "No file was uploaded.", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = {
+            **request.data.dict(),
+            "file_bytes": uploaded_file.read(),
+            "file_name": uploaded_file.name,
+            "file_mime_type": uploaded_file.content_type or "application/octet-stream",
+            "file_size": uploaded_file.size,
+        }
+        result = replace_resource_file(resource_id, payload)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
