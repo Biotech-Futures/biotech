@@ -478,7 +478,7 @@ class ResilienceTests(TestCase):
             return real_send(self_msg, *args, **kwargs)
 
         with patch(
-            "apps.events.services.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             new=flaky_send,
         ):
             events, sent, failed = send_due_rsvp_reminders()

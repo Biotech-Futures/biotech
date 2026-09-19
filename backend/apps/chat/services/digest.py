@@ -22,15 +22,17 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.db import connection as db_connection
 from django.db.models import Count, Max, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 
 from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
 logger = logging.getLogger(__name__)
 
@@ -217,8 +219,15 @@ def _claim_user(user_id, new_hwm, cutoff, now) -> bool:
     return bool(claimed)
 
 
+def _group_list_html(per_group) -> str:
+    """Unread counts as an HTML list, for an admin's edited wording. Escaped."""
+    items = format_html_join("", "<li>{}: {}</li>", per_group)
+    return format_html("<ul>{}</ul>", items)
+
+
 def _render_and_send(connection, candidate, summary):
     total, per_group, _new_hwm = summary
+    plural = "" if total == 1 else "s"
     ctx = {
         **brand_context(),
         # Digest sends from connect@, so the "add to address book" copy must show
@@ -229,21 +238,20 @@ def _render_and_send(connection, candidate, summary):
         "GROUP_COUNT": len(per_group),
         "GROUPS": [{"name": n, "count": c} for n, c in per_group],
         "PLATFORM_URL": _platform_url(),
+        # Unedited subject: "You have {{ unread_summary }} on {{ brand_connect }}".
+        "UNREAD_SUMMARY": f"{total} unread message{plural}",
+        "UNREAD_GROUP_LIST": _group_list_html(per_group),
     }
-    plural = "" if total == 1 else "s"
-    subject = f"You have {total} unread message{plural} on {ctx['BRAND_CONNECT']}"
     text_body = render_to_string("emails/unread_messages.txt", ctx)
-    html_body = render_to_string("emails/unread_messages.html", ctx)
+    rendered = render_system_email("unread_messages", ctx, default_text=text_body)
 
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=text_body,
+    # Still from connect@ over the connect@ connection, not the default account.
+    msg = build_message(
+        rendered,
+        candidate["email"],
         from_email=settings.CONNECT_DEFAULT_FROM_EMAIL,
-        to=[candidate["email"]],
         connection=connection,
     )
-    msg.attach_alternative(html_body, "text/html")
-    attach_inline_logo(msg)
     msg.send(fail_silently=False)
 
 
@@ -253,6 +261,11 @@ def send_unread_message_digests(*, dry_run=False):
     Returns ``(users_considered, emails_sent, emails_failed)``. ``dry_run``
     reports who would be emailed without claiming state or sending anything.
     """
+    # Before any claim, so switching the digest off never marks users notified.
+    if not is_email_enabled("unread_messages"):
+        logger.info("unread_digest.disabled_skip")
+        return 0, 0, 0
+
     now = timezone.now()
     if not dry_run and _in_quiet_hours(now):
         logger.info("unread_digest.quiet_hours_skip")
