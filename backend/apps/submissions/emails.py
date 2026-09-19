@@ -4,13 +4,15 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 
 from apps.groups.models import GroupMembership
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
 from apps.services.mailer import send_async
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
 from .models import Submission, SubmissionQuestion
 from .services import deadline_for_group
@@ -71,6 +73,28 @@ def build_components(submission: Submission) -> tuple[list[dict], list[dict]]:
         ),
     ]
     return required, optional
+
+
+def components_list_html(components: list[dict]) -> str:
+    """Components as an HTML list, for the merge tags an admin can use in an
+    edited email, e.g. "<li><strong>Poster</strong>: Submitted (poster.pdf)</li>".
+    Every value is escaped.
+    """
+    if not components:
+        return ""
+    items = format_html_join(
+        "",
+        "<li><strong>{}</strong>: {}{}</li>",
+        (
+            (
+                item["label"],
+                item["status"],
+                format_html(" ({})", item["detail"]) if item.get("detail") else "",
+            )
+            for item in components
+        ),
+    )
+    return format_html("<ul>{}</ul>", items)
 
 
 def recipients_for(group) -> list[str]:
@@ -137,6 +161,10 @@ class _Batch:
 def send_submission_confirmation(submission: Submission) -> int:
     """Email the team a summary of what was received. Returns recipient count; never raises."""
     try:
+        if not is_email_enabled("submission_confirmation"):
+            logger.info("submission_email.skipped_disabled group=%s", getattr(submission, "group_id", None))
+            return 0
+
         group = submission.group
         to = recipients_for(group)
         if not to:
@@ -152,6 +180,8 @@ def send_submission_confirmation(submission: Submission) -> int:
             "YEAR": timezone.now().year,
             "REQUIRED_COMPONENTS": required,
             "OPTIONAL_COMPONENTS": optional,
+            "REQUIRED_COMPONENTS_LIST": components_list_html(required),
+            "OPTIONAL_COMPONENTS_LIST": components_list_html(optional),
             "INCOMPLETE": any(not item["submitted"] for item in required),
             "DEADLINE": _format_deadline(deadline.closes_at),
             "SUBMITTED_BY": submission.submitted_by,
@@ -163,21 +193,11 @@ def send_submission_confirmation(submission: Submission) -> int:
             ),
         }
 
-        html = render_to_string("emails/submission_confirmation.html", context)
+        # The existing plain-text template, used unless an admin rewrote the email.
         text = render_to_string("emails/submission_confirmation.txt", context)
-
-        subject = f"{settings.BRAND_NAME}: Submission received for {group.group_name}"
-        messages = []
-        for address in to:
-            message = EmailMultiAlternatives(
-                subject=subject,
-                body=text,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[address],
-            )
-            message.attach_alternative(html, "text/html")
-            attach_inline_logo(message)
-            messages.append(message)
+        # Rendered once, so every member reads the same email; only the address differs.
+        rendered = render_system_email("submission_confirmation", context, default_text=text)
+        messages = [build_message(rendered, address) for address in to]
 
         # Rendered here so the worker thread does no database work.
         send_async(_Batch(messages, "submission_confirmation"),
