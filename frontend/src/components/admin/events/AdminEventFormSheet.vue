@@ -257,7 +257,7 @@ import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 
 const RichEditor = defineAsyncComponent(
-  () => import('@/components/admin/announcements/RichEditor.vue')
+  () => import('@/components/admin/RichEditor.vue')
 )
 const EventImageCropDialog = defineAsyncComponent(
   () => import('@/components/admin/events/EventImageCropDialog.vue')
