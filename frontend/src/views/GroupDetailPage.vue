@@ -2595,6 +2595,22 @@ const studentMemberUserIds = computed(
     ),
 )
 
+const supervisorMemberUserIds = computed(
+  () =>
+    new Set(
+      groupMemberships.value
+        .filter(
+          (item) =>
+            !item.leftAt &&
+            String(item.role || '')
+              .toLowerCase()
+              .includes('supervisor'),
+        )
+        .map((item) => Number(item.userId))
+        .filter(Number.isFinite),
+    ),
+)
+
 const supervisedStudentIds = computed(
   () =>
     new Set(
@@ -2630,8 +2646,10 @@ const individualTaskAssigneeOptions = computed(() => {
   }
 
   if (auth.isMentor) {
-    return activeGroupMemberOptions.value.filter((item) =>
-      groupMemberUserIds.value.has(Number(item.userId)),
+    return activeGroupMemberOptions.value.filter(
+      (item) =>
+        groupMemberUserIds.value.has(Number(item.userId)) &&
+        !supervisorMemberUserIds.value.has(Number(item.userId)),
     )
   }
 
@@ -2972,7 +2990,13 @@ const canCreateTaskType = (taskType, parentTask = null) => {
   const assigneeId = Number(parentTask.assignedUser)
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
+  if (auth.isMentor) {
+    return (
+      isCurrentGroupMentor.value &&
+      groupMemberUserIds.value.has(assigneeId) &&
+      !supervisorMemberUserIds.value.has(assigneeId)
+    )
+  }
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -2985,7 +3009,13 @@ const canCreateTaskFromForm = () => {
   if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
+  if (auth.isMentor) {
+    return (
+      isCurrentGroupMentor.value &&
+      groupMemberUserIds.value.has(assigneeId) &&
+      !supervisorMemberUserIds.value.has(assigneeId)
+    )
+  }
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
