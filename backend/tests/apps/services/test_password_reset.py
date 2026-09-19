@@ -102,7 +102,7 @@ class PasswordResetTokenModelTest(TestCase):
 
 # --- service: send ---------------------------------------------------------
 
-@patch('apps.services.auth_service.EmailMultiAlternatives')
+@patch('apps.services.system_email.EmailMultiAlternatives')
 class SendPasswordResetServiceTest(TestCase):
 
     def setUp(self):
@@ -177,7 +177,7 @@ class SendPasswordResetServiceTest(TestCase):
 
 # --- service: confirm ------------------------------------------------------
 
-@patch('apps.services.auth_service.EmailMultiAlternatives')
+@patch('apps.services.system_email.EmailMultiAlternatives')
 class ConfirmPasswordResetServiceTest(TestCase):
 
     def setUp(self):
@@ -266,7 +266,7 @@ class ConfirmPasswordResetServiceTest(TestCase):
 
 # --- endpoints -------------------------------------------------------------
 
-@patch('apps.services.auth_service.EmailMultiAlternatives')
+@patch('apps.services.system_email.EmailMultiAlternatives')
 class PasswordResetEndpointsTest(TestCase):
 
     def setUp(self):
