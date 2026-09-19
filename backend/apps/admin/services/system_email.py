@@ -28,13 +28,15 @@ Security notes:
 """
 
 import logging
+import textwrap
 
 import nh3
 from django.db import transaction
-from django.template import TemplateDoesNotExist
-from django.template.loader import render_to_string
+from django.template import Context, TemplateDoesNotExist
+from django.template.loader import get_template
+from django.template.loader_tags import ExtendsNode
 
-from apps.services.email_branding import brand_context
+from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
 from apps.services.email_registry import (
     EMAIL_TYPES,
     get_email_type,
@@ -51,17 +53,18 @@ SUBJECT_MAX_LENGTH = 255
 
 
 def _default_body(email_type) -> str:
-    """The email's built-in body, rendered with sample values, or '' if unavailable.
+    """The email's built-in wording for the editor to pre-fill, or '' if unavailable.
 
-    The template file is rendered the same way the send path renders an email
-    whose wording has not been customised, so the admin editor can pre-fill
-    with the content recipients would actually see. The admin supply may set a
-    ``default_template`` file before this default is needed; until then the
-    field is empty and the editor stays blank rather than inventing content.
+    Only the template's ``content`` block is rendered: the brand strip, logo and
+    footer are added around every email at send time, so including them here
+    would duplicate them once saved. Merge tags are left as ``{{ tag }}`` rather
+    than filled with sample values, so a saved edit keeps pulling each
+    recipient's real data instead of freezing sample text like "Alex" into it.
     """
-    ctx = {**brand_context(), **_sample_context(email_type)}
     try:
-        return render_to_string(email_type.default_template, ctx)
+        return _render_content_block(
+            email_type.default_template, _placeholder_context(email_type, brand_as_tags=True),
+        )
     except TemplateDoesNotExist:
         logger.warning(
             "system_email.default_template_missing key=%s template=%s",
@@ -69,6 +72,19 @@ def _default_body(email_type) -> str:
             email_type.default_template,
         )
         return ""
+
+
+def _render_content_block(template_name: str, context: dict) -> str:
+    """Render just the ``{% block content %}`` of an email template.
+
+    Falls back to the whole template if it doesn't extend a layout.
+    """
+    template = get_template(template_name).template
+    for node in template.nodelist:
+        if isinstance(node, ExtendsNode) and "content" in node.blocks:
+            html = node.blocks["content"].nodelist.render(Context(context))
+            return textwrap.dedent(html).strip()
+    return template.render(Context(context)).strip()
 
 
 def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
@@ -116,14 +132,45 @@ def _serialize_settings(settings_row: SystemEmailSettings) -> dict:
 def _sample_context(email_type) -> dict:
     """One context per merge tag, built from the registry's sample values.
 
-    Brand tags are merged in by ``render_system_email`` itself; the rest here
-    are the sample strings from the registry, so a preview/test-send looks the
-    way the tag descriptions on the page promise.
+    Used for the test send, which lands in the admin's own inbox and should
+    read like a real email. Brand tags are merged in by
+    ``render_system_email`` itself.
     """
     context = {}
     for tag in email_type.merge_tags:
         context[tag.context_key] = tag.sample
     return context
+
+
+def _placeholder_context(email_type, *, brand_as_tags: bool = False) -> dict:
+    """Each merge tag shown as its own ``{{ tag }}``, for the editor and preview.
+
+    With ``brand_as_tags`` False (the preview), brand tags keep their real
+    values, since they're the same in every email, so only the
+    recipient-specific parts show as tags. The editor pre-fill passes True so
+    saved wording keeps following the brand settings too. Values come back out
+    of rendering as literal ``{{ tag }}`` text, never re-evaluated.
+    """
+    brand = brand_context()
+    # Templates that build a list with {% for %} (components, unread groups)
+    # show that list's tag instead, so the list isn't lost from saved wording.
+    context = {**brand, "SHOW_MERGE_TAGS": True}
+    for tag in email_type.merge_tags:
+        if brand_as_tags or tag.context_key not in brand:
+            context[tag.context_key] = "{{ %s }}" % tag.name
+    return context
+
+
+def _with_visible_logo(html: str) -> str:
+    """Swap the email-only ``cid:`` logo reference for an embedded image.
+
+    Email clients resolve ``cid:`` against the attached logo; a browser preview
+    can't, so the logo would show as broken without this.
+    """
+    data_uri = logo_data_uri()
+    if not data_uri:
+        return html
+    return html.replace(f"cid:{LOGO_CID}", data_uri)
 
 
 def _validate_editable_text(key: str, field: str, value: str):
@@ -294,10 +341,12 @@ def preview_email_template(
     subject=None,
     body=None,
 ) -> dict:
-    """Render email ``key`` with sample data, honouring unsaved edits.
+    """Render email ``key`` for the editor's preview, honouring unsaved edits.
 
-    Returns the finished subject and the full branded HTML + plain text so the
-    admin can eyeball the exact artifact that will hit an inbox.
+    Returns the finished subject and the full branded HTML + plain text.
+    Recipient-specific merge tags stay visible as ``{{ tag }}`` so the admin
+    can see exactly where each person's data will go, and the logo is
+    embedded so it displays in the browser.
     """
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
@@ -310,7 +359,7 @@ def preview_email_template(
     try:
         rendered = render_system_email(
             key,
-            _sample_context(email_type),
+            _placeholder_context(email_type),
             subject=cleaned_subject,
             body=cleaned_body,
         )
@@ -327,7 +376,7 @@ def preview_email_template(
         "data": {
             "key": key,
             "subject": rendered.subject,
-            "html": rendered.html,
+            "html": _with_visible_logo(rendered.html),
             "text": rendered.text,
         },
     }

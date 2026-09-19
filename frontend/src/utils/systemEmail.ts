@@ -39,9 +39,9 @@ export type SystemEmailMergeTag = z.infer<typeof systemEmailMergeTagSchema>
  * A registry email type merged with its saved override. `subject`/`body` are
  * the saved wording and are empty when the email still uses its built-in
  * template file; `usingSavedContent` is the authoritative flag for that.
- * `defaultSubject`/`defaultBody` mirror the built-in wording (rendered with
- * sample merge values), so the editor can pre-fill what recipients currently
- * get before anyone customises it.
+ * `defaultSubject`/`defaultBody` mirror the built-in wording with merge tags
+ * left as `{{ tag }}` (and only the content, not the branded layout), so the
+ * editor can pre-fill it and a saved edit still fills in each recipient's data.
  */
 export const systemEmailTemplateSchema = z.object({
   key: z.string().min(1),
