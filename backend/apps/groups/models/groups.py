@@ -32,6 +32,11 @@ def generate_group_name(number: int) -> str:
     return f"{GROUP_NAME_PREFIX}{number}"
 
 
+def default_group_year() -> int:
+    """Default ``year`` for a new group: the year it is created in."""
+    return timezone.now().year
+
+
 def next_group_number() -> int:
     """One past the highest auto-name number still on the table.
 
@@ -137,6 +142,7 @@ class Groups(models.Model):
     objects = GroupManager()
 
     group_name = models.CharField(max_length=255)
+    year = models.PositiveSmallIntegerField(default=default_group_year)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
 

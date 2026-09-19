@@ -291,8 +291,16 @@ h5 {
   cursor: pointer;
   transition: all 0.3s ease;
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
   text-align: center;
+}
+
+.btn i {
+  font-size: 0.9em;
+  line-height: 1;
 }
 
 .btn-primary {
@@ -315,6 +323,26 @@ h5 {
 .btn-outline:hover {
   background-color: var(--light-green);
   border-color: var(--dark-green);
+}
+
+/* Disabled buttons: dimmed, no hover feedback, not-allowed cursor. */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-primary:disabled:hover {
+  background-color: var(--dark-green);
+}
+
+.btn-outline:disabled:hover {
+  background-color: transparent;
+  border-color: var(--border-light);
 }
 
 .btn-sm {

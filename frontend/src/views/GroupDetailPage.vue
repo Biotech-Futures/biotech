@@ -142,6 +142,8 @@
         </section>
       </div>
 
+      <GroupSubmissionSection>
+
       <!-- Mobile tabs (hidden on desktop) -->
       <nav class="mobile-tabs">
         <button
@@ -1749,6 +1751,7 @@
           </div>
         </section>
       </div>
+      </GroupSubmissionSection>
     </template>
   </div>
 </template>
@@ -1759,6 +1762,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppDatePicker from '../components/AppDatePicker.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
+import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'

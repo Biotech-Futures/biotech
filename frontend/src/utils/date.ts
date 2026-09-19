@@ -155,6 +155,16 @@ export function formatTimeZoneLabel(value: string | null | undefined): string {
   return timeZone.replace(/_/g, ' ')
 }
 
+/** The browser's timezone with its current offset, e.g. "Australia/Sydney (GMT+10)". */
+export function describeBrowserTimeZone(): string {
+  const timeZone = getBrowserTimeZone()
+  const label = formatTimeZoneLabel(timeZone)
+  const offset = getFormatter('en-AU', { timeZone, timeZoneName: 'shortOffset' })
+    .formatToParts(new Date())
+    .find((part) => part.type === 'timeZoneName')?.value
+  return offset ? `${label} (${offset})` : label
+}
+
 export function getTimeZoneDateParts(
   value: string | Date | null | undefined,
   timeZone = DEFAULT_TIME_ZONE,
