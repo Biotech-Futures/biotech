@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.utils import timezone
+from django.utils import dateformat, timezone
 
 from apps.users.models import User
 from apps.common.rbac import is_admin
@@ -199,7 +199,9 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
     """Best-effort 'your password was changed' email. Never raises — password is already updated."""
     ctx = {
         "First_Name": user.first_name,
-        "CHANGED_AT": timezone.now(),
+        # Pre-formatted (the template appends "UTC") so the {{ changed_at }} tag
+        # and the built-in template show the same text.
+        "CHANGED_AT": dateformat.format(timezone.localtime(timezone.now()), "j M Y, H:i"),
         "REQUEST_IP": ip or "unknown",
     }
     text_content = (

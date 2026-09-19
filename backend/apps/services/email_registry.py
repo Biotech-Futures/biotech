@@ -100,7 +100,7 @@ EMAIL_TYPES = (
         default_template="emails/password_changed.html",
         merge_tags=(
             _FIRST_NAME,
-            MergeTag("changed_at", "When the password was changed", "18 Sep 2026, 10:30 am", "CHANGED_AT"),
+            MergeTag("changed_at", "When the password was changed (UTC)", "18 Sep 2026, 10:30", "CHANGED_AT"),
             MergeTag("request_ip", "IP address the change came from", "203.0.113.7", "REQUEST_IP"),
             *_BRAND_TAGS,
         ),

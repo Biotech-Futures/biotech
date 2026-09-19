@@ -87,13 +87,42 @@ class SystemEmailAdminServiceTests(TestCase):
 
         reset = by_key["password_reset"]
         self.assertEqual(reset["defaultSubject"], "{{ brand_name }}: Update your password")
-        # The built-in body is rendered with sample values so the editor can
-        # pre-fill with the content recipients would actually see.
+        # The built-in body keeps its merge tags as {{ tag }} so a saved edit
+        # still fills in each recipient's real data.
         self.assertIn("Update your password", reset["defaultBody"])
-        self.assertIn("Alex", reset["defaultBody"])
+        self.assertIn("{{ first_name }}", reset["defaultBody"])
+        self.assertIn("{{ reset_link }}", reset["defaultBody"])
+        self.assertNotIn("Alex", reset["defaultBody"])
 
         login = by_key["login_code"]
         self.assertIn("Log in to", login["defaultBody"])
+
+    def test_default_body_is_only_the_content_not_the_layout(self):
+        # The brand strip, logo and footer are added at send time; pre-filling
+        # them would duplicate them in every email once saved.
+        body = get_email_template("password_reset")["data"]["defaultBody"]
+        self.assertNotIn("<!doctype", body.lower())
+        self.assertNotIn("<style", body)
+        self.assertNotIn("cid:btf-logo", body)
+        self.assertNotIn("to your address book", body)
+
+    def test_default_body_keeps_brand_names_as_tags(self):
+        body = get_email_template("password_reset")["data"]["defaultBody"]
+        self.assertIn("{{ brand_connect }}", body)
+        self.assertNotIn("BIOTech Connect", body)
+
+    def test_default_body_keeps_lists_as_tags(self):
+        # These lists are built with {% for %} in the template file; without a
+        # tag in the pre-fill, saving it would silently drop the list.
+        expected = {
+            "unread_messages": ["{{ unread_group_list }}"],
+            "submission_confirmation": ["{{ required_components_list }}", "{{ optional_components_list }}"],
+            "submission_reminder": ["{{ required_components_list }}", "{{ optional_components_list }}"],
+        }
+        for key, tags in expected.items():
+            body = get_email_template(key)["data"]["defaultBody"]
+            for tag in tags:
+                self.assertIn(tag, body, f"{tag} missing from the {key} pre-fill")
 
     def test_default_body_is_rendered_from_any_app_template_when_not_customised(self):
         # Template files live in each app's own templates directory (APP_DIRS);
@@ -101,7 +130,7 @@ class SystemEmailAdminServiceTests(TestCase):
         result = preview_email_template("unread_messages")
         self.assertIsNotNone(result["data"])
         self.assertEqual(
-            result["data"]["subject"], "You have 3 unread messages on BIOTech Connect"
+            result["data"]["subject"], "You have {{ unread_summary }} on BIOTech Connect"
         )
         self.assertIn("<!doctype html>", result["data"]["html"])
 
@@ -110,7 +139,7 @@ class SystemEmailAdminServiceTests(TestCase):
             "unread_messages", body="<p>You have {{ total_unread }} new messages.</p>"
         )
         self.assertIsNotNone(result["data"])
-        self.assertIn("<p>You have 3 new messages.</p>", result["data"]["html"])
+        self.assertIn("<p>You have {{ total_unread }} new messages.</p>", result["data"]["html"])
 
     def test_update_creates_row_and_saves_wording(self):
         result = update_email_template(
@@ -229,14 +258,59 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn("<!doctype html>", result["data"]["html"])
         self.assertIn("Log in securely", result["data"]["subject"])
 
-    def test_preview_fills_sample_tags_from_unsaved_edits(self):
+    def test_preview_shows_recipient_tags_from_unsaved_edits(self):
         result = preview_email_template(
             "password_reset",
-            subject="Hi {{ first_name }}",
+            subject="Hi {{ first_name }} from {{ brand_name }}",
             body="<p>Go to {{ reset_link }}</p>",
         )
-        self.assertEqual(result["data"]["subject"], "Hi Alex")
-        self.assertIn("https://biotechfutures.org/#/auth/reset-password", result["data"]["html"])
+        # Recipient data stays as tags; the brand (same for everyone) is filled.
+        self.assertEqual(result["data"]["subject"], "Hi {{ first_name }} from BIOTech Futures")
+        self.assertIn("<p>Go to {{ reset_link }}</p>", result["data"]["html"])
+        self.assertNotIn("Alex", result["data"]["html"])
+
+    def test_preview_embeds_the_logo_so_it_shows_in_the_browser(self):
+        html = preview_email_template("password_reset")["data"]["html"]
+        self.assertNotIn("cid:btf-logo", html)
+        self.assertIn('src="data:image/png;base64,', html)
+
+    def test_test_send_uses_sample_values_and_the_attached_logo(self):
+        # The test email lands in a real inbox, so it reads like a real email.
+        mail.outbox = []
+        send_test_email("password_reset", requested_by=self.admin)
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("Alex", html)
+        self.assertIn("cid:btf-logo", html)
+        self.assertEqual(mail.outbox[0].mixed_subtype, "related")
+
+    @override_settings(AUTH_EMAIL_DISPATCH_SYNC=True)
+    def test_saving_the_prefilled_body_sends_real_data_not_samples(self):
+        # The editor starts from defaultSubject/defaultBody. Saving that as-is
+        # must still greet each recipient by their own name.
+        from apps.services.auth_service import send_password_reset
+
+        template = get_email_template("password_reset")["data"]
+        update_email_template(
+            "password_reset",
+            {"subject": template["defaultSubject"], "body": template["defaultBody"]},
+            requested_by=self.admin,
+        )
+        user = User.objects.create_user(
+            email="grace@example.com", password="StrongPass!42", first_name="Grace",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        mail.outbox = []
+        send_password_reset(user.email)
+
+        message = mail.outbox[0]
+        html = message.alternatives[0][0]
+        self.assertEqual(message.subject, "BIOTech Futures: Update your password")
+        self.assertIn("Grace", html)
+        self.assertNotIn("Alex", html)
+        self.assertNotIn("{{", html)
+        self.assertIn("reset-password?token=", html)
+        # Layout appears once, not duplicated from the pre-fill.
+        self.assertEqual(html.lower().count("<!doctype"), 1)
 
     def test_preview_sanitises_unsaved_body(self):
         result = preview_email_template(
@@ -370,17 +444,17 @@ class SystemEmailAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()["data"]
-        self.assertEqual(data["subject"], "Hi Alex")
+        self.assertEqual(data["subject"], "Hi {{ first_name }}")
         self.assertIn("<!doctype html>", data["html"])
-        self.assertIn("reset-password", data["html"])
+        self.assertIn("{{ reset_link }}", data["html"])
 
-    def test_preview_renders_an_app_template_with_sample_values(self):
+    def test_preview_renders_an_app_template_with_tags_shown(self):
         response = self.client.post(
             "/api/v1/admin/email-template/unread_messages/preview/", {}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()["data"]
-        self.assertEqual(data["subject"], "You have 3 unread messages on BIOTech Connect")
+        self.assertEqual(data["subject"], "You have {{ unread_summary }} on BIOTech Connect")
 
     def test_test_send_sends_to_requesting_admin(self):
         mail.outbox = []

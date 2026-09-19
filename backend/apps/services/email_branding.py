@@ -1,3 +1,4 @@
+import base64
 import os
 from email.mime.image import MIMEImage
 
@@ -30,6 +31,28 @@ def brand_context() -> dict:
     }
 
 
+def _load_logo_bytes() -> bytes:
+    """The logo PNG, read once and cached. Raises OSError if the asset is missing."""
+    global _logo_bytes
+    if _logo_bytes is None:
+        with open(_LOGO_PATH, "rb") as fh:
+            _logo_bytes = fh.read()
+    return _logo_bytes
+
+
+def logo_data_uri() -> str:
+    """The logo as a ``data:`` URI, or '' if the asset is missing.
+
+    For showing an email inside a web page (e.g. the admin preview), where the
+    ``cid:`` reference only an email client understands can't resolve.
+    """
+    try:
+        encoded = base64.b64encode(_load_logo_bytes()).decode("ascii")
+    except OSError:
+        return ""
+    return f"data:image/png;base64,{encoded}"
+
+
 def attach_inline_logo(msg) -> None:
     """Embed the brand logo as an inline image on an ``EmailMultiAlternatives``.
 
@@ -37,12 +60,8 @@ def attach_inline_logo(msg) -> None:
     it offline without fetching anything. Best-effort: a missing asset must not
     break the send — the email just falls back to the ``alt`` text.
     """
-    global _logo_bytes
     try:
-        if _logo_bytes is None:
-            with open(_LOGO_PATH, "rb") as fh:
-                _logo_bytes = fh.read()
-        img = MIMEImage(_logo_bytes, "png")
+        img = MIMEImage(_load_logo_bytes(), "png")
         img.add_header("Content-ID", f"<{LOGO_CID}>")
         img.add_header("Content-Disposition", "inline", filename="btf-logo-white.png")
         # Promote the container to multipart/related so the cid reference resolves.
