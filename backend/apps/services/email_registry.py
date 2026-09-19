@@ -211,7 +211,7 @@ EMAIL_TYPES = (
         key="finalist_notification",
         name="Finalist notification",
         description="Sent to a group's members when an admin marks the group as a finalist.",
-        default_subject="Congratulations - {{ group_name }} is a {{ brand_name }} finalist",
+        default_subject="Congratulations — {{ group_name }} is a {{ brand_name }} finalist",
         default_template="emails/finalist_notification.html",
         merge_tags=(
             MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
