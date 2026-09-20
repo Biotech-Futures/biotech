@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import CreatorRole, Task, TaskType
+from .models import CreatorRole, RoleTask, Task, TaskStatus, TaskType
 
 
 class _UserMiniSerializer(serializers.Serializer):
@@ -115,3 +115,47 @@ class TaskToggleSerializer(serializers.Serializer):
 class TaskStatusUpdateSerializer(serializers.Serializer):
     from .models import TaskStatus  # noqa: PLC0415
     status = serializers.ChoiceField(choices=TaskStatus.choices)
+
+
+class RoleTaskMineSerializer(serializers.ModelSerializer):
+    """A role task as seen by the current viewer, with their own completion
+    state merged in. `status`/`completed` default to "not started" when the
+    viewer has no RoleTaskCompletion row yet — one is only ever created lazily,
+    on first toggle (see RoleTaskToggleView), never fanned out per holder."""
+
+    role = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    completed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoleTask
+        fields = [
+            "id",
+            "name",
+            "description",
+            "due_date",
+            "role",
+            "status",
+            "completed",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    @staticmethod
+    def get_role(obj) -> str:
+        return obj.role.role_name
+
+    def _my_completion(self, obj):
+        # RoleTaskToggleQueryMixin/the view attaches this via a Prefetch
+        # filtered to request.user, so no query happens per-row here.
+        rows = getattr(obj, "my_completions", None)
+        return rows[0] if rows else None
+
+    def get_status(self, obj) -> str:
+        completion = self._my_completion(obj)
+        return completion.status if completion else TaskStatus.TODO
+
+    def get_completed(self, obj) -> bool:
+        completion = self._my_completion(obj)
+        return completion.completed if completion else False
