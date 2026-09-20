@@ -26,17 +26,13 @@ const fetchMockFor = (
   tasks: unknown[],
   total = tasks.length,
   options: {
-    roleRecipientCount?: number
-    roleRecipientCounts?: Array<number | 'error'>
     failDeleteIds?: number[]
     failPatchIds?: number[]
     patchDelayMs?: number
     trackDeletedTotal?: boolean
-    roles?: Array<{ id?: number; roleName: string }>
   } = {}
 ) => {
   const deletedIds = new Set<number>()
-  let roleRecipientLookupCount = 0
   return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const path = String(url)
     const method = init?.method ?? 'GET'
@@ -46,23 +42,6 @@ const fetchMockFor = (
 
     if (path.includes('/services/csrf/')) {
       payload = { csrfToken: 'test-token' }
-    } else if (path.includes('/api/v1/admin/task/role-recipients/')) {
-      const roleRecipientResult = options.roleRecipientCounts?.[roleRecipientLookupCount]
-      roleRecipientLookupCount += 1
-      if (roleRecipientResult === 'error') {
-        status = 500
-        payload = { msg: 'Role recipients lookup failed', data: null }
-      } else {
-        payload = {
-          msg: 'Role recipients retrieved successfully',
-          data: {
-            role: 'mentor',
-            count: typeof roleRecipientResult === 'number'
-              ? roleRecipientResult
-              : options.roleRecipientCount ?? 2
-          }
-        }
-      }
     } else if (path.includes('/api/v1/admin/task/') && method === 'POST') {
       payload = { msg: 'Task created successfully', data: buildTask({ id: 11 }) }
     } else if (path.includes('/api/v1/admin/task/') && method === 'DELETE') {
@@ -119,52 +98,6 @@ const fetchMockFor = (
           has_more: false
         }
       }
-    } else if (path.includes('/api/v1/admin/user/')) {
-      payload = {
-        msg: 'Users retrieved successfully',
-        data: {
-          items: [
-            {
-              id: 42,
-              firstName: 'Ada',
-              lastName: 'Lovelace',
-              email: 'ada@example.edu',
-              role: 'student',
-              country: null,
-              state: null,
-              groupId: null,
-              groupName: null,
-              schoolName: null,
-              mentorBackground: null,
-              mentorInstitution: null,
-              mentorReason: null,
-              mentorMaxGroupCount: null,
-              yearLevel: null,
-              joinPermissionReceived: false,
-              interests: [],
-              isAdmin: false,
-              isActive: true,
-              hasLoggedIn: false,
-              lastLogin: null,
-              accountStatus: 'active',
-              invitedAt: null,
-              activatedAt: null,
-              supervisorName: null,
-              supervisorEmail: null,
-              supervisees: []
-            }
-          ],
-          total: 1,
-          page: 1,
-          limit: 200,
-          hasMore: false
-        }
-      }
-    } else if (path.includes('/api/v1/admin/event/meta/roles/')) {
-      payload = {
-        msg: 'Roles retrieved successfully',
-        data: options.roles ?? [{ id: 2, roleName: 'mentor' }]
-      }
     } else {
       payload = {}
     }
@@ -190,7 +123,7 @@ const sortableButton = (wrapper: VueWrapper, label: string) =>
     .findAll('.admin-table__sort-btn')
     .find((button) => button.text().replace(/[^\w ]/g, '').trim() === label)
 
-const mountPage = () => mount(AdminTasksPage, { global: { stubs: { Teleport: true } } })
+const mountPage = () => mount(AdminTasksPage, { global: { stubs: { Teleport: true, RouterLink: true } } })
 
 const submitButton = (wrapper: VueWrapper) =>
   wrapper.findAll('button').find((button) => button.text().includes('Save'))
@@ -241,6 +174,9 @@ describe('AdminTasksPage', () => {
     expect(url.searchParams.get('sortOrder')).toBe('asc')
     expect(url.searchParams.has('task_type')).toBe(false)
 
+    // Legacy individual tasks (created before TK4, or via a group's own
+    // environment) still list and render correctly — only *creating* a new
+    // one from this page is gone.
     expect(wrapper.text()).toContain('Submit reflection')
     expect(wrapper.text()).toContain('Write a short weekly update')
     expect(wrapper.text()).toContain('Individual')
@@ -521,7 +457,7 @@ describe('AdminTasksPage', () => {
     await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
 
     expect(wrapper.find<HTMLSelectElement>('#task-type-filter').attributes('disabled')).toBeDefined()
-    expect(buttonByText(wrapper, 'Add Task')!.attributes('disabled')).toBeDefined()
+    expect(buttonByText(wrapper, 'Add Group Task')!.attributes('disabled')).toBeDefined()
 
     await new Promise((resolve) => setTimeout(resolve, 60))
     await flushPromises()
@@ -552,7 +488,7 @@ describe('AdminTasksPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
     await submitButton(wrapper)!.trigger('submit')
@@ -562,8 +498,6 @@ describe('AdminTasksPage', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       task_type: 'group',
       group: 7,
-      assigned_user: null,
-      assigned_role: null,
       name: 'Review group plan',
       description: '',
       due_date: null,
@@ -580,7 +514,7 @@ describe('AdminTasksPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
     await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
@@ -594,13 +528,13 @@ describe('AdminTasksPage', () => {
     })
   })
 
-  it('disables Save until the task form has valid required fields and assignment', async () => {
-    const fetchMock = fetchMockFor([buildTask()], 1, { roleRecipientCount: 0 })
+  it('disables Save until the task form has a name and a group selected', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
 
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
@@ -608,197 +542,20 @@ describe('AdminTasksPage', () => {
 
     await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
-
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
-
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('No active users currently have this role.')
-    expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
   })
 
-  it('shows a retryable error when role recipient lookup fails', async () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const fetchMock = fetchMockFor([buildTask()], 1, { roleRecipientCounts: ['error', 3] })
-    vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPage()
-    await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Recipient count could not be loaded. Try again.')
-    expect(wrapper.text()).not.toContain('Creates a separate task for every mentor.')
-    expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
-
-    const lookupCallsBeforeRetry = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes('/api/v1/admin/task/role-recipients/')
-    )
-    expect(lookupCallsBeforeRetry).toHaveLength(1)
-
-    await buttonByText(wrapper, 'Retry')!.trigger('click')
-    await flushPromises()
-
-    const lookupCallsAfterRetry = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes('/api/v1/admin/task/role-recipients/')
-    )
-    expect(lookupCallsAfterRetry).toHaveLength(2)
-    expect(wrapper.text()).not.toContain('Recipient count could not be loaded. Try again.')
-    expect(wrapper.text()).toContain('Creates 3 separate tasks')
-    expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
-
-    consoleSpy.mockRestore()
-  })
-
-  it('renders duplicate role names without changing role assignment behavior', async () => {
-    const fetchMock = fetchMockFor([buildTask()], 1, {
-      roles: [
-        { id: 2, roleName: 'mentor' },
-        { id: 3, roleName: 'mentor' }
-      ]
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPage()
-    await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-
-    const roleOptions = wrapper.findAll<HTMLOptionElement>('#task-role option')
-    expect(roleOptions.filter((option) => option.element.value === 'mentor')).toHaveLength(2)
-
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-    await submitButton(wrapper)!.trigger('submit')
-    await flushPromises()
-    await buttonByText(wrapper, 'Create tasks')!.trigger('click')
-    await flushPromises()
-
-    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
-    expect(JSON.parse(String(init.body)).assigned_role).toBe('mentor')
-  })
-
-  it('creates an individual task for a selected user', async () => {
+  it('has no individual-task or role assignment controls on this page (TK4)', async () => {
     const fetchMock = fetchMockFor([buildTask()])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Message mentor')
-    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
-    await submitButton(wrapper)!.trigger('submit')
-    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
 
-    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      task_type: 'individual',
-      group: null,
-      assigned_user: 42,
-      assigned_role: null,
-      name: 'Message mentor'
-    })
-  })
-
-  it('previews role recipient counts and creates role fan-out tasks after confirmation', async () => {
-    const fetchMock = fetchMockFor([buildTask()])
-    vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPage()
-    await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Creates 2 separate tasks')
-    await submitButton(wrapper)!.trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Create role tasks')
-    expect(wrapper.text()).toContain(
-      'Create a separate task for every user with the mentor role? 2 recipients will each receive a separate task. There is no single action to undo this assignment.'
-    )
-    await buttonByText(wrapper, 'Create tasks')!.trigger('click')
-    await flushPromises()
-
-    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      task_type: 'individual',
-      group: null,
-      assigned_user: null,
-      assigned_role: 'mentor',
-      name: 'Send mentor update'
-    })
-  })
-
-  it('keeps the role fan-out form open with values intact when confirmation is cancelled', async () => {
-    const fetchMock = fetchMockFor([buildTask()])
-    vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPage()
-    await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-
-    await submitButton(wrapper)!.trigger('submit')
-    await flushPromises()
-    expect(wrapper.text()).toContain('Create role tasks')
-
-    const cancelButtons = wrapper.findAll('button').filter((button) => button.text().trim() === 'Cancel')
-    await cancelButtons[cancelButtons.length - 1].trigger('click')
-    await flushPromises()
-
-    expect(lastTaskMutation(fetchMock, 'POST')).toBeUndefined()
-    expect(wrapper.find<HTMLInputElement>('#task-name').element.value).toBe('Send mentor update')
-    expect(wrapper.find<HTMLSelectElement>('#task-role').element.value).toBe('mentor')
-    expect(wrapper.text()).not.toContain('Create role tasks')
-  })
-
-  it('clears stale assignment values when switching task type and individual assignment mode', async () => {
-    const fetchMock = fetchMockFor([buildTask()])
-    vi.stubGlobal('fetch', fetchMock)
-    wrapper = mountPage()
-    await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLInputElement>('#task-name').setValue('Notify participants')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
-    await flushPromises()
-
-    await submitButton(wrapper)!.trigger('submit')
-    await flushPromises()
-    await buttonByText(wrapper, 'Create tasks')!.trigger('click')
-    await flushPromises()
-
-    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      task_type: 'individual',
-      group: null,
-      assigned_user: null,
-      assigned_role: 'mentor',
-      name: 'Notify participants'
-    })
+    expect(wrapper.find('#task-type').exists()).toBe(false)
+    expect(wrapper.find('#task-assign-mode').exists()).toBe(false)
+    expect(wrapper.find('#task-user').exists()).toBe(false)
+    expect(wrapper.find('#task-role').exists()).toBe(false)
   })
 
   it('edits child task details without changing assignment fields, due datetime, or parent', async () => {

@@ -2,7 +2,11 @@
   <div class="content-area admin-tasks">
     <div class="admin-tasks__header">
       <h1 class="admin-tasks__title">Tasks</h1>
-      <p class="admin-tasks__subtitle">Assign and track admin-managed tasks.</p>
+      <p class="admin-tasks__subtitle">
+        Group tasks are managed here. For a task assigned to one person, use that group's
+        environment; for a task assigned by role, see
+        <RouterLink to="/admin/role-tasks">Role Tasks</RouterLink>.
+      </p>
     </div>
 
     <div class="admin-tasks__main">
@@ -22,7 +26,7 @@
         </label>
         <button type="button" class="btn btn-primary" :disabled="loading || saving || taskActionBusy" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add Task</span>
+          <span>Add Group Task</span>
         </button>
       </div>
 
@@ -132,22 +136,9 @@
         v-model="formOpen"
         :task="editingTask"
         :groups="groups"
-        :users="users"
-        :roles="roles"
         :busy="saving"
         :submit-error="formError"
         @save="onFormSave"
-      />
-
-      <ConfirmDialog
-        v-model="roleFanoutConfirmOpen"
-        title="Create role tasks"
-        :message="roleFanoutConfirmMessage"
-        confirm-label="Create tasks"
-        variant="warning"
-        :busy="saving"
-        @confirm="confirmRoleFanoutCreate"
-        @cancel="cancelRoleFanoutCreate"
       />
 
       <ConfirmDialog
@@ -191,17 +182,14 @@ import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
 import {
   createAdminTask,
   deleteAdminTask,
-  fetchAdminEventMetaRoles,
   fetchAdminGroupList,
   fetchAdminTasks,
-  fetchAdminUsers,
   updateAdminTask,
   type AdminGroup,
   type AdminTask,
   type AdminTaskSortBy,
   type AdminTaskStatus,
   type AdminTaskType,
-  type AdminUser,
   type CreateAdminTaskPayload,
   type UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
@@ -211,7 +199,6 @@ import { formatDateAU } from '@/utils/date'
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
 type TaskTypeFilter = 'all' | AdminTaskType
-type RoleOption = { id?: number; roleName: string }
 
 const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   todo: 'To Do',
@@ -245,11 +232,6 @@ const sortState = ref<SortState>({ key: 'due', direction: 'asc' })
 const formOpen = ref(false)
 const editingTask = ref<AdminTask | null>(null)
 const groups = ref<AdminGroup[]>([])
-const users = ref<AdminUser[]>([])
-const roles = ref<RoleOption[]>([])
-const roleFanoutConfirmOpen = ref(false)
-const pendingRoleFanoutPayload = ref<CreateAdminTaskPayload | null>(null)
-const pendingRoleFanoutRecipientCount = ref<number | null>(null)
 const selectedTasks = ref(new Map<string | number, AdminTask>())
 const singleDeleteConfirmOpen = ref(false)
 const taskPendingDelete = ref<AdminTask | null>(null)
@@ -262,17 +244,6 @@ const selectedTaskList = computed(() =>
     .map((id) => selectedTasks.value.get(id))
     .filter((task): task is AdminTask => Boolean(task))
 )
-const roleFanoutConfirmMessage = computed(() => {
-  const payload = pendingRoleFanoutPayload.value
-  const role = payload?.assigned_role ?? 'selected'
-  const count = pendingRoleFanoutRecipientCount.value
-  const recipientText = count === 1
-    ? '1 recipient will receive this task.'
-    : typeof count === 'number'
-      ? `${count} recipients will each receive a separate task.`
-      : 'Each recipient will receive a separate task.'
-  return `Create a separate task for every user with the ${role} role? ${recipientText} There is no single action to undo this assignment.`
-})
 const singleDeleteMessage = computed(() => {
   const task = taskPendingDelete.value
   return task
@@ -332,53 +303,20 @@ const clampPageAfterDelete = (deletedCount: number) => {
   if (page.value > maxPage) page.value = maxPage
 }
 
-const normalizeRoles = (data: unknown): RoleOption[] => {
-  const rows =
-    Array.isArray(data)
-      ? data
-      : data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data)
-        ? (data as { data: unknown[] }).data
-        : []
-  const result: RoleOption[] = []
-  rows.forEach((role) => {
-    if (!role || typeof role !== 'object') return
-    const value = role as { id?: unknown; roleName?: unknown; role_name?: unknown }
-    const roleName = typeof value.roleName === 'string'
-      ? value.roleName
-      : typeof value.role_name === 'string'
-        ? value.role_name
-        : ''
-    if (!roleName) return
-    result.push({
-      id: typeof value.id === 'number' ? value.id : undefined,
-      roleName
-    })
-  })
-  return result
-}
-
 const loadOptions = async () => {
   try {
-    const [groupData, userData, roleData] = await Promise.all([
-      fetchAdminGroupList({ page: 1, limit: 200 }),
-      fetchAdminUsers({ page: 1, limit: 200, sortBy: 'name', sortOrder: 'asc' }),
-      fetchAdminEventMetaRoles()
-    ])
+    const groupData = await fetchAdminGroupList({ page: 1, limit: 200 })
     groups.value = groupData.items.map((group) => ({
       id: group.id,
       name: group.name
     }))
-    users.value = userData.items
-    roles.value = normalizeRoles(roleData)
   } catch (optionsError) {
     logApiError('admin.tasks.options', optionsError)
     error.value =
       optionsError instanceof Error
         ? optionsError.message
-        : 'Task assignment options could not be loaded right now.'
+        : 'Group options could not be loaded right now.'
     groups.value = []
-    users.value = []
-    roles.value = []
   }
 }
 
@@ -427,32 +365,8 @@ const saveTask = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload
   }
 }
 
-const onFormSave = async (
-  payload: CreateAdminTaskPayload | UpdateAdminTaskPayload,
-  recipientCount?: number | null
-) => {
+const onFormSave = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload) => {
   if (saving.value) return
-  if (!editingTask.value && 'assigned_role' in payload && payload.assigned_role) {
-    pendingRoleFanoutPayload.value = payload
-    pendingRoleFanoutRecipientCount.value = recipientCount ?? null
-    roleFanoutConfirmOpen.value = true
-    return
-  }
-
-  await saveTask(payload)
-}
-
-const cancelRoleFanoutCreate = () => {
-  pendingRoleFanoutPayload.value = null
-  pendingRoleFanoutRecipientCount.value = null
-}
-
-const confirmRoleFanoutCreate = async () => {
-  if (!pendingRoleFanoutPayload.value) return
-  const payload = pendingRoleFanoutPayload.value
-  pendingRoleFanoutPayload.value = null
-  pendingRoleFanoutRecipientCount.value = null
-  roleFanoutConfirmOpen.value = false
   await saveTask(payload)
 }
 
