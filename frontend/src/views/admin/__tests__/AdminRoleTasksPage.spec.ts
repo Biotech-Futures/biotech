@@ -12,7 +12,9 @@ const baseRoleTask = {
   creator_role: 'global_admin',
   deleted_at: null,
   created_at: '2026-09-01T00:00:00+00:00',
-  updated_at: '2026-09-01T00:00:00+00:00'
+  updated_at: '2026-09-01T00:00:00+00:00',
+  completed_count: 4,
+  holder_count: 12
 }
 
 const buildRoleTask = (overrides: Record<string, unknown> = {}) => ({ ...baseRoleTask, ...overrides })
@@ -105,6 +107,27 @@ describe('AdminRoleTasksPage', () => {
 
     expect(wrapper.text()).toContain('Mentor onboarding')
     expect(wrapper.text()).toContain('mentor')
+  })
+
+  it('shows completed-vs-holder progress as a read-only count, not an editable status', async () => {
+    const fetchMock = fetchMockFor([buildRoleTask({ completed_count: 4, holder_count: 12 })])
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('4/12')
+    expect(wrapper.find('select#role-task-status').exists()).toBe(false)
+  })
+
+  it('shows zero over zero when the role currently has no holders', async () => {
+    const fetchMock = fetchMockFor([buildRoleTask({ completed_count: 0, holder_count: 0 })])
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('0/0')
   })
 
   it('creates a role task for the selected role after a recipient preview', async () => {

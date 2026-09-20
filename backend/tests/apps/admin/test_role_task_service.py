@@ -180,6 +180,60 @@ class AdminRoleTaskServiceTests(TestCase):
         self.assertTrue(completion.completed)
         self.assertEqual(RoleTaskCompletion.objects.filter(role_task=role_task).count(), 1)
 
+    # ─── completion progress ─────────────────────────────────────────────
+
+    def test_list_reports_completed_over_holder_count(self):
+        holders = [
+            self._make_role_holder(f"p{i}@example.com", self.mentor_role)
+            for i in range(3)
+        ]
+        created = create_admin_role_task(self.admin, {"name": "Onboarding", "role": "mentor"})
+        role_task = RoleTask.objects.get(id=created["data"]["id"])
+        RoleTaskCompletion.objects.create(role_task=role_task, user=holders[0], completed=True)
+        RoleTaskCompletion.objects.create(role_task=role_task, user=holders[1], completed=False)
+
+        result = list_admin_role_tasks(self.admin)
+        item = next(i for i in result["data"]["items"] if i["id"] == role_task.id)
+        self.assertEqual(item["completed_count"], 1)
+        self.assertEqual(item["holder_count"], 3)
+
+    def test_progress_excludes_completions_from_users_who_no_longer_hold_the_role(self):
+        holder = self._make_role_holder("gone@example.com", self.mentor_role)
+        created = create_admin_role_task(self.admin, {"name": "Onboarding", "role": "mentor"})
+        role_task = RoleTask.objects.get(id=created["data"]["id"])
+        RoleTaskCompletion.objects.create(role_task=role_task, user=holder, completed=True)
+
+        RoleAssignmentHistory.objects.filter(user=holder, role=self.mentor_role).update(
+            valid_to=timezone.now() - timedelta(minutes=1)
+        )
+
+        result = get_admin_role_task_by_id(self.admin, role_task.id)
+        # The completion row itself is untouched (see test_role_task_api.py),
+        # but it no longer counts toward "how many CURRENT holders are done".
+        self.assertEqual(result["data"]["completed_count"], 0)
+        self.assertEqual(result["data"]["holder_count"], 0)
+
+    def test_progress_is_zero_over_zero_when_role_has_no_current_holders(self):
+        created = create_admin_role_task(self.admin, {"name": "Future Mentors", "role": "mentor"})
+        result = get_admin_role_task_by_id(self.admin, created["data"]["id"])
+        self.assertEqual(result["data"]["completed_count"], 0)
+        self.assertEqual(result["data"]["holder_count"], 0)
+
+    def test_progress_is_scoped_per_role_task_not_shared_across_the_same_role(self):
+        holder = self._make_role_holder("solo@example.com", self.mentor_role)
+        first = create_admin_role_task(self.admin, {"name": "First", "role": "mentor"})
+        second = create_admin_role_task(self.admin, {"name": "Second", "role": "mentor"})
+        RoleTaskCompletion.objects.create(
+            role_task_id=first["data"]["id"], user=holder, completed=True
+        )
+
+        result = list_admin_role_tasks(self.admin)
+        by_id = {i["id"]: i for i in result["data"]["items"]}
+        self.assertEqual(by_id[first["data"]["id"]]["completed_count"], 1)
+        self.assertEqual(by_id[second["data"]["id"]]["completed_count"], 0)
+        self.assertEqual(by_id[first["data"]["id"]]["holder_count"], 1)
+        self.assertEqual(by_id[second["data"]["id"]]["holder_count"], 1)
+
     def test_delete_removes_visibility_for_every_current_holder_in_one_operation(self):
         from apps.common.rbac import active_role_ids
 

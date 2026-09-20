@@ -1,16 +1,50 @@
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, Tuple
 
 from django.db import transaction
 
 from apps.common.rbac import is_admin, users_with_role
 from apps.common.role_names import ROLE_ADMIN, try_get_role_by_name
-from apps.tasks.models import RoleTask, CreatorRole
+from apps.tasks.models import RoleTask, RoleTaskCompletion, CreatorRole
 
 
 def _admin_visible_role_tasks():
     """RoleTask definitions are global admin bookkeeping — no per-user scoping
     needed, unlike Task's group/individual visibility rules."""
     return RoleTask.objects.active().select_related("role", "created_by")
+
+
+def _completion_progress(role_tasks: List[RoleTask]) -> Dict[int, Tuple[int, int]]:
+    """{role_task_id: (completed_count, holder_count)}, counting only users who
+    CURRENTLY hold the role — a completion from someone who has since lost the
+    role still exists (see RoleTaskCompletion), but doesn't count toward "how
+    many current holders are done".
+
+    Bounded query cost regardless of page size: one `users_with_role` query
+    per DISTINCT role on the page (not per row), plus one aggregate query for
+    every completion row across the whole page.
+    """
+    if not role_tasks:
+        return {}
+
+    role_names = {rt.role.role_name for rt in role_tasks if rt.role_id}
+    holder_ids_by_role = {
+        role_name: set(users_with_role(role_name).values_list("id", flat=True))
+        for role_name in role_names
+    }
+
+    completed_user_ids_by_task: Dict[int, set] = {}
+    completions = RoleTaskCompletion.objects.filter(
+        role_task_id__in=[rt.id for rt in role_tasks], completed=True
+    ).values_list("role_task_id", "user_id")
+    for role_task_id, user_id in completions:
+        completed_user_ids_by_task.setdefault(role_task_id, set()).add(user_id)
+
+    progress = {}
+    for rt in role_tasks:
+        holder_ids = holder_ids_by_role.get(rt.role.role_name, set()) if rt.role_id else set()
+        completed_ids = completed_user_ids_by_task.get(rt.id, set())
+        progress[rt.id] = (len(completed_ids & holder_ids), len(holder_ids))
+    return progress
 
 
 # Type definitions
@@ -25,6 +59,8 @@ class RoleTaskDict(TypedDict):
     deleted_at: Optional[str]
     created_at: str
     updated_at: str
+    completed_count: int
+    holder_count: int
 
 
 class RoleTaskResponseDict(TypedDict):
@@ -34,7 +70,7 @@ class RoleTaskResponseDict(TypedDict):
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
-def _serialize_role_task(role_task: RoleTask) -> RoleTaskDict:
+def _serialize_role_task(role_task: RoleTask, progress: Optional[Tuple[int, int]] = None) -> RoleTaskDict:
     created_by = None
     if role_task.created_by_id and role_task.created_by:
         user = role_task.created_by
@@ -44,6 +80,8 @@ def _serialize_role_task(role_task: RoleTask) -> RoleTaskDict:
     role = None
     if role_task.role_id and role_task.role:
         role = {"id": role_task.role.id, "roleName": role_task.role.role_name}
+
+    completed_count, holder_count = progress if progress is not None else (0, 0)
 
     return {
         "id": role_task.id,
@@ -56,6 +94,8 @@ def _serialize_role_task(role_task: RoleTask) -> RoleTaskDict:
         "deleted_at": role_task.deleted_at.isoformat() if role_task.deleted_at else None,
         "created_at": role_task.created_at.isoformat(),
         "updated_at": role_task.updated_at.isoformat(),
+        "completed_count": completed_count,
+        "holder_count": holder_count,
     }
 
 
@@ -93,7 +133,9 @@ def list_admin_role_tasks(
 
     offset = (page - 1) * limit
     total = qs.count()
-    items = [_serialize_role_task(rt) for rt in qs[offset:offset + limit]]
+    page_items = list(qs[offset:offset + limit])
+    progress_by_id = _completion_progress(page_items)
+    items = [_serialize_role_task(rt, progress_by_id.get(rt.id)) for rt in page_items]
     has_more = offset + len(items) < total
 
     return {
@@ -113,7 +155,8 @@ def get_admin_role_task_by_id(requesting_user, role_task_id: int) -> RoleTaskRes
         return {"msg": "Not permitted", "data": None}
     try:
         role_task = _admin_visible_role_tasks().get(id=role_task_id)
-        return {"msg": "Role task retrieved successfully", "data": _serialize_role_task(role_task)}
+        progress = _completion_progress([role_task]).get(role_task.id)
+        return {"msg": "Role task retrieved successfully", "data": _serialize_role_task(role_task, progress)}
     except RoleTask.DoesNotExist:
         return {"msg": "Role task not found", "data": None}
 
@@ -170,7 +213,8 @@ def create_admin_role_task(requesting_user, input_data: dict) -> RoleTaskRespons
         creator_role=CreatorRole.GLOBAL_ADMIN,
     )
     role_task = RoleTask.objects.select_related("role", "created_by").get(id=role_task.id)
-    return {"msg": "Role task created successfully", "data": _serialize_role_task(role_task)}
+    progress = _completion_progress([role_task]).get(role_task.id)
+    return {"msg": "Role task created successfully", "data": _serialize_role_task(role_task, progress)}
 
 
 @transaction.atomic
@@ -195,7 +239,8 @@ def update_admin_role_task(requesting_user, role_task_id: int, input_data: dict)
 
     role_task.save()
     role_task = RoleTask.objects.select_related("role", "created_by").get(id=role_task.id)
-    return {"msg": "Role task updated successfully", "data": _serialize_role_task(role_task)}
+    progress = _completion_progress([role_task]).get(role_task.id)
+    return {"msg": "Role task updated successfully", "data": _serialize_role_task(role_task, progress)}
 
 
 @transaction.atomic

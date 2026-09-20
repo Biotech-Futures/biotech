@@ -1173,6 +1173,10 @@ export interface AdminRoleTask {
   deleted_at: string | null
   created_at: string
   updated_at: string
+  // Completed-vs-current-holders count, computed server-side — not editable,
+  // since a role task has no single status (see AdminRoleTaskFormSheet.vue).
+  completed_count: number
+  holder_count: number
 }
 
 export type AdminRoleTaskSortBy = 'name' | 'role' | 'due' | 'createdAt'

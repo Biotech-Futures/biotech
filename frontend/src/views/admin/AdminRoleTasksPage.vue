@@ -71,6 +71,12 @@
           {{ formatDueDate(toRoleTask(row).due_date) }}
         </template>
 
+        <template #cell-progress="{ row }">
+          <span class="admin-role-tasks__progress" :title="progressTitle(toRoleTask(row))">
+            {{ toRoleTask(row).completed_count }}/{{ toRoleTask(row).holder_count }}
+          </span>
+        </template>
+
         <template #cell-actions="{ row }">
           <div class="admin-role-tasks__row-actions">
             <button
@@ -162,6 +168,7 @@ const columns: AdminColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'role', label: 'Role', sortable: true },
   { key: 'due', label: 'Due', sortable: true },
+  { key: 'progress', label: 'Progress' },
   { key: 'actions', label: 'Actions', align: 'right' }
 ]
 
@@ -435,6 +442,11 @@ const onSelectedChange = (value: Array<string | number>) => {
 
 const formatDueDate = (value: string | null) => value ? formatDateAU(value) : '-'
 
+const progressTitle = (roleTask: AdminRoleTask) =>
+  roleTask.holder_count === 0
+    ? 'No active users currently hold this role yet'
+    : `${roleTask.completed_count} of ${roleTask.holder_count} current ${roleTask.role?.roleName ?? 'role'} holders have completed this`
+
 onMounted(() => {
   void load()
   void loadOptions()
@@ -533,6 +545,12 @@ onMounted(() => {
   background-color: var(--bg-light);
   color: var(--text-muted);
   font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-role-tasks__progress {
+  font-variant-numeric: tabular-nums;
+  color: var(--charcoal);
   font-weight: 600;
 }
 
