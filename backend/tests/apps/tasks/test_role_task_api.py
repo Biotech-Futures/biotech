@@ -265,12 +265,12 @@ class RoleTaskMultipleRolesAndOrderingTests(_World, APITestCase):
             [t["id"] for t in general_response.data["results"]], [own_task.id]
         )
 
-    def test_ordering_by_due_date_is_correct_among_dated_role_tasks(self):
-        # NULL-due-date ordering is a DB-default discrepancy (SQLite sorts
-        # NULL first ascending; Postgres sorts NULL last) that nothing in the
-        # application explicitly decided — flagged separately. This test only
-        # asserts ordering among role tasks that DO have a due date, which is
-        # identical on both engines.
+    def test_ordering_by_due_date_puts_no_due_date_last_on_every_engine(self):
+        # RoleTaskMineListView orders with nulls_last=True explicitly, so
+        # "no due date" always sorts behind dated tasks regardless of DB
+        # engine (SQLite defaults to NULL-first ascending; Postgres defaults
+        # to NULL-last — this pins one behavior rather than leaving it to
+        # whichever default the deployed DB happens to have).
         later = self._make_role_task("Later", self.mentor_role)
         later.due_date = timezone.now() + timedelta(days=10)
         later.save(update_fields=["due_date"])
@@ -286,10 +286,7 @@ class RoleTaskMultipleRolesAndOrderingTests(_World, APITestCase):
         self.client.force_authenticate(user=user)
 
         ids = [item["id"] for item in self.client.get(MINE_URL).data]
-        dated_ids = [i for i in ids if i != no_date.id]
-        self.assertEqual(dated_ids, [sooner.id, later.id])
-        # Document (not assert a specific position for) the DB-default split:
-        self.assertEqual(set(ids), {sooner.id, later.id, no_date.id})
+        self.assertEqual(ids, [sooner.id, later.id, no_date.id])
 
 
 class RoleTaskModelTests(TestCase):

@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
@@ -44,7 +44,10 @@ class RoleTaskMineListView(generics.ListAPIView):
         qs = RoleTask.objects.active().select_related("role").filter(
             role_id__in=active_role_ids(user)
         )
-        return _with_my_completion(qs, user).order_by("due_date", "id")
+        # nulls_last pins "no due date" behind dated tasks on every DB engine —
+        # SQLite sorts NULL first ascending by default, Postgres sorts it last;
+        # without this the order differs between local sqlite tests and prod.
+        return _with_my_completion(qs, user).order_by(F("due_date").asc(nulls_last=True), "id")
 
 
 class RoleTaskToggleView(generics.GenericAPIView):
