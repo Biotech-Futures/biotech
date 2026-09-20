@@ -166,9 +166,9 @@ type RoleOption = { id?: number; roleName: string }
 
 const columns: AdminColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
-  { key: 'role', label: 'Role', sortable: true },
-  { key: 'due', label: 'Due', sortable: true },
-  { key: 'progress', label: 'Progress' },
+  { key: 'role', label: 'Role', sortable: true, align: 'center' },
+  { key: 'due', label: 'Due', sortable: true, align: 'center' },
+  { key: 'progress', label: 'Progress', align: 'center' },
   { key: 'actions', label: 'Actions', align: 'right' }
 ]
 
