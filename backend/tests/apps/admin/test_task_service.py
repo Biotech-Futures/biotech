@@ -65,27 +65,41 @@ class AdminTaskTests(TestCase):
         self.assertEqual(result["msg"], "Group task requires a group")
         self.assertIsNone(result["data"])
 
-    def test_create_individual_task_is_rejected(self):
-        # TK4: individual tasks are no longer provisioned from the admin
-        # control page — create from a group's environment, or as a role
-        # task (apps.admin.services.role_task) instead.
+    def test_create_individual_task(self):
+        # Confirmed with the client: only the role fan-out was the problem —
+        # admins assigning a task straight to one person from this page was
+        # never the complaint, so it stays.
         user = User.objects.create_user(email="user@example.com", password="pw")
         result = create_admin_task(self.admin, {
             "name": "Individual Task",
             "task_type": TaskType.INDIVIDUAL,
             "assigned_user": user.id,
         })
-        self.assertIn("no longer created from the admin control page", result["msg"])
-        self.assertIsNone(result["data"])
-        self.assertFalse(Task.objects.filter(name="Individual Task").exists())
+        self.assertEqual(result["msg"], "Task created successfully")
+        self.assertEqual(result["data"]["assigned_user"], user.id)
 
-    def test_create_individual_task_is_rejected_even_without_a_target(self):
+    def test_create_individual_task_missing_user(self):
         result = create_admin_task(self.admin, {
             "name": "Bad Task",
             "task_type": TaskType.INDIVIDUAL,
         })
-        self.assertIn("no longer created from the admin control page", result["msg"])
+        self.assertEqual(result["msg"], "Individual task requires an assigned user")
         self.assertIsNone(result["data"])
+
+    def test_create_task_rejects_a_role_target(self):
+        # There is no "assigned_role" input on this endpoint at all anymore —
+        # targeting a role only ever happens via a RoleTask. A stray
+        # `assigned_role` in the payload is simply ignored, not honored.
+        user = User.objects.create_user(email="ignored@example.com", password="pw")
+        result = create_admin_task(self.admin, {
+            "name": "Not A Fanout",
+            "task_type": TaskType.INDIVIDUAL,
+            "assigned_user": user.id,
+            "assigned_role": "mentor",
+        })
+        self.assertEqual(result["msg"], "Task created successfully")
+        self.assertEqual(Task.objects.filter(name="Not A Fanout").count(), 1)
+        self.assertEqual(result["data"]["assigned_user"], user.id)
 
     def test_get_admin_task_by_id_found(self):
         task = Task.objects.create(

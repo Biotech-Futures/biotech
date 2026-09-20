@@ -165,13 +165,16 @@ def _shared_task_fields(input_data: dict) -> dict:
 @transaction.atomic
 def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     """
-    Create a new GROUP task as the requesting admin.
+    Create a new task (group or individual) as the requesting admin.
 
-    Individual tasks are no longer provisioned from the admin control page
-    (TK4): create one from a group's own environment instead, or — for a
-    task that should apply to everyone who holds a role, now and in the
-    future — create a RoleTask via apps.admin.services.role_task instead of
-    a fanned-out batch of individual Task rows.
+    Confirmed with the client (TK4 follow-up): the actual complaint was the
+    role fan-out snapshotting individual Task rows per current role holder
+    (see the deleted _create_role_fanout_tasks) — not admins losing the
+    ability to assign a task to one specific person from this page. That
+    ability is intentionally restored here. Targeting a role is now only
+    ever done via a RoleTask (apps.admin.services.role_task) — this endpoint
+    no longer accepts a role at all, by design; there is no "assigned_role"
+    input to interpret.
 
     Args:
         requesting_user: The authenticated admin user
@@ -182,26 +185,22 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     """
     task_type = input_data.get("task_type")
     group_id = input_data.get("group")
+    assigned_user_id = input_data.get("assigned_user")
 
-    if task_type == TaskType.INDIVIDUAL:
-        return {
-            "msg": (
-                "Individual tasks are no longer created from the admin control "
-                "page. Create it from the group's own environment, or create a "
-                "role task if it should apply to everyone with a role."
-            ),
-            "data": None,
-        }
     if task_type == TaskType.GROUP:
         if not group_id:
             return {"msg": "Group task requires a group", "data": None}
+    elif task_type == TaskType.INDIVIDUAL:
+        if not assigned_user_id:
+            return {"msg": "Individual task requires an assigned user", "data": None}
     else:
-        return {"msg": "task_type must be 'group'", "data": None}
+        return {"msg": "task_type must be 'group' or 'individual'", "data": None}
 
     creator_role = resolve_creator_role(
         requesting_user,
         task_type,
         group=group_id,
+        assigned_user=assigned_user_id,
     )
 
     # §3: only admins may create via this endpoint
@@ -211,8 +210,8 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     task = Task.objects.create(
         **_shared_task_fields(input_data),
         task_type=task_type,
-        group_id=group_id,
-        assigned_user_id=None,
+        group_id=group_id if task_type == TaskType.GROUP else None,
+        assigned_user_id=assigned_user_id if task_type == TaskType.INDIVIDUAL else None,
         created_by=requesting_user,
         creator_role=creator_role,
     )

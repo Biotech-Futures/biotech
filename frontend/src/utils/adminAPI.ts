@@ -1108,19 +1108,21 @@ export interface AdminTaskListData {
   has_more: boolean
 }
 
-// Individual tasks are no longer created from this endpoint (TK4) — the
-// admin control page only creates GROUP tasks now. Create an individual task
-// from a group's own environment instead, or a role task (below) for
-// something every current and future holder of a role should pick up.
-export interface CreateAdminTaskPayload {
+// TK4 follow-up (confirmed with the client): the actual complaint was the
+// role fan-out snapshotting individual rows per current holder, not admins
+// assigning a task straight to one person from this page — that stays.
+// Targeting a role is only ever done via a role task (below); there is no
+// "assigned_role" option here anymore.
+type CreateAdminTaskFields = {
   name: string
   description?: string
   due_date?: string | null
   status?: AdminTaskStatus
   parent?: number | null
-  task_type: 'group'
-  group: number
 }
+export type CreateAdminTaskPayload =
+  | (CreateAdminTaskFields & { task_type: 'group'; group: number })
+  | (CreateAdminTaskFields & { task_type: 'individual'; assigned_user: number })
 
 export interface UpdateAdminTaskPayload {
   name?: string

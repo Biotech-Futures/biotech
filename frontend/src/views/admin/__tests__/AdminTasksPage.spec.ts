@@ -98,6 +98,47 @@ const fetchMockFor = (
           has_more: false
         }
       }
+    } else if (path.includes('/api/v1/admin/user/')) {
+      payload = {
+        msg: 'Users retrieved successfully',
+        data: {
+          items: [
+            {
+              id: 42,
+              firstName: 'Ada',
+              lastName: 'Lovelace',
+              email: 'ada@example.edu',
+              role: 'student',
+              country: null,
+              state: null,
+              groupId: null,
+              groupName: null,
+              schoolName: null,
+              mentorBackground: null,
+              mentorInstitution: null,
+              mentorReason: null,
+              mentorMaxGroupCount: null,
+              yearLevel: null,
+              joinPermissionReceived: false,
+              interests: [],
+              isAdmin: false,
+              isActive: true,
+              hasLoggedIn: false,
+              lastLogin: null,
+              accountStatus: 'active',
+              invitedAt: null,
+              activatedAt: null,
+              supervisorName: null,
+              supervisorEmail: null,
+              supervisees: []
+            }
+          ],
+          total: 1,
+          page: 1,
+          limit: 200,
+          hasMore: false
+        }
+      }
     } else {
       payload = {}
     }
@@ -457,7 +498,7 @@ describe('AdminTasksPage', () => {
     await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
 
     expect(wrapper.find<HTMLSelectElement>('#task-type-filter').attributes('disabled')).toBeDefined()
-    expect(buttonByText(wrapper, 'Add Group Task')!.attributes('disabled')).toBeDefined()
+    expect(buttonByText(wrapper, 'Add Task')!.attributes('disabled')).toBeDefined()
 
     await new Promise((resolve) => setTimeout(resolve, 60))
     await flushPromises()
@@ -488,7 +529,7 @@ describe('AdminTasksPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
     await submitButton(wrapper)!.trigger('submit')
@@ -514,7 +555,7 @@ describe('AdminTasksPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
     await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
@@ -534,7 +575,7 @@ describe('AdminTasksPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
 
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
@@ -544,17 +585,40 @@ describe('AdminTasksPage', () => {
     expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
   })
 
-  it('has no individual-task or role assignment controls on this page (TK4)', async () => {
+  it('creates an individual task for a selected user (client confirmed: only the role fan-out was the problem)', async () => {
     const fetchMock = fetchMockFor([buildTask()])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Add Group Task'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await wrapper.find<HTMLInputElement>('#task-name').setValue('Message mentor')
+    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
+    await submitButton(wrapper)!.trigger('submit')
+    await flushPromises()
 
-    expect(wrapper.find('#task-type').exists()).toBe(false)
+    const [, init] = lastTaskMutation(fetchMock, 'POST') as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      task_type: 'individual',
+      assigned_user: 42,
+      name: 'Message mentor',
+      description: '',
+      due_date: null,
+      status: 'todo',
+      parent: null
+    })
+  })
+
+  it('has no role-assignment controls on this page — role tasks live on their own page', async () => {
+    const fetchMock = fetchMockFor([buildTask()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
+
     expect(wrapper.find('#task-assign-mode').exists()).toBe(false)
-    expect(wrapper.find('#task-user').exists()).toBe(false)
     expect(wrapper.find('#task-role').exists()).toBe(false)
   })
 

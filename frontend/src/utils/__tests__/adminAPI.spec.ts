@@ -441,6 +441,28 @@ describe('admin task actions', () => {
     expect(result).toEqual(payload)
   })
 
+  it('createAdminTask posts the individual task payload and returns the response envelope', async () => {
+    const payload = { msg: 'Task created successfully', data: { ...task, task_type: 'individual', group: null, assigned_user: 12 } }
+    const fetchMock = mockTaskFetch(payload, 201)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const body = {
+      name: 'Submit reflection',
+      description: 'Write a short update',
+      due_date: '2026-09-15T00:00:00Z',
+      status: 'todo' as const,
+      parent: null,
+      task_type: 'individual' as const,
+      assigned_user: 12
+    }
+    const result = await createAdminTask(body)
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/task/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(body)
+    expect(result).toEqual(payload)
+  })
+
   it('updateAdminTask patches the task payload and returns the response envelope', async () => {
     const payload = { msg: 'Task updated successfully', data: { ...task, status: 'done', completed: true } }
     const fetchMock = mockTaskFetch(payload)

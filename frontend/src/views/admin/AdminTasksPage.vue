@@ -3,8 +3,7 @@
     <div class="admin-tasks__header">
       <h1 class="admin-tasks__title">Tasks</h1>
       <p class="admin-tasks__subtitle">
-        Group tasks are managed here. For a task assigned to one person, use that group's
-        environment; for a task assigned by role, see
+        Assign a task to a group or to a specific person. For a task assigned by role, see
         <RouterLink to="/admin/role-tasks">Role Tasks</RouterLink>.
       </p>
     </div>
@@ -26,7 +25,7 @@
         </label>
         <button type="button" class="btn btn-primary" :disabled="loading || saving || taskActionBusy" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add Group Task</span>
+          <span>Add Task</span>
         </button>
       </div>
 
@@ -136,6 +135,7 @@
         v-model="formOpen"
         :task="editingTask"
         :groups="groups"
+        :users="users"
         :busy="saving"
         :submit-error="formError"
         @save="onFormSave"
@@ -184,12 +184,14 @@ import {
   deleteAdminTask,
   fetchAdminGroupList,
   fetchAdminTasks,
+  fetchAdminUsers,
   updateAdminTask,
   type AdminGroup,
   type AdminTask,
   type AdminTaskSortBy,
   type AdminTaskStatus,
   type AdminTaskType,
+  type AdminUser,
   type CreateAdminTaskPayload,
   type UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
@@ -232,6 +234,7 @@ const sortState = ref<SortState>({ key: 'due', direction: 'asc' })
 const formOpen = ref(false)
 const editingTask = ref<AdminTask | null>(null)
 const groups = ref<AdminGroup[]>([])
+const users = ref<AdminUser[]>([])
 const selectedTasks = ref(new Map<string | number, AdminTask>())
 const singleDeleteConfirmOpen = ref(false)
 const taskPendingDelete = ref<AdminTask | null>(null)
@@ -305,18 +308,23 @@ const clampPageAfterDelete = (deletedCount: number) => {
 
 const loadOptions = async () => {
   try {
-    const groupData = await fetchAdminGroupList({ page: 1, limit: 200 })
+    const [groupData, userData] = await Promise.all([
+      fetchAdminGroupList({ page: 1, limit: 200 }),
+      fetchAdminUsers({ page: 1, limit: 200, sortBy: 'name', sortOrder: 'asc' })
+    ])
     groups.value = groupData.items.map((group) => ({
       id: group.id,
       name: group.name
     }))
+    users.value = userData.items
   } catch (optionsError) {
     logApiError('admin.tasks.options', optionsError)
     error.value =
       optionsError instanceof Error
         ? optionsError.message
-        : 'Group options could not be loaded right now.'
+        : 'Task assignment options could not be loaded right now.'
     groups.value = []
+    users.value = []
   }
 }
 

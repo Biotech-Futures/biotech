@@ -1,8 +1,8 @@
 <template>
   <FormSheet
     v-model="open"
-    :title="isEditing ? 'Edit Task' : 'Add Group Task'"
-    :description="isEditing ? 'Update the task details below.' : 'Create a task shared by every member of a group. For a task assigned to one person, use that group\'s own environment; for a task assigned by role, use Role Tasks.'"
+    :title="isEditing ? 'Edit Task' : 'Add Task'"
+    :description="isEditing ? 'Update the task details below.' : 'Create a group task, or assign one directly to a specific person. For a task assigned by role, use Role Tasks.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-task-form" novalidate @submit.prevent="submitForm">
@@ -12,6 +12,16 @@
         <div class="admin-task-form__section">Assignment</div>
         <div class="admin-task-form__grid admin-task-form__grid--assignment">
           <div class="form-field">
+            <label class="form-label" for="task-type">
+              Task type <span class="admin-task-form__required">*</span>
+            </label>
+            <select id="task-type" v-model="form.task_type" class="form-input" :disabled="busy">
+              <option value="group">Group Task</option>
+              <option value="individual">Individual Task</option>
+            </select>
+          </div>
+
+          <div v-if="form.task_type === 'group'" class="form-field">
             <label class="form-label" for="task-group">
               Group <span class="admin-task-form__required">*</span>
             </label>
@@ -19,6 +29,18 @@
               <option value="">{{ groups.length ? 'Select group' : 'No groups available' }}</option>
               <option v-for="group in groups" :key="group.id" :value="String(group.id)">
                 {{ groupLabel(group) }}
+              </option>
+            </select>
+          </div>
+
+          <div v-else class="form-field">
+            <label class="form-label" for="task-user">
+              User <span class="admin-task-form__required">*</span>
+            </label>
+            <select id="task-user" v-model="form.assigned_user" class="form-input" :disabled="busy">
+              <option value="">{{ users.length ? 'Select user' : 'No users available' }}</option>
+              <option v-for="user in users" :key="user.id" :value="String(user.id)">
+                {{ userLabel(user) }}
               </option>
             </select>
           </div>
@@ -82,12 +104,17 @@ import type {
   AdminGroup,
   AdminTask,
   AdminTaskStatus,
+  AdminTaskType,
+  AdminUser,
   CreateAdminTaskPayload,
   UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
+import { userName } from '@/utils/userFormat'
 
 interface TaskForm {
+  task_type: AdminTaskType
   group: string
+  assigned_user: string
   name: string
   description: string
   due_date: string
@@ -98,6 +125,7 @@ const props = defineProps<{
   modelValue: boolean
   task?: AdminTask | null
   groups: AdminGroup[]
+  users: AdminUser[]
   busy?: boolean
   submitError?: string
 }>()
@@ -108,7 +136,9 @@ const emit = defineEmits<{
 }>()
 
 const form = reactive<TaskForm>({
+  task_type: 'group',
   group: '',
+  assigned_user: '',
   name: '',
   description: '',
   due_date: '',
@@ -123,7 +153,10 @@ const open = computed({
 const isEditing = computed(() => Boolean(props.task))
 const displayError = computed(() => formError.value || props.submitError || '')
 const hasName = computed(() => Boolean(form.name.trim()))
-const hasValidAssignment = computed(() => isEditing.value || Boolean(form.group))
+const hasValidAssignment = computed(() => {
+  if (isEditing.value) return true
+  return form.task_type === 'group' ? Boolean(form.group) : Boolean(form.assigned_user)
+})
 const canSave = computed(() => hasName.value && hasValidAssignment.value)
 const saveDisabled = computed(() => Boolean(props.busy) || !canSave.value)
 
@@ -139,7 +172,9 @@ const toEditDueDatePayload = () => {
 const reset = () => {
   formError.value = ''
   if (props.task) {
+    form.task_type = props.task.task_type
     form.group = props.task.group != null ? String(props.task.group) : ''
+    form.assigned_user = props.task.assigned_user != null ? String(props.task.assigned_user) : ''
     form.name = props.task.name
     form.description = props.task.description
     form.due_date = toDateInput(props.task.due_date)
@@ -147,12 +182,23 @@ const reset = () => {
     return
   }
 
+  form.task_type = 'group'
   form.group = ''
+  form.assigned_user = ''
   form.name = ''
   form.description = ''
   form.due_date = ''
   form.status = 'todo'
 }
+
+watch(
+  () => form.task_type,
+  () => {
+    formError.value = ''
+    if (form.task_type === 'group') form.assigned_user = ''
+    else form.group = ''
+  }
+)
 
 watch(
   () => props.modelValue,
@@ -171,6 +217,11 @@ watch(
 const groupLabel = (group: AdminGroup) =>
   String(group.name ?? group.group_id ?? `Group #${group.id ?? ''}`)
 
+const userLabel = (user: AdminUser) => {
+  const name = userName(user)
+  return user.email ? `${name} (${user.email})` : name
+}
+
 const onCancel = () => {
   if (props.busy) return
   open.value = false
@@ -185,20 +236,35 @@ const submitForm = () => {
   }
 
   if (!isEditing.value) {
-    if (!form.group) {
+    if (form.task_type === 'group' && !form.group) {
       formError.value = 'Select a group for this task.'
       return
     }
-
-    const payload: CreateAdminTaskPayload = {
-      task_type: 'group',
-      group: Number(form.group),
-      name: form.name.trim(),
-      description: form.description.trim(),
-      due_date: toDueDatePayload(form.due_date),
-      status: form.status,
-      parent: null
+    if (form.task_type === 'individual' && !form.assigned_user) {
+      formError.value = 'Select a user for this task.'
+      return
     }
+
+    const payload: CreateAdminTaskPayload =
+      form.task_type === 'group'
+        ? {
+            task_type: 'group',
+            group: Number(form.group),
+            name: form.name.trim(),
+            description: form.description.trim(),
+            due_date: toDueDatePayload(form.due_date),
+            status: form.status,
+            parent: null
+          }
+        : {
+            task_type: 'individual',
+            assigned_user: Number(form.assigned_user),
+            name: form.name.trim(),
+            description: form.description.trim(),
+            due_date: toDueDatePayload(form.due_date),
+            status: form.status,
+            parent: null
+          }
     emit('save', payload)
     return
   }
