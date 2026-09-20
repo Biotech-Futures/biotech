@@ -355,3 +355,136 @@ class RoleTaskMigrationTests(TestCase):
         }
         self.assertEqual(touched_models, {"roletask", "roletaskcompletion"})
         self.assertNotIn("task", touched_models)
+
+
+class RealRegistrationRoleTaskTests(APITestCase):
+    """Exercises the actual public self-registration endpoint end-to-end,
+    not a manual RoleAssignmentHistory insert — this is the literal scenario
+    the ticket is about: does a brand-new student really pick up a role task
+    that was created before they existed."""
+
+    REGISTER_URL = "/api/v1/registration"
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin)
+        # Registration also grants the supervisor a role — must exist or the
+        # view 500s before it ever gets to the student's role assignment.
+        Roles.objects.get_or_create(role_name="supervisor")
+        self.student_role, _ = Roles.objects.get_or_create(role_name="student")
+
+    def test_newly_self_registered_student_sees_pre_existing_student_role_task(self):
+        role_task = RoleTask.objects.create(
+            name="Complete Student Module", role=self.student_role,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+
+        response = self.client.post(self.REGISTER_URL, {
+            "body": {
+                "Title": "newstudent@example.com",
+                "FirstName": "New",
+                "Surname": "Student",
+                "Country": "Australia",
+                "Region": "NSW",
+                "SupervisorEmail": "sup@example.com",
+                "SupervisorFirstName": "Sup",
+                "SupervisorSurname": "Visor",
+                "GuardianEmail": "guardian@example.com",
+                "GuardianName": "Guardian",
+                "GuardianSurname": "Person",
+                "SchoolName": "Test High",
+                "YearLevel": "10",
+                "Areaofinterest": "Biology",
+            }
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        new_student = User.objects.get(email="newstudent@example.com")
+
+        # Registration deliberately back-dates valid_from to `now + 1s` (see
+        # apps/users/views.py) — irrelevant in real use (a human takes far
+        # longer than a second to reach their dashboard), but a same-request
+        # check needs to wait past it rather than racing the clock.
+        RoleAssignmentHistory.objects.filter(user=new_student, role=self.student_role).update(
+            valid_from=timezone.now() - timedelta(seconds=1)
+        )
+
+        self.client.force_authenticate(user=new_student)
+        response = self.client.get(MINE_URL)
+        self.assertEqual([item["id"] for item in response.data], [role_task.id])
+
+
+class RealAdminUserCreationRoleTaskTests(APITestCase):
+    """Mentor, supervisor, and admin accounts aren't self-registered — an
+    admin creates them via POST /api/v1/admin/user/ (add_users_by_role).
+    Same principle as the student registration test above: exercise the
+    real endpoint for each role, not a manual RoleAssignmentHistory insert."""
+
+    USER_CREATE_URL = "/api/v1/admin/user/"
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin)
+        self.client.force_authenticate(user=self.admin)
+
+    def _make_role_task(self, name, role_name):
+        role, _ = Roles.objects.get_or_create(role_name=role_name)
+        return RoleTask.objects.create(
+            name=name, role=role, created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+
+    def _mine_for(self, email):
+        new_user = User.objects.get(email=email)
+        self.client.force_authenticate(user=new_user)
+        response = self.client.get(MINE_URL)
+        self.client.force_authenticate(user=self.admin)
+        return response
+
+    def test_admin_created_mentor_sees_pre_existing_mentor_role_task(self):
+        role_task = self._make_role_task("Mentor Onboarding", "mentor")
+
+        response = self.client.post(self.USER_CREATE_URL, {
+            "email": "newmentor@example.com",
+            "firstName": "New",
+            "lastName": "Mentor",
+            "role": "mentor",
+            "country": "Australia",
+            "mentorInstitution": "USYD",
+            "mentorReason": "Keen to help",
+            "mentorMaxGroupCount": 3,
+            "interests": ["Biology"],
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        mine = self._mine_for("newmentor@example.com")
+        self.assertEqual([item["id"] for item in mine.data], [role_task.id])
+
+    def test_admin_created_supervisor_sees_pre_existing_supervisor_role_task(self):
+        role_task = self._make_role_task("Supervisor Onboarding", "supervisor")
+
+        response = self.client.post(self.USER_CREATE_URL, {
+            "email": "newsupervisor@example.com",
+            "firstName": "New",
+            "lastName": "Supervisor",
+            "role": "supervisor",
+            "country": "Australia",
+            "supervisorSchoolName": "Test High",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        mine = self._mine_for("newsupervisor@example.com")
+        self.assertEqual([item["id"] for item in mine.data], [role_task.id])
+
+    def test_admin_created_admin_sees_pre_existing_admin_role_task(self):
+        role_task = self._make_role_task("Admin Onboarding", "admin")
+
+        response = self.client.post(self.USER_CREATE_URL, {
+            "email": "newadmin@example.com",
+            "firstName": "New",
+            "lastName": "Admin",
+            "role": "admin",
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        mine = self._mine_for("newadmin@example.com")
+        self.assertEqual([item["id"] for item in mine.data], [role_task.id])
