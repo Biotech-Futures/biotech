@@ -155,3 +155,105 @@ class Task(models.Model):
 
         Task.objects.filter(id__in=ids_to_restore).update(deleted_at=None)
         self.deleted_at = None
+
+
+class RoleTaskQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(deleted_at__isnull=True)
+
+
+class RoleTaskManager(models.Manager.from_queryset(RoleTaskQuerySet)):
+    pass
+
+
+class RoleTask(models.Model):
+    """A task defined once for every current AND future holder of `role`.
+
+    Deliberately not a Task subtype/variant: visibility is a live join against
+    RoleAssignmentHistory (via apps.common.rbac.active_role_ids) rather than a
+    snapshot, so a new role holder picks it up automatically without any
+    fan-out or backfill. Per-user completion lives in RoleTaskCompletion,
+    created lazily on first toggle - never bulk-created for every holder.
+    """
+
+    objects = RoleTaskManager()
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
+
+    role = models.ForeignKey(
+        "resources.Roles",
+        on_delete=models.PROTECT,
+        related_name="role_tasks",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="created_role_tasks",
+        null=True,
+    )
+    creator_role = models.CharField(max_length=20, choices=CreatorRole.choices)
+
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "role_task"
+        verbose_name = "Role Task"
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["role", "deleted_at"]),
+            models.Index(fields=["created_by"]),
+        ]
+
+    def __str__(self):
+        return f"RoleTask<{self.role_id}>: {self.name}"
+
+    def soft_delete(self):
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])
+
+    def restore(self):
+        self.deleted_at = None
+        self.save(update_fields=["deleted_at"])
+
+
+class RoleTaskCompletion(models.Model):
+    """Per-user completion state for a RoleTask.
+
+    Rows are created lazily (get_or_create) the first time a user views or
+    toggles their copy of a role task - never eagerly fanned out per holder.
+    A user with no row here simply hasn't started it yet (status=todo,
+    completed=False by convention on the read side).
+    """
+
+    role_task = models.ForeignKey(
+        RoleTask,
+        on_delete=models.CASCADE,
+        related_name="completions",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="role_task_completions",
+    )
+    status = models.CharField(max_length=50, choices=TaskStatus.choices, default=TaskStatus.TODO)
+    completed = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "role_task_completion"
+        verbose_name = "Role Task Completion"
+        indexes = [
+            models.Index(fields=["role_task"]),
+            models.Index(fields=["user"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["role_task", "user"], name="unique_role_task_completion"),
+        ]
+
+    def __str__(self):
+        return f"RoleTaskCompletion<{self.role_task_id}, {self.user_id}>: {self.status}"
