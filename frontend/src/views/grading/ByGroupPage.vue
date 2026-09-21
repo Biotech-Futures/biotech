@@ -5,8 +5,13 @@
         <div class="by-group__search-field">
           <span class="by-group__search-label">Search</span>
           <form class="by-group__form" @submit.prevent="open">
-            <GroupSearchInput ref="picker" v-model="query" class="by-group__picker" @select="goTo" />
-            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <GroupSearchInput
+              ref="picker"
+              v-model="query"
+              class="by-group__picker"
+              :show-suggestions="false"
+              @select="goTo"
+            />
           </form>
           <p v-if="error" class="by-group__error">{{ error }}</p>
         </div>
@@ -47,7 +52,9 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="by-group__empty">No groups.</td>
+              <td colspan="8" class="by-group__empty">
+                {{ query.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
               <td class="by-group__muted">#{{ r.group_id }}</td>
@@ -182,7 +189,15 @@ const sortValue = (r: GroupRow): number | string | null => {
 }
 
 const displayRows = computed(() => {
-  const sorted = [...rows.value]
+  // Live-filter the table by the search text (name or ID), matching the
+  // By Component page; the dropdown picker still handles jump-to-group.
+  const q = query.value.trim().toLowerCase()
+  let sorted = [...rows.value]
+  if (q) {
+    sorted = sorted.filter(
+      (r) => r.group_name.toLowerCase().includes(q) || String(r.group_id).includes(q)
+    )
+  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   sorted.sort((a, b) => {
     const va = sortValue(a)
@@ -289,7 +304,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  max-width: 420px;
+  /* Same width as the By Component page's search box. */
+  max-width: 252px;
 }
 
 .by-group__search-label {

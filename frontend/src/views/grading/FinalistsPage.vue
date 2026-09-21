@@ -1,20 +1,5 @@
 ﻿<template>
   <div class="finalists">
-    <section class="card finalists__add">
-      <div class="card-header">
-        <h3 class="card-title">Add Finalist</h3>
-      </div>
-      <p class="finalists__hint">
-        Search by group name or ID to add them as a finalist.
-      </p>
-      <form class="finalists__form" @submit.prevent="add">
-        <GroupSearchInput ref="picker" v-model="groupQuery" class="finalists__picker" />
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isMutating">
-          Add as Finalist
-        </button>
-      </form>
-    </section>
-
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
     <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
 
@@ -35,8 +20,21 @@
         </button>
       </h3>
       <template v-if="showGroupMarks">
+      <div class="card finalists__search-card">
+        <div class="finalists__search-field">
+          <span class="finalists__search-label">Search</span>
+          <form class="finalists__form" @submit.prevent="add">
+            <GroupSearchInput
+              ref="picker"
+              v-model="groupQuery"
+              class="finalists__picker"
+              :show-suggestions="false"
+            />
+          </form>
+        </div>
+      </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
-      <div v-else class="finalists__scroll">
+      <div v-else class="finalists__scroll finalists__scroll--flush">
         <table class="finalists__table">
           <thead>
             <tr>
@@ -59,7 +57,9 @@
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 7" class="finalists__empty">No groups.</td>
+              <td :colspan="candidateComponents.length + 7" class="finalists__empty">
+                {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in candidates" :key="r.group_id">
               <td class="finalists__muted">#{{ r.group_id }}</td>
@@ -226,7 +226,16 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
-const candidates = computed(() => candidatesResp.value?.rows ?? [])
+// Live-filter the Group Marks table by the search text (name or ID),
+// matching the other marking tables; resolveId still powers the Add button.
+const candidates = computed(() => {
+  const rows = candidatesResp.value?.rows ?? []
+  const q = groupQuery.value.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter(
+    (r) => r.group_name.toLowerCase().includes(q) || String(r.group_id).includes(q)
+  )
+})
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
@@ -350,12 +359,36 @@ const remove = async (id: number) => {
 }
 
 .finalists__picker {
-  width: 20rem;
+  width: 100%;
 }
 
-/* Only the tables run full width; the add card stays compact. */
-.finalists__add {
-  max-width: 48rem;
+/* Search card sits flush on the Group Marks table — same outline treatment
+   as the other marking tables: table border instead of the card shadow,
+   square shared edge, the table's own top border draws the divider. */
+.finalists__search-card,
+.finalists__search-card:hover {
+  padding: 1rem;
+  margin-bottom: 0;
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+}
+
+.finalists__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* Same width as the By Component page's search box. */
+  max-width: 252px;
+}
+
+.finalists__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .finalists__banner {
@@ -385,6 +418,11 @@ const remove = async (id: number) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
+}
+
+/* The Group Marks table joins the search card above it. */
+.finalists__scroll--flush {
+  border-radius: 0 0 8px 8px;
 }
 
 .finalists__table {

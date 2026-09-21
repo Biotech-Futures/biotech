@@ -26,33 +26,6 @@
     </div>
 
     <div v-else-if="payload" class="component-table">
-      <div class="component-table__header">
-        <p class="component-table__stats">
-          {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
-        </p>
-        <div class="component-table__actions">
-          <button
-            v-if="payload.component.code === 'SAQ'"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('xlsx')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> XLSX
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('zip')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> Zip
-          </button>
-          <BulkUploadDialog :code="code" @applied="onUploadApplied" />
-        </div>
-      </div>
-
       <div class="card component-table__search-card">
         <div class="component-table__search-field">
           <label class="component-table__search-label" for="component-group-search">Search</label>
@@ -68,6 +41,30 @@
             />
           </div>
         </div>
+        <p class="component-table__stats">
+          {{ submittedCount }}/{{ payload.rows.length }} submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+        </p>
+        <div class="component-table__actions">
+            <button
+              v-if="payload.component.code === 'SAQ'"
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="job.isBusy.value"
+              @click="startJob('xlsx')"
+            >
+              <i class="fas fa-download" aria-hidden="true"></i> XLSX
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="job.isBusy.value"
+              @click="startJob('zip')"
+            >
+              <i class="fas fa-download" aria-hidden="true"></i> Zip
+            </button>
+            <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+          </div>
       </div>
 
       <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--info">
@@ -421,6 +418,11 @@ const displayRows = computed(() => {
    column gap (1rem) so the card sits flush against the table. */
 .component-table__search-card,
 .component-table__search-card:hover {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
   padding: 1rem;
   margin-bottom: -1rem;
   /* Flush against the table below — square off the shared edge and use the
@@ -437,7 +439,8 @@ const displayRows = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  max-width: 360px;
+  flex: 1 1 180px;
+  max-width: 252px;
 }
 
 .component-table__search-label {
@@ -473,18 +476,12 @@ const displayRows = computed(() => {
   color: var(--charcoal);
 }
 
-.component-table__header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
 .component-table__stats {
   color: var(--charcoal);
   font-size: 0.9rem;
-  margin: 0;
+  /* Auto inline margins center the stats between the search box and the
+     export buttons. */
+  margin: 0 auto;
 }
 
 .component-table__actions {
