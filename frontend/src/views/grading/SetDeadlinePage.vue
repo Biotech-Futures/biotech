@@ -19,9 +19,33 @@
           submission page but cannot save or submit until a deadline exists.
         </p>
         <template v-else>
-          <p class="deadline__row" :class="deadline.is_open ? 'deadline__state--open' : 'deadline__state--closed'">
-            <i :class="deadline.is_open ? 'fas fa-lock-open' : 'fas fa-lock'" aria-hidden="true"></i>
-            {{ deadline.is_open ? 'Submissions open' : 'Submissions closed' }}
+          <p
+            class="deadline__row"
+            :class="
+              deadlineState === 'open'
+                ? 'deadline__state--open'
+                : deadlineState === 'grace'
+                  ? 'deadline__state--grace'
+                  : 'deadline__state--closed'
+            "
+          >
+            <i
+              :class="
+                deadlineState === 'open'
+                  ? 'fas fa-lock-open'
+                  : deadlineState === 'grace'
+                    ? 'fas fa-hourglass-half'
+                    : 'fas fa-lock'
+              "
+              aria-hidden="true"
+            ></i>
+            {{
+              deadlineState === 'open'
+                ? 'Submissions open'
+                : deadlineState === 'grace'
+                  ? 'Submission in grace period'
+                  : 'Submissions closed'
+            }}
           </p>
           <p class="deadline__row">
             Closes: <strong>{{ new Date(deadline.closes_at).toLocaleString() }}</strong>
@@ -69,7 +93,6 @@
       </form>
 
       <p v-if="actionError" class="deadline__banner deadline__banner--error">{{ actionError }}</p>
-      <p v-if="savedMessage" class="deadline__banner deadline__banner--ok">{{ savedMessage }}</p>
     </section>
 
     <div v-if="confirmOpen" class="deadline__overlay" @click.self="confirmOpen = false">
@@ -112,7 +135,6 @@ const deadline = ref<SubmissionDeadline | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const savedMessage = ref('')
 const isSaving = ref(false)
 
 const closesAtLocal = ref('')
@@ -123,6 +145,19 @@ const confirmOpen = ref(false)
 const pendingLabel = computed(() =>
   closesAtLocal.value ? new Date(closesAtLocal.value).toLocaleString() : ''
 )
+
+// open: before the announced closing time; grace: past it but the server is
+// still quietly accepting; closed: past the grace window too.
+const deadlineState = computed<'open' | 'grace' | 'closed'>(() => {
+  const d = deadline.value
+  if (!d) return 'closed'
+  const closes = new Date(d.closes_at).getTime()
+  const graceMs = (d.grace_hours || 0) * 3_600_000
+  const now = Date.now()
+  if (now <= closes) return 'open'
+  if (now <= closes + graceMs) return 'grace'
+  return 'closed'
+})
 
 const load = async () => {
   isLoading.value = true
@@ -146,14 +181,12 @@ const load = async () => {
 
 const save = async () => {
   actionError.value = ''
-  savedMessage.value = ''
   isSaving.value = true
   try {
     // datetime-local is timezone-less; Date() reads it as local time and
     // toISOString() converts to the UTC instant the server stores.
     const iso = new Date(closesAtLocal.value).toISOString()
     deadline.value = (await saveSubmissionDeadline(iso, graceHours.value || 0)).deadline
-    savedMessage.value = 'Deadline saved.'
     confirmOpen.value = false
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -196,6 +229,12 @@ onMounted(() => void load())
 
 .deadline__state--open {
   color: var(--dark-green);
+  font-weight: 600;
+}
+
+/* Same yellow as the Release Marks page's warn state. */
+.deadline__state--grace {
+  color: #eab308;
   font-weight: 600;
 }
 

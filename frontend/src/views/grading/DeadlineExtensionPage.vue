@@ -11,7 +11,7 @@
       </p>
       <form class="extensions__form" @submit.prevent="save">
         <label class="extensions__field extensions__field--group">
-          <span>Group</span>
+          <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
         <label class="extensions__field">
