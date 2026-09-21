@@ -83,6 +83,14 @@
           </button>
           <button
             type="button"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
+            :disabled="nextUnmarkedId == null"
+            @click="goto(nextUnmarkedId)"
+          >
+            Next Unmarked <i class="fas fa-angles-right" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
             class="btn btn-outline btn-sm"
             :disabled="isDownloading"
             @click="downloadAll"
@@ -353,8 +361,12 @@ type ComponentBlock = GroupMarkingPayload['components'][number]
 // Synthetic first tab: the SAQ answers and the poster marked side by side.
 const COMBINED_CODE = 'SAQ_POSTER'
 
+// All real components — prev/next checks submissions across every one.
+const ALL_CODES = ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE']
+
 const payload = ref<GroupMarkingPayload | null>(null)
 const rows = ref<ComponentListPayload | null>(null)
+const allRows = ref<ComponentListPayload[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
@@ -535,23 +547,61 @@ const singleMarkerTooltip = computed(() => {
 })
 
 // Prev/next walk the cohort in group-ID order, matching the #id in the
-// heading, skipping groups without a submission — no point navigating to an
-// empty marking pane.
-const orderedRows = computed(() =>
-  (rows.value?.rows ?? []).slice().sort((a, b) => a.group_id - b.group_id)
-)
+// heading. A group is skipped only when it has no submission in ANY
+// component; submitting any one component keeps it reachable.
+const orderedGroupIds = computed(() => {
+  const ids = new Set<number>()
+  for (const p of allRows.value) for (const r of p.rows) ids.add(r.group_id)
+  return [...ids].sort((a, b) => a - b)
+})
+
+const groupsWithSubmission = computed(() => {
+  const ids = new Set<number>()
+  for (const p of allRows.value) {
+    for (const r of p.rows) if (r.submission_id != null) ids.add(r.group_id)
+  }
+  return ids
+})
 
 const neighborId = (direction: -1 | 1) => {
-  const list = orderedRows.value
-  const idx = list.findIndex((r) => r.group_id === groupId.value)
+  const list = orderedGroupIds.value
+  const idx = list.indexOf(groupId.value)
   if (idx < 0) return null
   const candidates = direction === -1 ? list.slice(0, idx).reverse() : list.slice(idx + 1)
-  const hit = candidates.find((r) => r.submission_id != null)
-  return hit?.group_id ?? null
+  return candidates.find((id) => groupsWithSubmission.value.has(id)) ?? null
 }
 
 const prevId = computed(() => neighborId(-1))
 const nextId = computed(() => neighborId(1))
+
+// "Next Unmarked" walks forward (wrapping past the last ID to the first)
+// to the next group whose CURRENT subtab still has unmarked rubric criteria.
+// Groups whose rubric here is fully marked are skipped, as are groups with
+// nothing to mark on this subtab (no submission, or no rubric defined).
+const activeMarkingCodes = computed(() =>
+  isCombined.value ? ['SAQ', 'POSTER'] : effectiveCode.value ? [effectiveCode.value] : []
+)
+
+const hasUnmarkedHere = (id: number) =>
+  activeMarkingCodes.value.some((markingCode) => {
+    const p = allRows.value.find((x) => x.component.code === markingCode)
+    if (!p || p.criteria_total <= 0) return false
+    const r = p.rows.find((row) => row.group_id === id)
+    return r != null && r.submission_id != null && r.criteria_graded < p.criteria_total
+  })
+
+const nextUnmarkedId = computed(() => {
+  const list = orderedGroupIds.value
+  if (!list.length) return null
+  const idx = list.indexOf(groupId.value)
+  const start = idx < 0 ? -1 : idx
+  for (let step = 1; step <= list.length; step++) {
+    const candidate = list[(start + step + list.length) % list.length]
+    if (candidate === groupId.value) continue
+    if (hasUnmarkedHere(candidate)) return candidate
+  }
+  return null
+})
 
 const goto = (id: number | null) => {
   if (id == null) return
@@ -626,12 +676,15 @@ const load = async () => {
   loadError.value = ''
   try {
     // Rows are best-effort: without them prev/next simply stay disabled.
-    const [groupPayload, rowsPayload] = await Promise.all([
+    // Every component's rows load so prev/next can spot a submission in any
+    // of them; the current component's rows also feed the marker columns.
+    const [groupPayload, componentRows] = await Promise.all([
       fetchGroupMarking(groupId.value),
-      fetchComponentRows(rowsCode.value).catch(() => null)
+      Promise.all(ALL_CODES.map((c) => fetchComponentRows(c).catch(() => null)))
     ])
     payload.value = groupPayload
-    rows.value = rowsPayload
+    allRows.value = componentRows.filter((p): p is ComponentListPayload => p != null)
+    rows.value = allRows.value.find((p) => p.component.code === rowsCode.value) ?? null
   } catch (err) {
     payload.value = null
     loadError.value = apiErrorFromUnknown(err).message
