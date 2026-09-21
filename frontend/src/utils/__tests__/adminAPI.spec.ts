@@ -21,7 +21,15 @@ import {
   removeGroupMessage,
   removeGroupMember,
   bulkDeleteGroups,
-  replaceMentor
+  replaceMentor,
+  fetchAdminViews,
+  fetchAdminView,
+  createAdminView,
+  updateAdminView,
+  deleteAdminView,
+  bulkDeleteAdminViews,
+  runAdminView,
+  getAdminViewExportUrl
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -826,5 +834,150 @@ describe('replaceMentor', () => {
     expect(init!.method).toBe('POST')
     expect(JSON.parse(String(init.body))).toEqual({ membershipId: 100, groupId: 1, newMentorUserId: 23 })
     expect(result.replaced).toBe(1)
+  })
+})
+
+describe('admin user views API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('fetchAdminViews calls /view/ and returns items and total', async () => {
+    const mockData = {
+      items: [{ id: 1, name: 'All Users', isDefault: true }],
+      total: 1
+    }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockData }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminViews({ tab: 'default', search: 'Users' })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/?tab=default&search=Users')
+    expect(result).toEqual(mockData)
+  })
+
+  it('fetchAdminView calls /view/:id/ and returns view definition', async () => {
+    const mockView = { id: 10, name: 'Custom View', isDefault: false }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockView }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminView(10)
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/10/')
+    expect(result).toEqual(mockView)
+  })
+
+  it('createAdminView posts payload to /view/ and unwraps result', async () => {
+    const payload = { name: 'New Cohort', targetRoles: ['student'] }
+    const mockCreated = { id: 50, ...payload, isDefault: false }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Created', data: mockCreated }), { status: 201 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createAdminView(payload)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/view/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(payload)
+    expect(result).toEqual(mockCreated)
+  })
+
+  it('updateAdminView sends PUT to /view/:id/', async () => {
+    const payload = { name: 'Updated Cohort' }
+    const mockUpdated = { id: 50, ...payload }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Updated', data: mockUpdated }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateAdminView(50, payload)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/50/')) as [string, RequestInit]
+    expect(init.method).toBe('PUT')
+    expect(JSON.parse(String(init.body))).toEqual(payload)
+    expect(result).toEqual(mockUpdated)
+  })
+
+  it('deleteAdminView sends DELETE to /view/:id/', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Deleted', data: true }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminView(50)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/50/')) as [string, RequestInit]
+    expect(init.method).toBe('DELETE')
+    expect(result).toBe(true)
+  })
+
+  it('bulkDeleteAdminViews sends POST to /view/bulk-delete/', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Deleted', data: { deletedCount: 3 } }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await bulkDeleteAdminViews([1, 2, 3])
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/bulk-delete/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ viewIds: [1, 2, 3] })
+    expect(result).toEqual({ deletedCount: 3 })
+  })
+
+  it('runAdminView calls /view/:id/run/ with query params', async () => {
+    const mockRunResult = {
+      items: [{ id: 1, name: 'John Doe' }],
+      total: 1,
+      page: 1,
+      limit: 25,
+      hasMore: false,
+      view: { id: 5, name: 'Run Test' }
+    }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockRunResult }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runAdminView(5, { page: 2, limit: 25, search: 'John' })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/5/run/?page=2&limit=25&search=John')
+    expect(result).toEqual(mockRunResult)
+  })
+
+  it('getAdminViewExportUrl generates correct CSV download URL', () => {
+    const url1 = getAdminViewExportUrl(5)
+    expect(url1).toContain('/view/5/export-csv/')
+
+    const url2 = getAdminViewExportUrl(5, 'test query')
+    expect(url2).toContain('/view/5/export-csv/?search=test%20query')
   })
 })

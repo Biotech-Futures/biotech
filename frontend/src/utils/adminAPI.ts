@@ -1311,3 +1311,91 @@ export const fetchMentorReplaceSuggestions = (groupId: number) =>
   adminGet<AdminEnvelope<MentorReplaceSuggestionsData>>(
     `/mentor-match/replace-suggestions/?groupId=${groupId}`
   ).then((env) => env.data)
+
+// ---------------------------------------------------------------------------
+// Admin User Views
+// ---------------------------------------------------------------------------
+
+export interface ViewCondition {
+  field: string
+  operator: 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_set' | string
+  value: string
+  logic?: 'AND' | 'OR'
+}
+
+export interface AdminView {
+  id: number
+  name: string
+  description: string
+  visibility: 'system' | 'shared' | 'private'
+  isDefault: boolean
+  targetRoles: string[]
+  accountStatus: 'all' | 'active' | 'inactive'
+  engagementStatus: 'all' | 'matched' | 'unmatched' | 'pending'
+  advancedConditions: ViewCondition[]
+  visibleColumns: string[]
+  lastRunAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export interface ViewListData {
+  items: AdminView[]
+  total: number
+}
+
+export interface ViewRunParams {
+  page?: number
+  limit?: number
+  search?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  groupBy?: string
+}
+
+export interface ViewRunData {
+  items: AdminUser[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+  view: AdminView
+}
+
+/** Fetch all saved views with optional tab/role/search filter (GET /view/) */
+export const fetchAdminViews = (params: { tab?: string; role?: string; search?: string } = {}) =>
+  adminGet<AdminEnvelope<ViewListData>>(`/view/${buildAdminQuery(params)}`).then((env) => env.data)
+
+/** Fetch a single saved view definition (GET /view/:id/) */
+export const fetchAdminView = (id: number) =>
+  adminGet<AdminEnvelope<AdminView>>(`/view/${id}/`).then((env) => env.data)
+
+/** Create a new custom view (POST /view/) */
+export const createAdminView = (payload: Partial<AdminView>) =>
+  adminPost<AdminEnvelope<AdminView>>('/view/', payload).then((env) => env.data)
+
+/** Update an existing custom view (PUT /view/:id/) */
+export const updateAdminView = (id: number, payload: Partial<AdminView>) =>
+  adminPut<AdminEnvelope<AdminView>>(`/view/${id}/`, payload).then((env) => env.data)
+
+/** Delete a custom view (DELETE /view/:id/) */
+export const deleteAdminView = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/view/${id}/`).then((env) => env.data)
+
+/** Bulk delete multiple custom views (POST /view/bulk-delete/) */
+export const bulkDeleteAdminViews = (viewIds: number[]) =>
+  adminPost<AdminEnvelope<{ deletedCount: number }>>('/view/bulk-delete/', { viewIds }).then(
+    (env) => env.data
+  )
+
+/** Execute a view query with pagination and sorting (GET /view/:id/run/) */
+export const runAdminView = (id: number, params: ViewRunParams = {}) =>
+  adminGet<AdminEnvelope<ViewRunData>>(`/view/${id}/run/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+/** Get export CSV download URL for a view */
+export const getAdminViewExportUrl = (id: number, search?: string) => {
+  const query = search ? `?search=${encodeURIComponent(search)}` : ''
+  return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
+}
