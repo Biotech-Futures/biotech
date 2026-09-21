@@ -31,13 +31,7 @@
         </div>
       </div>
 
-      <p v-if="job.isBusy.value" class="by-group__banner by-group__banner--info">
-        {{ jobBusyLabel }}
-      </p>
-      <p v-else-if="job.phase.value === 'done'" class="by-group__banner by-group__banner--ok">
-        Download ready - check your browser downloads.
-      </p>
-      <p v-else-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
+      <p v-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
         {{ job.error.value }}
       </p>
 
@@ -195,10 +189,6 @@ const isLoading = ref(false)
 // The everything-zip (all groups, all components) plus cohort stats — the
 // same affordances the per-component table offers.
 const job = useJobPolling()
-const jobBusyLabel = computed(() => {
-  if (job.phase.value === 'downloading') return 'Downloading…'
-  return 'Preparing export… this can take a moment for large cohorts.'
-})
 
 const submittedCount = computed(() => rows.value.filter((r) => r.submission_id != null).length)
 const fullyMarkedCount = computed(

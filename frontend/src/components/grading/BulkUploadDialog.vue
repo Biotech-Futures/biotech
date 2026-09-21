@@ -7,7 +7,7 @@
     <div v-if="open" class="bulk-upload__overlay" @click.self="closeDialog">
       <div class="bulk-upload__dialog" role="dialog" aria-modal="true" aria-label="Upload marks">
         <div class="bulk-upload__head">
-          <h3 class="bulk-upload__title">Upload marks — {{ code }}</h3>
+          <h3 class="bulk-upload__title">Upload marks for {{ typeLabel }}</h3>
           <button
             type="button"
             class="bulk-upload__close"
@@ -19,10 +19,23 @@
         </div>
 
         <p class="bulk-upload__desc">
-          XLSX or CSV with columns: <code>group_id</code>, <code>criterion_id</code>,
-          <code>mark</code>, <code>comment</code>. Extra columns are ignored.
+          XLSX or CSV in the export's shape (one row per group)<br />
+          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion<template
+            v-if="code !== 'SAQ'"
+          >, and <code>overall_comment</code></template>
+        </p>
+        <p class="bulk-upload__desc">
+          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          Extra columns are ignored, so you can fill in the downloaded sheet and upload it back.
         </p>
 
+        <div class="bulk-upload__file-row">
+          <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
+            Browse…
+          </button>
+          <span class="bulk-upload__file-name">{{ file?.name || 'No file selected.' }}</span>
+        </div>
         <input
           ref="fileInput"
           type="file"
@@ -98,7 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -109,6 +122,15 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 // and re-preview in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
 const props = defineProps<{ code: string }>()
+
+// Friendly type labels, matching the sheet's `type` column values.
+const TYPE_LABELS: Record<string, string> = {
+  SAQ: 'SAQs',
+  POSTER: 'Poster',
+  REPORT: 'Report',
+  PROTOTYPE: 'Prototype'
+}
+const typeLabel = computed(() => TYPE_LABELS[props.code] ?? props.code)
 
 const emit = defineEmits<{
   applied: [written: number]
@@ -126,6 +148,9 @@ const reset = () => {
   preview.value = null
   requestError.value = ''
   busy.value = 'idle'
+  // Clear the hidden native input too, so picking the same file again
+  // still fires a change event.
+  if (fileInput.value) fileInput.value.value = ''
 }
 
 const openDialog = () => {
@@ -241,8 +266,40 @@ const doApply = async () => {
   font-size: 0.82rem;
 }
 
+/* Custom file picker matching the Document Setup page: the native input is
+   hidden because its "No file selected" text is part of the same clickable
+   control — only our button should open the dialog. */
 .bulk-upload__file {
-  font-size: 0.9rem;
+  display: none;
+}
+
+.bulk-upload__file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bulk-upload__file-btn {
+  background-color: transparent;
+  color: var(--dark-green);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.84rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.bulk-upload__file-btn:hover {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
+}
+
+.bulk-upload__file-name {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .bulk-upload__request-error {

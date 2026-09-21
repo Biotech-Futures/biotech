@@ -3,14 +3,15 @@
 Client explicitly said spreadsheet is easier than PDF for SAQ marking off-
 platform, so this is the primary text-export path. Shape:
 
-    | group_id | group_name | text
+    | group_id | group_name | type ("SAQs") | text
     | r1_mark | r1_comment
     | r2_mark | r2_comment | ...
+    | overall_comment
 
 One row per group; SAQ text goes in a single wrapped cell. Per-criterion
-pairs (existing mark + existing comment) are appended so the sheet doubles
-as a fillable marking template. Note the bulk-upload parser uses its own
-long format (group_id | criterion_id | mark | comment), not this sheet.
+pairs (existing mark + existing comment) plus the overall comment are
+appended, pre-filled, so the sheet doubles as a fillable marking template —
+the bulk-upload parser accepts this exact shape back.
 """
 from __future__ import annotations
 
@@ -24,13 +25,14 @@ from ..models import Grade, RubricCriterion
 from .content import ComponentEntry
 
 
-BASE_HEADERS = ["group_id", "group_name", "text"]
+BASE_HEADERS = ["group_id", "group_name", "type", "text"]
 
 
 def build_saq_xlsx(
     entries: Iterable[ComponentEntry],
     criteria: Iterable[RubricCriterion] = (),
     grades_by_pair: dict[tuple[int, int], Grade] | None = None,
+    feedback_by_group: dict[int, str] | None = None,
 ) -> bytes:
     """Return XLSX bytes for the given SAQ component entries.
 
@@ -42,6 +44,7 @@ def build_saq_xlsx(
     """
     criteria_list = list(criteria)
     grades_by_pair = grades_by_pair or {}
+    feedback_by_group = feedback_by_group or {}
 
     wb = Workbook()
     ws = wb.active
@@ -50,6 +53,7 @@ def build_saq_xlsx(
     headers = list(BASE_HEADERS)
     for i, _ in enumerate(criteria_list, start=1):
         headers.extend([f"r{i}_mark", f"r{i}_comment"])
+    headers.append("overall_comment")
 
     ws.append(headers)
     for cell in ws[1]:
@@ -59,6 +63,7 @@ def build_saq_xlsx(
         row = [
             entry.group_id,
             entry.group_name,
+            "SAQs",
             entry.text or "",
         ]
         for criterion in criteria_list:
@@ -67,14 +72,15 @@ def build_saq_xlsx(
                 float(existing.mark) if existing and existing.mark is not None else None,
                 existing.comment if existing else "",
             ])
+        row.append(feedback_by_group.get(entry.group_id, ""))
         ws.append(row)
 
     # Wrap the text column so long SAQ answers don't just spill off-screen.
-    for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):
+    for row in ws.iter_rows(min_row=2, min_col=4, max_col=4):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    ws.column_dimensions["C"].width = 80
+    ws.column_dimensions["D"].width = 80
 
     buffer = io.BytesIO()
     wb.save(buffer)

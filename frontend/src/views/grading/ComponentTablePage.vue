@@ -67,13 +67,7 @@
           </div>
       </div>
 
-      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--info">
-        {{ jobBusyLabel }}
-      </p>
-      <p v-else-if="job.phase.value === 'done'" class="component-table__banner component-table__banner--ok">
-        Download ready - check your browser downloads.
-      </p>
-      <p v-else-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
+      <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
       <p v-if="uploadMessage" class="component-table__banner component-table__banner--ok">
@@ -224,11 +218,6 @@ const searchQuery = ref('')
 
 const job = useJobPolling()
 const uploadMessage = ref('')
-
-const jobBusyLabel = computed(() => {
-  if (job.phase.value === 'downloading') return 'Downloading…'
-  return 'Preparing export… this can take a moment for large cohorts.'
-})
 
 const startJob = (format: 'zip' | 'xlsx') => {
   uploadMessage.value = ''
