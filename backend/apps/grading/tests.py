@@ -502,14 +502,14 @@ class BulkUploadMarksViewTests(_GradingFixture):
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
-        resp = self.client.post(self.url, {"file": self._make_csv([(self.group.id, "g", "SAQs", 8, "ok", "", "", "")])})
+        resp = self.client.post(self.url, {"file": self._make_csv([(self.group.id, "BTF-TEST-1","SAQs", 8, "ok", "", "", "")])})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_dry_run_csv_returns_diff_no_writes(self):
         resp = self.client.post(
             self.url,
             {"file": self._make_csv([
-                (self.group.id, "g", "SAQs", "8.00", "Great", "", "", ""),
+                (self.group.id, "BTF-TEST-1","SAQs", "8.00", "Great", "", "", ""),
             ]), "dry_run": "true"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -527,7 +527,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.50"), comment="same")
 
         upload = self._make_xlsx([
-            (self.group.id, "g", "SAQs", "7.00", "revised", "4.50", "same", ""),
+            (self.group.id, "BTF-TEST-1","SAQs", "7.00", "revised", "4.50", "same", ""),
         ])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -538,9 +538,9 @@ class BulkUploadMarksViewTests(_GradingFixture):
 
     def test_row_errors_reported(self):
         upload = self._make_csv([
-            (self.group.id, "g", "SAQs", "abc", "", "", "", ""),   # non-numeric mark
+            (self.group.id, "BTF-TEST-1","SAQs", "abc", "", "", "", ""),   # non-numeric mark
             (999_999, "x", "SAQs", "5", "", "", "", ""),           # group with no SAQ submission
-            (self.group.id, "g", "SAQs", "99", "", "", "", ""),    # duplicate group row (also over max)
+            (self.group.id, "BTF-TEST-1","SAQs", "99", "", "", "", ""),    # duplicate group row (also over max)
         ])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -552,13 +552,22 @@ class BulkUploadMarksViewTests(_GradingFixture):
             self.assertIn("message", e)
 
     def test_over_max_mark_rejected(self):
-        upload = self._make_csv([(self.group.id, "g", "SAQs", "99", "", "", "", "")])
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1","SAQs", "99", "", "", "", "")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.json()["summary"]["errors"], 1)
 
+    def test_bare_code_type_rejected(self):
+        # Only the export's label ("SAQs") passes — a bare "SAQ" is wrong.
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "SAQ", "5", "", "", "", "")])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertFalse(body["checks"]["type_ok"])
+        self.assertEqual(body["checks"]["found_type"], "SAQ")
+
     def test_wrong_type_rejected(self):
-        upload = self._make_csv([(self.group.id, "g", "POSTER", "5", "", "", "", "")])
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1","POSTER", "5", "", "", "", "")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         errors = resp.json()["errors"]
@@ -574,6 +583,28 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(len(errors), 1)
         self.assertIn("type", errors[0]["message"])
 
+    def test_wrong_group_name_rejected(self):
+        # A row whose id points at a different group than its name says.
+        upload = self._make_csv([(self.group.id, "SOME-OTHER-GROUP", "SAQs", "5", "", "", "", "")])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertEqual(body["checks"]["bad_group_rows"][0]["row"], 2)
+        self.assertIn("name should be", body["checks"]["bad_group_rows"][0]["reason"])
+        self.assertIn("group_name", body["errors"][0]["message"])
+
+    def test_typoed_header_rejected(self):
+        # "r1_commen" must fail loudly, reported by the expected name it
+        # displaced — never silently dropped.
+        header = ["group_id", "type", "r1_commen"]
+        upload = self._make_csv([(self.group.id, "SAQs", "fine")], header=header)
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertEqual(len(body["errors"]), 1)
+        self.assertIn("r1_comment", body["errors"][0]["message"])
+        self.assertEqual(body["checks"]["missing_headers"], ["r1_comment"])
+
     def test_unknown_criterion_position_rejected(self):
         header = ["group_id", "type", "r9_mark"]
         upload = self._make_csv([(self.group.id, "SAQs", "5")], header=header)
@@ -584,14 +615,14 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertIn("r9", errors[0]["message"])
 
     def test_commit_rejected_when_errors_exist(self):
-        upload = self._make_csv([(self.group.id, "g", "SAQs", "abc", "", "", "", "")])
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1","SAQs", "abc", "", "", "", "")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Grade.objects.count(), 0)
 
     def test_commit_persists_and_stamps_grader(self):
         upload = self._make_csv([
-            (self.group.id, "g", "SAQs", "9.00", "excellent", "3.50", "adequate", "Solid entry overall."),
+            (self.group.id, "BTF-TEST-1","SAQs", "9.00", "excellent", "3.50", "adequate", "Solid entry overall."),
         ])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)

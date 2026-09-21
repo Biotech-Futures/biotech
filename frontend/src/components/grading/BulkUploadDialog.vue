@@ -27,7 +27,8 @@
         </p>
         <p class="bulk-upload__desc">
           Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
-          Extra columns are ignored, so you can fill in the downloaded sheet and upload it back.
+          Column headers must match exactly and extra columns are ignored, so you can fill in
+          the downloaded sheet and upload it back.
         </p>
 
         <div class="bulk-upload__file-row">
@@ -47,44 +48,39 @@
         <p v-if="requestError" class="bulk-upload__request-error">{{ requestError }}</p>
 
         <div v-if="preview" class="bulk-upload__preview">
-          <div class="bulk-upload__badges">
-            <span class="bulk-upload__badge bulk-upload__badge--creates">
-              creates <strong>{{ preview.summary.creates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--updates">
-              updates <strong>{{ preview.summary.updates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--muted">
-              unchanged <strong>{{ preview.summary.unchanged }}</strong>
-            </span>
-            <span
-              class="bulk-upload__badge"
-              :class="preview.summary.errors > 0 ? 'bulk-upload__badge--errors' : 'bulk-upload__badge--muted'"
-            >
-              errors <strong>{{ preview.summary.errors }}</strong>
-            </span>
-          </div>
+          <ul v-if="preview.checks" class="bulk-upload__checks">
+            <li>
+              Missing Column Header(s):
+              <span :class="checkClass(!preview.checks.missing_headers.length)">
+                {{ checkHeaderText }}
+              </span>
+            </li>
+            <!-- A failed header check stops parsing, so the checks below
+                 never ran — hide them rather than show a misleading None. -->
+            <template v-if="!preview.checks.missing_headers.length">
+              <li>
+                Type:
+                <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
+              </li>
+              <!-- Rows failing an earlier check skip the later validations,
+                   so hide those lines rather than show a misleading None. -->
+              <template v-if="preview.checks.type_ok">
+                <li>
+                  Incorrect group details:
+                  <span :class="checkClass(!preview.checks.bad_group_rows.length)">
+                    {{ checkGroupText }}
+                  </span>
+                </li>
+                <li v-if="!preview.checks.bad_group_rows.length">
+                  Incorrect mark format:
+                  <span :class="checkClass(!preview.checks.bad_marks.length)">
+                    {{ checkMarkText }}
+                  </span>
+                </li>
+              </template>
+            </template>
+          </ul>
 
-          <div v-if="preview.errors.length" class="bulk-upload__errors">
-            <table>
-              <thead>
-                <tr>
-                  <th class="bulk-upload__row-col">Row</th>
-                  <th>Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(e, i) in preview.errors" :key="i">
-                  <td class="bulk-upload__row-col">{{ e.row }}</td>
-                  <td>{{ e.message }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <p v-if="preview.summary.errors > 0" class="bulk-upload__fix-hint">
-            Fix the errors and re-upload before applying.
-          </p>
         </div>
 
         <div class="bulk-upload__footer">
@@ -142,6 +138,35 @@ const preview = ref<BulkUploadResponse | null>(null)
 const requestError = ref('')
 const busy = ref<'idle' | 'preview' | 'apply'>('idle')
 const fileInput = ref<HTMLInputElement | null>(null)
+
+// The four preview report lines, from the parser's categorised checks.
+const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-upload__check--bad')
+
+const checkHeaderText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
+})
+
+const checkTypeText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
+})
+
+const checkGroupText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_group_rows.length) return 'None'
+  return c.bad_group_rows.map((g) => `row ${g.row} (${g.reason})`).join(', ')
+})
+
+const checkMarkText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_marks.length) return 'None'
+  return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
+})
 
 const reset = () => {
   file.value = null
@@ -314,82 +339,24 @@ const doApply = async () => {
   gap: 0.5rem;
 }
 
-.bulk-upload__badges {
+.bulk-upload__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.bulk-upload__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border-radius: 6px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.8rem;
-}
-
-.bulk-upload__badge--creates {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-}
-
-.bulk-upload__badge--updates {
-  background: color-mix(in srgb, var(--warning) 22%, transparent);
-  color: #8a6100;
-}
-
-.bulk-upload__badge--errors {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-}
-
-.bulk-upload__badge--muted {
-  background: var(--bg-light);
-  color: var(--text-muted);
-}
-
-.bulk-upload__errors {
-  max-height: 12rem;
-  overflow: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-}
-
-.bulk-upload__errors table {
-  width: 100%;
-  border-collapse: collapse;
+  flex-direction: column;
+  gap: 0.25rem;
   font-size: 0.85rem;
 }
 
-.bulk-upload__errors th,
-.bulk-upload__errors td {
-  text-align: left;
-  padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.bulk-upload__errors thead th {
-  background: var(--bg-light);
-  color: var(--text-muted);
+.bulk-upload__check--ok {
+  color: var(--dark-green);
   font-weight: 600;
-  position: sticky;
-  top: 0;
 }
 
-.bulk-upload__errors tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.bulk-upload__row-col {
-  width: 5rem;
-  font-family: monospace;
-}
-
-.bulk-upload__fix-hint {
+.bulk-upload__check--bad {
   color: var(--danger);
-  font-size: 0.8rem;
-  margin: 0;
+  font-weight: 600;
 }
 
 .bulk-upload__footer {

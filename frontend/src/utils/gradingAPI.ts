@@ -300,11 +300,22 @@ export interface BulkUploadSummary {
   errors: number
 }
 
+/** Categorised validation report shown on preview. */
+export interface BulkUploadChecks {
+  missing_headers: string[]
+  expected_type: string
+  found_type: string | null
+  type_ok: boolean
+  bad_group_rows: { row: number; reason: string }[]
+  bad_marks: { row: number; column: string; hint: string }[]
+}
+
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
   errors: BulkUploadError[]
+  checks?: BulkUploadChecks
   summary: BulkUploadSummary
   applied?: boolean
   written?: number
