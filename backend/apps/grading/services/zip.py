@@ -6,10 +6,14 @@ async per-component job (built to memory, uploaded to Azure Blob for polling).
 Structure inside the archive:
 
     <group_name>/
-        <component_code>/
+        <component_code>/                # omitted when component_folder=False
             <original filename>          # if file present
             text.txt                     # if SAQ text present
             link.txt                     # if prototype link present
+
+Single-component exports (the component table's Zip button, per-group
+downloads of one component) pass ``component_folder=False`` — the component
+is constant there, so the extra folder layer is noise.
 
 Missing / unreadable blobs are skipped with a placeholder ``MISSING.txt`` note
 in the same folder so the archive still opens and the marker tells the grader
@@ -57,7 +61,9 @@ def _read_entry_bytes(entry: ComponentEntry) -> bytes | None:
         return None
 
 
-def build_submissions_zip(entries: Iterable[ComponentEntry]) -> bytes:
+def build_submissions_zip(
+    entries: Iterable[ComponentEntry], *, component_folder: bool = True
+) -> bytes:
     """Materialise a zip archive of the given component entries to memory.
 
     Callers stream small results directly to the client (per-group endpoint)
@@ -69,7 +75,9 @@ def build_submissions_zip(entries: Iterable[ComponentEntry]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for entry in entries:
-            base = f"{_safe(entry.group_name)}/{_safe(entry.component_code)}"
+            base = _safe(entry.group_name)
+            if component_folder:
+                base = f"{base}/{_safe(entry.component_code)}"
 
             if entry.file:
                 data = _read_entry_bytes(entry)

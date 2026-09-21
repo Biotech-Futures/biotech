@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import {
   downloadJobResult,
   fetchJobStatus,
+  startAllSubmissionsDownload,
   startComponentDownload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -34,13 +35,13 @@ export function useJobPolling() {
     error.value = message
   }
 
-  const start = async (code: string, format: 'zip' | 'xlsx', groupIds?: number[]) => {
+  const begin = async (startJob: () => Promise<number>) => {
     stop()
     error.value = ''
     phase.value = 'starting'
     let jobId: number
     try {
-      jobId = await startComponentDownload(code, format, groupIds)
+      jobId = await startJob()
     } catch (err) {
       fail(`Download failed: ${apiErrorFromUnknown(err).message}`)
       return
@@ -67,11 +68,17 @@ export function useJobPolling() {
     }, 2000)
   }
 
+  const start = (code: string, format: 'zip' | 'xlsx', groupIds?: number[]) =>
+    begin(() => startComponentDownload(code, format, groupIds))
+
+  // The everything-zip: every group, every component.
+  const startAll = () => begin(() => startAllSubmissionsDownload())
+
   const isBusy = computed(
     () => phase.value === 'starting' || phase.value === 'preparing' || phase.value === 'downloading'
   )
 
   onUnmounted(stop)
 
-  return { phase, error, isBusy, start }
+  return { phase, error, isBusy, start, startAll }
 }

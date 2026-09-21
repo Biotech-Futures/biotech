@@ -173,9 +173,22 @@
                   <RouterLink
                     to="/grading"
                     class="sidebar-sublink"
-                    :class="{ active: route.path.startsWith('/grading') }"
+                    :class="{
+                      active:
+                        route.path.startsWith('/grading') &&
+                        !route.path.startsWith('/grading/management')
+                    }"
                   >
                     <span>Grading</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/grading/management"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/grading/management') }"
+                  >
+                    <span>Management</span>
                   </RouterLink>
                 </li>
               </ul>

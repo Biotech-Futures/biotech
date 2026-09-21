@@ -6,6 +6,7 @@ from .deadline import (
     SubmissionDeadlineView,
 )
 from .download import (
+    AllSubmissionsDownloadView,
     ComponentDownloadView,
     GradingJobDetailView,
     GradingJobDownloadView,
@@ -26,6 +27,7 @@ from .supervisor import SupervisorDownloadView, SupervisorGradesView
 from .upload import BulkUploadMarksView
 
 __all__ = [
+    "AllSubmissionsDownloadView",
     "BulkUploadMarksView",
     "CertificatesReleaseView",
     "ComponentAnalyticsView",

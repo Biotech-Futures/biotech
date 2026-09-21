@@ -7,7 +7,7 @@
     <div v-if="open" class="bulk-upload__overlay" @click.self="closeDialog">
       <div class="bulk-upload__dialog" role="dialog" aria-modal="true" aria-label="Upload marks">
         <div class="bulk-upload__head">
-          <h3 class="bulk-upload__title">Upload marks — {{ code }}</h3>
+          <h3 class="bulk-upload__title">Upload marks for {{ typeLabel }}</h3>
           <button
             type="button"
             class="bulk-upload__close"
@@ -19,10 +19,24 @@
         </div>
 
         <p class="bulk-upload__desc">
-          XLSX or CSV with columns: <code>group_id</code>, <code>criterion_id</code>,
-          <code>mark</code>, <code>comment</code>. Extra columns are ignored.
+          XLSX or CSV in the export's shape (one row per group)<br />
+          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion<template
+            v-if="code !== 'SAQ'"
+          >, and <code>overall_comment</code></template>
+        </p>
+        <p class="bulk-upload__desc">
+          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          Column headers must match exactly and extra columns are ignored, so you can fill in
+          the downloaded sheet and upload it back.
         </p>
 
+        <div class="bulk-upload__file-row">
+          <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
+            Browse…
+          </button>
+          <span class="bulk-upload__file-name">{{ file?.name || 'No file selected.' }}</span>
+        </div>
         <input
           ref="fileInput"
           type="file"
@@ -34,44 +48,51 @@
         <p v-if="requestError" class="bulk-upload__request-error">{{ requestError }}</p>
 
         <div v-if="preview" class="bulk-upload__preview">
-          <div class="bulk-upload__badges">
-            <span class="bulk-upload__badge bulk-upload__badge--creates">
-              creates <strong>{{ preview.summary.creates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--updates">
-              updates <strong>{{ preview.summary.updates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--muted">
-              unchanged <strong>{{ preview.summary.unchanged }}</strong>
-            </span>
-            <span
-              class="bulk-upload__badge"
-              :class="preview.summary.errors > 0 ? 'bulk-upload__badge--errors' : 'bulk-upload__badge--muted'"
-            >
-              errors <strong>{{ preview.summary.errors }}</strong>
-            </span>
-          </div>
+          <ul v-if="preview.checks" class="bulk-upload__checks">
+            <li>
+              Missing Column Header(s):
+              <span :class="checkClass(!preview.checks.missing_headers.length)">
+                {{ checkHeaderText }}
+              </span>
+            </li>
+            <!-- A failed header check stops parsing, so the checks below
+                 never ran — hide them rather than show a misleading None. -->
+            <template v-if="!preview.checks.missing_headers.length">
+              <li>
+                Type:
+                <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
+              </li>
+              <!-- Rows failing an earlier check skip the later validations,
+                   so hide those lines rather than show a misleading None. -->
+              <template v-if="preview.checks.type_ok">
+                <li>
+                  Incorrect group details:
+                  <span :class="checkClass(!preview.checks.bad_group_rows.length)">
+                    {{ checkGroupText }}
+                  </span>
+                </li>
+                <li v-if="!preview.checks.bad_group_rows.length">
+                  Incorrect mark format:
+                  <span :class="checkClass(!preview.checks.bad_marks.length)">
+                    {{ checkMarkText }}
+                  </span>
+                </li>
+                <template
+                  v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
+                >
+                  <li class="bulk-upload__check-gap">
+                    Overwriting Existing Records:
+                    <strong>{{ preview.summary.updates }}</strong
+                    >{{ rowsWithGroupsSuffix(preview.updates) }}
+                  </li>
+                  <li>
+                    Writing New Records: <strong>{{ preview.summary.creates }}</strong>
+                  </li>
+                </template>
+              </template>
+            </template>
+          </ul>
 
-          <div v-if="preview.errors.length" class="bulk-upload__errors">
-            <table>
-              <thead>
-                <tr>
-                  <th class="bulk-upload__row-col">Row</th>
-                  <th>Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(e, i) in preview.errors" :key="i">
-                  <td class="bulk-upload__row-col">{{ e.row }}</td>
-                  <td>{{ e.message }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <p v-if="preview.summary.errors > 0" class="bulk-upload__fix-hint">
-            Fix the errors and re-upload before applying.
-          </p>
         </div>
 
         <div class="bulk-upload__footer">
@@ -98,8 +119,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
+import { computed, ref } from 'vue'
+import {
+  bulkUploadMarks,
+  type BulkUploadResponse,
+  type BulkUploadRowEntry
+} from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 // Two-step flow:
@@ -109,6 +134,15 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 // and re-preview in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
 const props = defineProps<{ code: string }>()
+
+// Friendly type labels, matching the sheet's `type` column values.
+const TYPE_LABELS: Record<string, string> = {
+  SAQ: 'SAQs',
+  POSTER: 'Poster',
+  REPORT: 'Report',
+  PROTOTYPE: 'Prototype'
+}
+const typeLabel = computed(() => TYPE_LABELS[props.code] ?? props.code)
 
 const emit = defineEmits<{
   applied: [written: number]
@@ -121,11 +155,53 @@ const requestError = ref('')
 const busy = ref<'idle' | 'preview' | 'apply'>('idle')
 const fileInput = ref<HTMLInputElement | null>(null)
 
+// The four preview report lines, from the parser's categorised checks.
+const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-upload__check--bad')
+
+const checkHeaderText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
+})
+
+const checkTypeText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
+})
+
+const checkGroupText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_group_rows.length) return 'None'
+  return c.bad_group_rows.map((g) => `row ${g.row} (${g.reason})`).join(', ')
+})
+
+const checkMarkText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_marks.length) return 'None'
+  return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
+})
+
+// "(row 2 [group_id 1], row 3 [group_id 4])" — distinct sheet rows, sorted,
+// each with its group. Used for the overwrite count.
+const rowsWithGroupsSuffix = (entries: BulkUploadRowEntry[]) => {
+  if (!entries.length) return ''
+  const groupByRow = new Map<number, number>()
+  for (const e of entries) if (!groupByRow.has(e.row)) groupByRow.set(e.row, e.group_id)
+  const rows = [...groupByRow.keys()].sort((a, b) => a - b)
+  return ` (${rows.map((r) => `row ${r} [group_id ${groupByRow.get(r)}]`).join(', ')})`
+}
+
 const reset = () => {
   file.value = null
   preview.value = null
   requestError.value = ''
   busy.value = 'idle'
+  // Clear the hidden native input too, so picking the same file again
+  // still fires a change event.
+  if (fileInput.value) fileInput.value.value = ''
 }
 
 const openDialog = () => {
@@ -241,8 +317,40 @@ const doApply = async () => {
   font-size: 0.82rem;
 }
 
+/* Custom file picker matching the Document Setup page: the native input is
+   hidden because its "No file selected" text is part of the same clickable
+   control — only our button should open the dialog. */
 .bulk-upload__file {
-  font-size: 0.9rem;
+  display: none;
+}
+
+.bulk-upload__file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bulk-upload__file-btn {
+  background-color: transparent;
+  color: var(--dark-green);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.84rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.bulk-upload__file-btn:hover {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
+}
+
+.bulk-upload__file-name {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .bulk-upload__request-error {
@@ -257,82 +365,29 @@ const doApply = async () => {
   gap: 0.5rem;
 }
 
-.bulk-upload__badges {
+.bulk-upload__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.bulk-upload__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border-radius: 6px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.8rem;
-}
-
-.bulk-upload__badge--creates {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-}
-
-.bulk-upload__badge--updates {
-  background: color-mix(in srgb, var(--warning) 22%, transparent);
-  color: #8a6100;
-}
-
-.bulk-upload__badge--errors {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-}
-
-.bulk-upload__badge--muted {
-  background: var(--bg-light);
-  color: var(--text-muted);
-}
-
-.bulk-upload__errors {
-  max-height: 12rem;
-  overflow: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-}
-
-.bulk-upload__errors table {
-  width: 100%;
-  border-collapse: collapse;
+  flex-direction: column;
+  gap: 0.25rem;
   font-size: 0.85rem;
 }
 
-.bulk-upload__errors th,
-.bulk-upload__errors td {
-  text-align: left;
-  padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid var(--border-light);
+/* Blank line between the validation checks and the record counts. */
+.bulk-upload__check-gap {
+  margin-top: 0.65rem;
 }
 
-.bulk-upload__errors thead th {
-  background: var(--bg-light);
-  color: var(--text-muted);
+.bulk-upload__check--ok {
+  color: var(--dark-green);
   font-weight: 600;
-  position: sticky;
-  top: 0;
 }
 
-.bulk-upload__errors tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.bulk-upload__row-col {
-  width: 5rem;
-  font-family: monospace;
-}
-
-.bulk-upload__fix-hint {
+.bulk-upload__check--bad {
   color: var(--danger);
-  font-size: 0.8rem;
-  margin: 0;
+  font-weight: 600;
 }
 
 .bulk-upload__footer {
