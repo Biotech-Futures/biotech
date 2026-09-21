@@ -545,7 +545,6 @@ def serialize_admin_view(view: AdminView) -> Dict[str, Any]:
         "id": view.id,
         "name": view.name,
         "description": view.description,
-        "visibility": view.visibility,
         "isDefault": view.is_default,
         "targetRoles": view.target_roles or [],
         "accountStatus": view.account_status,

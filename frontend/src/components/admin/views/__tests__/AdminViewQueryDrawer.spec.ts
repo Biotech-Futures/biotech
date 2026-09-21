@@ -68,7 +68,6 @@ describe('AdminViewQueryDrawer.vue', () => {
       id: 99,
       name: 'Test View',
       description: 'Test Description',
-      visibility: 'shared',
       isDefault: false,
       targetRoles: ['student'],
       accountStatus: 'active',
@@ -103,7 +102,6 @@ describe('AdminViewQueryDrawer.vue', () => {
       id: 42,
       name: 'Existing View',
       description: 'Existing Description',
-      visibility: 'private',
       isDefault: false,
       targetRoles: ['mentor'],
       accountStatus: 'inactive',
@@ -131,7 +129,6 @@ describe('AdminViewQueryDrawer.vue', () => {
       42,
       expect.objectContaining({
         name: 'Updated View',
-        visibility: 'private',
       })
     )
     expect(wrapper.emitted('saved')![0][0]).toEqual(mockUpdatedView)

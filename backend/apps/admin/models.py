@@ -18,11 +18,6 @@ class MatchRun(models.Model):
 
 
 class AdminView(models.Model):
-    class VisibilityChoices(models.TextChoices):
-        SYSTEM = 'system', 'System Default'
-        SHARED = 'shared', 'Admin Shared'
-        PRIVATE = 'private', 'Private'
-
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     created_by = models.ForeignKey(
@@ -31,11 +26,6 @@ class AdminView(models.Model):
         null=True,
         blank=True,
         related_name='admin_custom_views'
-    )
-    visibility = models.CharField(
-        max_length=32,
-        choices=VisibilityChoices.choices,
-        default=VisibilityChoices.SHARED
     )
     is_default = models.BooleanField(default=False)
 

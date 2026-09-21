@@ -37,14 +37,6 @@
         ></textarea>
       </div>
 
-      <div class="form-field">
-        <label class="form-label" for="view-visibility">Visibility</label>
-        <select id="view-visibility" v-model="form.visibility" class="form-input form-select">
-          <option value="shared">Admin Shared (Visible to all admins)</option>
-          <option value="private">Private (Only visible to me)</option>
-        </select>
-      </div>
-
       <!-- SECTION 2: TARGET ROLES & BASE FILTERS -->
       <div class="view-drawer-form__section">Target Roles & Base Filters</div>
 
@@ -174,7 +166,6 @@ const errorMessage = ref('')
 const form = reactive<{
   name: string
   description: string
-  visibility: 'system' | 'shared' | 'private'
   targetRoles: string[]
   accountStatus: 'all' | 'active' | 'inactive'
   engagementStatus: 'all' | 'matched' | 'unmatched' | 'pending'
@@ -183,7 +174,6 @@ const form = reactive<{
 }>({
   name: '',
   description: '',
-  visibility: 'shared',
   targetRoles: ['student', 'mentor'],
   accountStatus: 'active',
   engagementStatus: 'all',
@@ -195,7 +185,6 @@ const resetForm = () => {
   if (props.view) {
     form.name = props.view.name || ''
     form.description = props.view.description || ''
-    form.visibility = props.view.visibility || 'shared'
     form.targetRoles = props.view.targetRoles?.length ? [...props.view.targetRoles] : []
     form.accountStatus = props.view.accountStatus || 'all'
     form.engagementStatus = props.view.engagementStatus || 'all'
@@ -208,7 +197,6 @@ const resetForm = () => {
   } else {
     form.name = ''
     form.description = ''
-    form.visibility = 'shared'
     form.targetRoles = ['student', 'mentor']
     form.accountStatus = 'active'
     form.engagementStatus = 'all'
@@ -263,7 +251,6 @@ const handleSubmit = async () => {
     const payload = {
       name: form.name.trim(),
       description: form.description.trim(),
-      visibility: form.visibility,
       targetRoles: form.targetRoles,
       accountStatus: form.accountStatus,
       engagementStatus: form.engagementStatus,

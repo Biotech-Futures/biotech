@@ -1327,7 +1327,6 @@ export interface AdminView {
   id: number
   name: string
   description: string
-  visibility: 'system' | 'shared' | 'private'
   isDefault: boolean
   targetRoles: string[]
   accountStatus: 'all' | 'active' | 'inactive'

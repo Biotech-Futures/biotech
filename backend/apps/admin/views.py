@@ -1297,7 +1297,6 @@ class AdminViewListCreateView(APIView):
             name=name,
             description=(request.data.get("description") or "").strip(),
             created_by=request.user,
-            visibility=request.data.get("visibility", AdminView.VisibilityChoices.SHARED),
             is_default=False,
             target_roles=request.data.get("targetRoles", request.data.get("target_roles", [])),
             account_status=request.data.get("accountStatus", request.data.get("account_status", "all")),
@@ -1360,8 +1359,6 @@ class AdminViewDetailView(APIView):
 
         if "description" in request.data:
             view.description = (request.data["description"] or "").strip()
-        if "visibility" in request.data:
-            view.visibility = request.data["visibility"]
         if "targetRoles" in request.data or "target_roles" in request.data:
             view.target_roles = request.data.get("targetRoles", request.data.get("target_roles", []))
         if "accountStatus" in request.data or "account_status" in request.data:

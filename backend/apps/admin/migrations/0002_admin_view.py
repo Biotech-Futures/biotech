@@ -10,7 +10,6 @@ def seed_default_views(apps, schema_editor):
         {
             'name': 'All Users',
             'description': 'Complete directory of all registered accounts',
-            'visibility': 'system',
             'is_default': True,
             'target_roles': ['all'],
             'account_status': 'all',
@@ -21,7 +20,6 @@ def seed_default_views(apps, schema_editor):
         {
             'name': 'All Mentors',
             'description': 'Active certified mentors across all domains',
-            'visibility': 'system',
             'is_default': True,
             'target_roles': ['mentor'],
             'account_status': 'active',
@@ -32,7 +30,6 @@ def seed_default_views(apps, schema_editor):
         {
             'name': 'All Supervisors',
             'description': 'Institution and academic supervisors',
-            'visibility': 'system',
             'is_default': True,
             'target_roles': ['supervisor'],
             'account_status': 'active',
@@ -43,7 +40,6 @@ def seed_default_views(apps, schema_editor):
         {
             'name': 'All Admins',
             'description': 'Platform administrators with elevated management permissions',
-            'visibility': 'system',
             'is_default': True,
             'target_roles': ['admin'],
             'account_status': 'active',
@@ -79,7 +75,6 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=255)),
                 ('description', models.TextField(blank=True, default='')),
-                ('visibility', models.CharField(choices=[('system', 'System Default'), ('shared', 'Admin Shared'), ('private', 'Private')], default='shared', max_length=32)),
                 ('is_default', models.BooleanField(default=False)),
                 ('target_roles', models.JSONField(default=list)),
                 ('account_status', models.CharField(default='all', max_length=32)),
