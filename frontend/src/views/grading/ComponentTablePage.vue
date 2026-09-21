@@ -71,7 +71,7 @@
         {{ jobBusyLabel }}
       </p>
       <p v-else-if="job.phase.value === 'done'" class="component-table__banner component-table__banner--ok">
-        Download ready — check your browser downloads.
+        Download ready - check your browser downloads.
       </p>
       <p v-else-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}

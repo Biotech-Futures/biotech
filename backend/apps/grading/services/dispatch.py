@@ -36,7 +36,6 @@ from apps.groups.models.group_members import GroupMembership
 from apps.users.models import StudentProfile
 
 from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
-from .content import group_deadline_map as content_deadline_map
 from .content import submission_entries
 from .docx import (
     certificate_context,
@@ -97,8 +96,7 @@ def _run_job(job_id: int) -> None:
                     criterion__rubric__component__code=component_code,
                 )
             }
-            deadlines_by_group = content_deadline_map([e.group_id for e in entries])
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair, deadlines_by_group)
+            payload = build_saq_xlsx(entries, criteria, grades_by_pair)
             filename = f"{component.code}-saq.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.

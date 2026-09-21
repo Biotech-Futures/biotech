@@ -35,7 +35,7 @@
         {{ jobBusyLabel }}
       </p>
       <p v-else-if="job.phase.value === 'done'" class="by-group__banner by-group__banner--ok">
-        Download ready — check your browser downloads.
+        Download ready - check your browser downloads.
       </p>
       <p v-else-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
         {{ job.error.value }}
