@@ -12,113 +12,92 @@
       </div>
 
       <!-- SECTION 1: VIEW DETAILS -->
-      <fieldset class="view-drawer-section">
-        <legend class="view-drawer-section__legend">
-          <span class="view-drawer-section__dot"></span>
-          <span>View Details</span>
-        </legend>
+      <div class="view-drawer-form__section">View Details</div>
 
-        <div class="form-field">
-          <label class="form-label" for="view-name">View Name *</label>
-          <input
-            id="view-name"
-            v-model.trim="form.name"
-            type="text"
-            required
-            placeholder="e.g. InScience 2026 - Active Participants"
-            class="form-input"
-          />
-        </div>
+      <div class="form-field">
+        <label class="form-label" for="view-name">View Name *</label>
+        <input
+          id="view-name"
+          v-model.trim="form.name"
+          type="text"
+          required
+          placeholder="e.g. InScience 2026 - Active Participants"
+          class="form-input"
+        />
+      </div>
 
-        <div class="form-field">
-          <label class="form-label" for="view-desc">Description</label>
-          <textarea
-            id="view-desc"
-            v-model.trim="form.description"
-            rows="2"
-            placeholder="Provide a short description for this view cohort..."
-            class="form-input form-textarea"
-          ></textarea>
-        </div>
+      <div class="form-field">
+        <label class="form-label" for="view-desc">Description</label>
+        <textarea
+          id="view-desc"
+          v-model.trim="form.description"
+          rows="2"
+          placeholder="Provide a short description for this view cohort..."
+          class="form-input form-textarea"
+        ></textarea>
+      </div>
 
-        <div class="form-field">
-          <label class="form-label" for="view-visibility">Visibility</label>
-          <select id="view-visibility" v-model="form.visibility" class="form-input form-select">
-            <option value="shared">Admin Shared (Visible to all admins)</option>
-            <option value="private">Private (Only visible to me)</option>
-          </select>
-        </div>
-      </fieldset>
+      <div class="form-field">
+        <label class="form-label" for="view-visibility">Visibility</label>
+        <select id="view-visibility" v-model="form.visibility" class="form-input form-select">
+          <option value="shared">Admin Shared (Visible to all admins)</option>
+          <option value="private">Private (Only visible to me)</option>
+        </select>
+      </div>
 
       <!-- SECTION 2: TARGET ROLES & BASE FILTERS -->
-      <fieldset class="view-drawer-section">
-        <legend class="view-drawer-section__legend">
-          <span class="view-drawer-section__dot"></span>
-          <span>Target Roles & Base Filters</span>
-        </legend>
+      <div class="view-drawer-form__section">Target Roles & Base Filters</div>
+
+      <div class="form-field">
+        <span class="form-label">Include Roles</span>
+        <fieldset class="view-drawer-form__checkbox-grid">
+          <legend class="sr-only">Target roles</legend>
+          <label
+            v-for="role in ROLE_CHOICES"
+            :key="role.value"
+            class="view-drawer-form__checkbox-label"
+          >
+            <input
+              type="checkbox"
+              :value="role.value"
+              :checked="isRoleSelected(role.value)"
+              @change="toggleRole(role.value)"
+            />
+            <span>{{ role.label }}</span>
+          </label>
+        </fieldset>
+      </div>
+
+      <div class="view-drawer-form__grid-2">
+        <div class="form-field">
+          <label class="form-label" for="view-status">Account Status</label>
+          <select id="view-status" v-model="form.accountStatus" class="form-input form-select">
+            <option value="all">All statuses</option>
+            <option value="active">Active only</option>
+            <option value="inactive">Inactive only</option>
+          </select>
+        </div>
 
         <div class="form-field">
-          <span class="form-label">Include Roles</span>
-          <div class="view-drawer-form__roles-row">
-            <button
-              v-for="role in ROLE_CHOICES"
-              :key="role.value"
-              type="button"
-              class="view-drawer-form__role-pill"
-              :class="{ 'view-drawer-form__role-pill--active': isRoleSelected(role.value) }"
-              @click="toggleRole(role.value)"
-            >
-              <i
-                v-if="isRoleSelected(role.value)"
-                class="fas fa-check view-drawer-form__role-check"
-                aria-hidden="true"
-              ></i>
-              <span>{{ role.label }}</span>
-            </button>
-          </div>
+          <label class="form-label" for="view-engagement">Engagement / Matching</label>
+          <select id="view-engagement" v-model="form.engagementStatus" class="form-input form-select">
+            <option value="all">All</option>
+            <option value="matched">Matched (in active group)</option>
+            <option value="unmatched">Unmatched</option>
+            <option value="pending">Pending matching / invited</option>
+          </select>
         </div>
-
-        <div class="view-drawer-form__grid-2">
-          <div class="form-field">
-            <label class="form-label" for="view-status">Account Status</label>
-            <select id="view-status" v-model="form.accountStatus" class="form-input form-select">
-              <option value="all">All statuses</option>
-              <option value="active">Active only</option>
-              <option value="inactive">Inactive only</option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label class="form-label" for="view-engagement">Engagement / Matching</label>
-            <select id="view-engagement" v-model="form.engagementStatus" class="form-input form-select">
-              <option value="all">All</option>
-              <option value="matched">Matched (in active group)</option>
-              <option value="unmatched">Unmatched</option>
-              <option value="pending">Pending matching / invited</option>
-            </select>
-          </div>
-        </div>
-      </fieldset>
+      </div>
 
       <!-- SECTION 3: ADVANCED CONDITIONS -->
-      <fieldset class="view-drawer-section">
-        <legend class="view-drawer-section__legend">
-          <span class="view-drawer-section__dot"></span>
-          <span>Advanced Conditions</span>
-        </legend>
+      <div class="view-drawer-form__section">Advanced Conditions</div>
 
-        <AdminViewConditionsBuilder v-model="form.advancedConditions" />
-      </fieldset>
+      <AdminViewConditionsBuilder v-model="form.advancedConditions" />
 
       <!-- SECTION 4: VISIBLE FIELDS / COLUMNS TO SHOW -->
-      <fieldset class="view-drawer-section">
-        <legend class="view-drawer-section__legend">
-          <span class="view-drawer-section__dot"></span>
-          <span>Visible Fields / Columns to Show</span>
-        </legend>
+      <div class="view-drawer-form__section">Visible Fields / Columns to Show</div>
 
-        <AdminViewColumnSelector v-model="form.visibleColumns" />
-      </fieldset>
+      <AdminViewColumnSelector v-model="form.visibleColumns" />
     </form>
 
     <template #footer>
@@ -314,44 +293,32 @@ const handleSubmit = async () => {
 .view-drawer-form {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0.9rem;
 }
 
 .view-drawer-form__error {
-  padding: 0.65rem 0.85rem;
-  background-color: rgba(220, 53, 69, 0.1);
-  color: var(--danger);
-  border: 1px solid var(--danger);
+  margin: 0 0 0.5rem;
+  padding: 0.7rem 0.9rem;
+  border-left: 4px solid var(--danger);
   border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
   font-size: 0.9rem;
 }
 
-.view-drawer-section {
-  border: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.view-drawer-section__legend {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.85rem;
+.view-drawer-form__section {
+  margin: 1.4rem 0 0.2rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--charcoal);
-  margin-bottom: 0.25rem;
+  letter-spacing: 0.04em;
+  color: var(--dark-green);
 }
 
-.view-drawer-section__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--dark-green);
+.view-drawer-form__section:first-of-type {
+  margin-top: 0;
 }
 
 .form-field {
@@ -369,12 +336,22 @@ const handleSubmit = async () => {
 .form-input {
   width: 100%;
   padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-family: inherit;
   font-size: 0.9rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--surface-elevated, #ffffff);
   color: var(--charcoal);
   transition: border-color 0.15s ease-in-out;
+}
+
+.form-input::placeholder,
+.form-textarea::placeholder {
+  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-muted);
 }
 
 .form-input:focus {
@@ -384,49 +361,41 @@ const handleSubmit = async () => {
 
 .form-textarea {
   resize: vertical;
+  font: inherit;
+  font-family: inherit;
 }
 
-.view-drawer-form__roles-row {
-  display: flex;
-  flex-wrap: wrap;
+.view-drawer-form__checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 0.5rem;
+  border: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
 }
 
-.view-drawer-form__role-pill {
-  display: inline-flex;
+.view-drawer-form__checkbox-label {
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.85rem;
-  font-weight: 500;
-  border-radius: 9999px;
-  border: 1px solid var(--border-light);
-  background-color: var(--surface-elevated, #ffffff);
+  gap: 0.5rem;
+  font-size: 0.875rem;
   color: var(--charcoal);
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  user-select: none;
 }
 
-.view-drawer-form__role-pill:hover {
-  border-color: var(--dark-green);
-  background-color: var(--bg-light);
-}
-
-.view-drawer-form__role-pill--active {
-  background-color: rgba(1, 113, 81, 0.1);
-  border-color: var(--dark-green);
-  color: var(--dark-green);
-  font-weight: 600;
-}
-
-.view-drawer-form__role-check {
-  font-size: 0.75rem;
+.view-drawer-form__checkbox-label input {
+  accent-color: var(--dark-green);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .view-drawer-form__grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+  margin-top: 0.4rem;
 }
 
 .view-drawer-footer {

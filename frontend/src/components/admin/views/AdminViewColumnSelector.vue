@@ -5,12 +5,12 @@
       <span class="column-selector__badge">{{ modelValue.length }} selected</span>
     </div>
 
-    <div class="column-selector__grid">
+    <fieldset class="column-selector__grid">
+      <legend class="sr-only">Visible columns</legend>
       <label
         v-for="col in AVAILABLE_COLUMNS"
         :key="col.key"
-        class="column-selector__item"
-        :class="{ 'column-selector__item--selected': isSelected(col.key) }"
+        class="column-selector__checkbox-label"
       >
         <input
           type="checkbox"
@@ -20,7 +20,7 @@
         />
         <span class="column-selector__name">{{ col.label }}</span>
       </label>
-    </div>
+    </fieldset>
   </div>
 </template>
 
@@ -99,46 +99,32 @@ const toggleColumn = (key: string) => {
 
 .column-selector__grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 0.5rem;
+  border: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
 }
 
-.column-selector__item {
+.column-selector__checkbox-label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--surface-elevated, #ffffff);
+  font-size: 0.875rem;
+  color: var(--charcoal);
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
   user-select: none;
-}
-
-.column-selector__item:hover {
-  background-color: var(--bg-light);
-  border-color: var(--dark-green);
-}
-
-.column-selector__item--selected {
-  border-color: var(--dark-green);
-  background-color: rgba(1, 113, 81, 0.05);
 }
 
 .column-selector__checkbox {
   accent-color: var(--dark-green);
+  width: 16px;
+  height: 16px;
   cursor: pointer;
 }
 
 .column-selector__name {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--charcoal);
-}
-
-@media (max-width: 600px) {
-  .column-selector__grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>
