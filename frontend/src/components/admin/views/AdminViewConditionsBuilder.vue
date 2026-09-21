@@ -1,153 +1,155 @@
 <template>
   <div class="conditions-builder">
-    <div v-if="!modelValue.length" class="conditions-builder__empty">
-      <p class="conditions-builder__empty-text">No custom conditions defined yet.</p>
-    </div>
+    <div class="conditions-builder__card">
+      <div v-if="!modelValue.length" class="conditions-builder__empty">
+        <p class="conditions-builder__empty-text">No custom conditions defined yet.</p>
+      </div>
 
-    <div v-else class="conditions-builder__list">
-      <div
-        v-for="(row, index) in modelValue"
-        :key="index"
-        class="conditions-builder__row-container"
-      >
-        <!-- Logic connector between rows -->
-        <div v-if="index > 0" class="conditions-builder__connector">
-          <button
-            type="button"
-            class="conditions-builder__logic-pill"
-            :class="{ 'conditions-builder__logic-pill--or': row.logic === 'OR' }"
-            @click="toggleLogic(index)"
-            :title="`Click to switch to ${row.logic === 'OR' ? 'AND' : 'OR'}`"
-          >
-            {{ row.logic || 'AND' }}
-          </button>
-        </div>
-
-        <!-- Condition Rule Row -->
-        <div class="conditions-builder__row">
-          <!-- Field picker -->
-          <div class="conditions-builder__field">
-            <label :for="`cond-field-${index}`" class="sr-only">Field</label>
-            <select
-              :id="`cond-field-${index}`"
-              v-model="row.field"
-              class="form-input form-select"
-              @change="onFieldChange(row)"
+      <div v-else class="conditions-builder__list">
+        <div
+          v-for="(row, index) in modelValue"
+          :key="index"
+          class="conditions-builder__row-container"
+        >
+          <!-- Logic connector between rows -->
+          <div v-if="index > 0" class="conditions-builder__connector">
+            <button
+              type="button"
+              class="conditions-builder__logic-pill"
+              :class="{ 'conditions-builder__logic-pill--or': row.logic === 'OR' }"
+              @click="toggleLogic(index)"
+              :title="`Click to switch to ${row.logic === 'OR' ? 'AND' : 'OR'}`"
             >
-              <option v-for="f in FIELD_OPTIONS" :key="f.value" :value="f.value">
-                {{ f.label }}
-              </option>
-            </select>
+              {{ row.logic || 'AND' }}
+            </button>
           </div>
 
-          <!-- Operator picker -->
-          <div class="conditions-builder__operator">
-            <label :for="`cond-op-${index}`" class="sr-only">Operator</label>
-            <select
-              :id="`cond-op-${index}`"
-              v-model="row.operator"
-              class="form-input form-select"
-            >
-              <option v-for="op in OPERATOR_OPTIONS" :key="op.value" :value="op.value">
-                {{ op.label }}
-              </option>
-            </select>
-          </div>
-
-          <!-- Value input / picker -->
-          <div class="conditions-builder__value">
-            <label :for="`cond-val-${index}`" class="sr-only">Value</label>
-            
-            <template v-if="row.operator === 'is_empty' || row.operator === 'is_set'">
-              <input
-                :id="`cond-val-${index}`"
-                type="text"
-                disabled
-                placeholder="(No value needed)"
-                class="form-input form-input--disabled"
-              />
-            </template>
-
-            <template v-else-if="row.field === 'country'">
+          <!-- Condition Rule Row -->
+          <div class="conditions-builder__row">
+            <!-- Field picker -->
+            <div class="conditions-builder__field">
+              <label :for="`cond-field-${index}`" class="sr-only">Field</label>
               <select
-                :id="`cond-val-${index}`"
-                v-model="row.value"
+                :id="`cond-field-${index}`"
+                v-model="row.field"
                 class="form-input form-select"
+                @change="onFieldChange(row)"
               >
-                <option value="">Select country...</option>
-                <option
-                  v-for="c in countries"
-                  :key="c.id"
-                  :value="c.countryName"
-                >
-                  {{ c.countryName }}
+                <option v-for="f in FIELD_OPTIONS" :key="f.value" :value="f.value">
+                  {{ f.label }}
                 </option>
               </select>
-            </template>
+            </div>
 
-            <template v-else-if="row.field === 'state'">
+            <!-- Operator picker -->
+            <div class="conditions-builder__operator">
+              <label :for="`cond-op-${index}`" class="sr-only">Operator</label>
               <select
-                :id="`cond-val-${index}`"
-                v-model="row.value"
+                :id="`cond-op-${index}`"
+                v-model="row.operator"
                 class="form-input form-select"
               >
-                <option value="">Select state...</option>
-                <option
-                  v-for="s in states"
-                  :key="s.id"
-                  :value="s.stateName"
-                >
-                  {{ s.stateName }}
+                <option v-for="op in OPERATOR_OPTIONS" :key="op.value" :value="op.value">
+                  {{ op.label }}
                 </option>
               </select>
-            </template>
+            </div>
 
-            <template v-else-if="row.field === 'role'">
-              <select
-                :id="`cond-val-${index}`"
-                v-model="row.value"
-                class="form-input form-select"
-              >
-                <option value="student">Student</option>
-                <option value="mentor">Mentor</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="admin">Admin</option>
-              </select>
-            </template>
+            <!-- Value input / picker -->
+            <div class="conditions-builder__value">
+              <label :for="`cond-val-${index}`" class="sr-only">Value</label>
+              
+              <template v-if="row.operator === 'is_empty' || row.operator === 'is_set'">
+                <input
+                  :id="`cond-val-${index}`"
+                  type="text"
+                  disabled
+                  placeholder="(No value needed)"
+                  class="form-input form-input--disabled"
+                />
+              </template>
 
-            <template v-else>
-              <input
-                :id="`cond-val-${index}`"
-                v-model="row.value"
-                type="text"
-                placeholder="Enter value..."
-                class="form-input"
-              />
-            </template>
+              <template v-else-if="row.field === 'country'">
+                <select
+                  :id="`cond-val-${index}`"
+                  v-model="row.value"
+                  class="form-input form-select"
+                >
+                  <option value="">Select country...</option>
+                  <option
+                    v-for="c in countries"
+                    :key="c.id"
+                    :value="c.countryName"
+                  >
+                    {{ c.countryName }}
+                  </option>
+                </select>
+              </template>
+
+              <template v-else-if="row.field === 'state'">
+                <select
+                  :id="`cond-val-${index}`"
+                  v-model="row.value"
+                  class="form-input form-select"
+                >
+                  <option value="">Select state...</option>
+                  <option
+                    v-for="s in states"
+                    :key="s.id"
+                    :value="s.stateName"
+                  >
+                    {{ s.stateName }}
+                  </option>
+                </select>
+              </template>
+
+              <template v-else-if="row.field === 'role'">
+                <select
+                  :id="`cond-val-${index}`"
+                  v-model="row.value"
+                  class="form-input form-select"
+                >
+                  <option value="student">Student</option>
+                  <option value="mentor">Mentor</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </template>
+
+              <template v-else>
+                <input
+                  :id="`cond-val-${index}`"
+                  v-model="row.value"
+                  type="text"
+                  placeholder="Enter value..."
+                  class="form-input"
+                />
+              </template>
+            </div>
+
+            <!-- Delete Row Button -->
+            <button
+              type="button"
+              class="conditions-builder__remove-btn"
+              aria-label="Remove condition"
+              @click="removeRow(index)"
+            >
+              <i class="fas fa-trash-can" aria-hidden="true"></i>
+            </button>
           </div>
-
-          <!-- Delete Row Button -->
-          <button
-            type="button"
-            class="conditions-builder__remove-btn"
-            aria-label="Remove condition"
-            @click="removeRow(index)"
-          >
-            <i class="fas fa-trash-can" aria-hidden="true"></i>
-          </button>
         </div>
       </div>
-    </div>
 
-    <div class="conditions-builder__actions">
-      <button
-        type="button"
-        class="btn btn-sm btn-outline conditions-builder__add-btn"
-        @click="addRow"
-      >
-        <i class="fas fa-plus" aria-hidden="true"></i>
-        <span>Add condition rule</span>
-      </button>
+      <div class="conditions-builder__actions">
+        <button
+          type="button"
+          class="conditions-builder__add-rule-btn"
+          @click="addRow"
+        >
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>Add condition rule</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -171,7 +173,7 @@ const emit = defineEmits<{
 }>()
 
 const FIELD_OPTIONS = [
-  { value: 'program', label: 'Program / Group' },
+  { value: 'program', label: 'Program' },
   { value: 'country', label: 'Country' },
   { value: 'state', label: 'State' },
   { value: 'school', label: 'School / Institution' },
@@ -239,35 +241,40 @@ const onFieldChange = (row: ViewCondition) => {
 
 <style scoped>
 .conditions-builder {
+  width: 100%;
+}
+
+.conditions-builder__card {
+  background-color: var(--bg-light, #f8fafc);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
 .conditions-builder__empty {
-  padding: 1rem;
-  background-color: var(--bg-light);
-  border: 1px dashed var(--border-light);
-  border-radius: 6px;
-  text-align: center;
+  padding: 0.5rem 0.25rem;
+  text-align: left;
 }
 
 .conditions-builder__empty-text {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--text-muted);
 }
 
 .conditions-builder__list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 .conditions-builder__row-container {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 
 .conditions-builder__connector {
@@ -275,6 +282,7 @@ const onFieldChange = (row: ViewCondition) => {
   align-items: center;
   justify-content: center;
   position: relative;
+  margin: 0.25rem 0;
 }
 
 .conditions-builder__connector::before {
@@ -284,7 +292,7 @@ const onFieldChange = (row: ViewCondition) => {
   left: 0;
   right: 0;
   height: 1px;
-  background-color: var(--border-light);
+  background-color: var(--border-light, #e2e8f0);
   z-index: 1;
 }
 
@@ -295,15 +303,15 @@ const onFieldChange = (row: ViewCondition) => {
   font-size: 0.75rem;
   font-weight: 700;
   border-radius: 9999px;
-  border: 1px solid var(--border-light);
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--dark-green);
+  border: 1px solid rgba(1, 113, 81, 0.2);
+  background-color: #e6f4ea;
+  color: var(--dark-green, #017151);
   cursor: pointer;
   transition: all 0.15s ease-in-out;
 }
 
 .conditions-builder__logic-pill:hover {
-  background-color: var(--light-green);
+  background-color: #d1ebd8;
 }
 
 .conditions-builder__logic-pill--or {
@@ -322,11 +330,19 @@ const onFieldChange = (row: ViewCondition) => {
 .form-input {
   width: 100%;
   padding: 0.45rem 0.65rem;
-  font-size: 0.9rem;
-  border: 1px solid var(--border-light);
+  font: inherit;
+  font-family: inherit;
+  font-size: 0.875rem;
+  border: 1px solid var(--border-light, #cbd5e1);
   border-radius: 6px;
-  background-color: var(--surface-elevated, #ffffff);
+  background-color: var(--white, #ffffff);
   color: var(--charcoal);
+  transition: border-color 0.15s ease-in-out;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--dark-green);
 }
 
 .form-input--disabled {
@@ -350,26 +366,33 @@ const onFieldChange = (row: ViewCondition) => {
 }
 
 .conditions-builder__remove-btn:hover {
-  color: var(--danger);
+  color: var(--danger, #dc3545);
   background-color: rgba(220, 53, 69, 0.1);
 }
 
 .conditions-builder__actions {
+  display: flex;
+  align-items: center;
   margin-top: 0.25rem;
 }
 
-.conditions-builder__add-btn {
+.conditions-builder__add-rule-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-weight: 500;
-  color: var(--dark-green);
-  border-color: var(--border-light);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--dark-green, #017151);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s ease-in-out;
 }
 
-.conditions-builder__add-btn:hover {
-  border-color: var(--dark-green);
-  background-color: var(--light-green);
+.conditions-builder__add-rule-btn:hover {
+  color: var(--darker-green, #01523b);
+  text-decoration: underline;
 }
 
 @media (max-width: 600px) {
