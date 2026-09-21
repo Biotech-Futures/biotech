@@ -50,8 +50,9 @@ Set `VITE_API_BASE_URL` (see `frontend/.env.example`); it defaults to `http://lo
 
 ```bash
 # Backend (same command CI runs, with coverage gate >= 60%)
+# All suites live under backend/tests/, mirrored per app.
 cd backend
-python manage.py test tests apps.users apps.resources apps.grading --settings=config.settings_test
+python manage.py test tests --settings=config.settings_test
 
 # Frontend unit tests
 cd frontend
