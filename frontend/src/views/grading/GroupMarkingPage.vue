@@ -20,7 +20,11 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
-      <div class="group-marking__search-card">
+      <div class="group-marking__header">
+        <h2 class="group-marking__title">
+          {{ payload.group.group_name }}
+          <span class="group-marking__id">#{{ groupId }}</span>
+        </h2>
         <div class="group-marking__search-field">
           <span class="group-marking__search-label">Search</span>
           <form class="group-marking__search-form" @submit.prevent="openSearch">
@@ -31,16 +35,9 @@
               @select="onSearchSelect"
             />
             <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
           </form>
-          <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
         </div>
-      </div>
-
-      <div class="group-marking__header">
-        <h2 class="group-marking__title">
-          {{ payload.group.group_name }}
-          <span class="group-marking__id">#{{ groupId }}</span>
-        </h2>
         <div class="group-marking__header-actions">
           <button
             type="button"
@@ -59,7 +56,6 @@
             Next <i class="fas fa-chevron-right" aria-hidden="true"></i>
           </button>
           <button
-            v-if="!isComponentMode"
             type="button"
             class="btn btn-outline btn-sm"
             :disabled="isDownloading"
@@ -321,11 +317,11 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
-// One page serves both marking flows; the route decides the chrome. By group
-// (/grading/groups/:id) gets the jump card and Download all, and switches
-// sections locally. By component (/grading/components/:code/:id) hides those
-// extras and navigates its sections through the URL, so a marker can walk
-// groups without leaving their component.
+// One page serves both marking flows with the same chrome (search, prev/next,
+// Download all). The route only decides section navigation: by group
+// (/grading/groups/:id) switches sections locally, while by component
+// (/grading/components/:code/:id) navigates them through the URL, so a marker
+// can walk groups without leaving their component.
 const route = useRoute()
 const router = useRouter()
 const isComponentMode = computed(() => route.name === 'grading-component-group')
@@ -522,8 +518,8 @@ const singleMarkerTooltip = computed(() => {
 })
 
 // Prev/next walk the cohort in group-ID order, matching the #id in the
-// heading. Component mode skips groups without a submission — no point
-// navigating to an empty marking pane there.
+// heading, skipping groups without a submission — no point navigating to an
+// empty marking pane.
 const orderedRows = computed(() =>
   (rows.value?.rows ?? []).slice().sort((a, b) => a.group_id - b.group_id)
 )
@@ -533,9 +529,7 @@ const neighborId = (direction: -1 | 1) => {
   const idx = list.findIndex((r) => r.group_id === groupId.value)
   if (idx < 0) return null
   const candidates = direction === -1 ? list.slice(0, idx).reverse() : list.slice(idx + 1)
-  const hit = isComponentMode.value
-    ? candidates.find((r) => r.submission_id != null)
-    : candidates[0]
+  const hit = candidates.find((r) => r.submission_id != null)
   return hit?.group_id ?? null
 }
 
@@ -686,15 +680,15 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-/* Same search field as the marking tables, but bare — no card chrome. */
-.group-marking__search-card {
-  margin-bottom: 0;
-}
-
+/* Search sits centered in the header row, between the title and the Prev/
+   Next/Download buttons. The error overlays below so it never stretches
+   the row. */
+/* Unlike the table pages, the label sits inline, left of the textbox. */
 .group-marking__search-field {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  align-items: center;
+  gap: 0.6rem;
+  margin-inline: auto;
 }
 
 .group-marking__search-label {
@@ -706,20 +700,25 @@ const downloadAll = async () => {
 }
 
 .group-marking__search-form {
+  position: relative;
   display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
 /* Same width as the By Component page's search box. */
 .group-marking__picker {
-  flex: 1;
-  max-width: 252px;
+  width: 252px;
 }
 
 .group-marking__search-error {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
   color: var(--danger);
   font-size: 0.85rem;
-  margin: 0.35rem 0 0;
+  margin: 0;
+  white-space: nowrap;
 }
 
 .group-marking__header {
@@ -743,7 +742,9 @@ const downloadAll = async () => {
 
 .group-marking__header-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 /* Soft green fill lifts Prev/Next off the page without competing with the
