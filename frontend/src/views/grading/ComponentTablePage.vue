@@ -225,7 +225,7 @@ const startJob = (format: 'zip' | 'xlsx') => {
 }
 
 const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied — wrote ${written} row${written === 1 ? '' : 's'}.`
+  uploadMessage.value = `Marks applied - wrote ${written} row${written === 1 ? '' : 's'}.`
   await load()
 }
 
@@ -480,25 +480,31 @@ const displayRows = computed(() => {
   flex-wrap: wrap;
 }
 
+/* Styled like the boxes it sits between: same background and outline as the
+   search card and table, no radius, side borders only — the card above and
+   the table below draw the horizontal edges. */
 .component-table__banner {
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   font-size: 0.9rem;
-  margin: 0;
+  /* Negative bottom margin cancels the column gap so the banner sits flush
+     against the table below, like the search card does. */
+  margin: 0 0 -1rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-light);
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0;
 }
 
 .component-table__banner--info {
-  background: color-mix(in srgb, var(--info) 12%, transparent);
   color: var(--info);
 }
 
 .component-table__banner--ok {
-  background: var(--accent-green-soft);
   color: var(--dark-green);
 }
 
 .component-table__banner--error {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 

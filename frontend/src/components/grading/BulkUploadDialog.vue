@@ -77,6 +77,18 @@
                     {{ checkMarkText }}
                   </span>
                 </li>
+                <template
+                  v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
+                >
+                  <li class="bulk-upload__check-gap">
+                    Overwriting Existing Records:
+                    <strong>{{ preview.summary.updates }}</strong
+                    >{{ rowsWithGroupsSuffix(preview.updates) }}
+                  </li>
+                  <li>
+                    Writing New Records: <strong>{{ preview.summary.creates }}</strong>
+                  </li>
+                </template>
               </template>
             </template>
           </ul>
@@ -108,7 +120,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
+import {
+  bulkUploadMarks,
+  type BulkUploadResponse,
+  type BulkUploadRowEntry
+} from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 // Two-step flow:
@@ -167,6 +183,16 @@ const checkMarkText = computed(() => {
   if (!c.bad_marks.length) return 'None'
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
+
+// "(row 2 [group_id 1], row 3 [group_id 4])" — distinct sheet rows, sorted,
+// each with its group. Used for the overwrite count.
+const rowsWithGroupsSuffix = (entries: BulkUploadRowEntry[]) => {
+  if (!entries.length) return ''
+  const groupByRow = new Map<number, number>()
+  for (const e of entries) if (!groupByRow.has(e.row)) groupByRow.set(e.row, e.group_id)
+  const rows = [...groupByRow.keys()].sort((a, b) => a - b)
+  return ` (${rows.map((r) => `row ${r} [group_id ${groupByRow.get(r)}]`).join(', ')})`
+}
 
 const reset = () => {
   file.value = null
@@ -347,6 +373,11 @@ const doApply = async () => {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.85rem;
+}
+
+/* Blank line between the validation checks and the record counts. */
+.bulk-upload__check-gap {
+  margin-top: 0.65rem;
 }
 
 .bulk-upload__check--ok {

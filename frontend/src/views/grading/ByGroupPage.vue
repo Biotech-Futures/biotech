@@ -352,25 +352,27 @@ onMounted(async () => {
   gap: 0.5rem;
 }
 
+/* Styled like the boxes it sits between — see ComponentTablePage. */
 .by-group__banner {
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   font-size: 0.9rem;
   margin: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-light);
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0;
 }
 
 .by-group__banner--info {
-  background: color-mix(in srgb, var(--info) 12%, transparent);
   color: var(--info);
 }
 
 .by-group__banner--ok {
-  background: var(--accent-green-soft);
   color: var(--dark-green);
 }
 
 .by-group__banner--error {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 
