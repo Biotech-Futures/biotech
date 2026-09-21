@@ -286,7 +286,7 @@ class GroupSubmissionSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        info = _require_open(group.id)
 
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
@@ -314,7 +314,10 @@ class GroupSubmissionSubmitView(APIView):
 
             submission.snapshot(request.user)
             submission.cohort = current_cohort()
-            submission.is_late = False
+            # Late = past the announced deadline (the team's extension when
+            # they have one), even inside the quiet grace window that still
+            # accepts the submit. _require_open guarantees closes_at is set.
+            submission.is_late = submission.submitted_at > info.closes_at
             submission.save()
 
         # Outside the transaction, since a blob delete cannot be rolled back.
