@@ -20,6 +20,32 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
+      <div class="group-marking__tabs" role="tablist" aria-label="Components">
+        <button
+          v-if="combinedAvailable"
+          type="button"
+          role="tab"
+          :aria-selected="isCombined"
+          class="group-marking__tab"
+          :class="{ active: isCombined }"
+          @click="switchTab(COMBINED_CODE)"
+        >
+          SAQs &amp; Poster
+        </button>
+        <button
+          v-for="block in payload.components"
+          :key="block.component.code"
+          type="button"
+          role="tab"
+          :aria-selected="block.component.code === effectiveCode"
+          class="group-marking__tab"
+          :class="{ active: block.component.code === effectiveCode }"
+          @click="switchTab(block.component.code)"
+        >
+          {{ block.component.name }}
+        </button>
+      </div>
+
       <div class="group-marking__header">
         <h2 class="group-marking__title">
           {{ payload.group.group_name }}
@@ -73,32 +99,6 @@
       <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
         Marks saved.
       </p>
-
-      <div class="group-marking__tabs" role="tablist" aria-label="Components">
-        <button
-          v-if="combinedAvailable"
-          type="button"
-          role="tab"
-          :aria-selected="isCombined"
-          class="group-marking__tab"
-          :class="{ active: isCombined }"
-          @click="switchTab(COMBINED_CODE)"
-        >
-          SAQs &amp; Poster
-        </button>
-        <button
-          v-for="block in payload.components"
-          :key="block.component.code"
-          type="button"
-          role="tab"
-          :aria-selected="block.component.code === effectiveCode"
-          class="group-marking__tab"
-          :class="{ active: block.component.code === effectiveCode }"
-          @click="switchTab(block.component.code)"
-        >
-          {{ block.component.name }}
-        </button>
-      </div>
 
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
@@ -727,6 +727,8 @@ const downloadAll = async () => {
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
+  /* A little extra breathing room above the marking content. */
+  margin-bottom: 0.85rem;
 }
 
 .group-marking__title {
