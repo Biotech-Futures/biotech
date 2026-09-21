@@ -173,7 +173,14 @@
           </div>
         </template>
         <template #right>
-          <div class="group-marking__combined-rubrics group-marking__pane-offset">
+          <div class="group-marking__pane-offset">
+          <div
+            ref="rubricsEl"
+            class="group-marking__combined-rubrics"
+            :style="
+              rubricsHeight != null ? { height: `${rubricsHeight}px`, maxHeight: 'none' } : undefined
+            "
+          >
             <div>
               <h4 class="group-marking__rubric-title">{{ saqBlock.component.name }}</h4>
               <RubricForm
@@ -201,6 +208,16 @@
             <RouterLink :to="backTarget" class="btn btn-outline btn-sm group-marking__back">
               Back
             </RouterLink>
+          </div>
+          <div
+            class="group-marking__rubrics-resize"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize rubrics height"
+            tabindex="0"
+            @pointerdown="startRubricsDrag"
+            @keydown="onRubricsKeydown"
+          ></div>
           </div>
         </template>
       </ResizableSplit>
@@ -563,6 +580,45 @@ const onSearchSelect = ({ id }: { id: number }) => {
   if (id !== groupId.value) goto(id)
 }
 
+// Drag the bar under the combined rubric stack to change its height — the
+// same mechanic as the answer/PDF blocks in SubmissionPreview.
+const MIN_RUBRICS_PX = 240
+const rubricsEl = ref<HTMLDivElement | null>(null)
+const rubricsHeight = ref<number | null>(null)
+
+const startRubricsDrag = (event: PointerEvent) => {
+  const el = rubricsEl.value
+  const handle = event.currentTarget as HTMLElement
+  if (!el) return
+  event.preventDefault()
+  handle.setPointerCapture(event.pointerId)
+  const startY = event.clientY
+  const startHeight = el.getBoundingClientRect().height
+
+  const move = (e: PointerEvent) => {
+    rubricsHeight.value = Math.max(MIN_RUBRICS_PX, Math.round(startHeight + (e.clientY - startY)))
+  }
+  const stop = () => {
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', stop)
+    handle.removeEventListener('pointercancel', stop)
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', stop)
+  handle.addEventListener('pointercancel', stop)
+}
+
+const onRubricsKeydown = (e: KeyboardEvent) => {
+  const current = rubricsHeight.value ?? rubricsEl.value?.getBoundingClientRect().height ?? 0
+  if (e.key === 'ArrowDown') {
+    rubricsHeight.value = Math.round(current + 40)
+    e.preventDefault()
+  } else if (e.key === 'ArrowUp') {
+    rubricsHeight.value = Math.max(MIN_RUBRICS_PX, Math.round(current - 40))
+    e.preventDefault()
+  }
+}
+
 const load = async () => {
   if (!Number.isFinite(groupId.value) || groupId.value <= 0) return
   if (isComponentMode.value && !code.value) return
@@ -883,9 +939,30 @@ const downloadAll = async () => {
   gap: 1.25rem;
   /* Scrolls within its own pane, like the answers and PDF beside it, so a
      long rubric stack doesn't stretch the page. */
-  max-height: 88vh;
+  max-height: 94vh;
   overflow-y: auto;
   padding-right: 0.25rem;
+}
+
+/* Same drag bar as the preview blocks in SubmissionPreview. */
+.group-marking__rubrics-resize {
+  height: 4px;
+  width: 100%;
+  margin: 0.15rem 0 0;
+  border-radius: 999px;
+  background: var(--border-light);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.group-marking__rubrics-resize:hover,
+.group-marking__rubrics-resize:active {
+  background: var(--dark-green);
+}
+
+.group-marking__rubrics-resize:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
 }
 
 .group-marking__rubric-title {
