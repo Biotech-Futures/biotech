@@ -61,7 +61,7 @@
               :disabled="job.isBusy.value"
               @click="startJob('zip')"
             >
-              <i class="fas fa-download" aria-hidden="true"></i> Zip
+              <i class="fas fa-download" aria-hidden="true"></i> Download
             </button>
             <BulkUploadDialog :code="code" @applied="onUploadApplied" />
           </div>

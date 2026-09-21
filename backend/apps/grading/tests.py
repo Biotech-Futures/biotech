@@ -395,7 +395,9 @@ class GroupDownloadViewTests(_GradingFixture):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
-        self.assertTrue(all(n.startswith("BTF-TEST-1/SAQ/") for n in names), names)
+        # Single-component downloads skip the redundant component folder layer.
+        self.assertTrue(all(n.startswith("BTF-TEST-1/") for n in names), names)
+        self.assertTrue(all("/SAQ/" not in n for n in names), names)
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)

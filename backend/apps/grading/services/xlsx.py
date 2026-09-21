@@ -20,7 +20,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from ..models import Grade, RubricCriterion
-from .content import ComponentEntry
+from .content import ComponentEntry, is_late_against
 
 
 BASE_HEADERS = ["group_id", "group_name", "submitted_date", "submitted_time", "is_late", "text"]
@@ -30,6 +30,7 @@ def build_saq_xlsx(
     entries: Iterable[ComponentEntry],
     criteria: Iterable[RubricCriterion] = (),
     grades_by_pair: dict[tuple[int, int], Grade] | None = None,
+    deadlines_by_group: dict[int, object] | None = None,
 ) -> bytes:
     """Return XLSX bytes for the given SAQ component entries.
 
@@ -41,6 +42,7 @@ def build_saq_xlsx(
     """
     criteria_list = list(criteria)
     grades_by_pair = grades_by_pair or {}
+    deadlines_by_group = deadlines_by_group or {}
 
     wb = Workbook()
     ws = wb.active
@@ -63,7 +65,8 @@ def build_saq_xlsx(
             entry.group_name,
             submitted_date,
             submitted_time,
-            "yes" if entry.is_late else "",
+            # Derived from times, not the stored flag — see is_late_against.
+            "yes" if is_late_against(entry, deadlines_by_group.get(entry.group_id)) else "",
             entry.text or "",
         ]
         for criterion in criteria_list:

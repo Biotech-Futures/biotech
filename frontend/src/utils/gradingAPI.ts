@@ -553,6 +553,16 @@ export async function startComponentDownload(
   return data.job_id
 }
 
+// POST /api/v1/grading/download-all/ — async zip of every group's entry
+// across all components. Same 202 + job-polling contract as above.
+export async function startAllSubmissionsDownload(): Promise<number> {
+  const data = await requestJson<{ job_id: number }>('/api/v1/grading/download-all/', {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+  return data.job_id
+}
+
 // GET /api/v1/grading/jobs/{id}/ — poll target for async downloads.
 export function fetchJobStatus(jobId: number): Promise<GradingJobDetail> {
   return requestJson<GradingJobDetail>(`/api/v1/grading/jobs/${jobId}/`)

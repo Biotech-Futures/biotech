@@ -209,7 +209,9 @@ def open_file(entry: ComponentEntry):
     return _service_for(entry).open(entry.file["storage_key"])
 
 
-def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> dict | None:
+def entry_payload(
+    entry: ComponentEntry | None, overall_comment: str = "", *, closes_at=None
+) -> dict | None:
     """The marking API's per-component ``submission`` block.
 
     Field-compatible with the retired per-component SubmissionSerializer so
@@ -234,7 +236,7 @@ def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> di
         ] or None,
         "link": entry.link,
         "submitted_at": entry.submitted_at,
-        "is_late": entry.is_late,
+        "is_late": is_late_against(entry, closes_at),
         "overall_comment": overall_comment,
     }
 
@@ -253,17 +255,24 @@ def late_by_label(delta) -> str:
     return "<1m"
 
 
-def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
-    """The row's late label: None on time, '' late-but-unknown-amount, else '3h 12m'.
-
-    '' covers a deadline edited after the fact: ``is_late`` was recorded at
-    submit, so the row still says late without inventing a duration.
+def is_late_against(entry: ComponentEntry, closes_at) -> bool:
+    """Lateness derived directly from times: submitted after the deadline in
+    force for the group (extension-aware). Derived at read time rather than
+    read from the stored ``is_late`` flag, so entries submitted before the
+    flag was recorded correctly still display right.
     """
-    if not entry.is_late:
+    return (
+        entry.submitted_at is not None
+        and closes_at is not None
+        and entry.submitted_at > closes_at
+    )
+
+
+def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
+    """The row's late label: None on time, else e.g. '3h 12m'."""
+    if not is_late_against(entry, closes_at):
         return None
-    if entry.submitted_at is not None and closes_at is not None and entry.submitted_at > closes_at:
-        return late_by_label(entry.submitted_at - closes_at)
-    return ""
+    return late_by_label(entry.submitted_at - closes_at)
 
 
 def deadline_status() -> dict | None:

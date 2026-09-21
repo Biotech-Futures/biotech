@@ -15,7 +15,32 @@
           </form>
           <p v-if="error" class="by-group__error">{{ error }}</p>
         </div>
+        <p class="by-group__stats">
+          {{ submittedCount }}/{{ rows.length }} submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+        </p>
+        <div class="by-group__actions">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="job.startAll()"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          </button>
+        </div>
       </div>
+
+      <p v-if="job.isBusy.value" class="by-group__banner by-group__banner--info">
+        {{ jobBusyLabel }}
+      </p>
+      <p v-else-if="job.phase.value === 'done'" class="by-group__banner by-group__banner--ok">
+        Download ready — check your browser downloads.
+      </p>
+      <p v-else-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
+        {{ job.error.value }}
+      </p>
+
       <p v-if="isLoading" class="by-group__hint">Loading…</p>
       <div v-else class="by-group__scroll">
         <table class="by-group__table">
@@ -124,6 +149,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import { useJobPolling } from '@/composables/useJobPolling'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -165,6 +191,19 @@ interface GroupRow {
 
 const rows = ref<GroupRow[]>([])
 const isLoading = ref(false)
+
+// The everything-zip (all groups, all components) plus cohort stats — the
+// same affordances the per-component table offers.
+const job = useJobPolling()
+const jobBusyLabel = computed(() => {
+  if (job.phase.value === 'downloading') return 'Downloading…'
+  return 'Preparing export… this can take a moment for large cohorts.'
+})
+
+const submittedCount = computed(() => rows.value.filter((r) => r.submission_id != null).length)
+const fullyMarkedCount = computed(
+  () => rows.value.filter((r) => r.submission_id != null && r.total > 0 && r.graded >= r.total).length
+)
 
 // Same sorting behaviour as the per-component tables.
 type SortKey = 'id' | 'time' | 'progress'
@@ -297,6 +336,11 @@ onMounted(async () => {
    shared edge, and the table's own top border draws the divider. */
 .by-group__search-card,
 .by-group__search-card:hover {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
   padding: 1rem;
   margin-bottom: 0;
   border: 1px solid var(--border-light);
@@ -305,11 +349,47 @@ onMounted(async () => {
   box-shadow: none;
 }
 
+.by-group__stats {
+  color: var(--charcoal);
+  font-size: 0.9rem;
+  /* Centered between the search box and the Download All button. */
+  margin: 0 auto;
+}
+
+.by-group__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.by-group__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.by-group__banner--info {
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+}
+
+.by-group__banner--ok {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+.by-group__banner--error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
 .by-group__search-field {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   /* Same width as the By Component page's search box. */
+  flex: 1 1 180px;
   max-width: 252px;
 }
 
