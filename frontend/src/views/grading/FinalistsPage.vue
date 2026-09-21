@@ -84,7 +84,12 @@
                   class="finalists__marker"
                   :title="markerTooltip(r)"
                 >
-                  {{ r.markers.join(', ') }}
+                  {{ r.markers[0] }}
+                  <i
+                    v-if="r.markers.length > 1"
+                    class="fas fa-users finalists__marker-icon"
+                    aria-hidden="true"
+                  ></i>
                 </span>
                 <span v-else class="finalists__muted">—</span>
               </td>
@@ -475,6 +480,18 @@ const remove = async (id: number) => {
 .finalists__late {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* One name shows; the icon hints there are more markers in the tooltip. */
+.finalists__marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.finalists__marker-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .finalists__marker-info {

@@ -143,14 +143,14 @@
                 >
                   Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
                 </a>
-                <a
+                <button
                   v-if="posterLinks.download"
-                  :href="posterLinks.download"
+                  type="button"
                   class="btn btn-outline btn-sm"
-                  :download="posterBlock.submission?.file_name ?? ''"
+                  @click="downloadStampFile(posterLinks.download, posterBlock.submission?.file_name)"
                 >
                   Download <i class="fas fa-download" aria-hidden="true"></i>
-                </a>
+                </button>
               </span>
             </p>
             <!-- Category boxes span above the nested split, so the answers
@@ -267,14 +267,14 @@
                   >
                     Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
                   </a>
-                  <a
+                  <button
                     v-if="singleLinks.download"
-                    :href="singleLinks.download"
+                    type="button"
                     class="btn btn-outline btn-sm"
-                    :download="activeBlock.submission.file_name ?? ''"
+                    @click="downloadStampFile(singleLinks.download, activeBlock.submission.file_name)"
                   >
                     Download <i class="fas fa-download" aria-hidden="true"></i>
-                  </a>
+                  </button>
                 </span>
               </p>
               <MarkingCategories
@@ -331,6 +331,7 @@ import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
 import {
   downloadGroupZip,
+  downloadSubmissionFile,
   fetchComponentRows,
   fetchGroupMarking,
   overallCommentLabel,
@@ -520,6 +521,19 @@ const fileLinks = (submission: ComponentBlock['submission']) => {
 
 const posterLinks = computed(() => fileLinks(posterBlock.value?.submission ?? null))
 const singleLinks = computed(() => fileLinks(activeBlock.value?.submission ?? null))
+
+// Download via a blob fetch so it saves instead of opening — a plain link is
+// cross-origin (download attribute ignored) and local /media/ serves inline.
+const downloadStampFile = async (url: string | null, fileName?: string | null) => {
+  if (!url) return
+  try {
+    await downloadSubmissionFile(url, fileName || 'submission.pdf')
+  } catch {
+    // If the fetch is blocked (e.g. Azure blob CORS), fall back to the direct
+    // URL — its SAS attachment disposition still downloads there.
+    window.open(url, '_blank', 'noopener')
+  }
+}
 
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.

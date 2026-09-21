@@ -93,7 +93,12 @@
               </td>
               <td>
                 <span v-if="r.markers.length" class="by-group__marker" :title="r.markerTooltip">
-                  {{ r.markers.join(', ') }}
+                  {{ r.markers[0] }}
+                  <i
+                    v-if="r.markers.length > 1"
+                    class="fas fa-users by-group__marker-icon"
+                    aria-hidden="true"
+                  ></i>
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
@@ -428,6 +433,18 @@ onMounted(async () => {
 
 .by-group__sort-icon--idle {
   color: var(--border-light);
+}
+
+/* One name shows; the icon hints there are more markers in the tooltip. */
+.by-group__marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.by-group__marker-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .by-group__marker-info {

@@ -122,6 +122,15 @@ async function requestBlob(
   return { blob: await response.blob(), filename: match?.[1] ?? null }
 }
 
+// Fetch a submitted file and save it through a blob link. A plain <a download>
+// can't force this: the file URL is cross-origin, where browsers ignore the
+// download attribute, and local /media/ serves PDFs inline (the storage layer
+// only bakes an attachment disposition into Azure SAS URLs).
+export async function downloadSubmissionFile(url: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob(url)
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // Fetch bytes for the summary/certificate docx and trigger a browser download.
 // Rendered server-side via docxtpl (see backend/apps/grading/services/docx.py).
 async function downloadDocx(path: string, filename: string) {
