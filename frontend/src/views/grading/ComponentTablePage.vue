@@ -27,12 +27,11 @@
 
     <div v-else-if="payload" class="component-table">
       <div class="component-table__header">
-        <h2 class="component-table__title">{{ payload.component.name }}</h2>
+        <p class="component-table__stats">
+          {{ submittedCount }}/{{ payload.rows.length }} submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+        </p>
         <div class="component-table__actions">
-          <p class="component-table__stats">
-            {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-            {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
-          </p>
           <button
             type="button"
             class="btn btn-outline btn-sm"
@@ -396,11 +395,6 @@ const displayRows = computed(() => {
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
-}
-
-.component-table__title {
-  margin: 0;
-  font-size: 1.35rem;
 }
 
 .component-table__stats {
