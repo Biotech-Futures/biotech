@@ -106,4 +106,13 @@ urlpatterns = [
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/replace-suggestions/', views.MentorMatchReplaceSuggestionsView.as_view(), name='mentor-match-replace-suggestions'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
+
+    # ========================================================================
+    # USER VIEW ROUTES
+    # ========================================================================
+    path('view/', views.AdminViewListCreateView.as_view(), name='view-list-create'),
+    path('view/bulk-delete/', views.AdminViewBulkDeleteView.as_view(), name='view-bulk-delete'),
+    path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
+    path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
+    path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
 ]
