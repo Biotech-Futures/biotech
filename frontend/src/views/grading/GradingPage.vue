@@ -2,16 +2,18 @@
   <div class="content-area grading">
     <header class="grading__hero">
       <div>
-        <h1 class="grading__title">Grading</h1>
-        <p class="grading__subtitle">Mark submissions, release results and manage finalists.</p>
+        <h1 class="grading__title">{{ isManagement ? 'Management' : 'Grading' }}</h1>
+        <p class="grading__subtitle">
+          {{
+            isManagement
+              ? 'Set deadlines, grant extensions, manage documents, releases and the new year.'
+              : 'Mark submissions by component or group and select finalists.'
+          }}
+        </p>
       </div>
     </header>
 
-    <nav
-      v-if="!route.path.startsWith('/grading/management')"
-      class="grading__tabs"
-      aria-label="Grading sections"
-    >
+    <nav v-if="!isManagement" class="grading__tabs" aria-label="Grading sections">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.to"
@@ -29,9 +31,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
+
+// Management renders inside this layout but presents as its own section
+// (it has its own side-nav entry), so the hero swaps accordingly.
+const isManagement = computed(() => route.path.startsWith('/grading/management'))
 
 interface GradingTab {
   label: string

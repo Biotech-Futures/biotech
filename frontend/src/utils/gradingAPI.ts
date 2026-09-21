@@ -369,6 +369,8 @@ export function setCertificatesFinalistExclusion(exclude: boolean): Promise<Rele
 
 // Per-team extra time on top of the global deadline.
 export interface GroupExtension {
+  /** Row id — group_id is no longer unique since revoked rows are kept. */
+  id: number
   group_id: number
   group_name: string
   extended_until: string
@@ -377,6 +379,9 @@ export interface GroupExtension {
   reason: string
   granted_at: string
   granted_by: string | null
+  /** Soft revoke: set when an admin revoked this extension; row stays listed. */
+  revoked_at: string | null
+  revoked_by: string | null
 }
 
 // GET /api/v1/grading/deadline/extensions/ — every granted extension.

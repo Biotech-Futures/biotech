@@ -734,21 +734,44 @@ class GroupExtensionViewTests(_GradingFixture):
         self.assertEqual(listed[0]["reason"], "School flood.")
         self.assertEqual(listed[0]["granted_by"], "Ada Grader")
 
-        # Upsert: granting again replaces, not duplicates.
+        # Granting again revokes the old extension and adds a fresh row —
+        # the active one leads, the revoked one trails as history.
         self.client.post(
             self.url,
             {"group_id": self.group.id, "extended_until": "2026-11-08T13:00:00Z"},
             format="json",
         )
         listed = self.client.get(self.url).json()["extensions"]
-        self.assertEqual(len(listed), 1)
+        self.assertEqual(len(listed), 2)
+        self.assertIsNone(listed[0]["revoked_at"])
         self.assertIn("2026-11-08", listed[0]["extended_until"])
+        self.assertEqual(listed[1]["revoked_by"], "Ada Grader")
+        self.assertIn("2026-11-05", listed[1]["extended_until"])
 
         detail = reverse("grading:deadline-extension-detail", kwargs={"group_id": self.group.id})
         self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
         # Idempotent revoke.
         self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(self.client.get(self.url).json()["extensions"], [])
+        # Soft revoke: both rows stay listed (revoked), and the team's
+        # window is no longer extended.
+        listed = self.client.get(self.url).json()["extensions"]
+        self.assertEqual(len(listed), 2)
+        self.assertTrue(all(row["revoked_at"] is not None for row in listed))
+        from apps.submissions.services import deadline_for_group
+        self.assertFalse(deadline_for_group(self.group.id).is_extended)
+
+        # Re-granting creates a fresh active row beside the history.
+        self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-11-09T13:00:00Z"},
+            format="json",
+        )
+        listed = self.client.get(self.url).json()["extensions"]
+        self.assertEqual(len(listed), 3)
+        self.assertIsNone(listed[0]["revoked_at"])
+        self.assertIn("2026-11-09", listed[0]["extended_until"])
+        self.assertTrue(all(row["revoked_at"] is not None for row in listed[1:]))
+        self.assertTrue(deadline_for_group(self.group.id).is_extended)
 
     def test_unknown_group_404(self):
         self.client.force_authenticate(self.staff)

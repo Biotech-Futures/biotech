@@ -138,7 +138,8 @@ const actionError = ref('')
 const isSaving = ref(false)
 
 const closesAtLocal = ref('')
-const graceHours = ref(0)
+// 24h quiet grace by default; replaced by the saved deadline's value on load.
+const graceHours = ref(24)
 const confirmOpen = ref(false)
 
 // Human-readable version of the picked time, for the confirm dialog.
