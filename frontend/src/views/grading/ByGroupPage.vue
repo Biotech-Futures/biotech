@@ -1,21 +1,16 @@
 <template>
   <div class="by-group">
-    <div class="card by-group__search-card">
-      <div class="card-header">
-        <h3 class="card-title">Mark by Group</h3>
-      </div>
-      <p class="by-group__hint">
-        Every component for a single group. Search by group name or ID.
-      </p>
-      <form class="by-group__form" @submit.prevent="open">
-        <GroupSearchInput ref="picker" v-model="query" class="by-group__picker" @select="goTo" />
-        <button type="submit" class="btn btn-primary btn-sm">Open</button>
-      </form>
-      <p v-if="error" class="by-group__error">{{ error }}</p>
-    </div>
-
     <section>
-      <h3 class="card-title by-group__list-title">Groups</h3>
+      <div class="card by-group__search-card">
+        <div class="by-group__search-field">
+          <span class="by-group__search-label">Search</span>
+          <form class="by-group__form" @submit.prevent="open">
+            <GroupSearchInput ref="picker" v-model="query" class="by-group__picker" @select="goTo" />
+            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+          </form>
+          <p v-if="error" class="by-group__error">{{ error }}</p>
+        </div>
+      </div>
       <p v-if="isLoading" class="by-group__hint">Loading…</p>
       <div v-else class="by-group__scroll">
         <table class="by-group__table">
@@ -277,9 +272,32 @@ onMounted(async () => {
   gap: 1.25rem;
 }
 
-/* Only the table runs full width; the search card stays compact. */
-.by-group__search-card {
-  max-width: 36rem;
+/* Search card sits flush on the table — same outline treatment as the
+   component table page: table border instead of the card shadow, square
+   shared edge, and the table's own top border draws the divider. */
+.by-group__search-card,
+.by-group__search-card:hover {
+  padding: 1rem;
+  margin-bottom: 0;
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+}
+
+.by-group__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-width: 420px;
+}
+
+.by-group__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .by-group__hint {
@@ -303,15 +321,11 @@ onMounted(async () => {
   margin: 0.5rem 0 0;
 }
 
-.by-group__list-title {
-  margin-bottom: 0.75rem;
-}
-
 .by-group__scroll {
   overflow-x: auto;
   background: var(--surface-elevated);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
 }
 
 .by-group__table {

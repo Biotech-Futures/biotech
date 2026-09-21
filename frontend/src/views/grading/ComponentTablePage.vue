@@ -33,14 +33,6 @@
         </p>
         <div class="component-table__actions">
           <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('zip')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> Zip
-          </button>
-          <button
             v-if="payload.component.code === 'SAQ'"
             type="button"
             class="btn btn-outline btn-sm"
@@ -49,7 +41,32 @@
           >
             <i class="fas fa-download" aria-hidden="true"></i> XLSX
           </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="startJob('zip')"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Zip
+          </button>
           <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+        </div>
+      </div>
+
+      <div class="card component-table__search-card">
+        <div class="component-table__search-field">
+          <label class="component-table__search-label" for="component-group-search">Search</label>
+          <div class="component-table__search">
+            <i class="fas fa-magnifying-glass component-table__search-icon" aria-hidden="true"></i>
+            <input
+              id="component-group-search"
+              v-model="searchQuery"
+              type="search"
+              class="component-table__search-input"
+              placeholder="Group name or ID"
+              aria-label="Search groups"
+            />
+          </div>
         </div>
       </div>
 
@@ -102,7 +119,9 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="9" class="component-table__empty">No groups.</td>
+              <td colspan="9" class="component-table__empty">
+                {{ searchQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
               <td>{{ r.group_id }}</td>
@@ -204,6 +223,7 @@ const switchComponent = (target: string) => {
 const payload = ref<ComponentListPayload | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
+const searchQuery = ref('')
 
 const job = useJobPolling()
 const uploadMessage = ref('')
@@ -245,6 +265,7 @@ watch(
   code,
   () => {
     uploadMessage.value = ''
+    searchQuery.value = ''
     void load()
   },
   { immediate: true }
@@ -299,7 +320,13 @@ const sortValue = (r: ComponentRow): number | string | null => {
 }
 
 const displayRows = computed(() => {
-  const rows = [...(payload.value?.rows ?? [])]
+  const query = searchQuery.value.trim().toLowerCase()
+  let rows = [...(payload.value?.rows ?? [])]
+  if (query) {
+    rows = rows.filter(
+      (r) => r.group_name.toLowerCase().includes(query) || String(r.group_id).includes(query)
+    )
+  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
     const va = sortValue(a)
@@ -389,6 +416,63 @@ const displayRows = computed(() => {
   gap: 1rem;
 }
 
+/* Search card — same treatment as the Admin Groups page's group search.
+   The negative margin cancels both the global .card margin-bottom and the
+   column gap (1rem) so the card sits flush against the table. */
+.component-table__search-card,
+.component-table__search-card:hover {
+  padding: 1rem;
+  margin-bottom: -1rem;
+  /* Flush against the table below — square off the shared edge and use the
+     table's outline instead of the card shadow. The table's own top border
+     draws the divider, so no border-bottom here. */
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
+}
+
+.component-table__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-width: 360px;
+}
+
+.component-table__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.component-table__search {
+  position: relative;
+  width: 100%;
+}
+
+.component-table__search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.component-table__search-input {
+  width: 100%;
+  height: 40px;
+  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  color: var(--charcoal);
+}
+
 .component-table__header {
   display: flex;
   align-items: baseline;
@@ -398,7 +482,7 @@ const displayRows = computed(() => {
 }
 
 .component-table__stats {
-  color: var(--text-muted);
+  color: var(--charcoal);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -435,7 +519,7 @@ const displayRows = computed(() => {
 .component-table__scroll {
   overflow-x: auto;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
   background: var(--surface-elevated);
 }
 
