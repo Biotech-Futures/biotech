@@ -49,7 +49,6 @@ INSTALLED_APPS = [
     'apps.submissions',
     'apps.grading',
     'apps.services',
-    'matching',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
