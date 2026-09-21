@@ -104,8 +104,9 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/grading/GradingPage.vue'),
     meta: { adminOnly: true },
     children: [
-      { path: '', redirect: '/grading/by-component' },
-      { path: 'by-component', name: 'grading-by-component', component: () => import('@/views/grading/ByComponentPage.vue') },
+      { path: '', redirect: '/grading/components/SAQ' },
+      // Legacy path from before the component-picker landing was removed.
+      { path: 'by-component', redirect: '/grading/components/SAQ' },
       { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
       { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
       // Both marking routes render the same page — the route name decides the

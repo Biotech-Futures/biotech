@@ -40,7 +40,7 @@ interface GradingTab {
 const tabs: GradingTab[] = [
   {
     label: 'By component',
-    to: '/grading/by-component',
+    to: '/grading/components/SAQ',
     icon: 'fa-list-check',
     alsoMatches: ['/grading/components']
   },

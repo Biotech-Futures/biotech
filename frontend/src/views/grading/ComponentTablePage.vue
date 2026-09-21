@@ -22,7 +22,6 @@
       <p class="component-table__error-detail">{{ loadError }}</p>
       <div class="component-table__error-actions">
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
       </div>
     </div>
 
@@ -170,10 +169,6 @@
           </tbody>
         </table>
       </div>
-
-      <div>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
-      </div>
     </div>
   </div>
 </template>
@@ -194,7 +189,7 @@ const route = useRoute()
 const router = useRouter()
 const code = computed(() => String(route.params.code || ''))
 
-// Same hard-coded list as the By-component landing (matches the seed migration).
+// Component codes are hard-coded to match the backend seed migration.
 const COMPONENTS: { code: string; name: string }[] = [
   { code: 'SAQ', name: 'Short Answer Questions' },
   { code: 'POSTER', name: 'A2 Poster' },
