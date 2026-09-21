@@ -20,22 +20,20 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
-      <div v-if="!isComponentMode" class="card group-marking__jump-card">
-        <p class="group-marking__jump-hint">Enter the group's ID.</p>
-        <form class="group-marking__jump" @submit.prevent="jump">
-          <div class="group-marking__jump-wrap">
-            <i class="fas fa-magnifying-glass group-marking__jump-icon" aria-hidden="true"></i>
-            <input
-              v-model="jumpId"
-              type="number"
-              min="1"
-              placeholder="Group ID"
-              class="group-marking__jump-input"
-              aria-label="Group ID"
+      <div class="group-marking__search-card">
+        <div class="group-marking__search-field">
+          <span class="group-marking__search-label">Search</span>
+          <form class="group-marking__search-form" @submit.prevent="openSearch">
+            <GroupSearchInput
+              ref="picker"
+              v-model="searchQuery"
+              class="group-marking__picker"
+              @select="onSearchSelect"
             />
-          </div>
-          <button type="submit" class="btn btn-primary btn-sm">Open</button>
-        </form>
+            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+          </form>
+          <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
+        </div>
       </div>
 
       <div class="group-marking__header">
@@ -305,6 +303,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
+import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import ResizableSplit from '@/components/grading/ResizableSplit.vue'
 import RubricForm from '@/components/grading/RubricForm.vue'
@@ -332,7 +331,9 @@ const router = useRouter()
 const isComponentMode = computed(() => route.name === 'grading-component-group')
 const code = computed(() => String(route.params.code || ''))
 const groupId = computed(() => Number(route.params.groupId))
-const jumpId = ref('')
+const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
+const searchQuery = ref('')
+const searchError = ref('')
 
 type ComponentBlock = GroupMarkingPayload['components'][number]
 
@@ -548,11 +549,24 @@ const goto = (id: number | null) => {
   )
 }
 
-const jump = () => {
-  const n = Number(jumpId.value)
-  if (!Number.isFinite(n) || n <= 0 || n === groupId.value) return
-  jumpId.value = ''
-  void router.push(`/grading/groups/${n}`)
+// Same search box as the marking tables; Open resolves the typed name or ID
+// and navigates within the current mode (component or by-group).
+const openSearch = () => {
+  searchError.value = ''
+  const id = picker.value?.resolveId() ?? null
+  if (id == null) {
+    searchError.value = 'No group matches that name or ID.'
+    return
+  }
+  searchQuery.value = ''
+  if (id !== groupId.value) goto(id)
+}
+
+// Picking a dropdown suggestion navigates straight away.
+const onSearchSelect = ({ id }: { id: number }) => {
+  searchError.value = ''
+  searchQuery.value = ''
+  if (id !== groupId.value) goto(id)
 }
 
 const load = async () => {
@@ -672,62 +686,40 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-.group-marking__jump-card {
-  max-width: 36rem;
+/* Same search field as the marking tables, but bare — no card chrome. */
+.group-marking__search-card {
+  margin-bottom: 0;
 }
 
-.group-marking__jump-hint {
+.group-marking__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.group-marking__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--text-muted);
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.group-marking__jump {
+.group-marking__search-form {
   display: flex;
   gap: 0.5rem;
 }
 
-.group-marking__jump-wrap {
-  position: relative;
+/* Same width as the By Component page's search box. */
+.group-marking__picker {
   flex: 1;
+  max-width: 252px;
 }
 
-.group-marking__jump-icon {
-  position: absolute;
-  left: 0.65rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  pointer-events: none;
-}
-
-.group-marking__jump-input {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem 0.45rem 2rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-}
-
-.group-marking__jump-input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-}
-
-/* Hide the native number spinners — IDs are typed, not stepped. */
-.group-marking__jump-input {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.group-marking__jump-input::-webkit-inner-spin-button,
-.group-marking__jump-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+.group-marking__search-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
 }
 
 .group-marking__header {
