@@ -16,8 +16,8 @@
           <p v-if="error" class="by-group__error">{{ error }}</p>
         </div>
         <p class="by-group__stats">
-          {{ submittedCount }}/{{ rows.length }} submitted ·
-          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+          {{ submittedCount }}/{{ rows.length }} Submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
         </p>
         <div class="by-group__actions">
           <button
@@ -92,7 +92,7 @@
               </td>
               <td>
                 <span v-if="r.is_late" class="by-group__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
@@ -350,6 +350,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Stays right-aligned even when the card wraps it onto its own line. */
+  margin-left: auto;
 }
 
 /* Styled like the boxes it sits between — see ComponentTablePage. */
@@ -461,8 +463,9 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .by-group__late {
-  color: #b45309;
+  color: #ff8c00;
   font-weight: 600;
 }
 

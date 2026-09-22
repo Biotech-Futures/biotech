@@ -42,8 +42,8 @@
           </div>
         </div>
         <p class="component-table__stats">
-          {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-          {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
+          {{ submittedCount }}/{{ payload.rows.length }} Submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
         </p>
         <div class="component-table__actions">
             <button
@@ -131,7 +131,7 @@
               </td>
               <td>
                 <span v-if="r.is_late" class="component-table__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="component-table__muted">—</span>
               </td>
@@ -478,6 +478,8 @@ const displayRows = computed(() => {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  /* Stays right-aligned even when the card wraps it onto its own line. */
+  margin-left: auto;
 }
 
 /* Styled like the boxes it sits between: same background and outline as the
@@ -588,8 +590,9 @@ const displayRows = computed(() => {
   color: var(--text-muted);
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .component-table__late {
-  color: var(--danger);
+  color: #ff8c00;
   font-weight: 600;
 }
 

@@ -66,7 +66,7 @@
               <td class="finalists__cell--strong">{{ r.group_name }}</td>
               <td>
                 <span v-if="r.is_late" class="finalists__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="finalists__muted">—</span>
               </td>
@@ -477,8 +477,9 @@ const remove = async (id: number) => {
   font-weight: 400;
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .finalists__late {
-  color: var(--danger);
+  color: #ff8c00;
   font-weight: 600;
 }
 
