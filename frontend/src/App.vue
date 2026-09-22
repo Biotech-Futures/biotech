@@ -180,6 +180,15 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
+                    to="/admin/role-tasks"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/role-tasks' }"
+                  >
+                    <span>Role Tasks</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
                     to="/grading"
                     class="sidebar-sublink"
                     :class="{

@@ -53,7 +53,10 @@ from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
     list_admin_tasks, get_admin_task_by_id, create_admin_task,
     update_admin_task, delete_admin_task, toggle_admin_task,
-    count_role_recipients,
+)
+from apps.admin.services.role_task import (
+    list_admin_role_tasks, get_admin_role_task_by_id, create_admin_role_task,
+    update_admin_role_task, delete_admin_role_task, count_role_recipients,
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
@@ -1168,18 +1171,6 @@ class AdminTaskListCreateView(APIView):
         return Response(result, status=code)
 
 
-class AdminTaskRoleRecipientsView(APIView):
-    """GET /api/v1/admin/task/role-recipients/?role=mentor — how many users a
-    role fan-out would create tasks for."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        result = count_role_recipients(request.user, request.query_params.get("role"))
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
-
-
 class AdminTaskDetailView(APIView):
     """GET/PATCH/DELETE /api/v1/admin/task/{task_id}/ — Task detail"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -1218,6 +1209,75 @@ class AdminTaskToggleView(APIView):
         if result.get("msg") == "Task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
         return Response(result)
+
+
+# ============================================================================
+# ROLE TASK ENDPOINTS
+# ============================================================================
+class AdminRoleTaskListCreateView(APIView):
+    """GET/POST /api/v1/admin/role-task/ — role-task definitions.
+
+    Unlike /admin/task/, there is no task_type here: a role task is always
+    targeted at exactly one role, defined once, picked up live by every
+    current and future holder of that role (see apps.tasks.role_task_views)."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        page = int(request.query_params.get("page", 1))
+        limit = int(request.query_params.get("limit", 10))
+        result = list_admin_role_tasks(
+            request.user,
+            page=page,
+            limit=limit,
+            sort_by=request.query_params.get("sortBy", "createdAt"),
+            sort_order=request.query_params.get("sortOrder", "desc"),
+        )
+        return Response(result)
+
+    def post(self, request):
+        result = create_admin_role_task(request.user, request.data)
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminRoleTaskRoleRecipientsView(APIView):
+    """GET /api/v1/admin/role-task/role-recipients/?role=mentor — how many
+    users currently hold `role`, shown before committing a role task every
+    one of them (and every future holder) will pick up."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = count_role_recipients(request.user, request.query_params.get("role"))
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminRoleTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/role-task/{role_task_id}/
+
+    PATCH is the "bulk-edit in one place" the ticket asks for: editing this
+    one row changes it for every current and future holder of the role."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, role_task_id):
+        result = get_admin_role_task_by_id(request.user, role_task_id)
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+    def patch(self, request, role_task_id):
+        result = update_admin_role_task(request.user, role_task_id, request.data)
+        if result.get("msg") == "Role task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result)
+
+    def delete(self, request, role_task_id):
+        result = delete_admin_role_task(request.user, role_task_id)
+        if result.get("msg") == "Role task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result, status=status.HTTP_204_NO_CONTENT)
 
 
 # ============================================================================

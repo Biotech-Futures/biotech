@@ -1123,17 +1123,21 @@ export interface AdminTaskListData {
   has_more: boolean
 }
 
-export interface CreateAdminTaskPayload {
+// TK4 follow-up (confirmed with the client): the actual complaint was the
+// role fan-out snapshotting individual rows per current holder, not admins
+// assigning a task straight to one person from this page — that stays.
+// Targeting a role is only ever done via a role task (below); there is no
+// "assigned_role" option here anymore.
+type CreateAdminTaskFields = {
   name: string
   description?: string
   due_date?: string | null
   status?: AdminTaskStatus
   parent?: number | null
-  task_type: AdminTaskType
-  group?: number | null
-  assigned_user?: number | null
-  assigned_role?: string | null
 }
+export type CreateAdminTaskPayload =
+  | (CreateAdminTaskFields & { task_type: 'group'; group: number })
+  | (CreateAdminTaskFields & { task_type: 'individual'; assigned_user: number })
 
 export interface UpdateAdminTaskPayload {
   name?: string
@@ -1143,17 +1147,7 @@ export interface UpdateAdminTaskPayload {
   parent?: number | null
 }
 
-export interface AdminTaskFanoutResult {
-  created_count: number
-  assigned_role: string
-}
-
-export interface AdminTaskRoleRecipientsData {
-  role: string
-  count: number
-}
-
-export type AdminTaskMutationResult<T = AdminTask | AdminTaskFanoutResult | null> = AdminEnvelope<T>
+export type AdminTaskMutationResult<T = AdminTask | null> = AdminEnvelope<T>
 
 export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<AdminTaskListData> =>
   adminGet<AdminEnvelope<AdminTaskListData>>(`/task/${buildAdminQuery(params)}`).then(
@@ -1162,8 +1156,8 @@ export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<Admin
 
 export const createAdminTask = (
   payload: CreateAdminTaskPayload
-): Promise<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>> =>
-  adminPost<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>>('/task/', payload)
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | null>>('/task/', payload)
 
 export const updateAdminTask = (
   taskId: number | string,
@@ -1174,11 +1168,97 @@ export const updateAdminTask = (
 export const deleteAdminTask = (taskId: number | string): Promise<void> =>
   adminDelete<void>(`/task/${taskId}/`)
 
-export const fetchTaskRoleRecipients = (
+// ---------------------------------------------------------------------------
+// Role Tasks (TK4) — defined once per role, bulk-edited in one place. Not a
+// fan-out: editing one of these changes it for every current AND future
+// holder of the role. See backend/apps/admin/services/role_task.py.
+// ---------------------------------------------------------------------------
+
+export interface AdminRoleTaskRole {
+  id: number
+  roleName: string
+}
+
+export interface AdminRoleTask {
+  id: number
+  name: string
+  description: string
+  due_date: string | null
+  role: AdminRoleTaskRole | null
+  created_by: AdminTaskUserMini | null
+  creator_role: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+  // Completed-vs-current-holders count, computed server-side — not editable,
+  // since a role task has no single status (see AdminRoleTaskFormSheet.vue).
+  completed_count: number
+  holder_count: number
+}
+
+export type AdminRoleTaskSortBy = 'name' | 'role' | 'due' | 'createdAt'
+
+export interface AdminRoleTaskListParams {
+  page?: number
+  limit?: number
+  sortBy?: AdminRoleTaskSortBy
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface AdminRoleTaskListData {
+  items: AdminRoleTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface CreateAdminRoleTaskPayload {
+  name: string
+  description?: string
+  due_date?: string | null
   role: string
-): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>
-  adminGet<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>>(
-    `/task/role-recipients/${buildAdminQuery({ role })}`
+}
+
+export interface UpdateAdminRoleTaskPayload {
+  name?: string
+  description?: string
+  due_date?: string | null
+}
+
+export interface AdminRoleTaskRecipientsData {
+  role: string
+  count: number
+}
+
+export type AdminRoleTaskMutationResult<T = AdminRoleTask | null> = AdminEnvelope<T>
+
+export const fetchAdminRoleTasks = (
+  params: AdminRoleTaskListParams = {}
+): Promise<AdminRoleTaskListData> =>
+  adminGet<AdminEnvelope<AdminRoleTaskListData>>(`/role-task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const createAdminRoleTask = (
+  payload: CreateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPost<AdminRoleTaskMutationResult>('/role-task/', payload)
+
+export const updateAdminRoleTask = (
+  roleTaskId: number | string,
+  payload: UpdateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPatch<AdminRoleTaskMutationResult>(`/role-task/${roleTaskId}/`, payload)
+
+export const deleteAdminRoleTask = (roleTaskId: number | string): Promise<void> =>
+  adminDelete<void>(`/role-task/${roleTaskId}/`)
+
+export const fetchRoleTaskRecipients = (
+  role: string
+): Promise<AdminEnvelope<AdminRoleTaskRecipientsData | null>> =>
+  adminGet<AdminEnvelope<AdminRoleTaskRecipientsData | null>>(
+    `/role-task/role-recipients/${buildAdminQuery({ role })}`
   )
 
 // ---------------------------------------------------------------------------
