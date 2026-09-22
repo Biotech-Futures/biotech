@@ -5,8 +5,14 @@ import zipfile
 from decimal import Decimal
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase
 
 from apps.grading.models import ComponentFeedback, Grade, GradingSettings
+from apps.grading.services.docx import (
+    _fill_content_controls,
+    _render_token_template,
+    _sum_marks,
+)
 
 from .fixtures import _GradingFixture, _build_docx, _seed_doc_templates
 
@@ -98,6 +104,77 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("Grader", xml)
         self.assertIn("BTF-TEST-1", xml)      # projectTitle falls back to group name
         self.assertNotIn("___", xml)          # every control's placeholder replaced
+
+
+class DocxEngineEdgeTests(SimpleTestCase):
+    """The rendering engine's awkward inputs: tokens Word has split across
+    runs, tokens inside tables, corrupt images, and unknown control aliases.
+    Exercised at the engine seam — no DB needed."""
+
+    @staticmethod
+    def _document_xml(data: bytes) -> str:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return z.read("word/document.xml").decode("utf8")
+
+    def test_a_token_split_across_runs_is_still_replaced(self):
+        from docx import Document as NewDocument
+
+        doc = NewDocument()
+        p = doc.add_paragraph()
+        # Word routinely fragments "{{TeamCode}}" like this after edits.
+        p.add_run("{{Team")
+        p.add_run("Code}}")
+        buf = io.BytesIO()
+        doc.save(buf)
+
+        xml = self._document_xml(_render_token_template(buf.getvalue(), {"TeamCode": "BTF-9"}))
+        self.assertIn("BTF-9", xml)
+        self.assertNotIn("{{", xml)
+
+    def test_tokens_inside_table_cells_are_replaced(self):
+        from docx import Document as NewDocument
+
+        doc = NewDocument()
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).paragraphs[0].add_run("Team {{TeamCode}}")
+        buf = io.BytesIO()
+        doc.save(buf)
+
+        xml = self._document_xml(_render_token_template(buf.getvalue(), {"TeamCode": "BTF-9"}))
+        self.assertIn("BTF-9", xml)
+        self.assertNotIn("{{TeamCode}}", xml)
+
+    def test_a_corrupt_signature_image_does_not_sink_the_document(self):
+        data = _build_docx("{{Director1Signature}} {{Director1Name}}")
+        rendered = _render_token_template(
+            data,
+            {"Director1Name": "Prof. Alice Adams"},
+            images={"Director1Signature": b"plainly not pixels"},
+        )
+        with zipfile.ZipFile(io.BytesIO(rendered)) as z:
+            names = z.namelist()
+            xml = z.read("word/document.xml").decode("utf8")
+        # No picture landed, the token is cleared, and the name still prints.
+        self.assertFalse([n for n in names if n.startswith("word/media/")], names)
+        self.assertNotIn("{{", xml)
+        self.assertIn("Prof. Alice Adams", xml)
+
+    def test_an_unknown_content_control_alias_is_left_alone(self):
+        data = ClientDocxTemplateTests._control_template(["firstName", "NotAField"])
+        xml = self._document_xml(_fill_content_controls(data, {"firstName": "Ada"}))
+        self.assertIn("Ada", xml)
+        # The unrecognised control keeps its placeholder rather than being
+        # silently blanked — visible in the output means fixable by an admin.
+        self.assertIn("___", xml)
+
+    def test_sum_marks_skips_unparseable_values(self):
+        total = _sum_marks([
+            {"mark": "3.50"},
+            {"mark": "abc"},
+            {"mark": None},
+            {"mark": "1.25"},
+        ])
+        self.assertEqual(total, Decimal("4.75"))
 
 
 class DirectorSignatureTests(_GradingFixture):

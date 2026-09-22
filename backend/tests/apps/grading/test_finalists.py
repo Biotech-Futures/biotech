@@ -199,3 +199,52 @@ class FinalistToggleTests(_GradingFixture):
         r = self.client.post(self.url, {"notify": True}, format="json")
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertFalse(r.json()["notified"])
+
+
+@override_settings(GRADING_FINALIST_EMAIL_ENABLED=True)
+class FinalistNotifyServiceTests(_GradingFixture):
+    """The notify helper's skip and failure branches, exercised directly."""
+
+    def test_an_already_notified_flag_is_not_remailed(self):
+        from django.core import mail
+
+        from apps.grading.services.finalist_notify import notify_finalist
+
+        flag = FinalistFlag.objects.create(
+            group=self.group, flagged_by=self.staff, notified=True,
+        )
+        self.assertFalse(notify_finalist(flag))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_group_with_no_members_is_skipped(self):
+        from django.core import mail
+
+        from apps.grading.services.finalist_notify import notify_finalist
+
+        # The fixture group has a submission but no memberships — nobody to mail.
+        flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        self.assertFalse(notify_finalist(flag))
+        self.assertEqual(len(mail.outbox), 0)
+        flag.refresh_from_db()
+        self.assertFalse(flag.notified)
+
+    def test_a_send_failure_leaves_the_flag_unnotified(self):
+        from unittest.mock import patch
+
+        from apps.grading.services.finalist_notify import notify_finalist
+
+        member = User.objects.create_user(
+            email="member@example.com", first_name="Mem", last_name="Ber", password="pw12345!",
+        )
+        GroupMembership.objects.create(group=self.group, user=member, membership_role="student")
+        flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+
+        with patch(
+            "apps.grading.services.finalist_notify.send_mail",
+            side_effect=Exception("relay down"),
+        ):
+            self.assertFalse(notify_finalist(flag))
+        # Non-fatal: the flag survives untouched so a retry can mail later.
+        flag.refresh_from_db()
+        self.assertFalse(flag.notified)
+        self.assertIsNone(flag.notified_at)
