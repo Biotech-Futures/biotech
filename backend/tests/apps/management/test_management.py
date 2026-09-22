@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 from apps.grading.models import GradingSettings
 from apps.submissions.models import Deadline, GroupExtension
 
-from .fixtures import _GradingFixture, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
 
 
 class SubmissionDeadlineViewTests(_GradingFixture):
