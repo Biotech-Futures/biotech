@@ -870,6 +870,8 @@ const downloadAll = async () => {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  /* Stays right-aligned even when the header wraps it onto its own line. */
+  margin-left: auto;
 }
 
 /* Soft green fill lifts Prev/Next off the page without competing with the

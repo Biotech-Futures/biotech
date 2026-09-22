@@ -200,6 +200,62 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertFalse(r.json()["exclude_finalists"])
         self.assertEqual(r.json()["released_at"], released_at)
 
+    def test_supervisor_grades_listing_by_release_and_group(self):
+        """GET /supervisor/students/grades/ — gate, rows, and the group-less
+        student branch, all in one released-world walk-through."""
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        supervisor = User.objects.create_user(
+            email="listing-super@example.com", first_name="Sue", last_name="Pervisor",
+            password="pw12345!",
+        )
+        profile = SupervisorProfile.objects.create(user=supervisor, school_name="Test School")
+        StudentProfile.objects.create(
+            user=self.student_user, pg_first_name="P", pg_last_name="G",
+            supervisor=profile, school_name="Test School", year_lvl="11",
+        )
+        # A supervised student who never joined a group must still appear,
+        # with group null, so the supervisor can chase it up.
+        groupless = User.objects.create_user(
+            email="groupless@example.com", first_name="Gro", last_name="Upless",
+            password="pw12345!",
+        )
+        StudentProfile.objects.create(
+            user=groupless, pg_first_name="P", pg_last_name="G",
+            supervisor=profile, school_name="Test School", year_lvl="10",
+        )
+
+        url = reverse("grading:supervisor-grades")
+
+        # Gate: nothing before marks are released.
+        self.client.force_authenticate(supervisor)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
+
+        self._release_now()
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        rows = {row["email"]: row for row in r.json()["students"]}
+        self.assertEqual(set(rows), {"stud@example.com", "groupless@example.com"})
+
+        in_group = rows["stud@example.com"]
+        self.assertEqual(in_group["full_name"], "Sam Student")
+        self.assertEqual(in_group["group"]["group_name"], "BTF-TEST-1")
+        saq = next(c for c in in_group["components"] if c["code"] == "SAQ")
+        self.assertEqual(saq["criteria"][0]["mark"], "8.00")
+
+        no_group = rows["groupless@example.com"]
+        self.assertIsNone(no_group["group"])
+        self.assertEqual(no_group["components"], [])
+
+    def test_supervisor_grades_listing_empty_for_non_supervisors(self):
+        """A caller with no supervisor profile gets an empty roster, not an
+        error — the guard in _supervised_students."""
+        self._release_now()
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("grading:supervisor-grades"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["students"], [])
+
     def test_excluded_finalist_cannot_download_certificate(self):
         _seed_doc_templates()
         self._release_certificates_now()

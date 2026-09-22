@@ -1,14 +1,16 @@
 """Export downloads: the sync per-group zip, the async per-component job,
-and the job polling endpoint."""
+the job polling endpoint, and the SAQ XLSX export round-trip."""
 import io
 import zipfile
+from decimal import Decimal
 
 from django.test import override_settings
 from django.urls import reverse
+from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import GradingJob
+from apps.grading.models import Grade, GradingJob
 
 from .fixtures import _GradingFixture
 
@@ -116,3 +118,81 @@ class GradingJobDetailViewTests(_GradingFixture):
     def test_unknown_job_404(self):
         resp = self.client.get(reverse("grading:job-detail", kwargs={"pk": 999_999}))
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+class SaqXlsxExportTests(_GradingFixture):
+    """The XLSX export is the client's off-platform marking template: the
+    sheet must carry existing marks pre-filled, and the bulk-upload parser
+    must accept the exact bytes it produces back without a single diff."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        Grade.objects.create(
+            submission=self.saq_submission, criterion=self.saq_c1,
+            mark=Decimal("8.00"), comment="Great claim.",
+        )
+
+    def _export_xlsx(self) -> bytes:
+        resp = self.client.post(
+            reverse("grading:component-download", kwargs={"code": "SAQ"}),
+            {"format": "xlsx"}, format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        # Fetch through the download endpoint, as a marker's browser would.
+        download = self.client.get(
+            reverse("grading:job-download", kwargs={"pk": job.pk})
+        )
+        self.assertEqual(download.status_code, status.HTTP_200_OK)
+        if download.streaming:
+            return b"".join(download.streaming_content)
+        return download.content
+
+    def test_sheet_carries_the_upload_shape_with_marks_prefilled(self):
+        ws = load_workbook(io.BytesIO(self._export_xlsx())).active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(
+            list(rows[0]),
+            ["group_id", "group_name", "type", "text",
+             "r1_mark", "r1_comment", "r2_mark", "r2_comment"],
+        )
+        (group_id, group_name, kind, text,
+         r1_mark, r1_comment, r2_mark, r2_comment) = rows[1]
+        self.assertEqual(group_id, self.group.id)
+        self.assertEqual(group_name, "BTF-TEST-1")
+        self.assertEqual(kind, "SAQs")
+        # The SAQ text cell carries the answers under their question prompt.
+        self.assertIn("Team answers", text)
+        self.assertIn("Some student answers.", text)
+        # Existing grade pre-filled; ungraded criterion left blank, not zero.
+        self.assertEqual(r1_mark, 8.0)
+        self.assertEqual(r1_comment, "Great claim.")
+        self.assertIsNone(r2_mark)
+        self.assertIn(r2_comment, (None, ""))
+
+    def test_export_round_trips_through_bulk_upload_without_a_diff(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile(
+            "saq-export.xlsx", self._export_xlsx(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp = self.client.post(
+            reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}),
+            {"file": upload, "dry_run": "true"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertTrue(body["checks"]["type_ok"])
+        self.assertEqual(body["checks"]["missing_headers"], [])
+        # The untouched export must read as exactly what is already stored:
+        # the pre-filled mark is unchanged, the blank criterion is untouched,
+        # and nothing is created, updated or refused.
+        self.assertEqual(
+            body["summary"],
+            {"creates": 0, "updates": 0, "unchanged": 1,
+             "overall_comments": 0, "errors": 0},
+        )
