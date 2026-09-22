@@ -691,6 +691,21 @@ describe('what the format checks found about the poster', () => {
     expect(wrapper!.findAll('.poster-notice p')).toHaveLength(1)
   })
 
+  it('clears the notice by itself after four seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      await mountPage(warned([{ code: 'a_series_size', message: 'Not an A-series size.' }]))
+      await goToPoster()
+      expect(wrapper!.find('.poster-notice').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4000)
+
+      expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not warn at all when the poster passed every check', async () => {
     await mountPage(
       buildDetail({
