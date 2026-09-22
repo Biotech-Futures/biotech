@@ -20,66 +20,6 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
-      <div v-if="!isComponentMode" class="card group-marking__jump-card">
-        <p class="group-marking__jump-hint">Enter the group's ID.</p>
-        <form class="group-marking__jump" @submit.prevent="jump">
-          <div class="group-marking__jump-wrap">
-            <i class="fas fa-magnifying-glass group-marking__jump-icon" aria-hidden="true"></i>
-            <input
-              v-model="jumpId"
-              type="number"
-              min="1"
-              placeholder="Group ID"
-              class="group-marking__jump-input"
-              aria-label="Group ID"
-            />
-          </div>
-          <button type="submit" class="btn btn-primary btn-sm">Open</button>
-        </form>
-      </div>
-
-      <div class="group-marking__header">
-        <h2 class="group-marking__title">
-          {{ payload.group.group_name }}
-          <span class="group-marking__id">#{{ groupId }}</span>
-        </h2>
-        <div class="group-marking__header-actions">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
-            :disabled="prevId == null"
-            @click="goto(prevId)"
-          >
-            <i class="fas fa-chevron-left" aria-hidden="true"></i> Prev
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
-            :disabled="nextId == null"
-            @click="goto(nextId)"
-          >
-            Next <i class="fas fa-chevron-right" aria-hidden="true"></i>
-          </button>
-          <button
-            v-if="!isComponentMode"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="isDownloading"
-            @click="downloadAll"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i>
-            {{ isDownloading ? 'Preparing…' : 'Download all' }}
-          </button>
-        </div>
-      </div>
-
-      <p v-if="actionError" class="group-marking__banner group-marking__banner--error">
-        {{ actionError }}
-      </p>
-      <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
-        Marks saved.
-      </p>
-
       <div class="group-marking__tabs" role="tablist" aria-label="Components">
         <button
           v-if="combinedAvailable"
@@ -105,6 +45,68 @@
           {{ block.component.name }}
         </button>
       </div>
+
+      <div class="group-marking__header">
+        <h2 class="group-marking__title">
+          {{ payload.group.group_name }}
+          <span class="group-marking__id">#{{ groupId }}</span>
+        </h2>
+        <div class="group-marking__search-field">
+          <span class="group-marking__search-label">Search</span>
+          <form class="group-marking__search-form" @submit.prevent="openSearch">
+            <GroupSearchInput
+              ref="picker"
+              v-model="searchQuery"
+              class="group-marking__picker"
+              @select="onSearchSelect"
+            />
+            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
+          </form>
+        </div>
+        <div class="group-marking__header-actions">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
+            :disabled="prevId == null"
+            @click="goto(prevId)"
+          >
+            <i class="fas fa-chevron-left" aria-hidden="true"></i> Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
+            :disabled="nextId == null"
+            @click="goto(nextId)"
+          >
+            Next <i class="fas fa-chevron-right" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm group-marking__nav-btn"
+            :disabled="nextUnmarkedId == null"
+            @click="goto(nextUnmarkedId)"
+          >
+            Next Unmarked <i class="fas fa-angles-right" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="isDownloading"
+            @click="downloadAll"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i>
+            {{ isDownloading ? 'Preparing…' : 'Download all' }}
+          </button>
+        </div>
+      </div>
+
+      <p v-if="actionError" class="group-marking__banner group-marking__banner--error">
+        {{ actionError }}
+      </p>
+      <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
+        Marks saved.
+      </p>
 
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
@@ -141,14 +143,14 @@
                 >
                   Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
                 </a>
-                <a
+                <button
                   v-if="posterLinks.download"
-                  :href="posterLinks.download"
+                  type="button"
                   class="btn btn-outline btn-sm"
-                  :download="posterBlock.submission?.file_name ?? ''"
+                  @click="downloadStampFile(posterLinks.download, posterBlock.submission?.file_name)"
                 >
                   Download <i class="fas fa-download" aria-hidden="true"></i>
-                </a>
+                </button>
               </span>
             </p>
             <!-- Category boxes span above the nested split, so the answers
@@ -179,7 +181,14 @@
           </div>
         </template>
         <template #right>
-          <div class="group-marking__combined-rubrics group-marking__pane-offset">
+          <div class="group-marking__pane-offset">
+          <div
+            ref="rubricsEl"
+            class="group-marking__combined-rubrics"
+            :style="
+              rubricsHeight != null ? { height: `${rubricsHeight}px`, maxHeight: 'none' } : undefined
+            "
+          >
             <div>
               <h4 class="group-marking__rubric-title">{{ saqBlock.component.name }}</h4>
               <RubricForm
@@ -207,6 +216,16 @@
             <RouterLink :to="backTarget" class="btn btn-outline btn-sm group-marking__back">
               Back
             </RouterLink>
+          </div>
+          <div
+            class="group-marking__rubrics-resize"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize rubrics height"
+            tabindex="0"
+            @pointerdown="startRubricsDrag"
+            @keydown="onRubricsKeydown"
+          ></div>
           </div>
         </template>
       </ResizableSplit>
@@ -248,14 +267,14 @@
                   >
                     Open <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
                   </a>
-                  <a
+                  <button
                     v-if="singleLinks.download"
-                    :href="singleLinks.download"
+                    type="button"
                     class="btn btn-outline btn-sm"
-                    :download="activeBlock.submission.file_name ?? ''"
+                    @click="downloadStampFile(singleLinks.download, activeBlock.submission.file_name)"
                   >
                     Download <i class="fas fa-download" aria-hidden="true"></i>
-                  </a>
+                  </button>
                 </span>
               </p>
               <MarkingCategories
@@ -305,12 +324,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
+import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import ResizableSplit from '@/components/grading/ResizableSplit.vue'
 import RubricForm from '@/components/grading/RubricForm.vue'
 import SubmissionPreview from '@/components/grading/SubmissionPreview.vue'
 import {
   downloadGroupZip,
+  downloadSubmissionFile,
   fetchComponentRows,
   fetchGroupMarking,
   overallCommentLabel,
@@ -322,25 +343,31 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
-// One page serves both marking flows; the route decides the chrome. By group
-// (/grading/groups/:id) gets the jump card and Download all, and switches
-// sections locally. By component (/grading/components/:code/:id) hides those
-// extras and navigates its sections through the URL, so a marker can walk
-// groups without leaving their component.
+// One page serves both marking flows with the same chrome (search, prev/next,
+// Download all). The route only decides section navigation: by group
+// (/grading/groups/:id) switches sections locally, while by component
+// (/grading/components/:code/:id) navigates them through the URL, so a marker
+// can walk groups without leaving their component.
 const route = useRoute()
 const router = useRouter()
 const isComponentMode = computed(() => route.name === 'grading-component-group')
 const code = computed(() => String(route.params.code || ''))
 const groupId = computed(() => Number(route.params.groupId))
-const jumpId = ref('')
+const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
+const searchQuery = ref('')
+const searchError = ref('')
 
 type ComponentBlock = GroupMarkingPayload['components'][number]
 
 // Synthetic first tab: the SAQ answers and the poster marked side by side.
 const COMBINED_CODE = 'SAQ_POSTER'
 
+// All real components — prev/next checks submissions across every one.
+const ALL_CODES = ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE']
+
 const payload = ref<GroupMarkingPayload | null>(null)
 const rows = ref<ComponentListPayload | null>(null)
+const allRows = ref<ComponentListPayload[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
@@ -495,6 +522,19 @@ const fileLinks = (submission: ComponentBlock['submission']) => {
 const posterLinks = computed(() => fileLinks(posterBlock.value?.submission ?? null))
 const singleLinks = computed(() => fileLinks(activeBlock.value?.submission ?? null))
 
+// Download via a blob fetch so it saves instead of opening — a plain link is
+// cross-origin (download attribute ignored) and local /media/ serves inline.
+const downloadStampFile = async (url: string | null, fileName?: string | null) => {
+  if (!url) return
+  try {
+    await downloadSubmissionFile(url, fileName || 'submission.pdf')
+  } catch {
+    // If the fetch is blocked (e.g. Azure blob CORS), fall back to the direct
+    // URL — its SAS attachment disposition still downloads there.
+    window.open(url, '_blank', 'noopener')
+  }
+}
+
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.
 const singleSubmittedLabel = computed(() =>
@@ -521,25 +561,61 @@ const singleMarkerTooltip = computed(() => {
 })
 
 // Prev/next walk the cohort in group-ID order, matching the #id in the
-// heading. Component mode skips groups without a submission — no point
-// navigating to an empty marking pane there.
-const orderedRows = computed(() =>
-  (rows.value?.rows ?? []).slice().sort((a, b) => a.group_id - b.group_id)
-)
+// heading. A group is skipped only when it has no submission in ANY
+// component; submitting any one component keeps it reachable.
+const orderedGroupIds = computed(() => {
+  const ids = new Set<number>()
+  for (const p of allRows.value) for (const r of p.rows) ids.add(r.group_id)
+  return [...ids].sort((a, b) => a - b)
+})
+
+const groupsWithSubmission = computed(() => {
+  const ids = new Set<number>()
+  for (const p of allRows.value) {
+    for (const r of p.rows) if (r.submission_id != null) ids.add(r.group_id)
+  }
+  return ids
+})
 
 const neighborId = (direction: -1 | 1) => {
-  const list = orderedRows.value
-  const idx = list.findIndex((r) => r.group_id === groupId.value)
+  const list = orderedGroupIds.value
+  const idx = list.indexOf(groupId.value)
   if (idx < 0) return null
   const candidates = direction === -1 ? list.slice(0, idx).reverse() : list.slice(idx + 1)
-  const hit = isComponentMode.value
-    ? candidates.find((r) => r.submission_id != null)
-    : candidates[0]
-  return hit?.group_id ?? null
+  return candidates.find((id) => groupsWithSubmission.value.has(id)) ?? null
 }
 
 const prevId = computed(() => neighborId(-1))
 const nextId = computed(() => neighborId(1))
+
+// "Next Unmarked" walks forward (wrapping past the last ID to the first)
+// to the next group whose CURRENT subtab still has unmarked rubric criteria.
+// Groups whose rubric here is fully marked are skipped, as are groups with
+// nothing to mark on this subtab (no submission, or no rubric defined).
+const activeMarkingCodes = computed(() =>
+  isCombined.value ? ['SAQ', 'POSTER'] : effectiveCode.value ? [effectiveCode.value] : []
+)
+
+const hasUnmarkedHere = (id: number) =>
+  activeMarkingCodes.value.some((markingCode) => {
+    const p = allRows.value.find((x) => x.component.code === markingCode)
+    if (!p || p.criteria_total <= 0) return false
+    const r = p.rows.find((row) => row.group_id === id)
+    return r != null && r.submission_id != null && r.criteria_graded < p.criteria_total
+  })
+
+const nextUnmarkedId = computed(() => {
+  const list = orderedGroupIds.value
+  if (!list.length) return null
+  const idx = list.indexOf(groupId.value)
+  const start = idx < 0 ? -1 : idx
+  for (let step = 1; step <= list.length; step++) {
+    const candidate = list[(start + step + list.length) % list.length]
+    if (candidate === groupId.value) continue
+    if (hasUnmarkedHere(candidate)) return candidate
+  }
+  return null
+})
 
 const goto = (id: number | null) => {
   if (id == null) return
@@ -548,11 +624,63 @@ const goto = (id: number | null) => {
   )
 }
 
-const jump = () => {
-  const n = Number(jumpId.value)
-  if (!Number.isFinite(n) || n <= 0 || n === groupId.value) return
-  jumpId.value = ''
-  void router.push(`/grading/groups/${n}`)
+// Same search box as the marking tables; Open resolves the typed name or ID
+// and navigates within the current mode (component or by-group).
+const openSearch = () => {
+  searchError.value = ''
+  const id = picker.value?.resolveId() ?? null
+  if (id == null) {
+    searchError.value = 'No group matches that name or ID.'
+    return
+  }
+  searchQuery.value = ''
+  if (id !== groupId.value) goto(id)
+}
+
+// Picking a dropdown suggestion navigates straight away.
+const onSearchSelect = ({ id }: { id: number }) => {
+  searchError.value = ''
+  searchQuery.value = ''
+  if (id !== groupId.value) goto(id)
+}
+
+// Drag the bar under the combined rubric stack to change its height — the
+// same mechanic as the answer/PDF blocks in SubmissionPreview.
+const MIN_RUBRICS_PX = 240
+const rubricsEl = ref<HTMLDivElement | null>(null)
+const rubricsHeight = ref<number | null>(null)
+
+const startRubricsDrag = (event: PointerEvent) => {
+  const el = rubricsEl.value
+  const handle = event.currentTarget as HTMLElement
+  if (!el) return
+  event.preventDefault()
+  handle.setPointerCapture(event.pointerId)
+  const startY = event.clientY
+  const startHeight = el.getBoundingClientRect().height
+
+  const move = (e: PointerEvent) => {
+    rubricsHeight.value = Math.max(MIN_RUBRICS_PX, Math.round(startHeight + (e.clientY - startY)))
+  }
+  const stop = () => {
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', stop)
+    handle.removeEventListener('pointercancel', stop)
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', stop)
+  handle.addEventListener('pointercancel', stop)
+}
+
+const onRubricsKeydown = (e: KeyboardEvent) => {
+  const current = rubricsHeight.value ?? rubricsEl.value?.getBoundingClientRect().height ?? 0
+  if (e.key === 'ArrowDown') {
+    rubricsHeight.value = Math.round(current + 40)
+    e.preventDefault()
+  } else if (e.key === 'ArrowUp') {
+    rubricsHeight.value = Math.max(MIN_RUBRICS_PX, Math.round(current - 40))
+    e.preventDefault()
+  }
 }
 
 const load = async () => {
@@ -562,12 +690,15 @@ const load = async () => {
   loadError.value = ''
   try {
     // Rows are best-effort: without them prev/next simply stay disabled.
-    const [groupPayload, rowsPayload] = await Promise.all([
+    // Every component's rows load so prev/next can spot a submission in any
+    // of them; the current component's rows also feed the marker columns.
+    const [groupPayload, componentRows] = await Promise.all([
       fetchGroupMarking(groupId.value),
-      fetchComponentRows(rowsCode.value).catch(() => null)
+      Promise.all(ALL_CODES.map((c) => fetchComponentRows(c).catch(() => null)))
     ])
     payload.value = groupPayload
-    rows.value = rowsPayload
+    allRows.value = componentRows.filter((p): p is ComponentListPayload => p != null)
+    rows.value = allRows.value.find((p) => p.component.code === rowsCode.value) ?? null
   } catch (err) {
     payload.value = null
     loadError.value = apiErrorFromUnknown(err).message
@@ -672,62 +803,45 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-.group-marking__jump-card {
-  max-width: 36rem;
-}
-
-.group-marking__jump-hint {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
-}
-
-.group-marking__jump {
+/* Search sits centered in the header row, between the title and the Prev/
+   Next/Download buttons. The error overlays below so it never stretches
+   the row. */
+/* Unlike the table pages, the label sits inline, left of the textbox. */
+.group-marking__search-field {
   display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-inline: auto;
+}
+
+.group-marking__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.group-marking__search-form {
+  position: relative;
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
-.group-marking__jump-wrap {
-  position: relative;
-  flex: 1;
+/* Same width as the By Component page's search box. */
+.group-marking__picker {
+  width: 252px;
 }
 
-.group-marking__jump-icon {
+.group-marking__search-error {
   position: absolute;
-  left: 0.65rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  pointer-events: none;
-}
-
-.group-marking__jump-input {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem 0.45rem 2rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-}
-
-.group-marking__jump-input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-}
-
-/* Hide the native number spinners — IDs are typed, not stepped. */
-.group-marking__jump-input {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.group-marking__jump-input::-webkit-inner-spin-button,
-.group-marking__jump-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
+  top: calc(100% + 4px);
+  left: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
   margin: 0;
+  white-space: nowrap;
 }
 
 .group-marking__header {
@@ -736,6 +850,8 @@ const downloadAll = async () => {
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
+  /* A little extra breathing room above the marking content. */
+  margin-bottom: 0.85rem;
 }
 
 .group-marking__title {
@@ -751,7 +867,9 @@ const downloadAll = async () => {
 
 .group-marking__header-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 /* Soft green fill lifts Prev/Next off the page without competing with the
@@ -888,9 +1006,30 @@ const downloadAll = async () => {
   gap: 1.25rem;
   /* Scrolls within its own pane, like the answers and PDF beside it, so a
      long rubric stack doesn't stretch the page. */
-  max-height: 88vh;
+  max-height: 94vh;
   overflow-y: auto;
   padding-right: 0.25rem;
+}
+
+/* Same drag bar as the preview blocks in SubmissionPreview. */
+.group-marking__rubrics-resize {
+  height: 4px;
+  width: 100%;
+  margin: 0.15rem 0 0;
+  border-radius: 999px;
+  background: var(--border-light);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.group-marking__rubrics-resize:hover,
+.group-marking__rubrics-resize:active {
+  background: var(--dark-green);
+}
+
+.group-marking__rubrics-resize:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
 }
 
 .group-marking__rubric-title {

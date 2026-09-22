@@ -135,8 +135,9 @@ class ComponentMarkingListView(APIView):
                 "group_name": g["group_name"],
                 "submission_id": sid,
                 "submitted_at": entry.submitted_at if entry else None,
-                "is_late": entry.is_late if entry else False,
-                # None on time; "" late but amount unknown; else e.g. "3h 12m".
+                # Derived from times, not the stored flag — see is_late_against.
+                "is_late": content.is_late_against(entry, deadlines.get(g["id"])) if entry else False,
+                # None on time; else e.g. "3h 12m".
                 "late_by": content.lateness_label(entry, deadlines.get(g["id"])) if entry else None,
                 "criteria_graded": graded_counts.get(sid, 0) if sid else 0,
                 "marks_total": mark_totals.get(sid) if sid else None,

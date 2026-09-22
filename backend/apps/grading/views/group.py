@@ -52,6 +52,8 @@ class GroupMarkingView(APIView):
             e.component_id: e for e in content.submission_entries(group_id=group.id)
         }
         feedback = content.feedback_map([group.id])
+        # For the derived is_late on each component's submission block.
+        group_closes_at = content.group_deadline_map([group.id]).get(group.id)
         rubrics_by_component = {
             r.component_id: r
             for r in Rubric.objects.filter(year=year, active=True).prefetch_related("criteria")
@@ -88,7 +90,7 @@ class GroupMarkingView(APIView):
             payload_components.append({
                 "component": SubmissionComponentSerializer(component).data,
                 "submission": content.entry_payload(
-                    entry, feedback.get((group.id, component.id), "")
+                    entry, feedback.get((group.id, component.id), ""), closes_at=group_closes_at
                 ),
                 "rubric_id": rubric.id if rubric else None,
                 "criteria": RubricCriterionSerializer(criteria, many=True).data,

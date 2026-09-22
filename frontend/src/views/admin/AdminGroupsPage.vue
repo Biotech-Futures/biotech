@@ -194,7 +194,7 @@
       </template>
     </AdminDataTable>
 
-    <GroupDetailModal v-model="detailOpen" :group="detailGroup" @changed="onDetailChanged" />
+    <GroupDetailModal v-if="detailOpen" v-model="detailOpen" :group="detailGroup" @changed="onDetailChanged" />
 
     <!-- Bulk delete confirm (forces the DELETE keyword when select-all / force) -->
     <ConfirmDialog
@@ -272,15 +272,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import AdminDataTable, { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
-import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
+
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
-import MentorMatchingPanel from '@/components/admin/matching/MentorMatchingPanel.vue'
-import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPanel.vue'
+
+const GroupDetailModal = defineAsyncComponent(
+  () => import('@/components/admin/groups/GroupDetailModal.vue')
+)
+const MentorMatchingPanel = defineAsyncComponent(
+  () => import('@/components/admin/matching/MentorMatchingPanel.vue')
+)
+const StudentMatchingPanel = defineAsyncComponent(
+  () => import('@/components/admin/matching/StudentMatchingPanel.vue')
+)
 import {
   fetchAdminGroupList,
   createGroup,

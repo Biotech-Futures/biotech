@@ -44,6 +44,36 @@ class UploadEventImageTests(SimpleTestCase):
         self.assertIs(saved_file, upload)
         self.assertEqual(upload.tell(), 0)
 
+    # The original suite (adminweb PR #274) only ever exercised the PNG path
+    # for acceptance; the wrong-dimensions/corrupt/unsupported-type rejection
+    # tests below are format-agnostic, but nothing confirmed the other three
+    # allowed types actually round-trip through Pillow + the extension map
+    # (`_ALLOWED_CONTENT_TYPES` / the ext lookup in upload_event_image) rather
+    # than just being permitted by the content-type check.
+    @patch("apps.admin.services.event_image.get_event_image_storage")
+    def test_accepts_an_exact_1280_by_320_image_of_each_supported_type(self, get_storage):
+        storage = Mock()
+        get_storage.return_value = storage
+        cases = [
+            ("PNG", "image/png", ".png"),
+            ("JPEG", "image/jpeg", ".jpg"),
+            ("GIF", "image/gif", ".gif"),
+            ("WEBP", "image/webp", ".webp"),
+        ]
+
+        for image_format, content_type, expected_ext in cases:
+            with self.subTest(content_type=content_type):
+                storage.save.reset_mock()
+                storage.save.return_value = f"saved-banner{expected_ext}"
+                upload = make_image_upload(image_format=image_format, content_type=content_type)
+
+                result = upload_event_image(upload)
+
+                self.assertEqual(result["msg"], "Event image uploaded successfully", content_type)
+                self.assertEqual(result["data"], {"key": f"saved-banner{expected_ext}"})
+                saved_name, _ = storage.save.call_args.args
+                self.assertTrue(saved_name.endswith(expected_ext), saved_name)
+
     @patch("apps.admin.services.event_image.get_event_image_storage")
     def test_rejects_an_image_with_the_wrong_dimensions(self, get_storage):
         result = upload_event_image(make_image_upload(width=640, height=160))
