@@ -11,7 +11,7 @@ from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
-from apps.submissions.poster_checks import SUPERVISOR_EMAIL, TEAM_CODE
+from apps.submissions.poster_checks import A_SERIES_SIZE, SUPERVISOR_EMAIL, TEAM_CODE
 from apps.users.models import User
 
 from .seed_data import install_question_set
@@ -78,16 +78,15 @@ class PosterFormatUploadTests(TestCase):
         self.assertIn("portrait", problems.lower())
         self.assertIn("landscape", problems.lower())
 
-    def test_a_non_metric_page_is_refused_and_told_its_size(self):
+    def test_a_non_metric_page_is_accepted_but_flagged(self):
         response = self._upload(_upload_file(*US_LETTER, text="BTF7 a@b.edu.au"))
 
-        self.assertEqual(response.status_code, 400)
-        problems = " ".join(response.data["problems"])
-        self.assertIn("A2", problems)
-        self.assertIn("216 × 279 mm", problems)
+        self.assertEqual(response.status_code, 200)
+        codes = {w["code"] for w in self._submission().poster_checks["warnings"]}
+        self.assertEqual(codes, {A_SERIES_SIZE})
 
     def test_only_the_first_problem_is_named(self):
-        # Two pages, landscape and US Letter all at once.
+        # Two pages and landscape at once.
         response = self._upload(_upload_file(US_LETTER[1], US_LETTER[0], pages=2))
 
         self.assertEqual(response.status_code, 400)
