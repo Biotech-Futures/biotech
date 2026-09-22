@@ -110,8 +110,8 @@ class FinalistCandidatesView(APIView):
         entries = content.submission_entries()
         group_by_submission = {e.submission_id: e.group_id for e in entries}
 
-        # One (submitted_at, is_late) per group — shared by all its entries.
-        submit_meta = {e.group_id: (e.submitted_at, e.is_late) for e in entries}
+        # One submitted_at per group — shared by all its entries.
+        submit_meta = {e.group_id: e.submitted_at for e in entries}
         deadlines = content.group_deadline_map(list(submit_meta)) if submit_meta else {}
 
         # One submission id spans an entry's components, so totals must split
@@ -184,16 +184,16 @@ class FinalistCandidatesView(APIView):
         for g in groups:
             marks = marks_by_group.get(g["id"], {})
             overall = sum(marks.values()) if marks else None
-            submitted_at, is_late = submit_meta.get(g["id"], (None, False))
-            late_by = None
-            if is_late and submitted_at is not None:
-                closes_at = deadlines.get(g["id"])
-                if closes_at is not None and submitted_at > closes_at:
-                    late_by = content.late_by_label(submitted_at - closes_at)
-                else:
-                    # is_late was recorded at submit; if the deadline has been
-                    # edited since, say "late" without inventing a duration.
-                    late_by = ""
+            submitted_at = submit_meta.get(g["id"])
+            closes_at = deadlines.get(g["id"])
+            # Derived from times, not the stored flag — matches the component
+            # tables, and entries recorded before the flag worked display right.
+            is_late = (
+                submitted_at is not None
+                and closes_at is not None
+                and submitted_at > closes_at
+            )
+            late_by = content.late_by_label(submitted_at - closes_at) if is_late else None
             rows.append({
                 "group_id": g["id"],
                 "group_name": g["group_name"],

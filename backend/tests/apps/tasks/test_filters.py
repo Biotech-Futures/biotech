@@ -3,8 +3,8 @@ from django.utils import timezone
 
 from apps.groups.models import Groups
 
-from .filters import TaskFilter
-from .models import CreatorRole, Task, TaskType
+from apps.tasks.filters import TaskFilter
+from apps.tasks.models import CreatorRole, Task, TaskType
 
 
 class DeletedFilterTests(TestCase):

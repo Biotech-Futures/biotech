@@ -80,7 +80,8 @@ def _run_job(job_id: int) -> None:
             )
 
         if kind == "component_zip":
-            payload = build_submissions_zip(entries)
+            # One component per job — skip the redundant folder layer.
+            payload = build_submissions_zip(entries, component_folder=False)
             filename = f"{component.code}-bundle.zip"
         elif kind == "component_xlsx":
             criteria = list(
@@ -97,6 +98,10 @@ def _run_job(job_id: int) -> None:
             }
             payload = build_saq_xlsx(entries, criteria, grades_by_pair)
             filename = f"{component.code}-saq.xlsx"
+        elif kind == "all_zip":
+            # Everything: every group, every component, full folder structure.
+            payload = build_submissions_zip(submission_entries())
+            filename = "all-submissions.zip"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))
             supervisor_user_id = int(job.params.get("supervisor_user_id"))
