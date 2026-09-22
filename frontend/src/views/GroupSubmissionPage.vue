@@ -1195,15 +1195,21 @@ onBeforeUnmount(() => {
 }
 
 
+/* Same type as .status-line__state, so the line has a single style. */
 .submission-due {
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
   margin-left: auto;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--body-text);
+  letter-spacing: -0.005em;
   white-space: nowrap;
+}
+
+.submission-due__date {
+  font-weight: inherit;
 }
 
 /* Plain text after a dot, so the whole deadline reads as one line. */
