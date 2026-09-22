@@ -1195,38 +1195,23 @@ onBeforeUnmount(() => {
 }
 
 
-/* Same type as .status-line__state, so the line has a single style. */
 .submission-due {
   display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--body-text);
-  letter-spacing: -0.005em;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
 .submission-due__date {
-  font-weight: inherit;
+  font-weight: 600;
+  color: var(--body-text);
 }
 
-/* Plain text after a dot, so the whole deadline reads as one line. */
-.submission-due .submission-remaining::before,
-.submission-due .status-badge::before {
-  content: '·';
-  margin-right: 0.35rem;
+.submission-due__label {
   color: var(--muted);
-}
-
-.submission-due .status-badge {
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  color: inherit;
-  font-size: inherit;
-  font-weight: inherit;
+  font-weight: 400;
 }
 
 .status-line {
@@ -1283,10 +1268,17 @@ onBeforeUnmount(() => {
 }
 
 .submission-remaining {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
   color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .submission-remaining.is-near {
+  background: var(--error-bg);
   color: var(--error);
 }
 
