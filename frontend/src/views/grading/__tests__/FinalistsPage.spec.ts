@@ -129,7 +129,7 @@ describe('the group marks ranking', () => {
     const wrapper = await mountPage()
     const finalistRow = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-2'))!
     expect(finalistRow.text()).toContain('Added')
-    expect(finalistRow.findAll('button').some((b) => /Add as Finalist/.test(b.text()))).toBe(false)
+    expect(finalistRow.findAll('button').some((b) => b.text().trim() === 'Add')).toBe(false)
   })
 
   it('live-filters by the search text', async () => {
@@ -143,7 +143,7 @@ describe('the group marks ranking', () => {
 
   it('adding from a row flags the group and refreshes both tables', async () => {
     const wrapper = await mountPage()
-    await wrapper.findAll('button').find((b) => /Add as Finalist/.test(b.text()))!.trigger('click')
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Add')!.trigger('click')
     await flushPromises()
     expect(addMock).toHaveBeenCalledWith(1)
     expect(finalistsMock).toHaveBeenCalledTimes(2)
@@ -171,7 +171,7 @@ describe('the group marks ranking', () => {
   it('a refused add is reported', async () => {
     addMock.mockRejectedValueOnce(new Error('not allowed'))
     const wrapper = await mountPage()
-    await wrapper.findAll('button').find((b) => /Add as Finalist/.test(b.text()))!.trigger('click')
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Add')!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.finalists__banner--error').text()).toContain('not allowed')
   })

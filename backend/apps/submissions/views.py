@@ -39,7 +39,7 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import current_cohort, deadline_for_group
+from .services import active_deadline, current_cohort, deadline_for_group
 from .storage import submission_file_service
 from .uploads import (
     PDF_SLOTS,
@@ -286,7 +286,7 @@ class GroupSubmissionSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        info = _require_open(group.id)
+        _require_open(group.id)
 
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
@@ -314,10 +314,13 @@ class GroupSubmissionSubmitView(APIView):
 
             submission.snapshot(request.user)
             submission.cohort = current_cohort()
-            # Late = past the announced deadline (the team's extension when
-            # they have one), even inside the quiet grace window that still
-            # accepts the submit. _require_open guarantees closes_at is set.
-            submission.is_late = submission.submitted_at > info.closes_at
+            # Late = past the GLOBAL announced deadline, even inside the
+            # quiet grace window or a per-team extension — an extension only
+            # keeps the portal accepting, it does not make the entry on time.
+            baseline = active_deadline()
+            submission.is_late = (
+                baseline is not None and submission.submitted_at > baseline.closes_at
+            )
             submission.save()
 
         # Outside the transaction, since a blob delete cannot be rolled back.

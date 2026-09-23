@@ -51,7 +51,9 @@ describe('the finalist roster', () => {
     const rows = wrapper.findAll('tbody tr')
     expect(rows[0]!.text()).toContain('BTF-1')
     expect(rows[0]!.text()).toContain('—')
-    expect(rows[1]!.text()).toContain(new Date('2026-09-10T00:00:00Z').toLocaleString())
+    expect(rows[1]!.text()).toContain(
+      `${new Date('2026-09-10T00:00:00Z').toLocaleDateString('en-GB')} ${new Date('2026-09-10T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    )
   })
 
   it('an already-notified team cannot be ticked again', async () => {

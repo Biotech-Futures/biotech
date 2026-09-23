@@ -46,10 +46,9 @@
                 </button>
               </th>
               <th>Group</th>
-              <th>Submitted</th>
               <th>
                 <button type="button" class="by-group__sort" @click="setSort('time')">
-                  Time <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -71,7 +70,7 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="by-group__empty">
+              <td colspan="7" class="by-group__empty">
                 {{ query.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
@@ -80,13 +79,14 @@
               <td class="by-group__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString() }}
-                </template>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleTimeString() }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB') }}
+                  {{
+                    new Date(r.submitted_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hourCycle: 'h23'
+                    })
+                  }}
                 </template>
                 <span v-else class="by-group__muted">—</span>
               </td>
@@ -129,7 +129,7 @@
                 >
                   Open
                 </RouterLink>
-                <span v-else class="by-group__muted">No submission</span>
+                <span v-else class="by-group__muted">No sub.</span>
               </td>
             </tr>
           </tbody>
