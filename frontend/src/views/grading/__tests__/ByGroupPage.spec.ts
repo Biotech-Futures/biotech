@@ -152,7 +152,7 @@ describe('the aggregated group table', () => {
     const alphaRow = wrapper.findAll('tbody tr').find((r) => r.text().includes('Alpha Team'))!
     expect(alphaRow.find('.by-group__late').text()).toBe('3h 12m')
     const unsubmitted = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-2'))!
-    expect(unsubmitted.text()).toContain('No submission')
+    expect(unsubmitted.text()).toContain('No sub.')
     expect(unsubmitted.find('a').exists()).toBe(false)
   })
 

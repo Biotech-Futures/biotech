@@ -451,22 +451,18 @@ def remove_group_extension(group_id: int, *, revoked_by=None) -> bool:
 
 
 def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
-    """The announced closing time that applied to each group.
+    """The GLOBAL announced closing time, per group.
 
-    Per-group extensions override the active baseline deadline — same
-    resolution as the portal's ``deadline_for_group``, done in two queries so
-    a whole-cohort table doesn't pay one query per group. ``None`` when no
+    Deliberately ignores per-group extensions: lateness is always judged
+    against the global deadline — an extension only keeps the portal
+    accepting, it does not make a submission on time. ``None`` when no
     deadline is configured at all.
     """
-    from apps.submissions.models import Deadline, GroupExtension
+    from apps.submissions.models import Deadline
 
     baseline = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
     default = baseline.closes_at if baseline else None
-    overrides = dict(
-        GroupExtension.objects.filter(group_id__in=group_ids, revoked_at__isnull=True)
-        .values_list("group_id", "extended_until")
-    )
-    return {gid: overrides.get(gid, default) for gid in group_ids}
+    return {gid: default for gid in group_ids}
 
 
 def feedback_map(group_ids: list[int] | None = None) -> dict[tuple[int, int], str]:

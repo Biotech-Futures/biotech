@@ -36,7 +36,7 @@ from apps.groups.models.group_members import GroupMembership
 from apps.users.models import StudentProfile
 
 from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
-from .content import submission_entries
+from .content import feedback_map, submission_entries
 from .docx import (
     certificate_context,
     marks_summary_context,
@@ -96,7 +96,14 @@ def _run_job(job_id: int) -> None:
                     criterion__rubric__component__code=component_code,
                 )
             }
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair)
+            feedback_by_group = {
+                gid: comment
+                for (gid, component_id), comment in feedback_map(
+                    [e.group_id for e in entries]
+                ).items()
+                if component_id == component.id
+            }
+            payload = build_saq_xlsx(entries, criteria, grades_by_pair, feedback_by_group)
             filename = f"{component.code}-saq.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.

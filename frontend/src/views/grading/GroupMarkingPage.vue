@@ -118,7 +118,7 @@
                  the PDF's right edge, tracking the divider when dragged. -->
             <p class="group-marking__pane-stamp">
               <span v-if="combinedSubmittedLabel">
-                Submitted {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
+                Submitted at {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
                 <template v-if="combinedMarkerText">
                   · Marker:
                   <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
@@ -237,7 +237,7 @@
                    edge; the rubric column offsets to stay level below. -->
               <p class="group-marking__pane-stamp">
                 <span>
-                  Submitted {{ singleSubmittedLabel
+                  Submitted at {{ singleSubmittedLabel
                   }}<template v-if="activeBlock.submission.is_late"> (late)</template>
                   <template v-if="singleMarkerName">
                     · Marker:
@@ -474,10 +474,18 @@ const criterionMarkers = computed(() => (activeBlock.value ? markersFor(activeBl
 const combinedSubmission = computed(
   () => saqBlock.value?.submission ?? posterBlock.value?.submission ?? null
 )
+// "9/2/2026 19:48" — 24-hour, no seconds, no comma, matching the tables.
+const stampLabel = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  })}`
+}
+
 const combinedSubmittedLabel = computed(() =>
-  combinedSubmission.value
-    ? new Date(combinedSubmission.value.submitted_at).toLocaleString()
-    : ''
+  combinedSubmission.value ? stampLabel(combinedSubmission.value.submitted_at) : ''
 )
 const combinedIsLate = computed(() => combinedSubmission.value?.is_late === true)
 
@@ -538,9 +546,7 @@ const downloadStampFile = async (url: string | null, fileName?: string | null) =
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.
 const singleSubmittedLabel = computed(() =>
-  activeBlock.value?.submission
-    ? new Date(activeBlock.value.submission.submitted_at).toLocaleString()
-    : ''
+  activeBlock.value?.submission ? stampLabel(activeBlock.value.submission.submitted_at) : ''
 )
 const singleMarkerName = computed(() =>
   isComponentMode.value ? currentRow.value?.last_grader_name : activeBlock.value?.last_grader_name

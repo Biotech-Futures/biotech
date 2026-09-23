@@ -34,7 +34,8 @@
         </button>
       </div>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
-        Last Emailed at {{ new Date(lastEmailed.notified_at!).toLocaleString() }}<template
+        Last Emailed at
+        {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
           v-if="lastEmailed.notified_by"
         >
           by {{ lastEmailed.notified_by }}</template
@@ -76,7 +77,11 @@
               <td>
                 <span v-if="f.notified" class="notify-finalists__notified">
                   <i class="fas fa-envelope-circle-check" aria-hidden="true"></i>
-                  {{ f.notified_at ? new Date(f.notified_at).toLocaleString() : 'Sent' }}
+                  {{
+                    f.notified_at
+                      ? `${new Date(f.notified_at).toLocaleDateString('en-GB')} ${new Date(f.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+                      : 'Sent'
+                  }}
                 </span>
                 <span v-else class="notify-finalists__muted">—</span>
               </td>

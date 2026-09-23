@@ -158,7 +158,7 @@ describe('the table', () => {
     expect(late.find('.component-table__marker').attributes('title')).toBe('Marked by: Ada Grader')
 
     const unsubmitted = rowByName(wrapper, 'BTF-2')
-    expect(unsubmitted.text()).toContain('No submission')
+    expect(unsubmitted.text()).toContain('No sub.')
   })
 
   it('shows a dash progress when the component has no rubric yet', async () => {

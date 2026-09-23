@@ -86,7 +86,7 @@
               <tr :class="{ 'extensions__row--with-reason': e.reason }">
                 <td class="extensions__muted">#{{ e.group_id }}</td>
                 <td class="extensions__cell--strong">{{ e.group_name }}</td>
-                <td>{{ new Date(e.extended_until).toLocaleString() }}</td>
+                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB')} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
                 <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
                 <td>
                   <span :class="`extensions__status--${extensionStatus(e).state}`">
