@@ -251,6 +251,35 @@ class ConfirmPasswordResetServiceTest(TestCase):
         # notification only fires after a successful reset
         mock_mail.assert_not_called()
 
+    def test_weak_password_leaves_the_link_usable(self, _mock_mail):
+        # A rejected password must not spend the token: the user is still on the
+        # page and expects to be able to try a different one.
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+
+        self.token_row.refresh_from_db()
+        self.assertFalse(self.token_row.used)
+        self.assertIsNone(self.token_row.used_at)
+
+    def test_second_attempt_with_a_good_password_succeeds(self, _mock_mail):
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+
+        auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(STRONG_PWD_NEW))
+        self.token_row.refresh_from_db()
+        self.assertTrue(self.token_row.used)
+
+    def test_link_is_still_single_use_after_a_rejected_attempt(self, _mock_mail):
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+        auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
+        with self.assertRaises(InvalidOrExpiredResetToken):
+            auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
     def test_notification_email_failure_does_not_rollback(self, mock_mail):
         # Render call inside the notification helper; force send() to blow up.
         msg = MagicMock()
