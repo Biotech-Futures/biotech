@@ -29,7 +29,10 @@ export type StudentRegistrationBucket =
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 export const fullName = (first?: string | null, last?: string | null, fallback = '—') => {
-  const name = `${first || ''} ${last || ''}`.trim()
+  const name = [first, last]
+    .map((part) => String(part || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
   return name || fallback
 }
 

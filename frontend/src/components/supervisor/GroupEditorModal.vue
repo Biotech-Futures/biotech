@@ -21,12 +21,11 @@
       <section class="group-editor-section">
         <p class="group-editor-label">Group Name</p>
         <p class="group-name-value">{{ displayName }}</p>
-        <p v-if="!isCreate" class="group-editor-hint">Group ID {{ group.id }}</p>
         <p class="group-editor-hint">
           {{
             isCreate
               ? 'A group number will be assigned automatically when the group is created (e.g. BTF01, BTF02).'
-              : 'Group names are assigned by the system and may repeat across challenges. The group ID uniquely identifies this group.'
+              : 'Group names are assigned by the system and may repeat across challenges.'
           }}
         </p>
       </section>

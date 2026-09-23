@@ -74,10 +74,7 @@
               :aria-label="`Select ${group.name}`"
               @change="toggleGroup(group.id)"
             />
-            <div>
-              <h2>{{ group.name }}</h2>
-              <p class="group-id">Group ID {{ group.id }}</p>
-            </div>
+            <h2>{{ group.name }}</h2>
           </div>
           <div class="group-card-actions">
             <span class="group-count">{{ group.students.length }}/{{ groupLimit }}</span>
@@ -559,12 +556,6 @@ onMounted(async () => {
 .group-card-header p {
   color: #6c757d;
   margin: 0.45rem 0 0.85rem;
-}
-
-.group-id {
-  margin: 0.2rem 0 0;
-  font-size: 0.82rem;
-  color: #6c757d;
 }
 
 .waiting-count,
