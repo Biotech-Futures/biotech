@@ -1,13 +1,10 @@
 from typing import TypedDict, Optional, List, Dict, Any
 
 from django.db import transaction
-from django.db.models import Q
 
-from apps.common.rbac import is_admin, users_with_role
-from apps.common.role_names import ROLE_ADMIN, try_get_role_by_name
+from apps.common.rbac import is_admin
 from apps.tasks.models import Task, TaskStatus, TaskType, CreatorRole
 from apps.tasks.permissions import resolve_creator_role
-from apps.groups.models import Groups, GroupMembership
 
 
 def _admin_visible_tasks(requesting_user):
@@ -155,8 +152,7 @@ def get_admin_task_by_id(requesting_user, task_id: int) -> TaskResponseDict:
 # ─── mutations ───────────────────────────────────────────────────────────────
 
 def _shared_task_fields(input_data: dict) -> dict:
-    """Content fields common to every creation path, normalized once so the
-    single-assignee and role fan-out paths cannot drift apart."""
+    """Content fields shared by task creation and update."""
     return {
         "name": (input_data.get("name") or "").strip(),
         "description": (input_data.get("description") or "").strip(),
@@ -166,99 +162,19 @@ def _shared_task_fields(input_data: dict) -> dict:
     }
 
 
-def _is_targetable_role(role_name: str) -> bool:
-    # Validate against the seeded Roles table (as events/announcements/resources
-    # do) so a newly-seeded role works without a code change. `admin` is the
-    # exception: it comes from AdminScope and need not exist as a Roles row.
-    return role_name == ROLE_ADMIN or try_get_role_by_name(role_name) is not None
-
-
-def count_role_recipients(requesting_user, role_name: str) -> TaskResponseDict:
-    """How many users a role fan-out would actually target.
-
-    Exists so the admin sees the resolved count *before* committing hundreds
-    of rows — the UI has no bulk undo. It also makes stale role assignments
-    visible: if "student" resolves to far fewer people than expected, the
-    RoleAssignmentHistory validity windows are the place to look.
-    """
-    if not is_admin(requesting_user):
-        return {"msg": "Not permitted", "data": None}
-
-    normalized = str(role_name or "").strip().lower()
-    if not _is_targetable_role(normalized):
-        return {"msg": f"Unknown role '{normalized}'", "data": None}
-
-    return {
-        "msg": "Recipient count retrieved successfully",
-        "data": {
-            "role": normalized,
-            "count": users_with_role(normalized).count(),
-        },
-    }
-
-
-def _create_role_fanout_tasks(
-    requesting_user, assigned_role: str, creator_role: str, input_data: dict
-) -> TaskResponseDict:
-    """Expand a role target into one INDIVIDUAL task per holder of that role.
-
-    Fan-out (rather than a single broadcast row) so each recipient gets their
-    own `completed` flag and the existing per-task permission rules apply
-    unchanged. Recipients are resolved once, here: someone who gains the role
-    later does not retroactively receive the task.
-
-    NOTE: uses bulk_create, so any future Task.save() override or pre/post_save
-    signal will NOT fire for these rows.
-    """
-    if not _is_targetable_role(assigned_role):
-        return {
-            "msg": f"Unknown role '{assigned_role}'",
-            "data": None,
-        }
-
-    recipient_ids = list(users_with_role(assigned_role).values_list("id", flat=True))
-    if not recipient_ids:
-        return {
-            "msg": f"No active users currently hold the '{assigned_role}' role",
-            "data": None,
-        }
-
-    shared = _shared_task_fields(input_data)
-    created = Task.objects.bulk_create(
-        [
-            Task(
-                **shared,
-                task_type=TaskType.INDIVIDUAL,
-                group_id=None,
-                assigned_user_id=user_id,
-                created_by=requesting_user,
-                creator_role=creator_role,
-            )
-            for user_id in recipient_ids
-        ],
-        # Postgres does not cap bulk_batch_size, so an unbatched insert would
-        # hit the 65535 bind-parameter limit at ~4600 recipients.
-        batch_size=500,
-    )
-
-    # Deliberately no serialized task list: fanning out to `student` is one row
-    # per active student, and no caller reads them.
-    return {
-        "msg": (
-            f"Created {len(created)} tasks for every user with the "
-            f"'{assigned_role}' role"
-        ),
-        "data": {
-            "created_count": len(created),
-            "assigned_role": assigned_role,
-        },
-    }
-
-
 @transaction.atomic
 def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     """
-    Create a new task as the requesting admin.
+    Create a new task (group or individual) as the requesting admin.
+
+    Confirmed with the client (TK4 follow-up): the actual complaint was the
+    role fan-out snapshotting individual Task rows per current role holder
+    (see the deleted _create_role_fanout_tasks) — not admins losing the
+    ability to assign a task to one specific person from this page. That
+    ability is intentionally restored here. Targeting a role is now only
+    ever done via a RoleTask (apps.admin.services.role_task) — this endpoint
+    no longer accepts a role at all, by design; there is no "assigned_role"
+    input to interpret.
 
     Args:
         requesting_user: The authenticated admin user
@@ -270,25 +186,15 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     task_type = input_data.get("task_type")
     group_id = input_data.get("group")
     assigned_user_id = input_data.get("assigned_user")
-    assigned_role = str(input_data.get("assigned_role") or "").strip().lower()
 
     if task_type == TaskType.GROUP:
         if not group_id:
             return {"msg": "Group task requires a group", "data": None}
-        # Reject rather than silently ignore — a caller passing both has a bug.
-        if assigned_role:
-            return {
-                "msg": "Group tasks cannot target a role",
-                "data": None,
-            }
-    if task_type == TaskType.INDIVIDUAL:
-        if assigned_role and assigned_user_id:
-            return {
-                "msg": "Provide either an assigned user or a role, not both",
-                "data": None,
-            }
-        if not assigned_role and not assigned_user_id:
+    elif task_type == TaskType.INDIVIDUAL:
+        if not assigned_user_id:
             return {"msg": "Individual task requires an assigned user", "data": None}
+    else:
+        return {"msg": "task_type must be 'group' or 'individual'", "data": None}
 
     creator_role = resolve_creator_role(
         requesting_user,
@@ -300,11 +206,6 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     # §3: only admins may create via this endpoint
     if creator_role != CreatorRole.GLOBAL_ADMIN:
         return {"msg": "You do not have authority to create tasks for this target", "data": None}
-
-    if task_type == TaskType.INDIVIDUAL and assigned_role:
-        return _create_role_fanout_tasks(
-            requesting_user, assigned_role, creator_role, input_data
-        )
 
     task = Task.objects.create(
         **_shared_task_fields(input_data),

@@ -9,7 +9,11 @@ import {
   createAdminTask,
   updateAdminTask,
   deleteAdminTask,
-  fetchTaskRoleRecipients,
+  fetchAdminRoleTasks,
+  createAdminRoleTask,
+  updateAdminRoleTask,
+  deleteAdminRoleTask,
+  fetchRoleTaskRecipients,
   deleteAdminUser,
   bulkSetUsersActive,
   bulkDeleteUsers,
@@ -415,7 +419,7 @@ describe('admin task actions', () => {
     expect(result).toEqual(payload.data)
   })
 
-  it('createAdminTask posts the task payload and returns the response envelope', async () => {
+  it('createAdminTask posts the group task payload and returns the response envelope', async () => {
     const payload = { msg: 'Task created successfully', data: task }
     const fetchMock = mockTaskFetch(payload, 201)
     vi.stubGlobal('fetch', fetchMock)
@@ -426,10 +430,8 @@ describe('admin task actions', () => {
       due_date: '2026-09-15T00:00:00Z',
       status: 'todo' as const,
       parent: null,
-      task_type: 'individual' as const,
-      group: null,
-      assigned_user: 12,
-      assigned_role: null
+      task_type: 'group' as const,
+      group: 7
     }
     const result = await createAdminTask(body)
 
@@ -439,29 +441,25 @@ describe('admin task actions', () => {
     expect(result).toEqual(payload)
   })
 
-  it('createAdminTask returns the role fan-out envelope', async () => {
-    const payload = {
-      msg: "Created 3 tasks for every user with the 'mentor' role",
-      data: { created_count: 3, assigned_role: 'mentor' }
-    }
+  it('createAdminTask posts the individual task payload and returns the response envelope', async () => {
+    const payload = { msg: 'Task created successfully', data: { ...task, task_type: 'individual', group: null, assigned_user: 12 } }
     const fetchMock = mockTaskFetch(payload, 201)
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await createAdminTask({
-      name: 'Mentor training',
-      task_type: 'individual',
-      assigned_user: null,
-      assigned_role: 'mentor'
-    })
+    const body = {
+      name: 'Submit reflection',
+      description: 'Write a short update',
+      due_date: '2026-09-15T00:00:00Z',
+      status: 'todo' as const,
+      parent: null,
+      task_type: 'individual' as const,
+      assigned_user: 12
+    }
+    const result = await createAdminTask(body)
 
     const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/task/')) as [string, RequestInit]
     expect(init.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual({
-      name: 'Mentor training',
-      task_type: 'individual',
-      assigned_user: null,
-      assigned_role: 'mentor'
-    })
+    expect(JSON.parse(String(init.body))).toEqual(body)
     expect(result).toEqual(payload)
   })
 
@@ -496,18 +494,109 @@ describe('admin task actions', () => {
     expect(result).toBeUndefined()
   })
 
-  it('fetchTaskRoleRecipients passes the role query and returns the response envelope', async () => {
+})
+
+describe('admin role task actions (TK4)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const roleTask = {
+    id: 3,
+    name: 'Mentor onboarding',
+    description: 'Complete the onboarding checklist',
+    due_date: null,
+    role: { id: 2, roleName: 'mentor' },
+    created_by: { id: 99, name: 'Admin User' },
+    creator_role: 'global_admin',
+    deleted_at: null,
+    created_at: '2026-09-01T00:00:00+00:00',
+    updated_at: '2026-09-01T00:00:00+00:00'
+  }
+
+  const mockRoleTaskFetch = (payload: unknown, status = 200) =>
+    vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(status === 204 ? null : JSON.stringify(payload), {
+          status,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+  it('fetchAdminRoleTasks unwraps the list envelope and passes pagination and sort params', async () => {
+    const payload = {
+      msg: 'Role tasks retrieved successfully',
+      data: { items: [roleTask], total: 1, page: 1, limit: 25, has_more: false }
+    }
+    const fetchMock = mockRoleTaskFetch(payload)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminRoleTasks({ page: 1, limit: 25, sortBy: 'due', sortOrder: 'asc' })
+
+    const calledUrl = String(fetchMock.mock.calls[0][0])
+    expect(calledUrl).toContain('/api/v1/admin/role-task/')
+    expect(result).toEqual(payload.data)
+  })
+
+  it('createAdminRoleTask posts the role task payload once per role, not per user', async () => {
+    const payload = { msg: 'Role task created successfully', data: roleTask }
+    const fetchMock = mockRoleTaskFetch(payload, 201)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const body = {
+      name: 'Mentor onboarding',
+      description: 'Complete the onboarding checklist',
+      due_date: null,
+      role: 'mentor'
+    }
+    const result = await createAdminRoleTask(body)
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/role-task/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(body)
+    expect(result).toEqual(payload)
+  })
+
+  it('updateAdminRoleTask patches the one definition row', async () => {
+    const payload = { msg: 'Role task updated successfully', data: { ...roleTask, name: 'Updated' } }
+    const fetchMock = mockRoleTaskFetch(payload)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateAdminRoleTask(3, { name: 'Updated' })
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/role-task/3/')) as [string, RequestInit]
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(String(init.body))).toEqual({ name: 'Updated' })
+    expect(result).toEqual(payload)
+  })
+
+  it('deleteAdminRoleTask sends DELETE to the role task detail endpoint', async () => {
+    const fetchMock = mockRoleTaskFetch(null, 204)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminRoleTask(3)
+
+    const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/role-task/3/')) as [string, RequestInit]
+    expect(init.method).toBe('DELETE')
+    expect(result).toBeUndefined()
+  })
+
+  it('fetchRoleTaskRecipients passes the role query and returns the response envelope', async () => {
     const payload = {
       msg: 'Recipient count retrieved successfully',
       data: { role: 'mentor', count: 3 }
     }
-    const fetchMock = mockTaskFetch(payload)
+    const fetchMock = mockRoleTaskFetch(payload)
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await fetchTaskRoleRecipients('mentor')
+    const result = await fetchRoleTaskRecipients('mentor')
 
     const calledUrl = String(fetchMock.mock.calls[0][0])
-    expect(calledUrl).toContain('/api/v1/admin/task/role-recipients/')
+    expect(calledUrl).toContain('/api/v1/admin/role-task/role-recipients/')
     expect(new URL(calledUrl).searchParams.get('role')).toBe('mentor')
     expect(result).toEqual(payload)
   })

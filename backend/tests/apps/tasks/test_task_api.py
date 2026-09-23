@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.groups.models import GroupMembership, Groups
+from apps.resources.models import Roles
 from apps.tasks.models import CreatorRole, Task, TaskType
 from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
 
@@ -782,3 +784,82 @@ class SupervisorCannotEditGroupTaskTests(_World, APITestCase):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.delete(_detail_url(self.mentor_created.id))
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TaskPipelineUnaffectedByRoleTaskAdditionTests(_World, APITestCase):
+    """TK4 added a separate RoleTask model + separate admin endpoint. These
+    tests prove the general group/individual Task pipeline that
+    GroupDetailPage.vue calls is unchanged, not just "probably fine"."""
+
+    def setUp(self):
+        self._build()
+
+    def test_group_task_creation_still_works_exactly_as_before(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        response = self.client.post(
+            LIST_URL,
+            {"name": "Sprint review", "task_type": "group", "group": self.group_a.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["task_type"], "group")
+        self.assertEqual(response.data["group"], self.group_a.id)
+
+    def test_individual_task_creation_still_works_exactly_as_before(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        response = self.client.post(
+            LIST_URL,
+            {
+                "name": "1:1 follow-up",
+                "task_type": "individual",
+                "assigned_user": self.student_x.id,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["task_type"], "individual")
+        self.assertEqual(response.data["assigned_user"], self.student_x.id)
+
+    def test_a_role_field_cannot_be_used_to_create_a_role_shaped_task_here(self):
+        # Task has no `role` column at all — confirm the general endpoint
+        # ignores it rather than silently accepting a role-task-shaped payload.
+        Roles.objects.create(role_name="mentor")
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            LIST_URL,
+            {
+                "name": "Sneaky",
+                "task_type": "individual",
+                "assigned_user": self.student_x.id,
+                "role": "mentor",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("role", response.data)
+        self.assertFalse(hasattr(Task.objects.get(id=response.data["id"]), "role"))
+
+    def test_check_constraint_still_enforced_at_the_database_level(self):
+        # The DRF serializer already rejects group+assigned_user combos with a
+        # 400 (see TaskCreateTests above) — this proves the underlying DB
+        # CheckConstraint independently holds even if a caller bypasses the
+        # serializer entirely (e.g. a future raw .objects.create() call, or a
+        # migration/script), which is the thing that actually protects the data.
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Task.objects.create(
+                    name="Both set",
+                    task_type=TaskType.GROUP,
+                    group=self.group_a,
+                    assigned_user=self.student_x,
+                    created_by=self.admin,
+                    creator_role=CreatorRole.GLOBAL_ADMIN,
+                )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Task.objects.create(
+                    name="Neither set",
+                    task_type=TaskType.INDIVIDUAL,
+                    group=None,
+                    assigned_user=None,
+                    created_by=self.admin,
+                    creator_role=CreatorRole.GLOBAL_ADMIN,
+                )

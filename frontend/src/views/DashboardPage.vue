@@ -12,6 +12,19 @@
           <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
         </section>
 
+        <div
+          v-if="!roleTasksLoading && incompleteRoleTasksCount > 0"
+          class="dashboard-alert dashboard-alert--role-tasks"
+        >
+          <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+          <span>
+            {{ incompleteRoleTasksCount }} incomplete role task{{ incompleteRoleTasksCount === 1 ? '' : 's' }}.
+          </span>
+          <a href="#role-tasks-section" class="dashboard-alert-link" @click.prevent="scrollToRoleTasks">
+            Click here to view
+          </a>
+        </div>
+
         <section class="dashboard-hero-shell">
           <div class="dashboard-hero-card interactive-surface">
             <div class="dashboard-hero-main">
@@ -379,6 +392,62 @@
             </article>
           </div>
         </section>
+
+        <section id="role-tasks-section" class="dashboard-section">
+          <div class="dashboard-section-grid">
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Role Tasks</p>
+                  <h3 class="surface-card-title">My Role Tasks</h3>
+                </div>
+              </div>
+
+              <div v-if="roleTasksLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`role-task-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <template v-else>
+                <ul v-if="roleTasks.length" class="role-task-list">
+                  <li v-for="roleTask in roleTasks" :key="roleTask.id" class="role-task-item">
+                    <div class="role-task-main">
+                      <label class="role-task-checkbox">
+                        <input
+                          type="checkbox"
+                          :checked="roleTask.completed"
+                          :disabled="togglingRoleTaskIds.has(roleTask.id)"
+                          @change="onToggleRoleTask(roleTask)"
+                        />
+                        <span :class="{ 'role-task-done': roleTask.completed }">{{ roleTask.name }}</span>
+                      </label>
+                      <span v-if="roleTask.due_date" class="role-task-due">
+                        Due {{ formatAnnouncementDateAU(roleTask.due_date) }}
+                      </span>
+                    </div>
+                    <p v-if="roleTask.description" class="role-task-description">
+                      {{ roleTask.description }}
+                    </p>
+                  </li>
+                </ul>
+                <div v-else class="empty-state">
+                  <i class="fas fa-circle-check"></i>
+                  <p>No role tasks right now.</p>
+                </div>
+              </template>
+            </article>
+          </div>
+        </section>
     </div>
 
     <div
@@ -432,6 +501,7 @@ import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { getAccentClass } from '@/utils/ui'
+import { listMyRoleTasks, toggleRoleTaskCompletion } from '@/utils/roleTasksAPI'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
@@ -459,6 +529,17 @@ const announcementsLoading = ref(true)
 const eventsLoading = ref(true)
 const adminLoading = ref(true)
 const progressLoading = ref(true)
+const roleTasksLoading = ref(true)
+
+const roleTasks = ref([])
+const togglingRoleTaskIds = ref(new Set())
+const incompleteRoleTasksCount = computed(
+  () => roleTasks.value.filter((task) => !task.completed).length,
+)
+
+function scrollToRoleTasks() {
+  document.getElementById('role-tasks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const loadError = ref('')
 
@@ -1222,6 +1303,7 @@ async function loadDashboardData() {
     loadEvents(),
     loadAdminWorkflow(),
     loadProgress(groupsPromise),
+    loadRoleTasks(),
   ])
   loadSummary()
 }
@@ -1275,6 +1357,35 @@ async function loadResources() {
     resources.value = []
   } finally {
     resourcesLoading.value = false
+  }
+}
+
+// TK4: role tasks are defined once per role and picked up live by whoever
+// currently holds it — this list is just "what applies to me right now".
+async function loadRoleTasks() {
+  try {
+    roleTasks.value = await listMyRoleTasks()
+  } catch {
+    roleTasks.value = []
+  } finally {
+    roleTasksLoading.value = false
+  }
+}
+
+async function onToggleRoleTask(roleTask) {
+  if (togglingRoleTaskIds.value.has(roleTask.id)) return
+  const next = new Set(togglingRoleTaskIds.value)
+  next.add(roleTask.id)
+  togglingRoleTaskIds.value = next
+  try {
+    const updated = await toggleRoleTaskCompletion(roleTask.id)
+    roleTasks.value = roleTasks.value.map((task) => (task.id === updated.id ? updated : task))
+  } catch {
+    // Leave the list as-is; the checkbox simply won't have moved.
+  } finally {
+    const after = new Set(togglingRoleTaskIds.value)
+    after.delete(roleTask.id)
+    togglingRoleTaskIds.value = after
   }
 }
 
@@ -2751,6 +2862,42 @@ onMounted(async () => {
   backdrop-filter: blur(16px);
 }
 
+.dashboard-alert-link {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(252, 211, 77, 0.5);
+  cursor: pointer;
+}
+
+.dashboard-alert-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Distinct from the amber load-error alert above — this is a reminder, not
+   a failure, so it gets its own color rather than reading as "something's
+   wrong." Uses the site's actual brand green (--dark-green), not
+   --light-green — that token is a peach/cream color in the live light
+   theme, not green, despite the name.
+   !important + the compound .dashboard-alert.dashboard-alert--role-tasks
+   selector (specificity 0-2-0) are both required to beat the later
+   "flatten everything to white/grey" override further down this same
+   style block (an unconditional `.dashboard-alert { ... !important }` that
+   otherwise wins outright over any non-important rule, regardless of
+   where it sits in the cascade). */
+.dashboard-alert.dashboard-alert--role-tasks {
+  background: rgba(1, 113, 81, 0.1) !important;
+  border: 1px solid rgba(1, 113, 81, 0.32) !important;
+  color: var(--dark-green) !important;
+}
+
+.dashboard-alert.dashboard-alert--role-tasks .dashboard-alert-link {
+  color: var(--dark-green) !important;
+  text-decoration-color: rgba(1, 113, 81, 0.5) !important;
+}
+
 .dashboard-skeleton-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
@@ -3019,6 +3166,65 @@ onMounted(async () => {
 .empty-state i {
   font-size: 1.4rem;
   color: var(--text-muted);
+}
+
+.role-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role-task-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.role-task-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.role-task-description {
+  margin: 0;
+  padding-left: 1.7rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.role-task-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.role-task-checkbox input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent-teal);
+}
+
+.role-task-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.role-task-due {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .dashboard-modal-backdrop {

@@ -84,10 +84,16 @@ urlpatterns = [
     # TASK ROUTES
     # ========================================================================
     path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
-    # Must precede the <int:task_id> route so the literal segment wins.
-    path('task/role-recipients/', views.AdminTaskRoleRecipientsView.as_view(), name='admin-task-role-recipients'),
     path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
     path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
+
+    # ========================================================================
+    # ROLE TASK ROUTES
+    # ========================================================================
+    path('role-task/', views.AdminRoleTaskListCreateView.as_view(), name='admin-role-task-list-create'),
+    # Must precede the <int:role_task_id> route so the literal segment wins.
+    path('role-task/role-recipients/', views.AdminRoleTaskRoleRecipientsView.as_view(), name='admin-role-task-role-recipients'),
+    path('role-task/<int:role_task_id>/', views.AdminRoleTaskDetailView.as_view(), name='admin-role-task-detail'),
 
     # ========================================================================
     # ADMIN AUTH ROUTES
