@@ -273,9 +273,9 @@ describe('small helpers', () => {
     expect(api.resolveApiFileUrl('/media/x.pdf')).toMatch(/^http.*\/media\/x\.pdf$/)
   })
 
-  it('overallCommentLabel names the box for file components and hides it for SAQ', () => {
+  it('overallCommentLabel names the box for every real component', () => {
     expect(api.overallCommentLabel('POSTER')).toBe('Overall Poster Comment')
-    expect(api.overallCommentLabel('SAQ')).toBeNull()
+    expect(api.overallCommentLabel('SAQ')).toBe('Overall SAQs Comment')
     expect(api.overallCommentLabel('NOPE')).toBeNull()
   })
 })

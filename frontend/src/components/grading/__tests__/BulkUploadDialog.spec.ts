@@ -83,10 +83,10 @@ describe('opening the dialog', () => {
     expect(wrapper.text()).toContain('Upload marks for SAQs')
   })
 
-  it('mentions the overall_comment column only for components that have one', async () => {
+  it('mentions the overall_comment column for every component, SAQ included', async () => {
     const saq = mountDialog('SAQ')
     await openDialog(saq)
-    expect(saq.text()).not.toContain('overall_comment')
+    expect(saq.text()).toContain('overall_comment')
 
     const poster = mountDialog('POSTER')
     await openDialog(poster)
