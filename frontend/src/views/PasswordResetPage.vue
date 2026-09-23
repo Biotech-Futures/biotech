@@ -123,7 +123,17 @@
                 <li :class="{ passed: passwordsMatch && confirmPassword.length > 0 }">Passwords match</li>
               </ul>
 
-              <p v-if="passwordError" class="error-message" role="alert">{{ passwordError }}</p>
+              <p v-if="passwordError" class="error-message" role="alert">
+                {{ passwordError }}
+                <button
+                  v-if="linkExpired"
+                  type="button"
+                  class="inline-link"
+                  @click="startNewLinkRequest"
+                >
+                  Request a new link
+                </button>
+              </p>
 
               <ul v-if="fieldMessages.length" class="field-errors" role="alert">
                 <li v-for="message in fieldMessages" :key="message">{{ message }}</li>
@@ -225,6 +235,9 @@ const resetComplete = ref(false)
 const statusMessage = ref('')
 const passwordError = ref('')
 const requestError = ref('')
+// True once the server rejects the token, which is what reveals the
+// "request a new link" action next to the error.
+const linkExpired = ref(false)
 const fieldMessages = ref<string[]>([])
 const passwordInputRef = ref<HTMLInputElement | null>(null)
 const emailInputRef = ref<HTMLInputElement | null>(null)
@@ -261,6 +274,21 @@ const passwordsMatch = computed(() => newPassword.value === confirmPassword.valu
 function clearFieldErrors() {
   passwordError.value = ''
   fieldMessages.value = []
+  linkExpired.value = false
+}
+
+/** Drop the spent token from the URL so the page falls back to the
+ *  "email me a link" form, ready to send a fresh one. */
+async function startNewLinkRequest() {
+  clearFieldErrors()
+  statusMessage.value = ''
+  newPassword.value = ''
+  confirmPassword.value = ''
+
+  const { token: _spentToken, ...restQuery } = route.query
+  await router.replace({ path: route.path, query: restQuery })
+  await nextTick()
+  emailInputRef.value?.focus()
 }
 
 function validateEmail(value: string) {
@@ -328,7 +356,8 @@ function applyApiError(context: string, error: unknown, fallback: string) {
     apiError.code === 'invalid_or_expired_reset_token' ||
     apiError.code === 'InvalidOrExpiredResetToken'
   ) {
-    passwordError.value = 'This reset link is invalid or has expired. Please request a new link.'
+    passwordError.value = 'This reset link is invalid or has expired.'
+    linkExpired.value = true
     return
   }
 
@@ -951,6 +980,23 @@ label {
   color: #9f3030;
   border: 1px solid rgba(210, 75, 75, 0.18);
   background: rgba(255, 245, 245, 0.94);
+}
+
+.inline-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.inline-link:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: 4px;
 }
 
 .success-state {

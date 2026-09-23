@@ -102,12 +102,21 @@ def send_password_reset(email: str, *, ip: str = None, user_agent: str = "") -> 
 
 def confirm_password_reset(*, token: str, new_password: str) -> User:
     """Verify token, set new password, invalidate other tokens, terminate sessions, notify."""
-    reset_row = PasswordResetToken.consume(token)
+    # Checked without consuming, so a password the validators reject leaves the
+    # link usable for another try — the confirm endpoint already rate-limits
+    # attempts per token and per IP, so this can't be used to grind passwords.
+    reset_row = PasswordResetToken.peek(token)
     if reset_row is None:
         raise InvalidOrExpiredResetToken()
 
     user = reset_row.user
     _validate_or_raise(new_password, user)
+
+    # Password is good: claim the token now. A concurrent confirm that got there
+    # first leaves nothing to claim, and this one is rejected.
+    reset_row = PasswordResetToken.consume(token)
+    if reset_row is None:
+        raise InvalidOrExpiredResetToken()
 
     user.set_password(new_password)
     user.save(update_fields=['password'])

@@ -155,16 +155,8 @@
               <!-- Email submission form. -->
               <form class="auth-form" @submit.prevent="handleLogin" novalidate>
                 <div class="login-mode-switch" role="tablist" :aria-label="t('loginMethod')">
-                  <button
-                    type="button"
-                    class="login-mode-button"
-                    :class="{ active: loginMode === 'password' }"
-                    role="tab"
-                    :aria-selected="loginMode === 'password'"
-                    @click="setLoginMode('password')"
-                  >
-                    {{ t('passwordSignIn') }}
-                  </button>
+                  <!-- Magic link first: it is the default mode, so it reads
+                       left-to-right in the same order as the selection. -->
                   <button
                     type="button"
                     class="login-mode-button"
@@ -174,6 +166,16 @@
                     @click="setLoginMode('code')"
                   >
                     {{ t('emailCodeSignIn') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="login-mode-button"
+                    :class="{ active: loginMode === 'password' }"
+                    role="tab"
+                    :aria-selected="loginMode === 'password'"
+                    @click="setLoginMode('password')"
+                  >
+                    {{ t('passwordSignIn') }}
                   </button>
                 </div>
 

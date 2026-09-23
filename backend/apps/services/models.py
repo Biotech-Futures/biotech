@@ -221,6 +221,18 @@ class PasswordResetToken(models.Model):
         )
 
     @classmethod
+    def peek(cls, token):
+        """The usable row for ``token`` WITHOUT consuming it, else None.
+
+        Lets the caller validate the new password before the token is spent, so
+        a rejected password doesn't burn the link. ``consume`` still does the
+        atomic claim, so two concurrent confirms can't both succeed.
+        """
+        return (cls.objects
+                .filter(token=token, used=False, expires_at__gt=timezone.now())
+                .first())
+
+    @classmethod
     def consume(cls, token):
         """Atomic lookup + mark-used. Returns row on success, None otherwise."""
         from django.db import transaction
