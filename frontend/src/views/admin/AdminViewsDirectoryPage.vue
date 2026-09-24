@@ -69,6 +69,21 @@
         <span>{{ error }}</span>
       </p>
 
+      <BulkActionsBar
+        v-if="selectedIds.length"
+        :count="selectedIds.length"
+        noun="view"
+        :disabled="bulkActionBusy"
+        @clear="clearSelection"
+      >
+        <button type="button" class="btn btn-sm btn-outline" :disabled="bulkActionBusy" @click="batchExport">
+          Batch export
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" :disabled="bulkActionBusy" @click="openBulkDelete">
+          Batch delete
+        </button>
+      </BulkActionsBar>
+
       <AdminViewsDirectoryTable
         :views="filteredViews"
         :loading="loading"
@@ -79,14 +94,29 @@
     </div>
 
     <AdminViewQueryDrawer v-model="drawerOpen" :view="editingView" @saved="onSaved" />
+
+    <ConfirmDialog
+      v-model="bulkDeleteConfirmOpen"
+      title="Delete selected views"
+      :message="bulkDeleteMessage"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="bulkActionBusy"
+      @confirm="confirmBulkDelete"
+      @cancel="bulkDeleteConfirmOpen = false"
+    >
+      <p v-if="bulkDeleteError" class="admin-views__dialog-error" role="alert">{{ bulkDeleteError }}</p>
+    </ConfirmDialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
 import AdminViewsDirectoryTable from '@/components/admin/views/AdminViewsDirectoryTable.vue'
-import { fetchAdminViews, type AdminView } from '@/utils/adminAPI'
+import { bulkDeleteAdminViews, fetchAdminViews, getAdminViewExportUrl, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { roleLabel } from '@/utils/userFormat'
 import { USER_ROLES } from '@/utils/userOptions'
@@ -108,6 +138,9 @@ const activeTab = ref<TabKey>('all')
 const drawerOpen = ref(false)
 const editingView = ref<AdminView | null>(null)
 const selectedIds = ref<Array<string | number>>([])
+const bulkDeleteConfirmOpen = ref(false)
+const bulkActionBusy = ref(false)
+const bulkDeleteError = ref('')
 
 let searchDebounce: ReturnType<typeof setTimeout> | undefined
 
@@ -152,6 +185,42 @@ const openCreate = () => {
 const openEdit = (view: AdminView) => {
   editingView.value = view
   drawerOpen.value = true
+}
+
+const bulkDeleteMessage = computed(() =>
+  `Delete ${selectedIds.value.length} selected view${selectedIds.value.length === 1 ? '' : 's'}? This cannot be undone.`
+)
+
+const clearSelection = () => {
+  selectedIds.value = []
+}
+
+const batchExport = () => {
+  selectedIds.value.forEach((id) => {
+    window.open(getAdminViewExportUrl(Number(id)), '_blank')
+  })
+}
+
+const openBulkDelete = () => {
+  bulkDeleteError.value = ''
+  bulkDeleteConfirmOpen.value = true
+}
+
+const confirmBulkDelete = async () => {
+  if (bulkActionBusy.value) return
+  bulkActionBusy.value = true
+  bulkDeleteError.value = ''
+  try {
+    await bulkDeleteAdminViews(selectedIds.value.map(Number))
+    bulkDeleteConfirmOpen.value = false
+    clearSelection()
+    await load()
+  } catch (err) {
+    logApiError('admin.views.bulk-delete', err)
+    bulkDeleteError.value = err instanceof Error ? err.message : 'Selected views could not be deleted.'
+  } finally {
+    bulkActionBusy.value = false
+  }
 }
 
 const onSaved = () => {
@@ -314,53 +383,14 @@ onMounted(load)
   color: var(--danger);
 }
 
-.admin-views__placeholder {
-  padding: 1rem;
-}
-
-.admin-views__placeholder-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.admin-views__placeholder-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.admin-views__placeholder-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.admin-views__placeholder-primary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.admin-views__muted {
-  margin: 0;
-  color: var(--text-muted);
-}
-
-.admin-views__badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background-color: var(--bg-light);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
+.admin-views__dialog-error {
+  margin: 0.9rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 </style>
