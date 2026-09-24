@@ -132,17 +132,19 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertIn("name should be", body["checks"]["bad_group_rows"][0]["reason"])
         self.assertIn("group_name", body["errors"][0]["message"])
 
-    def test_typoed_header_rejected(self):
-        # "commen" must fail loudly, reported by the expected name it
-        # displaced — never silently dropped.
-        header = ["group_id", "criteria_no", "commen"]
-        upload = self._make_csv([(self.group.id, 1, "fine")], header=header)
+    def test_unrecognised_columns_are_ignored(self):
+        # Missing means missing: an unknown column is not reported as a
+        # missing header, it is simply skipped.
+        header = ["group_id", "criteria_no", "mark", "comment", "commen", "something_else"]
+        upload = self._make_csv([(self.group.id, 1, "", "", "fine", "x")], header=header)
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         body = resp.json()
-        self.assertEqual(len(body["errors"]), 1)
-        self.assertIn("comment", body["errors"][0]["message"])
-        self.assertEqual(body["checks"]["missing_headers"], ["comment"])
+        self.assertEqual(body["checks"]["missing_headers"], [])
+        self.assertEqual(
+            body["summary"],
+            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+        )
 
     def test_criteria_beyond_rubric_with_mark_rejected(self):
         upload = self._make_csv([(self.group.id, "BTF-TEST-1", "", 9, "5", "", "")])
@@ -219,16 +221,14 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(g2.mark, Decimal("4.00"))
         self.assertEqual(g2.comment, "keep")
 
-    def test_absent_mark_columns_leave_grades_alone(self):
-        # A sheet without mark/comment columns never touches grades.
-        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("6.00"), comment="keep")
+    def test_missing_mark_columns_rejected(self):
+        # mark and comment are required — a sheet without them cannot
+        # carry marks and is refused up front.
         header = ["group_id", "criteria_no", "answer"]
         upload = self._make_csv([(self.group.id, 1, "just context")], header=header)
-        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        g1 = Grade.objects.get(submission=self.saq_submission, criterion=self.saq_c1)
-        self.assertEqual(g1.mark, Decimal("6.00"))
-        self.assertEqual(g1.comment, "keep")
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["checks"]["missing_headers"], ["mark", "comment"])
 
     def test_absent_overall_comment_column_leaves_feedback_alone(self):
         ComponentFeedback.objects.create(group=self.group, component=self.saq, comment="keep me")
@@ -314,6 +314,15 @@ class BulkUploadWideFormatTests(_GradingFixture):
         self.assertFalse(body["checks"]["type_ok"])
         self.assertEqual(body["checks"]["found_type"], "SAQs")
         self.assertEqual(body["summary"]["errors"], 1)
+
+    def test_missing_rn_columns_rejected(self):
+        # Every rubric position's mark/comment pair is required — a sheet
+        # without them (e.g. an SAQ export on this tab) is refused up front.
+        header = ["group_id", "group_name", "type", "overall_comment"]
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "")], header=header)
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["checks"]["missing_headers"], ["r1_mark", "r1_comment"])
 
     def test_commit_persists_wide_marks(self):
         Grade.objects.create(submission=self.poster_submission, criterion=self.poster_c1, mark=Decimal("5"), comment="old")

@@ -229,13 +229,13 @@ describe('the preview report', () => {
     await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ missing_headers: ['comment'] }),
-        errors: [{ row: 1, message: 'missing header comment' }],
+        checks: cleanChecks({ missing_headers: ['criteria_no'] }),
+        errors: [{ row: 1, message: 'missing column header(s): criteria_no' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('Missing Column Header(s): comment')
+    expect(text).toContain('Missing Column Header(s): criteria_no')
     expect(text).not.toContain('Incorrect group details')
   })
 

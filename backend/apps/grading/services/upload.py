@@ -21,15 +21,15 @@ The SAQ shape is one row per criterion position:
 export columns, accepted but never parsed.
 
 Rules:
-    * The header is validated strictly: only the export's own columns are
-      accepted. Anything else fails the whole file — a typo like
-      ``commet`` must not silently drop marks.
+    * Missing required headers fail the file. SAQ requires ``group_id``,
+      ``criteria_no``, ``mark`` and ``comment``; the wide shape requires
+      ``group_id``, ``type`` and every ``rN_mark``/``rN_comment`` of the
+      rubric. Unrecognised extra columns are simply ignored.
     * ``criteria_no`` is required on every row. The export writes
       ``group_id``/``group_name`` on each group's FIRST row only, so a
       blank ``group_id`` continues the group from the row above.
-    * Columns that are ABSENT from the sheet leave their data untouched —
-      a sheet without mark/comment columns never touches grades, and
-      omitting ``overall_comment`` leaves overall comments alone.
+    * ``overall_comment`` is the one optional data column — omitting it
+      leaves overall comments alone.
     * A PRESENT but blank mark+comment pair where no Grade exists is
       skipped — sparsely-filled sheets never create empty grades.
     * A present-but-blank cell where a Grade DOES exist clears it: the
@@ -44,9 +44,7 @@ Rules:
 from __future__ import annotations
 
 import csv
-import difflib
 import io
-import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
@@ -58,14 +56,12 @@ from ..models import ComponentFeedback, Grade, RubricCriterion, SubmissionCompon
 from .content import submission_entries
 
 
-CRITERIA_REQUIRED_COLUMNS = ("group_id", "criteria_no")
+CRITERIA_REQUIRED_COLUMNS = ("group_id", "criteria_no", "mark", "comment")
 WIDE_REQUIRED_COLUMNS = ("group_id", "type")
 
 # Friendly ``type`` labels for the wide shape, matching what the old
 # export wrote.
 TYPE_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PROTOTYPE": "Prototype"}
-
-_RN_COLUMN = re.compile(r"^r(\d+)_(?:mark|comment)$")
 
 
 def _accepted_types(component_code: str) -> set[str]:
@@ -234,24 +230,6 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
         )
     }
 
-    # Strict header check: only the export's own columns are accepted, so a
-    # typo'd header (commet, Mark, …) fails loudly instead of silently
-    # being skipped and dropping the marks it carried.
-    # answer / product_category / category_of_solution are informational
-    # columns the export writes; accepted so the export round-trips, never
-    # parsed.
-    recognized = {
-        "group_id",
-        "group_name",
-        "answer",
-        "criteria_no",
-        "mark",
-        "comment",
-        "overall_comment",
-        "product_category",
-        "category_of_solution",
-    }
-
     seen_cells: set[tuple[int, int]] = set()
     overall_seen: set[int] = set()
     current_group_id: int | None = None
@@ -260,27 +238,14 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
     for row_num, row in _iter_rows(file, filename):
         if not header_checked:
             header_checked = True
-            # Header problems (uniform across the file). A typo'd header is
-            # reported by the EXPECTED name it displaced ("commen" ->
-            # "comment"), matched fuzzily against recognised headers the
-            # sheet lacks; unmatchable extras are named as-is.
+            # Missing means MISSING: only required headers the sheet lacks
+            # are reported. Unrecognised extra columns are ignored.
             problems = [c for c in CRITERIA_REQUIRED_COLUMNS if c not in row]
-            absent_recognized = sorted(h for h in recognized if h not in row)
-            for key in sorted(k for k in row if k not in recognized):
-                match = difflib.get_close_matches(key, absent_recognized, n=1, cutoff=0.6)
-                problems.append(match[0] if match else key)
-            seen_problems: set[str] = set()
-            problems = [p for p in problems if not (p in seen_problems or seen_problems.add(p))]
             if problems:
                 diff.checks["missing_headers"] = problems
                 diff.errors.append({
                     "row": 1,
-                    "message": (
-                        f"column header problem(s): {', '.join(problems)}. "
-                        f"Accepted: group_id, group_name, answer, criteria_no, "
-                        f"mark, comment, overall_comment, product_category, "
-                        f"category_of_solution"
-                    ),
+                    "message": f"missing column header(s): {', '.join(problems)}",
                 })
                 return diff
 
@@ -374,11 +339,6 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
                     "comment": new_comment,
                     "old_comment": feedback_by_group.get(group_id) or "",
                 })
-
-        # Columns absent from the sheet entirely -> grades untouched. Only
-        # a PRESENT but blank cell clears an existing grade.
-        if "mark" not in row and "comment" not in row:
-            continue
 
         comment = row.get("comment", "") or ""
         if criteria_no > len(ordered_criteria):
@@ -492,50 +452,26 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
         )
     }
 
-    # Strict header check: only the wide shape's own columns are accepted.
-    recognized = {
-        "group_id",
-        "group_name",
-        "type",
-        "text",
-        "overall_comment",
-    }
-    for i in range(1, len(ordered_criteria) + 1):
-        recognized.add(f"r{i}_mark")
-        recognized.add(f"r{i}_comment")
-
     seen_groups: set[int] = set()
     header_checked = False
 
     for row_num, row in _iter_rows(file, filename):
         if not header_checked:
             header_checked = True
-            # Header problems (uniform across the file). A typo'd header is
-            # reported by the EXPECTED name it displaced ("r1_commen" ->
-            # "r1_comment"), matched fuzzily against recognised headers the
-            # sheet lacks; rN names beyond the rubric and unmatchable extras
-            # are named as-is.
-            problems = [c for c in WIDE_REQUIRED_COLUMNS if c not in row]
-            absent_recognized = sorted(h for h in recognized if h not in row)
-            for key in sorted(k for k in row if k not in recognized):
-                if _RN_COLUMN.match(key):
-                    problems.append(key)
-                    continue
-                match = difflib.get_close_matches(key, absent_recognized, n=1, cutoff=0.6)
-                problems.append(match[0] if match else key)
-            seen_problems: set[str] = set()
-            problems = [p for p in problems if not (p in seen_problems or seen_problems.add(p))]
+            # Missing means MISSING: only required headers the sheet lacks
+            # are reported. Unrecognised extra columns are ignored. Every
+            # rubric position's mark/comment pair is required.
+            required = list(WIDE_REQUIRED_COLUMNS)
+            for i in range(1, len(ordered_criteria) + 1):
+                required += [f"r{i}_mark", f"r{i}_comment"]
+            problems = [c for c in required if c not in row]
             if "type" in row:
                 diff.checks["found_type"] = (row.get("type") or "").strip() or None
             if problems:
                 diff.checks["missing_headers"] = problems
                 diff.errors.append({
                     "row": 1,
-                    "message": (
-                        f"column header problem(s): {', '.join(problems)}. "
-                        f"Accepted: group_id, group_name, type, text, "
-                        f"r1..r{len(ordered_criteria)}_mark/_comment, overall_comment"
-                    ),
+                    "message": f"missing column header(s): {', '.join(problems)}",
                 })
                 return diff
 
@@ -586,11 +522,6 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
             continue
 
         for i, criterion in enumerate(ordered_criteria, start=1):
-            # Column absent from the sheet entirely -> this criterion is
-            # untouched (same rule as overall_comment). Only a PRESENT but
-            # blank cell clears an existing grade.
-            if f"r{i}_mark" not in row and f"r{i}_comment" not in row:
-                continue
             range_hint = f"should be 0 to {_fmt_mark(criterion.max_mark)}"
             mark, err = _parse_mark(row.get(f"r{i}_mark", ""))
             if err:
