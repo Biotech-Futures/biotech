@@ -150,8 +150,9 @@ describe('granting', () => {
   })
 
   it('grants, clears the form and refreshes the table', async () => {
-    resolveIdMock.mockReturnValue(7)
-    saveMock.mockResolvedValueOnce({ extension: extension() })
+    // Group 8 has no extension yet, so no replace warning intervenes.
+    resolveIdMock.mockReturnValue(8)
+    saveMock.mockResolvedValueOnce({ extension: extension({ group_id: 8 }) })
     const wrapper = await mountPage()
     await fillForm(wrapper)
     await wrapper.find('textarea').setValue('Storm damage')
@@ -159,7 +160,7 @@ describe('granting', () => {
     await flushPromises()
 
     expect(saveMock).toHaveBeenCalledWith(
-      7, new Date('2026-11-08T09:00').toISOString(), 24, 'Storm damage'
+      8, new Date('2026-11-08T09:00').toISOString(), 24, 'Storm damage'
     )
     expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension granted.')
     expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
@@ -167,7 +168,7 @@ describe('granting', () => {
   })
 
   it('shows the server refusal when a grant bounces', async () => {
-    resolveIdMock.mockReturnValue(7)
+    resolveIdMock.mockReturnValue(8)
     saveMock.mockRejectedValueOnce(new Error('must be later than the current deadline'))
     const wrapper = await mountPage()
     await fillForm(wrapper)
@@ -176,6 +177,52 @@ describe('granting', () => {
     expect(wrapper.find('.extensions__banner--error').text()).toContain(
       'must be later than the current deadline'
     )
+  })
+
+  it('warns before replacing a group with an active extension', async () => {
+    resolveIdMock.mockReturnValue(7) // group 7 already has an active extension
+    saveMock.mockResolvedValueOnce({ extension: extension() })
+    const wrapper = await mountPage()
+    await fillForm(wrapper)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Nothing saved yet — the warning dialog intervenes, naming the group.
+    expect(saveMock).not.toHaveBeenCalled()
+    const dialog = wrapper.find('.extensions__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('BTF-1')
+
+    await dialog.findAll('button').at(-1)!.trigger('click') // Replace extension
+    await flushPromises()
+    expect(saveMock).toHaveBeenCalledWith(7, new Date('2026-11-08T09:00').toISOString(), 24, '')
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+  })
+
+  it('cancelling the replace warning saves nothing', async () => {
+    resolveIdMock.mockReturnValue(7)
+    const wrapper = await mountPage()
+    await fillForm(wrapper)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.find('.extensions__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+    expect(saveMock).not.toHaveBeenCalled()
+  })
+
+  it('a revoked extension does not trigger the replace warning', async () => {
+    listMock.mockResolvedValue({
+      extensions: [extension({ revoked_at: '2026-09-10T00:00:00Z', revoked_by: 'Ada Admin' })]
+    })
+    resolveIdMock.mockReturnValue(7)
+    saveMock.mockResolvedValueOnce({ extension: extension() })
+    const wrapper = await mountPage()
+    await fillForm(wrapper)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+    expect(saveMock).toHaveBeenCalled()
   })
 
   it('cannot grant with the group or date missing', async () => {

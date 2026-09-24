@@ -120,6 +120,35 @@
         </table>
       </div>
     </section>
+
+    <div v-if="overwriteWarning" class="extensions__overlay" @click.self="overwriteWarning = null">
+      <div
+        class="extensions__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Extension already exists"
+      >
+        <h4 class="extensions__dialog-title">This group already has an extension</h4>
+        <p class="extensions__dialog-body">
+          <strong>{{ overwriteWarning.groupName }}</strong> is already extended until
+          <strong>{{ overwriteWarning.until }}</strong>. Granting a new extension replaces
+          the current one.
+        </p>
+        <div class="extensions__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="overwriteWarning = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving"
+            @click="performSave(overwriteWarning.id)"
+          >
+            {{ isSaving ? 'Saving…' : 'Replace extension' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -147,7 +176,14 @@ const isSaving = ref(false)
 
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
-const untilLocal = ref('')
+// Defaults to today at 23:59 — extensions are almost always end-of-day,
+// so the admin only has to adjust the date.
+const defaultUntilLocal = () => {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
+}
+const untilLocal = ref(defaultUntilLocal())
 const graceHours = ref(24)
 const reason = ref('')
 
@@ -198,6 +234,10 @@ const load = async () => {
   }
 }
 
+// Warning shown when the picked group already has an active extension —
+// granting again replaces it, so the admin must confirm on purpose.
+const overwriteWarning = ref<{ id: number; groupName: string; until: string } | null>(null)
+
 const save = async () => {
   actionError.value = ''
   savedMessage.value = ''
@@ -206,13 +246,26 @@ const save = async () => {
     actionError.value = 'No group matches that name or ID.'
     return
   }
+  const existing = extensions.value.find((e) => e.group_id === id && !e.revoked_at)
+  if (existing) {
+    overwriteWarning.value = {
+      id,
+      groupName: existing.group_name,
+      until: `${new Date(existing.extended_until).toLocaleDateString('en-GB')} ${new Date(existing.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    }
+    return
+  }
+  await performSave(id)
+}
+
+const performSave = async (id: number) => {
   isSaving.value = true
   try {
     const iso = new Date(untilLocal.value).toISOString()
     await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
     savedMessage.value = 'Extension granted.'
     groupQuery.value = ''
-    untilLocal.value = ''
+    untilLocal.value = defaultUntilLocal()
     graceHours.value = 24
     reason.value = ''
     await load()
@@ -220,6 +273,7 @@ const save = async () => {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isSaving.value = false
+    overwriteWarning.value = null
   }
 }
 
@@ -402,5 +456,43 @@ onMounted(() => {
 
 .extensions__muted {
   color: var(--text-muted);
+}
+
+/* Replace-extension warning — same treatment as the deadline confirm. */
+.extensions__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.extensions__dialog {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  padding: 1.25rem 1.5rem;
+  max-width: 26rem;
+  width: 100%;
+}
+
+.extensions__dialog-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.extensions__dialog-body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--charcoal);
+}
+
+.extensions__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 </style>
