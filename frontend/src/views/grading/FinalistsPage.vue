@@ -38,7 +38,6 @@
         <table class="finalists__table">
           <thead>
             <tr>
-              <th>ID</th>
               <th>Group</th>
               <th>Late</th>
               <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
@@ -59,12 +58,11 @@
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 7" class="finalists__empty">
+              <td :colspan="candidateComponents.length + 6" class="finalists__empty">
                 {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
             <tr v-for="r in candidates" :key="r.group_id">
-              <td class="finalists__muted">#{{ r.group_id }}</td>
               <td class="finalists__cell--strong">{{ r.group_name }}</td>
               <td>
                 <span v-if="r.is_late" class="finalists__late">
@@ -150,7 +148,6 @@
         <table class="finalists__table">
           <thead>
             <tr>
-              <th>ID</th>
               <th>Group</th>
               <th>Flagged Date</th>
               <th>Flagged Time</th>
@@ -160,10 +157,9 @@
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="6" class="finalists__empty">No finalists yet.</td>
+              <td colspan="5" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
-              <td class="finalists__muted">#{{ f.group_id }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
               <td>{{ new Date(f.flagged_at).toLocaleDateString('en-GB') }}</td>
               <td>{{ new Date(f.flagged_at).toLocaleTimeString([], { hourCycle: 'h23' }) }}</td>
@@ -233,15 +229,13 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
-// Live-filter the Group Marks table by the search text (name or ID),
+// Live-filter the Group Marks table by the search text (group name),
 // matching the other marking tables; resolveId still powers the Add button.
 const candidates = computed(() => {
   const rows = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
   if (!q) return rows
-  return rows.filter(
-    (r) => r.group_name.toLowerCase().includes(q) || String(r.group_id).includes(q)
-  )
+  return rows.filter((r) => r.group_name.toLowerCase().includes(q))
 })
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
 
@@ -288,7 +282,7 @@ const add = async () => {
   actionError.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    actionError.value = 'No group matches that name or ID.'
+    actionError.value = 'No group matches that name.'
     return
   }
   isMutating.value = true

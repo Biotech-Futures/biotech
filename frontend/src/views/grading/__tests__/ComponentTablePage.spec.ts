@@ -181,10 +181,10 @@ describe('the table', () => {
       .findAll('.component-table__sort')
       .find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
     await progressSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
   })
 

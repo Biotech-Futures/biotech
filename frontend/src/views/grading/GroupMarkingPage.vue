@@ -49,7 +49,6 @@
       <div class="group-marking__header">
         <h2 class="group-marking__title">
           {{ payload.group.group_name }}
-          <span class="group-marking__id">#{{ groupId }}</span>
         </h2>
         <div class="group-marking__search-field">
           <span class="group-marking__search-label">Search</span>
@@ -630,13 +629,13 @@ const goto = (id: number | null) => {
   )
 }
 
-// Same search box as the marking tables; Open resolves the typed name or ID
+// Same search box as the marking tables; Open resolves the typed name
 // and navigates within the current mode (component or by-group).
 const openSearch = () => {
   searchError.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    searchError.value = 'No group matches that name or ID.'
+    searchError.value = 'No group matches that name.'
     return
   }
   searchQuery.value = ''
@@ -876,12 +875,6 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
-}
-
-.group-marking__id {
-  color: var(--text-muted);
-  font-size: 1.35rem;
-  font-weight: 400;
 }
 
 .group-marking__header-actions {

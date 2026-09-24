@@ -36,7 +36,7 @@
               v-model="searchQuery"
               type="search"
               class="component-table__search-input"
-              placeholder="Group name or ID"
+              placeholder="Group name"
               aria-label="Search groups"
             />
           </div>
@@ -78,11 +78,6 @@
         <table class="component-table__table">
           <thead>
             <tr>
-              <th>
-                <button type="button" class="component-table__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
-                </button>
-              </th>
               <th>Group</th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
@@ -109,12 +104,11 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="component-table__empty">
+              <td colspan="7" class="component-table__empty">
                 {{ searchQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td>{{ r.group_id }}</td>
               <td class="component-table__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
@@ -229,7 +223,7 @@ const onUploadApplied = async (written: number) => {
   await load()
 }
 
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'time' | 'progress'
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -300,7 +294,6 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: ComponentRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.criteria_graded : null
 }
@@ -309,9 +302,7 @@ const displayRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   let rows = [...(payload.value?.rows ?? [])]
   if (query) {
-    rows = rows.filter(
-      (r) => r.group_name.toLowerCase().includes(query) || String(r.group_id).includes(query)
-    )
+    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
   }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {

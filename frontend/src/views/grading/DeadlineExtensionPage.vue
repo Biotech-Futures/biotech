@@ -5,7 +5,7 @@
         <h3 class="card-title">Extend Deadline</h3>
       </div>
       <p class="extensions__hint">
-        Search by the group's name or ID to extend their deadline. Times are in your local
+        Search by the group's name to extend their deadline. Times are in your local
         timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
         keeps accepting for the grace hours after it.
       </p>
@@ -68,7 +68,6 @@
         <table class="extensions__table">
           <thead>
             <tr>
-              <th>ID</th>
               <th>Group</th>
               <th>Extended until</th>
               <th>Grace</th>
@@ -80,11 +79,10 @@
           </thead>
           <tbody>
             <tr v-if="extensions.length === 0">
-              <td colspan="8" class="extensions__empty">No extensions granted.</td>
+              <td colspan="7" class="extensions__empty">No extensions granted.</td>
             </tr>
             <template v-for="e in extensions" :key="e.id">
               <tr :class="{ 'extensions__row--with-reason': e.reason }">
-                <td class="extensions__muted">#{{ e.group_id }}</td>
                 <td class="extensions__cell--strong">{{ e.group_name }}</td>
                 <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB')} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
                 <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
@@ -111,7 +109,7 @@
               <!-- The reason gets a full-width row of its own so multi-line
                    text can wrap; the pair reads as one record. -->
               <tr v-if="e.reason" class="extensions__reason-row">
-                <td colspan="8">
+                <td colspan="7">
                   <span class="extensions__muted">Reason:</span> {{ e.reason }}
                 </td>
               </tr>
@@ -243,7 +241,7 @@ const save = async () => {
   savedMessage.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    actionError.value = 'No group matches that name or ID.'
+    actionError.value = 'No group matches that name.'
     return
   }
   const existing = extensions.value.find((e) => e.group_id === id && !e.revoked_at)

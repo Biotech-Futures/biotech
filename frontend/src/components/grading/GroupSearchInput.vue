@@ -16,7 +16,6 @@
       <li v-for="s in suggestions" :key="s.group_id">
         <button type="button" class="group-search__option" @mousedown.prevent="pick(s)">
           <span class="group-search__name">{{ s.group_name }}</span>
-          <span class="group-search__id">ID {{ s.group_id }}</span>
         </button>
       </li>
     </ul>
@@ -34,8 +33,7 @@ const loadDirectory = () => {
     directory = fetchFinalistCandidates()
       .then((r) => r.rows)
       .catch(() => {
-        // Let a later mount retry instead of caching the failure; typing a
-        // numeric ID still works with an empty directory.
+        // Let a later mount retry instead of caching the failure.
         directory = null
         return []
       })
@@ -55,7 +53,7 @@ const props = withDefaults(
     showSuggestions?: boolean
   }>(),
   {
-    placeholder: 'Group name or ID',
+    placeholder: 'Group name',
     showSuggestions: true
   }
 )
@@ -75,14 +73,7 @@ onMounted(async () => {
 const suggestions = computed(() => {
   const raw = props.modelValue.trim().toLowerCase()
   if (!raw) return []
-  const byId = /^\d+$/.test(raw)
-  return rows.value
-    .filter((r) =>
-      byId
-        ? String(r.group_id).startsWith(raw) || r.group_name.toLowerCase().includes(raw)
-        : r.group_name.toLowerCase().includes(raw)
-    )
-    .slice(0, 8)
+  return rows.value.filter((r) => r.group_name.toLowerCase().includes(raw)).slice(0, 8)
 })
 
 const onInput = (event: Event) => {
@@ -96,14 +87,10 @@ const pick = (row: FinalistCandidateRow) => {
   emit('select', { id: row.group_id, name: row.group_name })
 }
 
-/** Digits are an ID; otherwise resolve a unique (exact-first) name match. */
+/** Resolve a unique (exact-first) name match. */
 const resolveId = (): number | null => {
   const raw = props.modelValue.trim()
   if (!raw) return null
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw)
-    return Number.isFinite(n) && n > 0 ? n : null
-  }
   const lower = raw.toLowerCase()
   const exact = rows.value.filter((r) => r.group_name.toLowerCase() === lower)
   if (exact.length === 1) return exact[0].group_id
@@ -189,9 +176,4 @@ defineExpose({ resolveId })
   background: var(--light-green);
 }
 
-.group-search__id {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
 </style>

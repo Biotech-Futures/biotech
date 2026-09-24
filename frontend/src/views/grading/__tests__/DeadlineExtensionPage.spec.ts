@@ -90,7 +90,7 @@ describe('the extensions table', () => {
   it('lists each extension with its grace, author and reason row', async () => {
     const wrapper = await mountPage()
     const text = wrapper.text()
-    expect(text).toContain('#7')
+    expect(text).not.toContain('#7') // group ids are not exposed
     expect(text).toContain('BTF-1')
     expect(text).toContain('+6h')
     expect(text).toContain('Ada Admin')
@@ -107,7 +107,7 @@ describe('the extensions table', () => {
       ]
     })
     const wrapper = await mountPage()
-    const labels = wrapper.findAll('tbody td:nth-child(5)').map((c) => c.text())
+    const labels = wrapper.findAll('tbody td:nth-child(4)').map((c) => c.text())
     expect(labels).toEqual(['Active', 'In grace', 'Expired', 'Revoked'])
     // A revoked row loses its Revoke button.
     const lastRow = wrapper.findAll('tbody tr').at(-1)!
@@ -145,7 +145,7 @@ describe('granting', () => {
     const wrapper = await mountPage()
     await fillForm(wrapper)
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.extensions__banner--error').text()).toBe('No group matches that name or ID.')
+    expect(wrapper.find('.extensions__banner--error').text()).toBe('No group matches that name.')
     expect(saveMock).not.toHaveBeenCalled()
   })
 
