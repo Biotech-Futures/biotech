@@ -116,14 +116,16 @@
             <!-- The stamp row lives inside the left pane so its actions hug
                  the PDF's right edge, tracking the divider when dragged. -->
             <p class="group-marking__pane-stamp">
-              <span v-if="combinedSubmittedLabel">
-                Submitted at {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
-                <template v-if="combinedMarkerText">
-                  · Marker:
-                  <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
-                    {{ combinedMarkerText }}
-                  </span>
-                </template>
+              <span>
+                Marker:
+                <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
+                  {{ combinedMarkerText }}
+                  <i
+                    v-if="combinedHasMultipleMarkers"
+                    class="fas fa-users group-marking__stamp-marker-icon"
+                    aria-hidden="true"
+                  ></i>
+                </span>
                 <span
                   v-if="categoriesStatus"
                   class="group-marking__stamp-status"
@@ -236,19 +238,15 @@
                    edge; the rubric column offsets to stay level below. -->
               <p class="group-marking__pane-stamp">
                 <span>
-                  Submitted at {{ singleSubmittedLabel
-                  }}<template v-if="activeBlock.submission.is_late"> (late)</template>
-                  <template v-if="singleMarkerName">
-                    · Marker:
-                    <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
-                      {{ singleMarkerName }}
-                      <i
-                        v-if="(singleGraderNames?.length ?? 0) > 1"
-                        class="fas fa-users group-marking__stamp-marker-icon"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </template>
+                  Marker:
+                  <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
+                    {{ singleMarkerName }}
+                    <i
+                      v-if="(singleGraderNames?.length ?? 0) > 1"
+                      class="fas fa-users group-marking__stamp-marker-icon"
+                      aria-hidden="true"
+                    ></i>
+                  </span>
                   <span
                     v-if="categoriesStatus && activeBlock.component.code === 'SAQ'"
                     class="group-marking__stamp-status"
@@ -468,26 +466,6 @@ const markersFor = (block: ComponentBlock) => {
 
 const criterionMarkers = computed(() => (activeBlock.value ? markersFor(activeBlock.value) : []))
 
-// Both combined sections share one Submission row, so the stamp is shown
-// once above them rather than repeated per pane.
-const combinedSubmission = computed(
-  () => saqBlock.value?.submission ?? posterBlock.value?.submission ?? null
-)
-// "9/2/2026 19:48" — 24-hour, no seconds, no comma, matching the tables.
-const stampLabel = (iso: string) => {
-  const d = new Date(iso)
-  return `${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  })}`
-}
-
-const combinedSubmittedLabel = computed(() =>
-  combinedSubmission.value ? stampLabel(combinedSubmission.value.submitted_at) : ''
-)
-const combinedIsLate = computed(() => combinedSubmission.value?.is_late === true)
-
 // Last marker of each combined section; collapsed to one name when the same
 // person marked both. The tooltip lists every criterion's marker.
 const combinedMarkerText = computed(() => {
@@ -508,6 +486,16 @@ const combinedMarkerTooltip = computed(() => {
     lines.push(...markersFor(posterBlock.value).map((m) => `Poster ${m.name}: ${m.marker}`))
   }
   return lines.join('\n')
+})
+
+// Several distinct people marked across the two sections — flagged with
+// the same group icon the tables use.
+const combinedHasMultipleMarkers = computed(() => {
+  const names = new Set<string>()
+  for (const block of [saqBlock.value, posterBlock.value]) {
+    if (block) markersFor(block).forEach((m) => names.add(m.marker))
+  }
+  return names.size > 1
 })
 
 // Open/Download live on the hoisted stamp line. Same rules as the preview's
@@ -544,9 +532,6 @@ const downloadStampFile = async (url: string | null, fileName?: string | null) =
 
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.
-const singleSubmittedLabel = computed(() =>
-  activeBlock.value?.submission ? stampLabel(activeBlock.value.submission.submitted_at) : ''
-)
 const singleMarkerName = computed(() =>
   isComponentMode.value ? currentRow.value?.last_grader_name : activeBlock.value?.last_grader_name
 )

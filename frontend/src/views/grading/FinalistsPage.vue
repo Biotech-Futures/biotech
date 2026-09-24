@@ -151,6 +151,7 @@
               <th>Group</th>
               <th>Flagged at</th>
               <th>Flagged by</th>
+              <th>Late</th>
               <th>Total</th>
               <th>
                 Marker
@@ -166,12 +167,18 @@
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="7" class="finalists__empty">No finalists yet.</td>
+              <td colspan="8" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB')} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
+              <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
+              <td>
+                <span v-if="candidatesByGroup.get(f.group_id)?.is_late" class="finalists__late">
+                  {{ candidatesByGroup.get(f.group_id)!.late_by || 'Late' }}
+                </span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
               <td class="finalists__cell--strong">
                 <span v-if="totalsByGroup.get(f.group_id) != null">
                   {{ totalsByGroup.get(f.group_id) }}

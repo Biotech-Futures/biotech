@@ -205,7 +205,9 @@ describe('the combined SAQs & Poster view', () => {
   it('hoists one shared stamp naming each section marker', async () => {
     const wrapper = await mountPage()
     const stamp = wrapper.find('.group-marking__pane-stamp')
-    expect(stamp.text()).toContain('Submitted')
+    // The stamp carries the marker only — no submitted-at timestamp.
+    expect(stamp.text()).not.toContain('Submitted')
+    expect(stamp.text()).toContain('Marker:')
     expect(stamp.find('.group-marking__stamp-marker').text()).toBe('SAQ: Ada Grader · Poster: Bob Marker')
     expect(stamp.find('.group-marking__stamp-marker').attributes('title')).toContain('SAQ 1: Ada Grader')
     // The poster PDF gets its Open action on the stamp line.

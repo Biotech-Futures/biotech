@@ -85,7 +85,7 @@
               </th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
-                  Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -116,7 +116,7 @@
               <td class="component-table__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB') }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
                   {{
                     new Date(r.submitted_at).toLocaleTimeString([], {
                       hour: '2-digit',

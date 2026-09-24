@@ -69,7 +69,7 @@
           <thead>
             <tr>
               <th>Group</th>
-              <th>Extended until</th>
+              <th>Extension</th>
               <th>Grace</th>
               <th>Status</th>
               <th>Granted by</th>
@@ -84,7 +84,7 @@
             <template v-for="e in extensions" :key="e.id">
               <tr :class="{ 'extensions__row--with-reason': e.reason }">
                 <td class="extensions__cell--strong">{{ e.group_name }}</td>
-                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB')} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
+                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
                 <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
                 <td>
                   <span :class="`extensions__status--${extensionStatus(e).state}`">
@@ -249,7 +249,7 @@ const save = async () => {
     overwriteWarning.value = {
       id,
       groupName: existing.group_name,
-      until: `${new Date(existing.extended_until).toLocaleDateString('en-GB')} ${new Date(existing.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+      until: `${new Date(existing.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(existing.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
     }
     return
   }
