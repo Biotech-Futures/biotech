@@ -674,10 +674,10 @@ RSVP_REMINDER_24H_WINDOW_HOURS = config(
     "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
 )
 RSVP_REMINDER_1H_HOURS_AHEAD = config(
-    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=0.5, cast=float
 )
 RSVP_REMINDER_1H_WINDOW_HOURS = config(
-    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=float
 )
 
 # --- Link previews -----------------------------------------------------------
