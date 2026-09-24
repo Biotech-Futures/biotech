@@ -215,12 +215,17 @@ const overwriteGroupCount = computed(() =>
 )
 const newGroupCount = computed(() => {
   if (!preview.value) return 0
-  const groups = new Set(
-    [...preview.value.creates, ...preview.value.updates, ...preview.value.unchanged].map(
-      (e) => e.group_id
-    )
-  )
-  return groups.size - overwriteGroupCount.value
+  // Groups that actually write something new — created grades or changed
+  // marking-key categories. Unchanged groups write nothing, so an
+  // untouched re-upload reports 0 of both kinds; a group already counted
+  // as overwriting is not double counted here.
+  const overwriting = new Set(preview.value.updates.map((e) => e.group_id))
+  return new Set(
+    [
+      ...preview.value.creates.map((e) => e.group_id),
+      ...(preview.value.marking_categories ?? []).map((e) => e.group_id)
+    ].filter((id) => !overwriting.has(id))
+  ).size
 })
 
 // "(BTF1 [3_mark, 3_comment, 4_mark], …)" — one listing per overwritten

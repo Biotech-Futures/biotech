@@ -301,6 +301,9 @@ export interface BulkUploadSummary {
   creates: number
   updates: number
   unchanged: number
+  overall_comments?: number
+  // SAQ shape only: marking key selections parsed from the sheet.
+  marking_categories?: number
   errors: number
 }
 
@@ -316,10 +319,21 @@ export interface BulkUploadChecks {
   bad_marks: { row: number; column: string; hint: string }[]
 }
 
+export interface BulkUploadCategoryEntry {
+  row: number
+  group_id: number
+  product_categories: string[]
+  product_category_other: string
+  solution_category: string
+  solution_category_other: string
+}
+
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  // SAQ shape only: marking key changes parsed from the sheet.
+  marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]
   checks?: BulkUploadChecks
   summary: BulkUploadSummary

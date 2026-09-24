@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import ComponentFeedback, Grade
+from apps.grading.models import ComponentFeedback, Grade, GroupMarkingCategories
 
 from .fixtures import _GradingFixture
 
@@ -66,7 +66,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # Criterion 2 is blank with no existing grade -> untouched, not a create.
         self.assertEqual(
             data["summary"],
-            {"creates": 1, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+            {"creates": 1, "updates": 0, "unchanged": 0, "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
         self.assertEqual(Grade.objects.count(), 0)
 
@@ -83,7 +83,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         s = resp.json()["summary"]
         self.assertEqual(
-            s, {"creates": 0, "updates": 1, "unchanged": 1, "overall_comments": 0, "errors": 0}
+            s, {"creates": 0, "updates": 1, "unchanged": 1, "overall_comments": 0, "marking_categories": 0, "errors": 0}
         )
         # Updates name their group and the columns whose values differ,
         # so the preview can say what an overwrite touches.
@@ -143,7 +143,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(body["checks"]["missing_headers"], [])
         self.assertEqual(
             body["summary"],
-            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
 
     def test_criteria_beyond_rubric_with_mark_rejected(self):
@@ -162,7 +162,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(
             resp.json()["summary"],
-            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
 
     def test_blank_criteria_no_answer_row_is_ignored(self):
@@ -174,7 +174,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(
             resp.json()["summary"],
-            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+            {"creates": 0, "updates": 0, "unchanged": 0, "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
 
     def test_blank_criteria_no_with_mark_rejected(self):
@@ -241,6 +241,45 @@ class BulkUploadMarksViewTests(_GradingFixture):
             "keep me",
         )
 
+    def test_marking_categories_uploaded_from_first_row(self):
+        # product_category / category_of_solution parse back from the
+        # export's own formatting and land on the group's marking key.
+        upload = self._make_xlsx(
+            [
+                (self.group.id, "BTF-TEST-1", "", 1, "", "", "",
+                 "Health and Medicine, Other: Wearables", "Other: App"),
+                (self.group.id, "BTF-TEST-1", "", 2, "", "", "", "", ""),
+            ],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        cats = GroupMarkingCategories.objects.get(group=self.group)
+        self.assertEqual(cats.product_categories, ["Health and Medicine", "Other"])
+        self.assertEqual(cats.product_category_other, "Wearables")
+        self.assertEqual(cats.solution_category, "Other")
+        self.assertEqual(cats.solution_category_other, "App")
+        self.assertEqual(cats.updated_by_id, self.staff.id)
+
+    def test_unknown_category_values_land_in_other(self):
+        # Values that match no fixed option are stored as Other detail so
+        # nothing the sheet carries can become invisible in the UI. Known
+        # labels match case-insensitively to their canonical casing.
+        upload = self._make_xlsx(
+            [
+                (self.group.id, "BTF-TEST-1", "", 1, "", "", "",
+                 "sustainable environment, sadfasd", "asdfasdf"),
+            ],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        cats = GroupMarkingCategories.objects.get(group=self.group)
+        self.assertEqual(cats.product_categories, ["Sustainable Environment", "Other"])
+        self.assertEqual(cats.product_category_other, "sadfasd")
+        self.assertEqual(cats.solution_category, "Other")
+        self.assertEqual(cats.solution_category_other, "asdfasdf")
+
     def test_blank_group_id_continues_previous_group(self):
         # The export writes group_id/group_name on each group's first row
         # only; blank cells continue the group above.
@@ -300,7 +339,7 @@ class BulkUploadWideFormatTests(_GradingFixture):
         self.assertTrue(body["checks"]["type_ok"])
         self.assertEqual(
             body["summary"],
-            {"creates": 1, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+            {"creates": 1, "updates": 0, "unchanged": 0, "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
 
     def test_wrong_type_rejected(self):

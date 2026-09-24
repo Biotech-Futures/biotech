@@ -16,9 +16,12 @@ The SAQ shape is one row per criterion position:
              | overall_comment | product_category | category_of_solution
 
 ``criteria_no`` maps to the component's active-rubric criteria in
-(order, id) order — the same ordering the export writes. ``answer``,
-``product_category`` and ``category_of_solution`` are informational
-export columns, accepted but never parsed.
+(order, id) order — the same ordering the export writes. ``answer`` is
+an informational export column, accepted but never parsed.
+``product_category`` / ``category_of_solution`` update the group's
+marking key selections (read from each group's FIRST row, like
+``overall_comment``), parsed back from the export's own formatting
+("Health, Other: Wearables" / "Other: App").
 
 Rules:
     * Missing required headers fail the file. SAQ requires ``group_id``,
@@ -52,7 +55,13 @@ from typing import Iterable
 from django.db import transaction
 from openpyxl import load_workbook
 
-from ..models import ComponentFeedback, Grade, RubricCriterion, SubmissionComponent
+from ..models import (
+    ComponentFeedback,
+    Grade,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
+)
 from .content import submission_entries
 
 
@@ -79,12 +88,69 @@ def _fmt_mark(value: Decimal) -> str:
     return s.rstrip("0").rstrip(".") if "." in s else s
 
 
+# The marking key's fixed options — mirrors PRODUCT_OPTIONS /
+# SOLUTION_OPTIONS in frontend MarkingCategories.vue. Sheet values are
+# matched case-insensitively to these; anything unrecognised lands in
+# "Other" so no value the sheet carries can become invisible in the UI.
+PRODUCT_CATEGORY_OPTIONS = [
+    "Health and Medicine",
+    "Sustainable Environment",
+    "Emerging Technologies",
+    "Regulation Ethics",
+]
+SOLUTION_CATEGORY_OPTIONS = ["Product/Device", "Technique/Method", "Treatment"]
+_PRODUCT_BY_LOWER = {o.lower(): o for o in PRODUCT_CATEGORY_OPTIONS}
+_SOLUTION_BY_LOWER = {o.lower(): o for o in SOLUTION_CATEGORY_OPTIONS}
+
+
+def _parse_product_category(value: str) -> tuple[list[str], str]:
+    """Inverse of the export's formatting: "Health and Medicine, Other:
+    Wearables" -> (["Health and Medicine", "Other"], "Wearables").
+    Unknown labels become Other detail."""
+    labels: list[str] = []
+    others: list[str] = []
+    for part in (p.strip() for p in str(value or "").split(",")):
+        if not part:
+            continue
+        if part.lower().startswith("other:"):
+            others.append(part[len("other:"):].strip())
+        elif part.lower() == "other":
+            if "Other" not in labels:
+                labels.append("Other")
+        elif part.lower() in _PRODUCT_BY_LOWER:
+            canonical = _PRODUCT_BY_LOWER[part.lower()]
+            if canonical not in labels:
+                labels.append(canonical)
+        else:
+            others.append(part)
+    other = ", ".join(o for o in others if o)
+    if other and "Other" not in labels:
+        labels.append("Other")
+    return labels, other
+
+
+def _parse_solution_category(value: str) -> tuple[str, str]:
+    """Inverse of the export's formatting: "Other: App" -> ("Other", "App").
+    An unknown value becomes Other detail."""
+    s = str(value or "").strip()
+    if not s:
+        return "", ""
+    if s.lower().startswith("other:"):
+        return "Other", s[len("other:"):].strip()
+    if s.lower() == "other":
+        return "Other", ""
+    if s.lower() in _SOLUTION_BY_LOWER:
+        return _SOLUTION_BY_LOWER[s.lower()], ""
+    return "Other", s
+
+
 @dataclass
 class UploadDiff:
     creates: list[dict] = field(default_factory=list)
     updates: list[dict] = field(default_factory=list)
     unchanged: list[dict] = field(default_factory=list)
     overall_comments: list[dict] = field(default_factory=list)
+    marking_categories: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     # Categorised validation report for the preview dialog: header problems,
     # sheet type, bad group rows, bad mark cells. See parse_marks_upload.
@@ -96,6 +162,7 @@ class UploadDiff:
             "updates": len(self.updates),
             "unchanged": len(self.unchanged),
             "overall_comments": len(self.overall_comments),
+            "marking_categories": len(self.marking_categories),
             "errors": len(self.errors),
         }
 
@@ -105,6 +172,7 @@ class UploadDiff:
             "updates": self.updates,
             "unchanged": self.unchanged,
             "overall_comments": self.overall_comments,
+            "marking_categories": self.marking_categories,
             "errors": self.errors,
             "checks": self.checks,
             "summary": self.summary(),
@@ -230,8 +298,16 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
         )
     }
 
+    categories_by_group = {
+        c.group_id: c
+        for c in GroupMarkingCategories.objects.filter(
+            group_id__in=submissions_by_group.keys()
+        )
+    }
+
     seen_cells: set[tuple[int, int]] = set()
     overall_seen: set[int] = set()
+    categories_seen: set[int] = set()
     current_group_id: int | None = None
     header_checked = False
 
@@ -338,6 +414,42 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
                     "component_id": component.id,
                     "comment": new_comment,
                     "old_comment": feedback_by_group.get(group_id) or "",
+                })
+
+        # Marking key selections are group-level like overall_comment:
+        # read from the group's FIRST row only, and only when the columns
+        # exist. A column-absent half keeps its stored value.
+        if group_id not in categories_seen and (
+            "product_category" in row or "category_of_solution" in row
+        ):
+            categories_seen.add(group_id)
+            stored = categories_by_group.get(group_id)
+            new_products = list(stored.product_categories or []) if stored else []
+            new_product_other = (stored.product_category_other or "") if stored else ""
+            new_solution = (stored.solution_category or "") if stored else ""
+            new_solution_other = (stored.solution_category_other or "") if stored else ""
+            if "product_category" in row:
+                new_products, new_product_other = _parse_product_category(
+                    row.get("product_category", "")
+                )
+            if "category_of_solution" in row:
+                new_solution, new_solution_other = _parse_solution_category(
+                    row.get("category_of_solution", "")
+                )
+            old = (
+                list(stored.product_categories or []) if stored else [],
+                (stored.product_category_other or "") if stored else "",
+                (stored.solution_category or "") if stored else "",
+                (stored.solution_category_other or "") if stored else "",
+            )
+            if (new_products, new_product_other, new_solution, new_solution_other) != old:
+                diff.marking_categories.append({
+                    "row": row_num,
+                    "group_id": group_id,
+                    "product_categories": new_products,
+                    "product_category_other": new_product_other,
+                    "solution_category": new_solution,
+                    "solution_category_other": new_solution_other,
                 })
 
         comment = row.get("comment", "") or ""
@@ -610,6 +722,18 @@ def commit_marks_upload(diff: UploadDiff, *, user) -> dict:
             group_id=entry["group_id"],
             component_id=entry["component_id"],
             defaults={"comment": entry["comment"], "updated_by": user},
+        )
+        written += 1
+    for entry in diff.marking_categories:
+        GroupMarkingCategories.objects.update_or_create(
+            group_id=entry["group_id"],
+            defaults={
+                "product_categories": entry["product_categories"],
+                "product_category_other": entry["product_category_other"],
+                "solution_category": entry["solution_category"],
+                "solution_category_other": entry["solution_category_other"],
+                "updated_by": user,
+            },
         )
         written += 1
     return {"written": written, **diff.summary()}

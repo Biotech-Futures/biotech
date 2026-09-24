@@ -202,6 +202,45 @@ describe('the preview report', () => {
     expect(text).toContain('Writing New Records: 2')
   })
 
+  it('an untouched re-upload reports zero records of both kinds', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        unchanged: [rowEntry(2, 7), rowEntry(3, 8)],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 0')
+  })
+
+  it('a category-only change counts as writing a new record', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        marking_categories: [
+          {
+            row: 2,
+            group_id: 7,
+            product_categories: ['Health'],
+            product_category_other: '',
+            solution_category: 'Treatment',
+            solution_category_other: ''
+          }
+        ],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 1')
+  })
+
   it('counts overwritten groups and folds their cells into one listing each', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)

@@ -217,5 +217,5 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertEqual(
             body["summary"],
             {"creates": 0, "updates": 0, "unchanged": 1,
-             "overall_comments": 0, "errors": 0},
+             "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
