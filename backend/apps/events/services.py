@@ -514,8 +514,8 @@ def send_due_rsvp_reminders(*, kind=None, dry_run=False):
 def _dispatch_reminder_kind(kind, *, dry_run):
     cfg = REMINDER_KINDS[kind]
     field = cfg["field"]
-    hours_ahead = int(getattr(settings, cfg["hours_ahead_setting"]))
-    window_hours = int(getattr(settings, cfg["window_hours_setting"]))
+    hours_ahead = float(getattr(settings, cfg["hours_ahead_setting"]))
+    window_hours = float(getattr(settings, cfg["window_hours_setting"]))
 
     now = timezone.now()
     window_start = now + timedelta(hours=hours_ahead)
