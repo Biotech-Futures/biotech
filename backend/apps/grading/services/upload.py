@@ -218,7 +218,17 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
     # typo'd header (r1_marks, Type, …) fails loudly instead of silently
     # being skipped and dropping the marks it carried. Also covers rN
     # positions beyond the rubric's size.
-    recognized = {"group_id", "group_name", "type", "text", "overall_comment"}
+    # product_category / category_of_solution are informational columns the
+    # export writes; accepted so the export round-trips, never parsed.
+    recognized = {
+        "group_id",
+        "group_name",
+        "type",
+        "text",
+        "product_category",
+        "category_of_solution",
+        "overall_comment",
+    }
     for i in range(1, len(ordered_criteria) + 1):
         recognized.add(f"r{i}_mark")
         recognized.add(f"r{i}_comment")

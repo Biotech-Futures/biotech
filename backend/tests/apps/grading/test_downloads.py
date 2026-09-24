@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import Grade, GradingJob
+from apps.grading.models import Grade, GradingJob, GroupMarkingCategories
 
 from .fixtures import _GradingFixture
 
@@ -152,15 +152,26 @@ class SaqXlsxExportTests(_GradingFixture):
         return download.content
 
     def test_sheet_carries_the_upload_shape_with_marks_prefilled(self):
+        GroupMarkingCategories.objects.create(
+            group=self.group,
+            product_categories=["Health", "Other"],
+            product_category_other="Wearables",
+            solution_category="Other",
+            solution_category_other="App",
+        )
         ws = load_workbook(io.BytesIO(self._export_xlsx())).active
         rows = list(ws.iter_rows(values_only=True))
         self.assertEqual(
             list(rows[0]),
             ["group_id", "group_name", "type", "text",
+             "product_category", "category_of_solution",
              "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
         )
-        (group_id, group_name, kind, text,
+        (group_id, group_name, kind, text, product_category, category_of_solution,
          r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
+        # The marking key's header selections, with the Other detail inlined.
+        self.assertEqual(product_category, "Health, Other: Wearables")
+        self.assertEqual(category_of_solution, "Other: App")
         # No SAQ feedback saved in this fixture -> blank, not an error.
         self.assertIn(overall_comment, (None, ""))
         self.assertEqual(group_id, self.group.id)

@@ -35,7 +35,13 @@ from django.contrib.auth import get_user_model
 from apps.groups.models.group_members import GroupMembership
 from apps.users.models import StudentProfile
 
-from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
+from ..models import (
+    Grade,
+    GradingJob,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
+)
 from .content import feedback_map, submission_entries
 from .docx import (
     certificate_context,
@@ -103,7 +109,15 @@ def _run_job(job_id: int) -> None:
                 ).items()
                 if component_id == component.id
             }
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair, feedback_by_group)
+            categories_by_group = {
+                c.group_id: c
+                for c in GroupMarkingCategories.objects.filter(
+                    group_id__in=[e.group_id for e in entries]
+                )
+            }
+            payload = build_saq_xlsx(
+                entries, criteria, grades_by_pair, feedback_by_group, categories_by_group
+            )
             filename = f"BIOTech_SAQs_{timezone.now().year}.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.

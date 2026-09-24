@@ -809,14 +809,22 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-/* Search sits centered in the header row, between the title and the Prev/
-   Next/Download buttons. The error overlays below so it never stretches
+/* Search fills the header row between the title and the Prev/Next/
+   Download buttons. The error overlays below so it never stretches
    the row. */
 /* Unlike the table pages, the label sits inline, left of the textbox. */
 .group-marking__search-field {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  /* Basis = the cluster with the box at its 155px floor (label + gaps +
+     box + Open). The wrapping header breaks lines at basis sizes, so the
+     basis must be the floor-sized cluster or the row wraps before the
+     box has shrunk back to 155. Cap = the same cluster with the box at
+     its 252px cap; once capped, the auto margins center it in the row. */
+  flex: 1 1 300px;
+  min-width: 0;
+  max-width: 400px;
   margin-inline: auto;
 }
 
@@ -833,11 +841,16 @@ const downloadAll = async () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-/* Same width as the By Component page's search box. */
+/* Absorbs the header row's leftover space between the table pages'
+   155px floor and 252px cap; the Open button rides its right edge. */
 .group-marking__picker {
-  width: 252px;
+  flex: 1 1 155px;
+  min-width: 155px;
+  max-width: 252px;
 }
 
 .group-marking__search-error {
