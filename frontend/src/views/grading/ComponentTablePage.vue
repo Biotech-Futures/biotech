@@ -78,7 +78,11 @@
         <table class="component-table__table">
           <thead>
             <tr>
-              <th>Group</th>
+              <th>
+                <button type="button" class="component-table__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
                   Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
@@ -223,7 +227,10 @@ const onUploadApplied = async (written: number) => {
   await load()
 }
 
-type SortKey = 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -306,6 +313,7 @@ const displayRows = computed(() => {
   }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.

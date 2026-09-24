@@ -194,6 +194,17 @@ describe('search and sorting', () => {
     expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
   })
 
+  it('sorting by group name starts ascending and toggles', async () => {
+    const wrapper = await mountPage()
+    const groupSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('Group'))!
+    await groupSort.trigger('click')
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
+    await groupSort.trigger('click')
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['BTF-2', 'BTF-1', 'Alpha Team'])
+  })
+
   it('exposes no group ids anywhere in the table', async () => {
     const wrapper = await mountPage()
     expect(wrapper.find('thead').text()).not.toContain('ID')

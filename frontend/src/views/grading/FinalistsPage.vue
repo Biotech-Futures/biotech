@@ -149,21 +149,50 @@
           <thead>
             <tr>
               <th>Group</th>
-              <th>Flagged Date</th>
-              <th>Flagged Time</th>
+              <th>Flagged at</th>
               <th>Flagged by</th>
+              <th>Total</th>
+              <th>
+                Marker
+                <i
+                  class="fas fa-circle-info finalists__marker-info"
+                  data-tip="Hover over a marker's name to see who marked each part."
+                  aria-hidden="true"
+                ></i>
+              </th>
+              <th class="finalists__cell--right"></th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="5" class="finalists__empty">No finalists yet.</td>
+              <td colspan="7" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleDateString('en-GB') }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleTimeString([], { hourCycle: 'h23' }) }}</td>
+              <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB')} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
+              <td class="finalists__cell--strong">
+                <span v-if="totalsByGroup.get(f.group_id) != null">
+                  {{ totalsByGroup.get(f.group_id) }}
+                </span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
+              <td>
+                <span
+                  v-if="candidatesByGroup.get(f.group_id)?.markers.length"
+                  class="finalists__marker"
+                  :title="markerTooltip(candidatesByGroup.get(f.group_id)!)"
+                >
+                  {{ candidatesByGroup.get(f.group_id)!.markers[0] }}
+                  <i
+                    v-if="candidatesByGroup.get(f.group_id)!.markers.length > 1"
+                    class="fas fa-users finalists__marker-icon"
+                    aria-hidden="true"
+                  ></i>
+                </span>
+                <span v-else class="finalists__muted">—</span>
+              </td>
               <td class="finalists__cell--right">
                 <button
                   type="button"
@@ -173,6 +202,11 @@
                 >
                   Remove
                 </button>
+              </td>
+              <td class="finalists__cell--right">
+                <RouterLink :to="`/grading/groups/${f.group_id}`" class="btn btn-outline btn-sm">
+                  Open
+                </RouterLink>
               </td>
             </tr>
           </tbody>
@@ -238,6 +272,15 @@ const candidates = computed(() => {
   return rows.filter((r) => r.group_name.toLowerCase().includes(q))
 })
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// The Group Marks ranking keyed by group, so the Current Finalists table
+// can show each finalist's total and marker.
+const candidatesByGroup = computed(
+  () => new Map((candidatesResp.value?.rows ?? []).map((r) => [r.group_id, r]))
+)
+const totalsByGroup = computed(
+  () => new Map((candidatesResp.value?.rows ?? []).map((r) => [r.group_id, r.total]))
+)
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
 // falls back to the flat marker list when no per-criterion data exists.
