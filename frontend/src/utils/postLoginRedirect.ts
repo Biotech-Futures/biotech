@@ -3,6 +3,7 @@ import { formatTimeZoneLabel, getBrowserTimeZone, normalizeTimeZone } from '@/ut
 
 interface AdminAwareAuth {
   isAdmin: boolean
+  isSupervisor?: boolean
   mustChangePassword: boolean
   timeZone?: string
   user?: {
@@ -38,6 +39,11 @@ export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) =
 
   if (auth.isAdmin) {
     await router.replace('/admin')
+    return
+  }
+
+  if (auth.isSupervisor) {
+    await router.replace('/profile')
     return
   }
 

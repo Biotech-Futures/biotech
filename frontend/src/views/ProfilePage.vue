@@ -43,6 +43,10 @@
       </div>
 
       <div class="profile-content">
+        <div
+          class="profile-primary"
+          :class="{ 'profile-primary--side-by-side': auth.isSupervisor }"
+        >
         <div class="profile-section">
           <h3 class="profile-section-title">Personal Information</h3>
           <div class="profile-field">
@@ -61,7 +65,11 @@
             <span class="profile-field-label">Role:</span>
             <span class="profile-field-value">{{ capitalise(user.role) }}</span>
           </div>
-          <div class="profile-field">
+          <div v-if="auth.isSupervisor" class="profile-field">
+            <span class="profile-field-label">School:</span>
+            <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
+          </div>
+          <div v-else class="profile-field">
             <span class="profile-field-label">Account Status:</span>
             <span class="profile-field-value">{{ capitalise(user.accountStatus) }}</span>
           </div>
@@ -112,6 +120,7 @@
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <div v-if="user.student.hasDetails" class="profile-section">
@@ -178,25 +187,6 @@
           </div>
         </div>
 
-        <div v-if="user.supervisor.hasDetails" class="profile-section">
-          <h3 class="profile-section-title">Supervisor Details</h3>
-          <div class="profile-field">
-            <span class="profile-field-label">School:</span>
-            <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
-          </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Supervised Students:</span>
-            <span class="profile-field-value">{{ user.supervisor.studentSummary }}</span>
-          </div>
-          <div
-            v-for="student in user.supervisor.students"
-            :key="student.id"
-            class="profile-field"
-          >
-            <span class="profile-field-label">{{ student.relationship }}:</span>
-            <span class="profile-field-value">{{ student.name }} ({{ student.email }})</span>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -347,20 +337,8 @@ const user = computed(() => {
   const interests = listOrEmpty(source?.interests)
   const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
-  const supervisedStudents = Array.isArray(source?.supervised_students)
-    ? source.supervised_students.map((student) => {
-      const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
-      return {
-        id: student?.id || student?.email || name,
-        name,
-        email: valueOrFallback(student?.email),
-        relationship: capitalise(student?.relationship_type || 'student')
-      }
-    })
-    : []
   const hasStudentDetails = roleKey === 'student'
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
-  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
   return {
     name: fullName,
@@ -387,12 +365,7 @@ const user = computed(() => {
       maxGroups: valueOrFallback(source?.ment_max_groups)
     },
     supervisor: {
-      hasDetails: hasSupervisorDetails,
-      schoolName: valueOrFallback(source?.supervisor_school_name),
-      studentSummary: supervisedStudents.length === 1
-        ? '1 student'
-        : `${supervisedStudents.length} students`,
-      students: supervisedStudents
+      schoolName: valueOrFallback(source?.supervisor_school_name, unsetLabel)
     }
   }
 })
@@ -555,6 +528,20 @@ onMounted(() => {
   transform: translateY(-6px);
 }
 
+.profile-primary--side-by-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+  margin-bottom: 0;
+}
+
+.profile-primary--side-by-side .profile-section {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
 .timezone-field {
   align-items: flex-start;
 }
@@ -605,6 +592,18 @@ onMounted(() => {
 .profile-link {
   color: var(--dark-green);
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .profile-primary--side-by-side {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-primary--side-by-side .profile-section + .profile-section {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-light);
+  }
 }
 
 @media (max-width: 640px) {

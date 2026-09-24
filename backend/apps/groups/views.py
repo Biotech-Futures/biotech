@@ -1,6 +1,6 @@
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -183,15 +183,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         self._ensure_admin_track_access(request, group)
         if group.deleted_at is None:
             return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
-        # Restore must respect the active-only uniqueness constraint.
-        if Groups.objects.filter(
-            group_name=group.group_name,
-            deleted_at__isnull=True,
-        ).exclude(pk=group.pk).exists():
-            raise ValidationError({
-                "group_name": "An active group with this name already exists."
-            })
-
+        # Names may repeat across annual challenges; identity is the group id.
         before_state = GroupSerializer(group).data
         group.restore()
         group.refresh_from_db()
@@ -221,18 +213,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             self._ensure_admin_track_access(request, None)
             requested_name = (group_payload.get("group_name") or "").strip()
             if requested_name:
-                taken_error = ValidationError({
-                    "group_name": [f'An active group named "{requested_name}" already exists.']
-                })
-                if Groups.objects.filter(
-                    group_name=requested_name, deleted_at__isnull=True,
-                ).exists():
-                    raise taken_error
-                try:
-                    with transaction.atomic():
-                        group = Groups.objects.create(group_name=requested_name)
-                except IntegrityError as exc:
-                    raise taken_error from exc
+                group = Groups.objects.create(group_name=requested_name)
             else:
                 try:
                     group = Groups.create_auto_named()

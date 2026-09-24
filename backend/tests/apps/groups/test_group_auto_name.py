@@ -22,23 +22,23 @@ def soft_delete(group):
 class CreateAutoNamedTests(TestCase):
     def test_series_starts_at_one_and_increments_by_one(self):
         names = [Groups.create_auto_named().group_name for _ in range(3)]
-        self.assertEqual(names, ["BTF1", "BTF2", "BTF3"])
+        self.assertEqual(names, ["BTF01", "BTF02", "BTF03"])
 
     def test_auto_name_is_persisted(self):
         group = Groups.create_auto_named()
         group.refresh_from_db()
-        self.assertEqual(group.group_name, "BTF1")
+        self.assertEqual(group.group_name, "BTF01")
 
-    def test_soft_deleted_number_is_never_reused(self):
+    def test_interior_deleted_number_is_not_refilled(self):
         groups = [Groups.create_auto_named() for _ in range(3)]
         soft_delete(groups[1])
 
-        self.assertEqual(Groups.create_auto_named().group_name, "BTF4")
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF04")
 
     def test_hand_named_squatter_is_stepped_over(self):
-        Groups.objects.create(group_name="BTF5")
+        Groups.objects.create(group_name="BTF05")
 
-        self.assertEqual(Groups.create_auto_named().group_name, "BTF6")
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF06")
 
     def test_legacy_names_do_not_feed_the_counter(self):
         # Old pk-derived names were never migrated; they don't match ^BTF[0-9]+$.
@@ -46,14 +46,26 @@ class CreateAutoNamedTests(TestCase):
         Groups.objects.create(group_name="BTF_C0007")
         Groups.objects.create(group_name="Team Alpha")
 
-        self.assertEqual(Groups.create_auto_named().group_name, "BTF1")
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF01")
 
-    def test_hard_deleting_the_highest_group_releases_its_number(self):
-        # The counter is "highest existing + 1"; only the top number comes back.
+    def test_deleting_the_highest_group_reuses_that_number(self):
         groups = [Groups.create_auto_named() for _ in range(3)]
         groups[2].delete()
 
-        self.assertEqual(Groups.create_auto_named().group_name, "BTF3")
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF03")
+
+    def test_deleting_every_auto_group_resets_to_first(self):
+        groups = [Groups.create_auto_named() for _ in range(3)]
+        for group in groups:
+            group.delete()
+
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF01")
+
+    def test_deleting_the_only_group_resets_to_first(self):
+        group = Groups.objects.create(group_name="BTF09")
+        soft_delete(group)
+
+        self.assertEqual(Groups.create_auto_named().group_name, "BTF01")
 
     def test_wide_hand_named_squatter_does_not_wedge_the_counter(self):
         # A fixed pad width would truncate this and hand back a name already taken.
@@ -87,20 +99,20 @@ class GroupCreateApiTests(TestCase):
     def test_blank_name_on_create_auto_generates(self):
         resp = self.client.post(self.list_url, {"group_name": ""}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.json()["group_name"], "BTF1")
+        self.assertEqual(resp.json()["group_name"], "BTF01")
 
     def test_omitted_name_on_create_auto_generates(self):
         resp = self.client.post(self.list_url, {}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.json()["group_name"], "BTF1")
+        self.assertEqual(resp.json()["group_name"], "BTF01")
 
     def test_create_steps_over_a_hand_named_squatter(self):
-        Groups.objects.create(group_name="BTF5")
+        Groups.objects.create(group_name="BTF05")
 
         resp = self.client.post(self.list_url, {"group_name": ""}, format="json")
 
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.json()["group_name"], "BTF6")
+        self.assertEqual(resp.json()["group_name"], "BTF06")
 
     # --- list ordering ------------------------------------------------------
     def test_list_orders_auto_names_numerically(self):
@@ -156,23 +168,23 @@ class GroupCreateApiTests(TestCase):
         self.assertEqual(self.group.group_name, "Group One")
 
     # --- bulk create (FIX 7) ------------------------------------------------
-    def test_bulk_create_duplicate_name_returns_400(self):
+    def test_bulk_create_allows_duplicate_name(self):
         url = reverse("groups-bulk-create")
         resp = self.client.post(
             url, {"groups": [{"group_name": "Group One"}]}, format="json",
         )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(Groups.objects.filter(group_name="Group One").count(), 1)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Groups.objects.filter(group_name="Group One").count(), 2)
 
-    def test_bulk_create_duplicate_within_payload_returns_400(self):
+    def test_bulk_create_allows_duplicate_within_payload(self):
         url = reverse("groups-bulk-create")
         resp = self.client.post(
             url,
             {"groups": [{"group_name": "Twice"}, {"group_name": "Twice"}]},
             format="json",
         )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(Groups.objects.filter(group_name="Twice").exists())
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Groups.objects.filter(group_name="Twice").count(), 2)
 
     def test_bulk_create_reuses_a_soft_deleted_name(self):
         dead = Groups.objects.create(group_name="Recycled")
@@ -191,7 +203,7 @@ class GroupCreateApiTests(TestCase):
         resp = self.client.post(url, {"groups": [{"group_name": ""}]}, format="json")
 
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.json()[0]["group_name"], "BTF6")
+        self.assertEqual(resp.json()[0]["group_name"], "BTF06")
 
     def test_bulk_create_auto_names_blank_entries(self):
         url = reverse("groups-bulk-create")
@@ -200,5 +212,5 @@ class GroupCreateApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
-            [row["group_name"] for row in resp.json()], ["BTF1", "BTF2"],
+            [row["group_name"] for row in resp.json()], ["BTF01", "BTF02"],
         )
