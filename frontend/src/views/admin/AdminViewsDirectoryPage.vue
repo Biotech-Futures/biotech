@@ -112,6 +112,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
@@ -141,6 +142,8 @@ const selectedIds = ref<Array<string | number>>([])
 const bulkDeleteConfirmOpen = ref(false)
 const bulkActionBusy = ref(false)
 const bulkDeleteError = ref('')
+
+const router = useRouter()
 
 let searchDebounce: ReturnType<typeof setTimeout> | undefined
 
@@ -224,9 +227,13 @@ const confirmBulkDelete = async () => {
   }
 }
 
-const onSaved = () => {
+const onSaved = (savedView: AdminView) => {
+  const wasCreating = editingView.value === null
   drawerOpen.value = false
   void load()
+  if (wasCreating) {
+    router.push({ name: 'admin-view-detail', params: { id: savedView.id } })
+  }
 }
 
 watch(searchInput, () => {

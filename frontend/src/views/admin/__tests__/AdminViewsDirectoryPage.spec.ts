@@ -83,11 +83,34 @@ const multiRoleView: adminAPI.AdminView = {
 }
 
 // The real drawer (and its own network calls) is Person 1's territory and has
-// its own spec; here we only need to see which props this page opens it with.
+// its own spec; here we only need to see which props this page opens it with,
+// and simulate it emitting 'saved' the way the real component does on submit.
+const savedViewFromStub: adminAPI.AdminView = {
+  id: 99,
+  name: 'Brand New View',
+  description: '',
+  isDefault: false,
+  targetRoles: [],
+  accountStatus: 'all',
+  engagementStatus: 'all',
+  advancedConditions: [],
+  visibleColumns: []
+}
+
 const drawerStub = {
   props: ['modelValue', 'view'],
-  template:
-    '<div class="drawer-stub" v-if="modelValue">{{ view ? `Edit View: ${view.name}` : \'Create View\' }}</div>'
+  emits: ['update:modelValue', 'saved'],
+  template: `
+    <div class="drawer-stub" v-if="modelValue">
+      <span class="drawer-stub__label">{{ view ? \`Edit View: \${view.name}\` : 'Create View' }}</span>
+      <button type="button" class="drawer-stub__save" @click="$emit('saved', view ?? savedViewFromStub)">
+        Save
+      </button>
+    </div>
+  `,
+  data() {
+    return { savedViewFromStub }
+  }
 }
 
 const mountPage = () =>
@@ -207,7 +230,7 @@ describe('AdminViewsDirectoryPage', () => {
     await buttonByText(wrapper, 'Create View')!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.drawer-stub').text()).toBe('Create View')
+    expect(wrapper.find('.drawer-stub__label').text()).toBe('Create View')
   })
 
   it('opens the drawer in edit mode for a custom view', async () => {
@@ -217,7 +240,33 @@ describe('AdminViewsDirectoryPage', () => {
     await rowButtonByText(wrapper, 1, 'Edit')!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.drawer-stub').text()).toBe('Edit View: NSW Students')
+    expect(wrapper.find('.drawer-stub__label').text()).toBe('Edit View: NSW Students')
+  })
+
+  it('navigates to the executed view after creating a new view', async () => {
+    wrapper = mountPage()
+    await flushPromises()
+
+    await buttonByText(wrapper, 'Create View')!.trigger('click')
+    await flushPromises()
+    await wrapper.find('.drawer-stub__save').trigger('click')
+    await flushPromises()
+
+    expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 99 } })
+    expect(adminAPI.fetchAdminViews).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not navigate away after editing an existing view', async () => {
+    wrapper = mountPage()
+    await flushPromises()
+
+    await rowButtonByText(wrapper, 1, 'Edit')!.trigger('click')
+    await flushPromises()
+    await wrapper.find('.drawer-stub__save').trigger('click')
+    await flushPromises()
+
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(adminAPI.fetchAdminViews).toHaveBeenCalledTimes(2)
   })
 
   it('does not offer Edit or Delete on default views', async () => {
