@@ -4,15 +4,15 @@
       <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Views
     </button>
 
-    <div v-if="loading" class="detail-state" role="status" aria-live="polite">
+    <div v-if="loading && !view" class="detail-state" role="status" aria-live="polite">
       <span class="loading"></span>
       <span>Loading view...</span>
     </div>
 
-    <div v-else-if="error" class="card detail-state detail-state-error">
+    <div v-else-if="error && !view" class="card detail-state detail-state-error">
       <h3>View unavailable</h3>
       <p>{{ error }}</p>
-      <button type="button" class="btn btn-primary" @click="loadView">Retry</button>
+      <button type="button" class="btn btn-primary" @click="reload">Retry</button>
     </div>
 
     <template v-else-if="view">
@@ -27,59 +27,102 @@
               {{ badgeLabel }}
             </span>
             <span class="admin-view-executed__count">
-              {{ userCount }} {{ userCount === 1 ? 'user' : 'users' }}
+              {{ totalCount }} {{ totalCount === 1 ? 'user' : 'users' }}
             </span>
           </div>
         </div>
       </header>
+
+      <p v-if="error" class="admin-view-executed__error" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>{{ error }}</span>
+      </p>
+
+      <div class="admin-view-executed__controls">
+        <div class="admin-view-executed__search">
+          <i class="fas fa-magnifying-glass admin-view-executed__search-icon" aria-hidden="true"></i>
+          <input
+            v-model="searchInput"
+            type="search"
+            class="admin-view-executed__search-input"
+            placeholder="Name or email"
+            aria-label="Search users"
+          />
+        </div>
+
+        <div class="admin-view-executed__group-by">
+          <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
+          <select
+            id="view-group-by"
+            :value="groupBy"
+            @change="onGroupByChange(($event.target as HTMLSelectElement).value as GroupByOption)"
+          >
+            <option value="none">None</option>
+            <option value="role">Role</option>
+            <option value="status">Status</option>
+          </select>
+          <span v-if="groupBy !== 'none'" class="admin-view-executed__group-by-hint">
+            Grouping is not yet applied server-side; results are shown sorted, not grouped.
+          </span>
+        </div>
+      </div>
+
+      <AdminViewResultsTable
+        :columns="columns"
+        :rows="rows"
+        :loading="loading"
+        :sort-state="sortState"
+        :page="page"
+        :limit="limit"
+        :total-count="totalCount"
+        :page-size-options="pageSizeOptions"
+        :empty-message="emptyMessage"
+        @update:sort="onSortChange"
+        @page-change="onPageChange"
+        @page-size-change="onPageSizeChange"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchAdminView, runAdminView, type AdminView } from '@/utils/adminAPI'
+import AdminViewResultsTable from '@/components/admin/views/AdminViewResultsTable.vue'
+import { useAdminViewExecuted, type GroupByOption } from '@/composables/admin/useAdminViewExecuted'
 
 const route = useRoute()
 const router = useRouter()
 
-const view = ref<AdminView | null>(null)
-const userCount = ref(0)
-const loading = ref(false)
-const error = ref('')
-
 const viewId = computed(() => Number(route.params.id))
 
-const badgeLabel = computed(() => (view.value?.isDefault ? 'System Default' : 'Custom View'))
-
-const loadView = async (): Promise<void> => {
-  if (!Number.isFinite(viewId.value) || viewId.value <= 0) {
-    error.value = 'Invalid view id.'
-    return
-  }
-
-  loading.value = true
-  error.value = ''
-  try {
-    const [viewData, runData] = await Promise.all([
-      fetchAdminView(viewId.value),
-      runAdminView(viewId.value, { limit: 1 })
-    ])
-    view.value = viewData
-    userCount.value = runData.total
-  } catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'View could not be loaded.'
-  } finally {
-    loading.value = false
-  }
-}
+const {
+  view,
+  rows,
+  totalCount,
+  loading,
+  error,
+  page,
+  limit,
+  sortState,
+  groupBy,
+  searchInput,
+  columns,
+  emptyMessage,
+  badgeLabel,
+  pageSizeOptions,
+  reload,
+  onSortChange,
+  onPageChange,
+  onPageSizeChange,
+  onGroupByChange
+} = useAdminViewExecuted(viewId)
 
 const goBack = (): void => {
   router.push('/admin/views')
 }
 
-watch(viewId, loadView, { immediate: true })
+watch(viewId, reload, { immediate: true })
 </script>
 
 <style scoped>
@@ -138,5 +181,68 @@ watch(viewId, loadView, { immediate: true })
 .admin-view-executed__count {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.admin-view-executed__error {
+  align-items: center;
+  color: var(--danger);
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.admin-view-executed__controls {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.admin-view-executed__search {
+  align-items: center;
+  display: flex;
+  max-width: 320px;
+  position: relative;
+  width: 100%;
+}
+
+.admin-view-executed__search-icon {
+  color: var(--text-muted);
+  left: 0.75rem;
+  position: absolute;
+}
+
+.admin-view-executed__search-input {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  width: 100%;
+}
+
+.admin-view-executed__group-by {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.admin-view-executed__group-by-label {
+  color: var(--charcoal);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.admin-view-executed__group-by select {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}
+
+.admin-view-executed__group-by-hint {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+  max-width: 220px;
 }
 </style>
