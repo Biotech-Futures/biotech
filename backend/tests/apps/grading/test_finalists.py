@@ -165,6 +165,16 @@ class FinalistToggleTests(_GradingFixture):
         self.assertTrue(row["is_late"])
         self.assertEqual(row["late_by"], "3h 12m")
 
+    def test_late_label_drops_minutes_past_a_day(self):
+        from datetime import timedelta
+
+        from apps.grading.services.content import late_by_label
+
+        # Day-scale lateness drops the minutes; smaller scales keep them.
+        self.assertEqual(late_by_label(timedelta(days=5, hours=1, minutes=58)), "5d 1h")
+        self.assertEqual(late_by_label(timedelta(hours=22, minutes=54)), "22h 54m")
+        self.assertEqual(late_by_label(timedelta(minutes=45)), "45m")
+
     def test_notify_all_denied_for_non_staff(self):
         self.client.force_authenticate(self.non_staff)
         r = self.client.post(reverse("grading:finalist-notify"))

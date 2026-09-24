@@ -106,6 +106,12 @@
       <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
         Marks saved.
       </p>
+      <p
+        v-if="isDownloading || isStampDownloading"
+        class="group-marking__banner group-marking__banner--ok"
+      >
+        Processing files for Download
+      </p>
 
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
@@ -519,14 +525,18 @@ const singleLinks = computed(() => fileLinks(activeBlock.value?.submission ?? nu
 
 // Download via a blob fetch so it saves instead of opening — a plain link is
 // cross-origin (download attribute ignored) and local /media/ serves inline.
+const isStampDownloading = ref(false)
 const downloadStampFile = async (url: string | null, fileName?: string | null) => {
   if (!url) return
+  isStampDownloading.value = true
   try {
     await downloadSubmissionFile(url, fileName || 'submission.pdf')
   } catch {
     // If the fetch is blocked (e.g. Azure blob CORS), fall back to the direct
     // URL — its SAS attachment disposition still downloads there.
     window.open(url, '_blank', 'noopener')
+  } finally {
+    isStampDownloading.value = false
   }
 }
 
