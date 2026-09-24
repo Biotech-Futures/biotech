@@ -69,20 +69,13 @@
         <span>{{ error }}</span>
       </p>
 
-      <!-- TODO(next task): replace with AdminViewsDirectoryTable.vue -->
-      <div class="admin-views__placeholder card">
-        <p v-if="loading" class="admin-views__muted">Loading views...</p>
-        <p v-else-if="!filteredViews.length" class="admin-views__muted">No views found.</p>
-        <ul v-else class="admin-views__placeholder-list">
-          <li v-for="view in filteredViews" :key="view.id" class="admin-views__placeholder-item">
-            <div class="admin-views__placeholder-primary">
-              <strong>{{ view.name }}</strong>
-              <span v-if="view.isDefault" class="admin-views__badge">Default</span>
-            </div>
-            <span v-if="view.description" class="admin-views__muted">{{ view.description }}</span>
-          </li>
-        </ul>
-      </div>
+      <AdminViewsDirectoryTable
+        :views="filteredViews"
+        :loading="loading"
+        v-model:selected="selectedIds"
+        @edit="openEdit"
+        @changed="load"
+      />
     </div>
 
     <AdminViewQueryDrawer v-model="drawerOpen" :view="editingView" @saved="onSaved" />
@@ -92,6 +85,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
+import AdminViewsDirectoryTable from '@/components/admin/views/AdminViewsDirectoryTable.vue'
 import { fetchAdminViews, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { roleLabel } from '@/utils/userFormat'
@@ -113,6 +107,7 @@ const roleFilter = ref('all')
 const activeTab = ref<TabKey>('all')
 const drawerOpen = ref(false)
 const editingView = ref<AdminView | null>(null)
+const selectedIds = ref<Array<string | number>>([])
 
 let searchDebounce: ReturnType<typeof setTimeout> | undefined
 
@@ -151,6 +146,11 @@ const filteredViews = computed(() => {
 
 const openCreate = () => {
   editingView.value = null
+  drawerOpen.value = true
+}
+
+const openEdit = (view: AdminView) => {
+  editingView.value = view
   drawerOpen.value = true
 }
 
