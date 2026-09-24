@@ -9,6 +9,7 @@ const saveDraft = vi.fn()
 const submitEntry = vi.fn()
 const reopenEntry = vi.fn()
 const fetchSubmission = vi.fn()
+const uploadSubmissionFile = vi.fn()
 
 vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/submissionsAPI')>()
@@ -18,6 +19,7 @@ vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
     saveDraft: (...args: unknown[]) => saveDraft(...args),
     submitEntry: (...args: unknown[]) => submitEntry(...args),
     reopenEntry: (...args: unknown[]) => reopenEntry(...args),
+    uploadSubmissionFile: (...args: unknown[]) => uploadSubmissionFile(...args),
     fetchPreviewObjectUrl: vi.fn().mockResolvedValue(''),
     releasePreview: vi.fn(),
   }
@@ -408,20 +410,203 @@ describe('a reopened entry', () => {
 })
 
 describe('a closed deadline', () => {
-  it('refuses editing in the page, not only on the server', async () => {
+  const summary = () => wrapper!.find('[data-testid="closed-summary"]')
+
+  it('replaces the form with a plain notice when nothing was submitted', async () => {
     await mountPage(buildDetail({ isOpen: false, submission: null }))
-    const boxes = wrapper!.findAll('textarea')
-    expect(boxes.length).toBeGreaterThan(0)
-    boxes.forEach((box) => expect(box.attributes('disabled')).toBeDefined())
+
+    expect(wrapper!.findAll('textarea')).toHaveLength(0)
+    expect(wrapper!.find('input').exists()).toBe(false)
+    expect(wrapper!.find('.submission-steps').exists()).toBe(false)
+    expect(summary().text()).toContain('Nothing was submitted for your team')
   })
 
-  it('does not offer submit at all', async () => {
+  it('does not offer submit, steps or uploads at all', async () => {
     await mountPage(
       buildDetail({ isOpen: false, submission: { answers: ANSWERED, poster: POSTER } }),
     )
-    await goToLastStep()
     expect(buttonNamed(/^Submit$/)).toBeUndefined()
-    expect(buttonNamed(/New Attempt/i)).toBeUndefined()
+    expect(buttonNamed(/^(Upload|Replace|Remove)$/)).toBeUndefined()
+    expect(wrapper!.find('.submission-actions').exists()).toBe(false)
+  })
+
+  it('shows a submitted entry as read-only text and links', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    detail.submission!.submitted_prototype_url = 'https://example.com/demo'
+    await mountPage(detail)
+
+    const text = summary().text()
+    expect(text).toContain(QUESTIONS[0].prompt)
+    expect(text).toContain(ANSWERED.solution_purpose)
+    expect(summary().find(`a[href="https://example.com/demo"]`).exists()).toBe(true)
+    expect(text).toContain('poster.pdf')
+    expect(text).not.toContain('It was not submitted')
+  })
+
+  it('labels a draft that was never submitted', async () => {
+    await mountPage(
+      buildDetail({ isOpen: false, submission: { stage: 'in_progress', answers: { solution_purpose: 'Half done.' } } }),
+    )
+
+    const text = summary().text()
+    expect(text).toContain('It was not submitted')
+    expect(text).toContain('Half done.')
+    expect(text).toContain('Not answered')
+    expect(text).toContain('No files were attached')
+  })
+
+  it('never links a prototype address that is not a web link', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    detail.submission!.submitted_prototype_url = 'javascript:alert(1)'
+    await mountPage(detail)
+
+    expect(summary().find('a[href^="javascript"]').exists()).toBe(false)
+  })
+
+  it('brings the form back when an extension reopens the entry', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: null }))
+    expect(summary().exists()).toBe(true)
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect(summary().exists()).toBe(false)
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
+  })
+})
+
+describe('a deadline changed while the page is open', () => {
+  it('reopens a closed page when the window regains focus', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: null }))
+    expect(wrapper!.find('textarea').exists()).toBe(false)
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('.status-line').text()).not.toContain('Submissions are closed')
+  })
+
+  it('keeps unsaved typing when the deadline moves while open', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await wrapper!.findAll('textarea')[0].setValue('Typed but not saved yet.')
+
+    const moved = buildDetail({ submission: { answers: { solution_purpose: 'Server copy.' } } })
+    moved.deadline.closes_at = new Date(Date.now() + 9 * 86_400_000).toISOString()
+    fetchSubmission.mockResolvedValue(moved)
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect((wrapper!.findAll('textarea')[0].element as HTMLTextAreaElement).value).toBe(
+      'Typed but not saved yet.',
+    )
+  })
+
+  it('checks again when the Submission tab is opened', async () => {
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: false, submission: null }))
+    const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
+    await router.push('/groups/1/submission')
+    await router.isReady()
+    wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+    await flushPromises()
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    await router.push('/groups/1')
+    await router.push('/groups/1/submission')
+    await flushPromises()
+
+    expect(fetchSubmission).toHaveBeenCalledTimes(2)
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+  })
+})
+
+describe('dropping a file onto a slot', () => {
+  const pdf = (bytes = 2048) =>
+    new File([new Uint8Array(bytes)], 'poster.pdf', { type: 'application/pdf' })
+  const drop = (slot: string, file: File) =>
+    wrapper!.find(`[data-testid="drop-${slot}"]`).trigger('drop', {
+      dataTransfer: { files: [file], types: ['Files'] },
+    })
+
+  it('uploads a dropped poster through the same path as the file picker', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+    const file = pdf()
+
+    await drop('poster', file)
+    await flushPromises()
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', file, expect.any(Function))
+  })
+
+  it('accepts drops on the report and prototype slots too', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+
+    await drop('report', pdf())
+    await flushPromises()
+    await drop('prototype', new File(['zip'], 'model.zip'))
+    await flushPromises()
+
+    expect(uploadSubmissionFile.mock.calls.map((call) => call[1])).toEqual(['report', 'prototype'])
+  })
+
+  it('refuses an oversized dropped file before uploading it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    await drop('poster', pdf(11_000_000))
+    await flushPromises()
+
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('The limit is')
+  })
+
+  it('removes the drop zones once submissions are closed', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('[data-testid="drop-poster"]').exists()).toBe(false)
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('ignores a drop on a locked entry', async () => {
+    await mountPage(submittedDetail())
+
+    await drop('poster', pdf())
+    await flushPromises()
+
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('still uploads a file chosen with the picker', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+    const file = pdf()
+    const input = wrapper!.find('[data-testid="drop-poster"] input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', file, expect.any(Function))
+  })
+
+  it('highlights the slot while a file is dragged over it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const slot = wrapper!.find('[data-testid="drop-poster"]')
+
+    await slot.trigger('dragover', { dataTransfer: { types: ['Files'], dropEffect: 'none' } })
+    expect(slot.classes()).toContain('is-drop-target')
+
+    await slot.trigger('dragleave', { relatedTarget: null })
+    expect(slot.classes()).not.toContain('is-drop-target')
   })
 })
 
@@ -876,15 +1061,17 @@ describe('which copy of the entry is shown', () => {
 
   it('shows what was submitted once the window has closed', async () => {
     await mountPage(midRevision(false))
-    expect(wrapper!.findAll('textarea')[0].element.value).toBe('SUBMITTED.')
+    const text = wrapper!.find('[data-testid="closed-summary"]').text()
+    expect(text).toContain('SUBMITTED.')
+    expect(text).not.toContain('DRAFT.')
   })
 
   it('shows the submitted poster once the window has closed', async () => {
     await mountPage(midRevision(false))
-    await buttonNamed(/Poster/)!.trigger('click')
-    await flushPromises()
+    const text = wrapper!.find('[data-testid="closed-summary"]').text()
 
-    expect(wrapper!.find('.submission-file').text()).toContain('submitted.pdf')
+    expect(text).toContain('submitted.pdf')
+    expect(text).not.toContain('draft.pdf')
   })
 })
 

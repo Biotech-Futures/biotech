@@ -1,6 +1,7 @@
 <template>
   <!-- Design tokens for this section are declared on .content-area. -->
-  <div class="content-area">
+  <!-- Stray drops are swallowed so the browser never navigates away to the file. -->
+  <div class="content-area" @dragover.prevent @drop.prevent>
     <div v-if="isLoading" class="card">
       <p>Loading submission…</p>
     </div>
@@ -90,7 +91,7 @@
         </button>
       </div>
 
-      <nav class="submission-steps" aria-label="Submission sections">
+      <nav v-if="isOpen" class="submission-steps" aria-label="Submission sections">
         <button
           v-for="(tab, index) in TABS"
           :key="tab.key"
@@ -107,7 +108,7 @@
       </nav>
 
       <!-- 1. Short-answer questions -->
-      <section v-show="activeTab === 'questions'" class="card">
+      <section v-if="isOpen" v-show="activeTab === 'questions'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
@@ -142,7 +143,7 @@
       </section>
 
       <!-- 2. Poster -->
-      <section v-show="activeTab === 'poster'" class="card">
+      <section v-if="isOpen" v-show="activeTab === 'poster'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">
@@ -158,9 +159,18 @@
           </p>
         </header>
 
-        <div class="submission-slot submission-slot--plain">
+        <div
+          class="submission-slot submission-slot--plain"
+          :class="{ 'is-drop-target': dragSlot === 'poster' }"
+          data-testid="drop-poster"
+          @dragover.prevent="onDragOver('poster', $event)"
+          @dragleave="onDragLeave('poster', $event)"
+          @drop.prevent="onDrop('poster', $event)"
+        >
           <div class="submission-slot__info">
-            <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
+            <p class="submission-muted">
+              PDF only · up to {{ maxSizeLabel('poster') }}<span v-if="isEditable"> · or drop it here</span>
+            </p>
 
             <p v-if="storedFile('poster')" class="submission-file">
               <a :href="downloadUrl('poster')" target="_blank" rel="noopener noreferrer">
@@ -258,17 +268,26 @@
       </section>
 
       <!-- 3. Additional materials -->
-      <div v-show="activeTab === 'extras'">
+      <div v-if="isOpen" v-show="activeTab === 'extras'">
         <section class="card">
           <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
-          <div class="submission-slot submission-slot--plain">
+          <div
+            class="submission-slot submission-slot--plain"
+            :class="{ 'is-drop-target': dragSlot === 'report' }"
+            data-testid="drop-report"
+            @dragover.prevent="onDragOver('report', $event)"
+            @dragleave="onDragLeave('report', $event)"
+            @drop.prevent="onDrop('report', $event)"
+          >
             <div class="submission-slot__info">
               <h2 class="panel-subheading">Scientific report</h2>
-              <p class="submission-muted">PDF only · up to {{ maxSizeLabel('report') }}</p>
+              <p class="submission-muted">
+                PDF only · up to {{ maxSizeLabel('report') }}<span v-if="isEditable"> · or drop it here</span>
+              </p>
 
               <p v-if="storedFile('report')" class="submission-file">
                 <a :href="downloadUrl('report')" target="_blank" rel="noopener noreferrer">
@@ -356,11 +375,18 @@
         </section>
 
         <section class="card">
-          <div class="submission-slot submission-slot--plain">
+          <div
+            class="submission-slot submission-slot--plain"
+            :class="{ 'is-drop-target': dragSlot === 'prototype' }"
+            data-testid="drop-prototype"
+            @dragover.prevent="onDragOver('prototype', $event)"
+            @dragleave="onDragLeave('prototype', $event)"
+            @drop.prevent="onDrop('prototype', $event)"
+          >
             <div class="submission-slot__info">
               <h2 class="panel-subheading">Prototype</h2>
               <p class="submission-muted">
-                Any file type · up to {{ maxSizeLabel('prototype') }}
+                Any file type · up to {{ maxSizeLabel('prototype') }}<span v-if="isEditable"> · or drop it here</span>
               </p>
               <p class="submission-muted">
                 If your submission is greater than {{ maxSizeLabel('prototype') }},
@@ -418,7 +444,45 @@
         </section>
       </div>
 
-      <div class="submission-actions">
+      <!-- Once closed, what the team has on record replaces the form. -->
+      <section v-if="!isOpen" class="card closed-summary" data-testid="closed-summary">
+        <p v-if="stage === 'not_started'" class="closed-summary__empty">
+          Nothing was submitted for your team. If your team is given an extension,
+          this page reopens for editing.
+        </p>
+        <template v-else>
+          <p v-if="!detail.submission?.is_submitted" class="closed-summary__note">
+            This is your team's saved draft. It was not submitted.
+          </p>
+
+          <h2 class="card-title">Short answer questions</h2>
+          <dl class="closed-summary__answers">
+            <div v-for="question in questions" :key="question.key" class="closed-summary__answer">
+              <dt class="submission-label">{{ question.prompt }}</dt>
+              <dd v-if="recordedAnswers[question.key]?.trim()">{{ recordedAnswers[question.key] }}</dd>
+              <dd v-else class="submission-muted">Not answered</dd>
+            </div>
+          </dl>
+
+          <h2 class="card-title closed-summary__files-title">Files</h2>
+          <ul v-if="recordedFiles.length || recordedPrototypeUrl" class="closed-summary__files">
+            <li v-for="item in recordedFiles" :key="item.slot">
+              <span class="closed-summary__file-label">{{ item.label }}</span>
+              <a :href="item.href" target="_blank" rel="noopener noreferrer">{{ item.file.name }}</a>
+              <span class="submission-muted"> ({{ formatSize(item.file.size) }})</span>
+            </li>
+            <li v-if="recordedPrototypeUrl">
+              <span class="closed-summary__file-label">Prototype link</span>
+              <a :href="recordedPrototypeUrl" target="_blank" rel="noopener noreferrer">
+                {{ recordedPrototypeUrl }}
+              </a>
+            </li>
+          </ul>
+          <p v-else class="submission-muted">No files were attached.</p>
+        </template>
+      </section>
+
+      <div v-if="isOpen" class="submission-actions">
 
         <span
           v-if="isEditable"
@@ -650,6 +714,34 @@ const saveStateLabel = computed(() => {
 
 const stage = computed<SubmissionStage>(
   () => detail.value?.submission?.stage ?? 'not_started'
+)
+
+// Read from the server copy, so the closed view never shows unsaved typing as recorded.
+const recordedAnswers = computed<Record<string, string>>(() => {
+  const submission = detail.value?.submission
+  return (showsSubmittedCopy.value ? submission?.submitted_answers : submission?.answers) ?? {}
+})
+
+const recordedPrototypeUrl = computed(() => {
+  const submission = detail.value?.submission
+  const url =
+    (showsSubmittedCopy.value ? submission?.submitted_prototype_url : submission?.prototype_url) ?? ''
+  return /^https?:\/\//i.test(url) ? url : ''
+})
+
+const SLOT_LABELS: Record<SubmissionSlot, string> = {
+  poster: 'Poster',
+  report: 'Scientific report',
+  prototype: 'Prototype',
+}
+
+const recordedFiles = computed(() =>
+  (['poster', 'report', 'prototype'] as SubmissionSlot[]).flatMap((slot) => {
+    const file = storedFile(slot)
+    if (!file) return []
+    const href = slot === 'prototype' ? downloadUrl(slot) : previewUrlFor(slot)
+    return [{ slot, label: SLOT_LABELS[slot], file, href }]
+  })
 )
 
 const CLOSED = 'Submissions are closed.'
@@ -1066,12 +1158,37 @@ async function onSubmit() {
 async function onFileChosen(slot: SubmissionSlot, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (file) await uploadFile(slot, file)
+  // Cleared so choosing the same file again still fires a change.
+  input.value = ''
+}
 
+const dragSlot = ref<SubmissionSlot | ''>('')
+
+function onDragOver(slot: SubmissionSlot, event: DragEvent) {
+  if (!isEditable.value || busySlot.value) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  dragSlot.value = slot
+}
+
+function onDragLeave(slot: SubmissionSlot, event: DragEvent) {
+  // Moving onto a child element of the same slot is not leaving it.
+  const next = event.relatedTarget as Node | null
+  if (next && (event.currentTarget as HTMLElement).contains(next)) return
+  if (dragSlot.value === slot) dragSlot.value = ''
+}
+
+function onDrop(slot: SubmissionSlot, event: DragEvent) {
+  dragSlot.value = ''
+  const file = event.dataTransfer?.files?.[0]
+  if (!file || !isEditable.value || busySlot.value) return
+  uploadFile(slot, file)
+}
+
+async function uploadFile(slot: SubmissionSlot, file: File) {
   // Checked before uploading; the server enforces it too.
   if (file.size > maxSizeFor(slot)) {
     setMessage(`That file is ${formatSize(file.size)}. The limit is ${maxSizeLabel(slot)}.`, true)
-    input.value = ''
     return
   }
 
@@ -1096,8 +1213,6 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   } finally {
     busySlot.value = ''
     uploadPercent.value = 0
-    // Cleared so choosing the same file again still fires a change.
-    input.value = ''
   }
 }
 
@@ -1156,7 +1271,53 @@ watch(groupId, () => {
   load()
 })
 
+const REFRESH_MIN_GAP_MS = 5000
+let lastRefreshAt = 0
+
+/** Picks up an extension or closure made while the page sat open. */
+async function refreshDeadline() {
+  if (!detail.value || isLoading.value || isBusy.value) return
+  if (Date.now() - lastRefreshAt < REFRESH_MIN_GAP_MS) return
+  lastRefreshAt = Date.now()
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    if (!detail.value || isBusy.value) return
+    const changed =
+      latest.deadline.is_open !== detail.value.deadline.is_open ||
+      latest.deadline.closes_at !== detail.value.deadline.closes_at
+    if (!changed) return
+    deadlineRecheckDone = false
+    if (!isOpen.value && latest.deadline.is_open) {
+      // Nothing was editable while closed, so the whole entry can be reloaded safely.
+      detail.value = latest
+      syncFromDetail()
+      await syncPreviewForTab()
+    } else {
+      detail.value = { ...detail.value, deadline: latest.deadline }
+    }
+  } catch {
+    // Best effort: a write still reports an authoritative closure.
+  }
+}
+
+watch(
+  () => route.name,
+  (name, previous) => {
+    if (name === 'group-submission' && previous && previous !== name) refreshDeadline()
+  }
+)
+
+function onPageVisible() {
+  if (document.visibilityState === 'visible' && route.name === 'group-submission') {
+    refreshDeadline()
+  }
+}
+window.addEventListener('focus', onPageVisible)
+document.addEventListener('visibilitychange', onPageVisible)
+
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', onPageVisible)
+  document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)
   if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
   clearInterval(clockTimer)
@@ -1564,6 +1725,62 @@ onBeforeUnmount(() => {
 .submission-slot--plain {
   border-bottom: none;
   padding-top: 0;
+}
+
+.closed-summary__empty,
+.closed-summary__note {
+  margin: 0;
+  color: var(--body-text);
+}
+
+.closed-summary__note {
+  margin-bottom: 1.25rem;
+  color: var(--muted);
+}
+
+.closed-summary__answers {
+  margin: 0 0 1.5rem;
+}
+
+.closed-summary__answer {
+  margin-bottom: 1.25rem;
+}
+
+.closed-summary__answer dd {
+  margin: 0.35rem 0 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--body-text);
+}
+
+.closed-summary__files-title {
+  margin-top: 0.5rem;
+}
+
+.closed-summary__files {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.closed-summary__files a {
+  overflow-wrap: anywhere;
+}
+
+.closed-summary__file-label {
+  display: inline-block;
+  min-width: 9rem;
+  font-weight: 600;
+  color: var(--body-text);
+}
+
+.submission-slot.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
 }
 
 .submission-slot__actions {
