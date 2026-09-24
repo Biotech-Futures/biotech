@@ -340,9 +340,18 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
             elif existing.mark == mark and (existing.comment or "") == comment:
                 diff.unchanged.append({**entry, "grade_id": existing.id})
             else:
+                # Name the sheet columns whose values actually differ, so the
+                # preview can say what an overwrite touches.
+                changed_columns = []
+                if existing.mark != mark:
+                    changed_columns.append(f"r{i}_mark")
+                if (existing.comment or "") != comment:
+                    changed_columns.append(f"r{i}_comment")
                 diff.updates.append({
                     **entry,
                     "grade_id": existing.id,
+                    "group_name": names_by_group.get(group_id),
+                    "columns": changed_columns,
                     "old_mark": str(existing.mark) if existing.mark is not None else None,
                     "old_comment": existing.comment or "",
                 })

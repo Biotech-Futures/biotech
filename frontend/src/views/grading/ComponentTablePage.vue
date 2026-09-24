@@ -428,8 +428,15 @@ const displayRows = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex: 1 1 180px;
+  flex: 1 1 140px;
+  /* Explicit floor — otherwise the input's intrinsic minimum (~170px)
+     wins and crowds the stats out of the row. */
+  min-width: 155px;
   max-width: 252px;
+}
+
+.component-table__search-field .component-table__search-input {
+  min-width: 0;
 }
 
 .component-table__search-label {
@@ -458,7 +465,9 @@ const displayRows = computed(() => {
 .component-table__search-input {
   width: 100%;
   height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  /* Slim right padding — text clips at the content edge, so a wide pad
+     cuts the placeholder well short of the visible border. */
+  padding: 0.5rem 0 0.5rem 2rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);

@@ -83,6 +83,11 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(
             s, {"creates": 0, "updates": 1, "unchanged": 1, "overall_comments": 0, "errors": 0}
         )
+        # Updates name their group and the columns whose values differ,
+        # so the preview can say what an overwrite touches.
+        upd = resp.json()["updates"][0]
+        self.assertEqual(upd["group_name"], "BTF-TEST-1")
+        self.assertEqual(upd["columns"], ["r1_mark", "r1_comment"])
 
     def test_row_errors_reported(self):
         upload = self._make_csv([

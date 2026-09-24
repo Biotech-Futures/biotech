@@ -45,6 +45,7 @@
         />
 
         <p v-if="requestError" class="bulk-upload__request-error">{{ requestError }}</p>
+        <p v-if="busy === 'preview'" class="bulk-upload__desc">Previewing…</p>
 
         <div v-if="preview" class="bulk-upload__preview">
           <ul v-if="preview.checks" class="bulk-upload__checks">
@@ -81,11 +82,11 @@
                 >
                   <li class="bulk-upload__check-gap">
                     Overwriting Existing Records:
-                    <strong>{{ preview.summary.updates }}</strong
+                    <strong class="bulk-upload__count--overwrite">{{ overwriteRowCount }}</strong
                     >{{ rowsWithGroupsSuffix(preview.updates) }}
                   </li>
                   <li>
-                    Writing New Records: <strong>{{ preview.summary.creates }}</strong>
+                    Writing New Records: <strong>{{ newRowCount }}</strong>
                   </li>
                 </template>
               </template>
@@ -95,14 +96,6 @@
         </div>
 
         <div class="bulk-upload__footer">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="!file || busy !== 'idle'"
-            @click="doPreview"
-          >
-            {{ busy === 'preview' ? 'Previewing…' : 'Preview' }}
-          </button>
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -126,11 +119,13 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
-// Two-step flow:
-//   1. Pick a file → dry_run=true → diff summary + errors table.
+// Flow:
+//   1. Pick a file → previews automatically (dry_run=true) → diff summary +
+//      errors table. Re-previewing (e.g. after a failed request) = picking
+//      the file again; onFileChange keeps that possible for the same file.
 //   2. If no errors, "Apply" → dry_run=false → emit + close.
 // Single dialog rather than a wizard: fewer clicks, admin can swap the file
-// and re-preview in place. The backend re-parses on apply so the committed
+// and it re-previews in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
 const props = defineProps<{ code: string }>()
 
@@ -183,14 +178,43 @@ const checkMarkText = computed(() => {
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
 
-// "(row 2 [group_id 1], row 3 [group_id 4])" — distinct sheet rows, sorted,
-// each with its group. Used for the overwrite count.
+// Row-level counts — a sheet row is one group's record, so the report
+// counts rows, not individual mark cells: a row touching any existing
+// grade is an overwrite, and the rest of the recognized rows are new.
+const overwriteRowCount = computed(() =>
+  preview.value ? new Set(preview.value.updates.map((e) => e.row)).size : 0
+)
+const newRowCount = computed(() => {
+  if (!preview.value) return 0
+  const rows = new Set(
+    [...preview.value.creates, ...preview.value.updates, ...preview.value.unchanged].map(
+      (e) => e.row
+    )
+  )
+  return rows.size - overwriteRowCount.value
+})
+
+// "(row 2 BTF1 [r1_mark, r1_comment], row 3 …)" — distinct sheet rows,
+// sorted, each with its group name and the columns being overwritten
+// (merged across the row's criteria). Used for the overwrite count.
 const rowsWithGroupsSuffix = (entries: BulkUploadRowEntry[]) => {
   if (!entries.length) return ''
-  const groupByRow = new Map<number, number>()
-  for (const e of entries) if (!groupByRow.has(e.row)) groupByRow.set(e.row, e.group_id)
-  const rows = [...groupByRow.keys()].sort((a, b) => a - b)
-  return ` (${rows.map((r) => `row ${r} [group_id ${groupByRow.get(r)}]`).join(', ')})`
+  const byRow = new Map<number, { label: string; columns: string[] }>()
+  for (const e of entries) {
+    const info = byRow.get(e.row) ?? {
+      label: e.group_name || `group_id ${e.group_id}`,
+      columns: []
+    }
+    info.columns.push(...(e.columns ?? []))
+    byRow.set(e.row, info)
+  }
+  const rows = [...byRow.keys()].sort((a, b) => a - b)
+  return ` (${rows
+    .map((r) => {
+      const { label, columns } = byRow.get(r)!
+      return columns.length ? `row ${r} ${label} [${columns.join(', ')}]` : `row ${r} ${label}`
+    })
+    .join(', ')})`
 }
 
 const reset = () => {
@@ -216,8 +240,15 @@ const closeDialog = () => {
 
 const onFileChange = () => {
   file.value = fileInput.value?.files?.[0] ?? null
+  // Clear the native input now that the File is captured — browsers skip
+  // the change event when the same file is re-picked, and re-picking is
+  // the only way to retry a failed preview.
+  if (fileInput.value) fileInput.value.value = ''
   preview.value = null
   requestError.value = ''
+  // Preview immediately — the dry run gates Apply anyway, so make the
+  // admin's next click Apply, not Preview.
+  if (file.value) void doPreview()
 }
 
 const doPreview = async () => {
@@ -387,6 +418,11 @@ const doApply = async () => {
 .bulk-upload__check--bad {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* Overwrites are the risky half of an apply — flag the count in amber. */
+.bulk-upload__count--overwrite {
+  color: #eab308;
 }
 
 .bulk-upload__footer {

@@ -382,9 +382,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  /* Same width as the By Component page's search box. */
-  flex: 1 1 180px;
+  /* Same width as the By Component page's search box; explicit floor so
+     the input's intrinsic minimum can't crowd the row. */
+  flex: 1 1 140px;
+  min-width: 155px;
   max-width: 252px;
+}
+
+.by-group__search-field :deep(.group-search__input) {
+  min-width: 0;
 }
 
 .by-group__search-label {

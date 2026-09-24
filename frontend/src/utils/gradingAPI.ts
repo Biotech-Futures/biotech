@@ -284,6 +284,9 @@ export interface BulkUploadRowEntry {
   mark: string | null
   comment: string
   grade_id?: number
+  // Updates only: the group's name and the sheet columns whose values differ.
+  group_name?: string | null
+  columns?: string[]
   old_mark?: string | null
   old_comment?: string
 }

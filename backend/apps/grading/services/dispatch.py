@@ -104,7 +104,7 @@ def _run_job(job_id: int) -> None:
                 if component_id == component.id
             }
             payload = build_saq_xlsx(entries, criteria, grades_by_pair, feedback_by_group)
-            filename = f"{component.code}-saq.xlsx"
+            filename = f"BIOTech_SAQs_{timezone.now().year}.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.
             payload = build_submissions_zip(submission_entries())

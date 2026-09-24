@@ -137,7 +137,9 @@ defineExpose({ resolveId })
   width: 100%;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  padding: 0.45rem 0.6rem 0.45rem 2rem;
+  /* No right padding — text clips at the content edge, so a wide pad
+     cuts the placeholder well short of the visible border. */
+  padding: 0.45rem 0 0.45rem 2rem;
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
