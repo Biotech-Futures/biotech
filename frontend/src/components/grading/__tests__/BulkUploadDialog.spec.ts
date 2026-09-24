@@ -15,10 +15,11 @@ const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = 
   ...over
 })
 
-const rowEntry = (row: number, groupId: number, columns = ['mark']) => ({
+const rowEntry = (row: number, groupId: number, columns = ['mark'], criteriaNo = 1) => ({
   row,
   group_id: groupId,
   criterion_id: 1,
+  criteria_no: criteriaNo,
   submission_id: 1,
   mark: '5.00',
   comment: '',
@@ -180,15 +181,15 @@ describe('the pick → auto-preview → apply flow', () => {
 })
 
 describe('the preview report', () => {
-  it('shows None for every check on a clean sheet, plus row-based record counts', async () => {
+  it('shows None for every check on a clean sheet, plus group-based record counts', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
     await pickFile(
       wrapper,
       response({
-        // Row 2 overwrites; rows 4 and 5 are new (row 4 spans two criteria
-        // yet still counts once — rows, not cells).
-        creates: [rowEntry(4, 9), rowEntry(4, 9), rowEntry(5, 10)],
+        // Group 7 overwrites; groups 9 and 10 are new (group 9 spans two
+        // criteria rows yet still counts once — groups, not rows).
+        creates: [rowEntry(4, 9, ['mark'], 1), rowEntry(5, 9, ['mark'], 2), rowEntry(6, 10)],
         updates: [rowEntry(2, 7)],
         summary: { creates: 3, updates: 1, unchanged: 0, errors: 0 }
       })
@@ -201,19 +202,24 @@ describe('the preview report', () => {
     expect(text).toContain('Writing New Records: 2')
   })
 
-  it('counts and names overwritten sheet rows with their columns, in order', async () => {
+  it('counts overwritten groups and folds their cells into one listing each', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
     await pickFile(
       wrapper,
       response({
-        // Rows arrive unsorted; each sheet row is one question's record.
-        updates: [rowEntry(3, 4), rowEntry(2, 7, ['mark', 'comment'])],
-        summary: { creates: 0, updates: 2, unchanged: 0, errors: 0 }
+        // BTF-7 overwrites cells on two criteria -> one listing; the
+        // count says 2 because two groups are touched.
+        updates: [
+          rowEntry(4, 7, ['mark'], 3),
+          rowEntry(5, 7, ['mark', 'comment'], 4),
+          rowEntry(8, 9, ['mark'], 1)
+        ],
+        summary: { creates: 0, updates: 3, unchanged: 0, errors: 0 }
       })
     )
     expect(wrapper.text()).toContain(
-      'Overwriting Existing Records: 2 (row 2 BTF-7 [mark, comment], row 3 BTF-4 [mark])'
+      'Overwriting Existing Records: 2 (BTF-7 [3_mark, 4_mark, 4_comment], BTF-9 [1_mark])'
     )
   })
 
@@ -230,6 +236,22 @@ describe('the preview report', () => {
     )
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): comment')
+    expect(text).not.toContain('Incorrect group details')
+  })
+
+  it('wide-shape sheets (non SAQ) keep the Type check line', async () => {
+    const wrapper = mountDialog('POSTER')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({ expected_type: 'Poster', found_type: 'SAQs', type_ok: false }),
+        errors: [{ row: 2, message: 'wrong type' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('SAQs (should be Poster)')
     expect(text).not.toContain('Incorrect group details')
   })
 

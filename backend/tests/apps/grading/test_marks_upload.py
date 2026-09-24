@@ -89,6 +89,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # so the preview can say what an overwrite touches.
         upd = resp.json()["updates"][0]
         self.assertEqual(upd["group_name"], "BTF-TEST-1")
+        self.assertEqual(upd["criteria_no"], 1)
         self.assertEqual(upd["columns"], ["mark", "comment"])
 
     def test_row_errors_reported(self):
@@ -268,3 +269,60 @@ class BulkUploadMarksViewTests(_GradingFixture):
             ComponentFeedback.objects.get(group=self.group, component=self.saq).comment,
             "New note",
         )
+
+
+class BulkUploadWideFormatTests(_GradingFixture):
+    """POSTER/REPORT/PROTOTYPE keep the legacy wide shape: one row per
+    group, a type column, and rN_mark/rN_comment per criterion."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.url = reverse("grading:component-bulk-upload", kwargs={"code": "POSTER"})
+
+    WIDE_HEADER = ["group_id", "group_name", "type", "r1_mark", "r1_comment", "overall_comment"]
+
+    def _make_csv(self, rows, header=None):
+        header_line = ",".join(header or self.WIDE_HEADER) + "\n"
+        body = "\n".join(",".join(str(x) for x in r) for r in rows)
+        return SimpleUploadedFile(
+            "marks.csv", (header_line + body + "\n").encode("utf-8"), content_type="text/csv",
+        )
+
+    def test_dry_run_wide_shape_with_type_check(self):
+        resp = self.client.post(
+            self.url,
+            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "7.00", "nice", "")]),
+             "dry_run": "true"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertTrue(body["checks"]["type_ok"])
+        self.assertEqual(
+            body["summary"],
+            {"creates": 1, "updates": 0, "unchanged": 0, "overall_comments": 0, "errors": 0},
+        )
+
+    def test_wrong_type_rejected(self):
+        resp = self.client.post(
+            self.url,
+            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "SAQs", "7.00", "", "")]),
+             "dry_run": "true"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertFalse(body["checks"]["type_ok"])
+        self.assertEqual(body["checks"]["found_type"], "SAQs")
+        self.assertEqual(body["summary"]["errors"], 1)
+
+    def test_commit_persists_wide_marks(self):
+        Grade.objects.create(submission=self.poster_submission, criterion=self.poster_c1, mark=Decimal("5"), comment="old")
+        resp = self.client.post(
+            self.url,
+            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "9.00", "great", "")]),
+             "dry_run": "false"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        g = Grade.objects.get(submission=self.poster_submission, criterion=self.poster_c1)
+        self.assertEqual(g.mark, Decimal("9.00"))
+        self.assertEqual(g.comment, "great")

@@ -18,18 +18,37 @@
           </button>
         </div>
 
-        <p class="bulk-upload__desc">
-          XLSX or CSV in the export's shape (one row per criterion)<br />
-          <code>criteria_no</code>, <code>mark</code>, <code>comment</code> per row;
-          <code>group_id</code>, <code>group_name</code>, and
-          <code>overall_comment</code> on each group's first row
-        </p>
-        <p class="bulk-upload__desc">
-          Column headers must match exactly; the informational columns
-          (<code>answer</code>, <code>product_category</code>,
-          <code>category_of_solution</code>) are ignored, so you can fill in
-          the downloaded sheet and upload it back.
-        </p>
+        <template v-if="code === 'SAQ'">
+          <p class="bulk-upload__desc">
+            .xlsx or .csv in the export's shape (one row per criterion)
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers are:<br />
+            <code>group_id</code>, <code>group_name</code>,<br />
+            Then <code>criteria_no</code>, <code>mark</code>, <code>comment</code>,<br />
+            Then <code>overall_comment</code>
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers must match exactly.<br />
+            Entering <code>group_id</code> in a row makes it the group's first row.<br />
+            Criteria number must be listed one after another (vertically). [<code>mark</code>
+            and <code>comment</code> to be assigned to each criteria]<br />
+            Extra columns and rows are ignored.
+          </p>
+        </template>
+        <template v-else>
+          <p class="bulk-upload__desc">
+            .xlsx or .csv in the export's shape (one row per group)<br />
+            <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
+            <code>overall_comment</code>
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers must match exactly.<br />
+            Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+            Extra columns and rows are ignored.
+          </p>
+        </template>
 
         <div class="bulk-upload__file-row">
           <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
@@ -59,8 +78,14 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
+              <!-- Wide-shape sheets only — SAQ's shape has no type column. -->
+              <li v-if="preview.checks.type_ok !== undefined">
+                Type:
+                <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
+              </li>
               <!-- Rows failing an earlier check skip the later validations,
                    so hide those lines rather than show a misleading None. -->
+              <template v-if="preview.checks.type_ok !== false">
               <li>
                 Incorrect group details:
                 <span :class="checkClass(!preview.checks.bad_group_rows.length)">
@@ -78,12 +103,21 @@
               >
                 <li class="bulk-upload__check-gap">
                   Overwriting Existing Records:
-                  <strong class="bulk-upload__count--overwrite">{{ overwriteRowCount }}</strong
-                  >{{ rowsWithGroupsSuffix(preview.updates) }}
+                  <!-- Amber only when something is actually overwritten;
+                       a harmless 0 gets the checks' ok green. -->
+                  <strong
+                    :class="
+                      overwriteGroupCount > 0
+                        ? 'bulk-upload__count--overwrite'
+                        : 'bulk-upload__check--ok'
+                    "
+                    >{{ overwriteGroupCount }}</strong
+                  >{{ groupsSuffix(preview.updates) }}
                 </li>
                 <li>
-                  Writing New Records: <strong>{{ newRowCount }}</strong>
+                  Writing New Records: <strong>{{ newGroupCount }}</strong>
                 </li>
+              </template>
               </template>
             </template>
           </ul>
@@ -153,6 +187,12 @@ const checkHeaderText = computed(() => {
   return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
 })
 
+const checkTypeText = computed(() => {
+  const c = preview.value?.checks
+  if (!c || c.type_ok === undefined) return ''
+  return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
+})
+
 const checkGroupText = computed(() => {
   const c = preview.value?.checks
   if (!c) return ''
@@ -167,42 +207,39 @@ const checkMarkText = computed(() => {
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
 
-// Row-level counts — a sheet row is one group's record, so the report
-// counts rows, not individual mark cells: a row touching any existing
-// grade is an overwrite, and the rest of the recognized rows are new.
-const overwriteRowCount = computed(() =>
-  preview.value ? new Set(preview.value.updates.map((e) => e.row)).size : 0
+// Group-level counts — a "record" is one group's marks: a group touching
+// any existing grade is an overwrite, and the rest of the recognized
+// groups are written as new.
+const overwriteGroupCount = computed(() =>
+  preview.value ? new Set(preview.value.updates.map((e) => e.group_id)).size : 0
 )
-const newRowCount = computed(() => {
+const newGroupCount = computed(() => {
   if (!preview.value) return 0
-  const rows = new Set(
+  const groups = new Set(
     [...preview.value.creates, ...preview.value.updates, ...preview.value.unchanged].map(
-      (e) => e.row
+      (e) => e.group_id
     )
   )
-  return rows.size - overwriteRowCount.value
+  return groups.size - overwriteGroupCount.value
 })
 
-// "(row 2 BTF1 [r1_mark, r1_comment], row 3 …)" — distinct sheet rows,
-// sorted, each with its group name and the columns being overwritten
-// (merged across the row's criteria). Used for the overwrite count.
-const rowsWithGroupsSuffix = (entries: BulkUploadRowEntry[]) => {
+// "(BTF1 [3_mark, 3_comment, 4_mark], …)" — one listing per overwritten
+// group, in sheet order, naming each overwritten cell as
+// <criteria_no>_<column>. Sits beside the overwrite count.
+const groupsSuffix = (entries: BulkUploadRowEntry[]) => {
   if (!entries.length) return ''
-  const byRow = new Map<number, { label: string; columns: string[] }>()
+  const byGroup = new Map<number, { label: string; columns: string[] }>()
   for (const e of entries) {
-    const info = byRow.get(e.row) ?? {
+    const info = byGroup.get(e.group_id) ?? {
       label: e.group_name || `group_id ${e.group_id}`,
       columns: []
     }
-    info.columns.push(...(e.columns ?? []))
-    byRow.set(e.row, info)
+    const prefix = e.criteria_no != null ? `${e.criteria_no}_` : ''
+    info.columns.push(...(e.columns ?? []).map((c) => `${prefix}${c}`))
+    byGroup.set(e.group_id, info)
   }
-  const rows = [...byRow.keys()].sort((a, b) => a - b)
-  return ` (${rows
-    .map((r) => {
-      const { label, columns } = byRow.get(r)!
-      return columns.length ? `row ${r} ${label} [${columns.join(', ')}]` : `row ${r} ${label}`
-    })
+  return ` (${[...byGroup.values()]
+    .map(({ label, columns }) => (columns.length ? `${label} [${columns.join(', ')}]` : label))
     .join(', ')})`
 }
 

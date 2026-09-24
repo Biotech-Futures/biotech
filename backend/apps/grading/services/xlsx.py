@@ -21,7 +21,7 @@ import io
 from typing import Iterable
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Font
 
 from ..models import Grade, GroupMarkingCategories, RubricCriterion
 from .content import ComponentEntry
@@ -38,16 +38,6 @@ HEADERS = [
     "product_category",
     "category_of_solution",
 ]
-
-# Borders on the cells a marker is expected to touch: mark/comment
-# beside each criterion, and the group-level cells on the group's first
-# row. Answer-only rows carry none — nothing there accepts input.
-# Excel's "All Borders" (thin, black); no fill.
-_THIN = Side(style="thin", color="000000")
-_FILL_IN_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
-
-_MARK_COLS = (5, 6)  # mark, comment
-_GROUP_COLS = (7, 8, 9)  # overall_comment, product_category, category_of_solution
 
 
 def _format_product_category(cats: GroupMarkingCategories | None) -> str:
@@ -126,12 +116,6 @@ def build_saq_xlsx(
                 _format_product_category(cats) if first else "",
                 _format_solution_category(cats) if first else "",
             ])
-            row_idx = ws.max_row
-            fill_cols = list(_MARK_COLS) if i <= len(criteria_list) else []
-            if first:
-                fill_cols += _GROUP_COLS
-            for col in fill_cols:
-                ws.cell(row=row_idx, column=col).border = _FILL_IN_BORDER
 
     # Wrap the answer column so long answers don't just spill off-screen.
     for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):

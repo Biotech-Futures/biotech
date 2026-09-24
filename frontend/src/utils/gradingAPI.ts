@@ -280,6 +280,7 @@ export interface BulkUploadRowEntry {
   row: number
   group_id: number
   criterion_id: number
+  criteria_no?: number
   submission_id: number
   mark: string | null
   comment: string
@@ -306,6 +307,11 @@ export interface BulkUploadSummary {
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
+  // Wide-shape sheets only (POSTER/REPORT/PROTOTYPE): the type column
+  // check. Absent for SAQ's per-criterion shape, which has no type.
+  expected_type?: string
+  found_type?: string | null
+  type_ok?: boolean
   bad_group_rows: { row: number; reason: string }[]
   bad_marks: { row: number; column: string; hint: string }[]
 }

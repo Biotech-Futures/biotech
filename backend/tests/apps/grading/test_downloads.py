@@ -196,13 +196,6 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertIn(row2[5], (None, ""))
         self.assertIn(row2[7], (None, ""))
         self.assertIn(row2[8], (None, ""))
-        # Fill-in borders (no fill): the mark cell on every criterion row,
-        # the group-level cells on the first row only.
-        self.assertEqual(ws.cell(row=2, column=5).border.left.style, "thin")
-        self.assertEqual(ws.cell(row=2, column=7).border.left.style, "thin")
-        self.assertEqual(ws.cell(row=3, column=5).border.left.style, "thin")
-        self.assertIsNone(ws.cell(row=3, column=7).border.left.style)
-        self.assertIsNone(ws.cell(row=2, column=5).fill.fill_type)
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
