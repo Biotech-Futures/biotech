@@ -3,8 +3,9 @@ the job polling endpoint, and the SAQ XLSX export round-trip."""
 import io
 import zipfile
 from decimal import Decimal
+from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -12,8 +13,62 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.grading.models import Grade, GradingJob, GroupMarkingCategories
+from apps.grading.services import zip as zip_service
+from apps.grading.services.content import ComponentEntry
 
 from .fixtures import _GradingFixture
+
+
+class BuildSubmissionsZipTests(SimpleTestCase):
+    """Direct coverage of the zip builder's concurrent blob prefetch: with
+    far more entries than pool workers, the archive must still come out in
+    entry order with each entry's own bytes — byte-identical to what the old
+    sequential loop produced."""
+
+    @staticmethod
+    def _entry(i: int, *, file: dict | None = None, text: str = "", link: str = "") -> ComponentEntry:
+        return ComponentEntry(
+            submission_id=i, group_id=i, group_name=f"Group-{i:03d}",
+            component_id=2, component_code="POSTER",
+            submitted_at=None, is_late=False,
+            file=file, text=text, link=link,
+        )
+
+    def test_prefetch_preserves_order_content_and_missing_markers(self):
+        blobs = {f"key-{i}": f"payload-{i}".encode() for i in range(40)}
+        entries = []
+        for i in range(40):
+            entries.append(self._entry(i, file={"storage_key": f"key-{i}", "name": f"p{i}.pdf"}))
+            # Interleave file-less entries: they hold no pool slot and must
+            # not disturb the ordering around them.
+            if i % 10 == 0:
+                entries.append(self._entry(1000 + i, text="answers", link="https://x.example"))
+        entries.append(self._entry(999, file={"storage_key": "gone", "name": "lost.pdf"}))
+
+        def fake_open(entry):
+            key = entry.file["storage_key"]
+            if key not in blobs:
+                raise FileNotFoundError(key)
+            return io.BytesIO(blobs[key])
+
+        with mock.patch.object(zip_service, "open_file", side_effect=fake_open):
+            payload = zip_service.build_submissions_zip(entries, group_folder=False)
+
+        zf = zipfile.ZipFile(io.BytesIO(payload))
+        year = timezone.now().year
+        expected = []
+        for entry in entries:
+            stem = f"{year}_{entry.group_name}_Poster"
+            if entry.file and entry.file["storage_key"] in blobs:
+                expected.append(f"{stem}.pdf")
+            elif entry.file:
+                expected.append(f"{stem}_MISSING.txt")
+            else:
+                expected.extend([f"{stem}.txt", f"{stem}_Link.txt"])
+        self.assertEqual(zf.namelist(), expected)
+        for i in range(40):
+            self.assertEqual(zf.read(f"{year}_Group-{i:03d}_Poster.pdf"), blobs[f"key-{i}"])
+        self.assertIn(b"Original blob missing: gone", zf.read(f"{year}_Group-999_Poster_MISSING.txt"))
 
 
 class GroupDownloadViewTests(_GradingFixture):
