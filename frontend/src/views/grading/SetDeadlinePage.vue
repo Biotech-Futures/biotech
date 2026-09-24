@@ -48,7 +48,8 @@
             }}
           </p>
           <p class="deadline__row">
-            Closes: <strong>{{ new Date(deadline.closes_at).toLocaleString() }}</strong>
+            Closes:
+            <strong>{{ `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</strong>
             <span v-if="deadline.grace_hours" class="deadline__muted">
               (+ {{ deadline.grace_hours }}h quiet grace)
             </span>
@@ -56,7 +57,7 @@
           <p v-if="deadline.set_by" class="deadline__row deadline__muted">
             Set by {{ deadline.set_by }}
             <template v-if="deadline.created_at">
-              on {{ new Date(deadline.created_at).toLocaleString() }}
+              on {{ `${new Date(deadline.created_at).toLocaleDateString('en-GB')} ${new Date(deadline.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}
             </template>
           </p>
         </template>
@@ -144,7 +145,7 @@ const confirmOpen = ref(false)
 
 // Human-readable version of the picked time, for the confirm dialog.
 const pendingLabel = computed(() =>
-  closesAtLocal.value ? new Date(closesAtLocal.value).toLocaleString() : ''
+  closesAtLocal.value ? `${new Date(closesAtLocal.value).toLocaleDateString('en-GB')} ${new Date(closesAtLocal.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` : ''
 )
 
 // open: before the announced closing time; grace: past it but the server is

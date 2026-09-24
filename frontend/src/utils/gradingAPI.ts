@@ -448,9 +448,9 @@ export function fetchGroupMarking(groupId: number, year?: number): Promise<Group
 }
 
 // POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
-// Which components carry an overall-comment box, and its heading. SAQ has
-// none (its overall comment never appears in the released document).
+// Which components carry an overall-comment box, and its heading.
 const OVERALL_COMMENT_LABELS: Record<string, string> = {
+  SAQ: 'Overall SAQs Comment',
   POSTER: 'Overall Poster Comment',
   REPORT: 'Overall Scientific Report Comment',
   PROTOTYPE: 'Overall Prototype Comment'

@@ -99,7 +99,9 @@ describe('setting a deadline', () => {
     const dialog = wrapper.find('[role="dialog"]')
     expect(dialog.exists()).toBe(true)
     expect(dialog.text()).toContain('Set the submission deadline?')
-    expect(dialog.text()).toContain(new Date('2026-11-01T09:00').toLocaleString())
+    expect(dialog.text()).toContain(
+      `${new Date('2026-11-01T09:00').toLocaleDateString('en-GB')} ${new Date('2026-11-01T09:00').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    )
     expect(saveMock).not.toHaveBeenCalled()
   })
 

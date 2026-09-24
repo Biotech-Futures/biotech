@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="finalists">
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
     <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
@@ -41,7 +41,9 @@
               <th>ID</th>
               <th>Group</th>
               <th>Late</th>
-              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">{{ c.code }}</th>
+              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
+                {{ c.code === 'PROTOTYPE' ? 'PROT.' : c.code }}
+              </th>
               <th>Total</th>
               <th>
                 Marker
@@ -51,7 +53,7 @@
                   aria-hidden="true"
                 ></i>
               </th>
-              <th class="finalists__cell--right"></th>
+              <th class="finalists__cell--right">Finalist</th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
@@ -101,7 +103,7 @@
                   :disabled="isMutating"
                   @click="addFromRow(r.group_id)"
                 >
-                  Add as Finalist
+                  Add
                 </button>
                 <span v-else class="finalists__muted">Added</span>
               </td>
@@ -163,8 +165,8 @@
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__muted">#{{ f.group_id }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleDateString() }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleTimeString() }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleDateString('en-GB') }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleTimeString([], { hourCycle: 'h23' }) }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
               <td class="finalists__cell--right">
                 <button

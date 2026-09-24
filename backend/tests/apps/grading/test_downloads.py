@@ -157,10 +157,12 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertEqual(
             list(rows[0]),
             ["group_id", "group_name", "type", "text",
-             "r1_mark", "r1_comment", "r2_mark", "r2_comment"],
+             "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
         )
         (group_id, group_name, kind, text,
-         r1_mark, r1_comment, r2_mark, r2_comment) = rows[1]
+         r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
+        # No SAQ feedback saved in this fixture -> blank, not an error.
+        self.assertIn(overall_comment, (None, ""))
         self.assertEqual(group_id, self.group.id)
         self.assertEqual(group_name, "BTF-TEST-1")
         self.assertEqual(kind, "SAQs")

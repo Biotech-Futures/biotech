@@ -21,9 +21,8 @@
         <p class="bulk-upload__desc">
           XLSX or CSV in the export's shape (one row per group)<br />
           <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
-          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion<template
-            v-if="code !== 'SAQ'"
-          >, and <code>overall_comment</code></template>
+          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
+          <code>overall_comment</code>
         </p>
         <p class="bulk-upload__desc">
           Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
