@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -36,23 +37,28 @@ class GroupDownloadViewTests(_GradingFixture):
 
         zf = zipfile.ZipFile(io.BytesIO(resp.content))
         names = set(zf.namelist())
-        # Group folder + component subfolders with the right pseudo-files.
-        self.assertIn("BTF-TEST-1/SAQ/text.txt", names)
-        self.assertIn("BTF-TEST-1/PROTOTYPE/link.txt", names)
+        # Single-group download: no group subfolder, flat
+        # <Year>_<Group>_<Component> files at the archive root.
+        year = timezone.now().year
+        base = f"{year}_BTF-TEST-1"
+        self.assertIn(f"{base}_SAQs.txt", names)
+        self.assertIn(f"{base}_Prototype_Link.txt", names)
         # The fixture's poster storage key has no backing blob; the archive
         # notes it instead of failing.
-        self.assertIn("BTF-TEST-1/POSTER/MISSING.txt", names)
-        self.assertIn("Some student answers.", zf.read("BTF-TEST-1/SAQ/text.txt").decode())
-        self.assertEqual(zf.read("BTF-TEST-1/PROTOTYPE/link.txt").decode().strip(), "https://example.com/prototype")
+        self.assertIn(f"{base}_Poster_MISSING.txt", names)
+        self.assertIn("Some student answers.", zf.read(f"{base}_SAQs.txt").decode())
+        self.assertEqual(
+            zf.read(f"{base}_Prototype_Link.txt").decode().strip(),
+            "https://example.com/prototype",
+        )
 
     def test_component_filter(self):
         url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
-        # Single-component downloads skip the redundant component folder layer.
-        self.assertTrue(all(n.startswith("BTF-TEST-1/") for n in names), names)
-        self.assertTrue(all("/SAQ/" not in n for n in names), names)
+        year = timezone.now().year
+        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.txt"])
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
