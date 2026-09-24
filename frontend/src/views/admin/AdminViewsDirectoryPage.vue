@@ -147,6 +147,7 @@ let searchDebounce: ReturnType<typeof setTimeout> | undefined
 const load = async () => {
   loading.value = true
   error.value = ''
+  selectedIds.value = []
   try {
     const data = await fetchAdminViews({
       role: roleFilter.value === 'all' ? undefined : roleFilter.value,
@@ -237,6 +238,10 @@ watch(searchInput, () => {
 
 watch(roleFilter, () => {
   void load()
+})
+
+watch(activeTab, () => {
+  selectedIds.value = []
 })
 
 onMounted(load)
