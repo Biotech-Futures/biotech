@@ -16,7 +16,7 @@ from apps.groups.models import (
     next_group_number,
 )
 from apps.chat.models import Messages
-from apps.users.models import User, MentorProfile, StudentProfile
+from apps.users.models import User, StudentProfile
 from apps.audit.services import log_audit_event
 
 
@@ -68,11 +68,17 @@ class PaginatedResponse(TypedDict):
     has_more: bool
 
 
-def _get_member_role(user_id: int) -> Optional[str]:
-    """Determine if a user is a mentor or student."""
-    if MentorProfile.objects.filter(user_id=user_id).exists():
+def _get_member_role(user) -> Optional[str]:
+    """Determine if a user is a mentor or student.
+
+    Reads the reverse one-to-one profiles off the user object — callers must
+    select_related("user__mentorprofile", "user__studentprofile") so this
+    stays query-free (a missing profile surfaces as an AttributeError, which
+    getattr absorbs without hitting the database).
+    """
+    if getattr(user, "mentorprofile", None) is not None:
         return "mentor"
-    if StudentProfile.objects.filter(user_id=user_id).exists():
+    if getattr(user, "studentprofile", None) is not None:
         return "student"
     return None
 
@@ -109,7 +115,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     
     for membership in members_qs:
         user = membership.user
-        role = _get_member_role(user.id)
+        role = _get_member_role(user)
         
         if not role:
             continue
@@ -394,7 +400,7 @@ def query_group_messages(
     items = []
     for msg in message_records:
         sender_user = msg.sender_user
-        role = _get_member_role(sender_user.id)
+        role = _get_member_role(sender_user)
 
         attachments = []
         for att in msg.attachments.all():

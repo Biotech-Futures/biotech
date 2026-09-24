@@ -45,7 +45,8 @@ class GroupDownloadView(APIView):
             component_code=None if component_code == "all" else component_code,
         )
 
-        payload = build_submissions_zip(entries)
+        # The component layer only earns its place when mixing components.
+        payload = build_submissions_zip(entries, component_folder=(component_code == "all"))
         prefix = f"group-{group.id}" + ("" if component_code == "all" else f"-{component_code}")
         response = HttpResponse(payload, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{zip_filename(prefix)}"'
@@ -97,6 +98,27 @@ class ComponentDownloadView(APIView):
                 "component_code": component.code,
                 "group_ids": group_ids,
             },
+            created_by=request.user,
+        )
+        dispatch_job(job)
+        return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)
+
+
+class AllSubmissionsDownloadView(APIView):
+    """POST /api/v1/grading/download-all/
+
+    Async export of every group's submitted entry across all components,
+    with the full <group>/<component>/ folder structure. Same job/polling
+    contract as ComponentDownloadView: 202 with ``{"job_id": <int>}``.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def post(self, request):
+        job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_PENDING,
+            params={"kind": "all_zip"},
             created_by=request.user,
         )
         dispatch_job(job)

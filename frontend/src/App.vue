@@ -210,6 +210,15 @@
                     <span>Grading</span>
                   </RouterLink>
                 </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/management"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/management') }"
+                  >
+                    <span>Management</span>
+                  </RouterLink>
+                </li>
               </ul>
             </li>
           </ul>

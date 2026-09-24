@@ -11,7 +11,7 @@
       </p>
       <form class="extensions__form" @submit.prevent="save">
         <label class="extensions__field extensions__field--group">
-          <span>Group</span>
+          <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
         <label class="extensions__field">
@@ -34,14 +34,14 @@
             class="extensions__input extensions__input--grace"
           />
         </label>
-        <label class="extensions__field extensions__field--grow">
+        <label class="extensions__field extensions__field--reason">
           <span>Reason (optional)</span>
-          <input
+          <textarea
             v-model="reason"
-            type="text"
+            rows="3"
             placeholder="e.g. school closure"
-            class="extensions__input"
-          />
+            class="extensions__input extensions__input--reason"
+          ></textarea>
         </label>
         <button
           type="submit"
@@ -72,33 +72,50 @@
               <th>Group</th>
               <th>Extended until</th>
               <th>Grace</th>
-              <th>Reason</th>
+              <th>Status</th>
               <th>Granted by</th>
+              <th>Revoked by</th>
               <th class="extensions__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="extensions.length === 0">
-              <td colspan="7" class="extensions__empty">No extensions granted.</td>
+              <td colspan="8" class="extensions__empty">No extensions granted.</td>
             </tr>
-            <tr v-for="e in extensions" :key="e.group_id">
-              <td class="extensions__muted">#{{ e.group_id }}</td>
-              <td class="extensions__cell--strong">{{ e.group_name }}</td>
-              <td>{{ new Date(e.extended_until).toLocaleString() }}</td>
-              <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
-              <td>{{ e.reason || '—' }}</td>
-              <td>{{ e.granted_by ?? '—' }}</td>
-              <td class="extensions__cell--right">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="isSaving"
-                  @click="revoke(e.group_id)"
-                >
-                  Revoke
-                </button>
-              </td>
-            </tr>
+            <template v-for="e in extensions" :key="e.id">
+              <tr :class="{ 'extensions__row--with-reason': e.reason }">
+                <td class="extensions__muted">#{{ e.group_id }}</td>
+                <td class="extensions__cell--strong">{{ e.group_name }}</td>
+                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB')} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
+                <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
+                <td>
+                  <span :class="`extensions__status--${extensionStatus(e).state}`">
+                    {{ extensionStatus(e).label }}
+                  </span>
+                </td>
+                <td>{{ e.granted_by ?? '—' }}</td>
+                <td>{{ e.revoked_by ?? '—' }}</td>
+                <td class="extensions__cell--right">
+                  <button
+                    v-if="!e.revoked_at"
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="isSaving"
+                    @click="revoke(e.group_id)"
+                  >
+                    Revoke
+                  </button>
+                  <span v-else class="extensions__muted">Revoked</span>
+                </td>
+              </tr>
+              <!-- The reason gets a full-width row of its own so multi-line
+                   text can wrap; the pair reads as one record. -->
+              <tr v-if="e.reason" class="extensions__reason-row">
+                <td colspan="8">
+                  <span class="extensions__muted">Reason:</span> {{ e.reason }}
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -131,8 +148,24 @@ const isSaving = ref(false)
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
 const untilLocal = ref('')
-const graceHours = ref(0)
+const graceHours = ref(24)
 const reason = ref('')
+
+// Active until the extended date; In grace while the extension's own grace
+// hours still accept; Expired after that — mirroring the deadline card.
+const extensionStatus = (e: {
+  extended_until: string
+  grace_hours: number
+  revoked_at: string | null
+}) => {
+  if (e.revoked_at) return { state: 'expired', label: 'Revoked' }
+  const until = new Date(e.extended_until).getTime()
+  const graceEnd = until + (e.grace_hours || 0) * 3_600_000
+  const now = Date.now()
+  if (now <= until) return { state: 'active', label: 'Active' }
+  if (now <= graceEnd) return { state: 'grace', label: 'In grace' }
+  return { state: 'expired', label: 'Expired' }
+}
 
 // Picker floor: the calendar refuses anything at or before the current
 // deadline (an earlier "extension" would shorten the team's window). The
@@ -180,7 +213,7 @@ const save = async () => {
     savedMessage.value = 'Extension granted.'
     groupQuery.value = ''
     untilLocal.value = ''
-    graceHours.value = 0
+    graceHours.value = 24
     reason.value = ''
     await load()
   } catch (err) {
@@ -239,9 +272,31 @@ onMounted(() => {
   color: var(--charcoal);
 }
 
-.extensions__field--grow {
-  flex: 1;
-  min-width: 14rem;
+.extensions__status--active {
+  color: var(--dark-green);
+  font-weight: 600;
+}
+
+/* Same yellow as the deadline card's grace state. */
+.extensions__status--grace {
+  color: #eab308;
+  font-weight: 600;
+}
+
+.extensions__status--expired {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Full row of its own, below the other fields. */
+.extensions__field--reason {
+  flex-basis: 100%;
+}
+
+.extensions__input--reason {
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: inherit;
 }
 
 .extensions__input {
@@ -316,6 +371,19 @@ onMounted(() => {
 
 .extensions__table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* A data row followed by its reason row reads as one record: no divider
+   between the pair — the border after the reason row separates records. */
+.extensions__row--with-reason td {
+  border-bottom: none;
+}
+
+.extensions__reason-row td {
+  white-space: normal;
+  font-size: 0.85rem;
+  padding-top: 0;
+  padding-left: 1.5rem;
 }
 
 .extensions__empty {

@@ -122,6 +122,15 @@ async function requestBlob(
   return { blob: await response.blob(), filename: match?.[1] ?? null }
 }
 
+// Fetch a submitted file and save it through a blob link. A plain <a download>
+// can't force this: the file URL is cross-origin, where browsers ignore the
+// download attribute, and local /media/ serves PDFs inline (the storage layer
+// only bakes an attachment disposition into Azure SAS URLs).
+export async function downloadSubmissionFile(url: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob(url)
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // Fetch bytes for the summary/certificate docx and trigger a browser download.
 // Rendered server-side via docxtpl (see backend/apps/grading/services/docx.py).
 async function downloadDocx(path: string, filename: string) {
@@ -291,11 +300,22 @@ export interface BulkUploadSummary {
   errors: number
 }
 
+/** Categorised validation report shown on preview. */
+export interface BulkUploadChecks {
+  missing_headers: string[]
+  expected_type: string
+  found_type: string | null
+  type_ok: boolean
+  bad_group_rows: { row: number; reason: string }[]
+  bad_marks: { row: number; column: string; hint: string }[]
+}
+
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
   errors: BulkUploadError[]
+  checks?: BulkUploadChecks
   summary: BulkUploadSummary
   applied?: boolean
   written?: number
@@ -349,6 +369,8 @@ export function setCertificatesFinalistExclusion(exclude: boolean): Promise<Rele
 
 // Per-team extra time on top of the global deadline.
 export interface GroupExtension {
+  /** Row id — group_id is no longer unique since revoked rows are kept. */
+  id: number
   group_id: number
   group_name: string
   extended_until: string
@@ -357,6 +379,9 @@ export interface GroupExtension {
   reason: string
   granted_at: string
   granted_by: string | null
+  /** Soft revoke: set when an admin revoked this extension; row stays listed. */
+  revoked_at: string | null
+  revoked_by: string | null
 }
 
 // GET /api/v1/grading/deadline/extensions/ — every granted extension.
@@ -423,9 +448,9 @@ export function fetchGroupMarking(groupId: number, year?: number): Promise<Group
 }
 
 // POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
-// Which components carry an overall-comment box, and its heading. SAQ has
-// none (its overall comment never appears in the released document).
+// Which components carry an overall-comment box, and its heading.
 const OVERALL_COMMENT_LABELS: Record<string, string> = {
+  SAQ: 'Overall SAQs Comment',
   POSTER: 'Overall Poster Comment',
   REPORT: 'Overall Scientific Report Comment',
   PROTOTYPE: 'Overall Prototype Comment'
@@ -541,6 +566,16 @@ export async function startComponentDownload(
     `/api/v1/grading/components/${encodeURIComponent(code)}/download/`,
     { method: 'POST', body: JSON.stringify({ format, group_ids: groupIds ?? null }) }
   )
+  return data.job_id
+}
+
+// POST /api/v1/grading/download-all/ — async zip of every group's entry
+// across all components. Same 202 + job-polling contract as above.
+export async function startAllSubmissionsDownload(): Promise<number> {
+  const data = await requestJson<{ job_id: number }>('/api/v1/grading/download-all/', {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
   return data.job_id
 }
 

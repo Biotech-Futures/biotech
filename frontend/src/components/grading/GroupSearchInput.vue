@@ -12,7 +12,7 @@
       @focus="isOpen = true"
       @blur="isOpen = false"
     />
-    <ul v-if="isOpen && suggestions.length" class="group-search__list">
+    <ul v-if="showSuggestions && isOpen && suggestions.length" class="group-search__list">
       <li v-for="s in suggestions" :key="s.group_id">
         <button type="button" class="group-search__option" @mousedown.prevent="pick(s)">
           <span class="group-search__name">{{ s.group_name }}</span>
@@ -47,9 +47,18 @@ const loadDirectory = () => {
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-const props = withDefaults(defineProps<{ modelValue: string; placeholder?: string }>(), {
-  placeholder: 'Group name or ID'
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    placeholder?: string
+    /** Pages that live-filter their own table can turn the dropdown off. */
+    showSuggestions?: boolean
+  }>(),
+  {
+    placeholder: 'Group name or ID',
+    showSuggestions: true
+  }
+)
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void

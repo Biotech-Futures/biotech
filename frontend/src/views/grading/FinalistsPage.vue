@@ -1,20 +1,5 @@
-﻿<template>
+<template>
   <div class="finalists">
-    <section class="card finalists__add">
-      <div class="card-header">
-        <h3 class="card-title">Add Finalist</h3>
-      </div>
-      <p class="finalists__hint">
-        Search by group name or ID to add them as a finalist.
-      </p>
-      <form class="finalists__form" @submit.prevent="add">
-        <GroupSearchInput ref="picker" v-model="groupQuery" class="finalists__picker" />
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isMutating">
-          Add as Finalist
-        </button>
-      </form>
-    </section>
-
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
     <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
 
@@ -35,15 +20,30 @@
         </button>
       </h3>
       <template v-if="showGroupMarks">
+      <div class="card finalists__search-card">
+        <div class="finalists__search-field">
+          <span class="finalists__search-label">Search</span>
+          <form class="finalists__form" @submit.prevent="add">
+            <GroupSearchInput
+              ref="picker"
+              v-model="groupQuery"
+              class="finalists__picker"
+              :show-suggestions="false"
+            />
+          </form>
+        </div>
+      </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
-      <div v-else class="finalists__scroll">
+      <div v-else class="finalists__scroll finalists__scroll--flush">
         <table class="finalists__table">
           <thead>
             <tr>
               <th>ID</th>
               <th>Group</th>
               <th>Late</th>
-              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">{{ c.code }}</th>
+              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
+                {{ c.code === 'PROTOTYPE' ? 'PROT.' : c.code }}
+              </th>
               <th>Total</th>
               <th>
                 Marker
@@ -53,20 +53,22 @@
                   aria-hidden="true"
                 ></i>
               </th>
-              <th class="finalists__cell--right"></th>
+              <th class="finalists__cell--right">Finalist</th>
               <th class="finalists__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 7" class="finalists__empty">No groups.</td>
+              <td :colspan="candidateComponents.length + 7" class="finalists__empty">
+                {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in candidates" :key="r.group_id">
               <td class="finalists__muted">#{{ r.group_id }}</td>
               <td class="finalists__cell--strong">{{ r.group_name }}</td>
               <td>
                 <span v-if="r.is_late" class="finalists__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="finalists__muted">—</span>
               </td>
@@ -84,7 +86,12 @@
                   class="finalists__marker"
                   :title="markerTooltip(r)"
                 >
-                  {{ r.markers.join(', ') }}
+                  {{ r.markers[0] }}
+                  <i
+                    v-if="r.markers.length > 1"
+                    class="fas fa-users finalists__marker-icon"
+                    aria-hidden="true"
+                  ></i>
                 </span>
                 <span v-else class="finalists__muted">—</span>
               </td>
@@ -96,7 +103,7 @@
                   :disabled="isMutating"
                   @click="addFromRow(r.group_id)"
                 >
-                  Add as Finalist
+                  Add
                 </button>
                 <span v-else class="finalists__muted">Added</span>
               </td>
@@ -158,8 +165,8 @@
             <tr v-for="f in finalists" :key="f.group_id">
               <td class="finalists__muted">#{{ f.group_id }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleDateString() }}</td>
-              <td>{{ new Date(f.flagged_at).toLocaleTimeString() }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleDateString('en-GB') }}</td>
+              <td>{{ new Date(f.flagged_at).toLocaleTimeString([], { hourCycle: 'h23' }) }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
               <td class="finalists__cell--right">
                 <button
@@ -226,7 +233,16 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
-const candidates = computed(() => candidatesResp.value?.rows ?? [])
+// Live-filter the Group Marks table by the search text (name or ID),
+// matching the other marking tables; resolveId still powers the Add button.
+const candidates = computed(() => {
+  const rows = candidatesResp.value?.rows ?? []
+  const q = groupQuery.value.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter(
+    (r) => r.group_name.toLowerCase().includes(q) || String(r.group_id).includes(q)
+  )
+})
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
@@ -350,12 +366,36 @@ const remove = async (id: number) => {
 }
 
 .finalists__picker {
-  width: 20rem;
+  width: 100%;
 }
 
-/* Only the tables run full width; the add card stays compact. */
-.finalists__add {
-  max-width: 48rem;
+/* Search card sits flush on the Group Marks table — same outline treatment
+   as the other marking tables: table border instead of the card shadow,
+   square shared edge, the table's own top border draws the divider. */
+.finalists__search-card,
+.finalists__search-card:hover {
+  padding: 1rem;
+  margin-bottom: 0;
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+}
+
+.finalists__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* Same width as the By Component page's search box. */
+  max-width: 252px;
+}
+
+.finalists__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .finalists__banner {
@@ -385,6 +425,11 @@ const remove = async (id: number) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
+}
+
+/* The Group Marks table joins the search card above it. */
+.finalists__scroll--flush {
+  border-radius: 0 0 8px 8px;
 }
 
 .finalists__table {
@@ -434,9 +479,22 @@ const remove = async (id: number) => {
   font-weight: 400;
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .finalists__late {
-  color: var(--danger);
+  color: #ff8c00;
   font-weight: 600;
+}
+
+/* One name shows; the icon hints there are more markers in the tooltip. */
+.finalists__marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.finalists__marker-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .finalists__marker-info {
