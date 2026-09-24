@@ -20,14 +20,13 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q
-from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 from apps.common.rbac import is_admin
 
 from .models import (
@@ -490,15 +489,19 @@ def send_due_rsvp_reminders(*, kind=None, dry_run=False):
     one. dry_run=True reports counts without claiming or sending.
     Returns (events_processed, emails_sent, emails_failed) summed
     across kinds.
+
+    When an admin has switched these reminders off, returns before any
+    event is claimed, so nothing is marked as reminded.
     """
-    if kind is None:
-        kinds = tuple(REMINDER_KINDS.keys())
-    elif kind in REMINDER_KINDS:
-        kinds = (kind,)
-    else:
+    if kind is not None and kind not in REMINDER_KINDS:
         raise ValueError(
             f"Unknown reminder kind {kind!r}; choose from {sorted(REMINDER_KINDS)}."
         )
+    if not is_email_enabled("rsvp_reminder"):
+        logger.info("RSVP reminders are turned off; nothing sent.")
+        return 0, 0, 0
+
+    kinds = tuple(REMINDER_KINDS.keys()) if kind is None else (kind,)
 
     events_processed = 0
     emails_sent = 0
@@ -707,15 +710,13 @@ def _send_audience_reminders(event, audience):
 def _send_one_reminder(*, subject, recipient, from_email, ctx):
     # Extracted so resilience tests can patch a single seam.
     plain_body = _build_plain_reminder_body(ctx)
-    html_body = render_to_string("emails/rsvp_reminder.html", ctx)
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=plain_body,
-        from_email=from_email,
-        to=[recipient],
+    # The unedited subject is just {{ reminder_subject }}, i.e. ``subject``.
+    rendered = render_system_email(
+        "rsvp_reminder",
+        {**ctx, "REMINDER_SUBJECT": subject},
+        default_text=plain_body,
     )
-    msg.attach_alternative(html_body, "text/html")
-    attach_inline_logo(msg)
+    msg = build_message(rendered, recipient, from_email=from_email)
     msg.send(fail_silently=False)
 
 

@@ -14,10 +14,11 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import get_connection
 from django.utils import timezone
 
 from apps.groups.models.group_members import GroupMembership
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
 from ..models import FinalistFlag
 
@@ -38,23 +39,27 @@ def notify_finalist(flag: FinalistFlag, actor=None) -> bool:
     if flag.notified:
         logger.info("finalist notify skipped: already notified (group=%s)", flag.group_id)
         return False
+    if not is_email_enabled("finalist_notification"):
+        # Not marked notified, so the group is emailed once an admin turns it back on.
+        logger.info("finalist notify skipped: switched off by an admin (group=%s)", flag.group_id)
+        return False
 
-    recipients = list(
+    recipients = list(dict.fromkeys(
         GroupMembership.objects.filter(
             group_id=flag.group_id,
             left_at__isnull=True,
         )
         .exclude(user__email="")
         .values_list("user__email", flat=True)
-    )
+    ))
     if not recipients:
         logger.info("finalist notify skipped: group %s has no active members with emails", flag.group_id)
         return False
 
-    subject = f"Congratulations — {flag.group.group_name} is a BIOTech Futures finalist"
+    group_name = flag.group.group_name
     body = (
         f"Hi,\n\n"
-        f"Your group ({flag.group.group_name}) has been selected as a finalist "
+        f"Your group ({group_name}) has been selected as a finalist "
         f"for the BIOTech Futures Challenge. The BIOTech Futures team will be in "
         f"touch with details about presenting at the symposium.\n\n"
         f"Kind regards,\n"
@@ -62,15 +67,17 @@ def notify_finalist(flag: FinalistFlag, actor=None) -> bool:
     )
 
     try:
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=recipients,
-            fail_silently=False,
+        rendered = render_system_email(
+            "finalist_notification", {"GROUP_NAME": group_name}, default_text=body,
         )
     except Exception:  # noqa: BLE001
-        logger.exception("finalist notify failed: group=%s", flag.group_id)
+        logger.exception("finalist notify failed to render: group=%s", flag.group_id)
+        return False
+
+    sent = _send_to_each(rendered, recipients, group_id=flag.group_id)
+    if not sent:
+        # Nobody received it: leave the flag unnotified so the next press retries.
+        logger.error("finalist notify failed: no email delivered (group=%s)", flag.group_id)
         return False
 
     flag.notified = True
@@ -78,3 +85,38 @@ def notify_finalist(flag: FinalistFlag, actor=None) -> bool:
     flag.notified_by = actor
     flag.save(update_fields=["notified", "notified_at", "notified_by"])
     return True
+
+
+def _send_to_each(rendered, recipients, *, group_id) -> int:
+    """Send one copy per member over a single connection. Returns how many sent.
+
+    One message each rather than one listing the whole group: members would
+    otherwise see each other's addresses, and one bad address would stop
+    everyone's copy.
+    """
+    connection = get_connection(fail_silently=False)
+    try:
+        connection.open()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("finalist notify: connection failed group=%s error=%s", group_id, type(exc).__name__)
+        return 0
+
+    sent = 0
+    try:
+        for address in recipients:
+            message = build_message(
+                rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
+            )
+            try:
+                message.send(fail_silently=False)
+            except Exception as exc:  # noqa: BLE001
+                # Error type only: SMTP errors carry the recipient address.
+                logger.error("finalist notify: send failed group=%s error=%s", group_id, type(exc).__name__)
+            else:
+                sent += 1
+    finally:
+        try:
+            connection.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return sent

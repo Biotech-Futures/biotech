@@ -239,8 +239,10 @@ class FinalistNotifyServiceTests(_GradingFixture):
         GroupMembership.objects.create(group=self.group, user=member, membership_role="student")
         flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
 
+        # Finalist emails go through the shared system email path now, so the
+        # send seam is the message itself rather than a send_mail import.
         with patch(
-            "apps.grading.services.finalist_notify.send_mail",
+            "django.core.mail.EmailMultiAlternatives.send",
             side_effect=Exception("relay down"),
         ):
             self.assertFalse(notify_finalist(flag))

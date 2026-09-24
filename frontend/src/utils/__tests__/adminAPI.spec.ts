@@ -21,7 +21,14 @@ import {
   removeGroupMessage,
   removeGroupMember,
   bulkDeleteGroups,
-  replaceMentor
+  replaceMentor,
+  fetchSystemEmailTemplates,
+  updateSystemEmailTemplate,
+  restoreSystemEmailTemplate,
+  previewSystemEmailTemplate,
+  testSendSystemEmailTemplate,
+  fetchSystemEmailSettings,
+  updateSystemEmailSettings
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -826,5 +833,136 @@ describe('replaceMentor', () => {
     expect(init!.method).toBe('POST')
     expect(JSON.parse(String(init.body))).toEqual({ membershipId: 100, groupId: 1, newMentorUserId: 23 })
     expect(result.replaced).toBe(1)
+  })
+})
+
+describe('system email API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const template = {
+    key: 'password_reset',
+    name: 'Password reset',
+    description: 'Sent when a user asks to reset their password.',
+    enabled: true,
+    locked: false,
+    usingSavedContent: false,
+    defaultSubject: 'Reset your password',
+    defaultBody: '<p>Hi Alex, reset your password.</p>',
+    subject: '',
+    body: '',
+    updatedBy: null,
+    updatedAt: null,
+    mergeTags: [
+      { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
+    ]
+  }
+
+  const envelopeFetch = (data: unknown, msg = 'ok') =>
+    vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 })
+        )
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg, data }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+  it('unwraps the template list envelope', async () => {
+    const fetchMock = envelopeFetch({ items: [template] })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchSystemEmailTemplates()
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/admin/email-template/')
+    expect(result).toEqual([template])
+  })
+
+  it('PATCHes wording and parses the returned template', async () => {
+    const saved = { ...template, subject: 'Hello {{ first_name }}', usingSavedContent: true }
+    const fetchMock = envelopeFetch(saved)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateSystemEmailTemplate('password_reset', {
+      subject: 'Hello {{ first_name }}'
+    })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes('/email-template/password_reset/')
+    ) as [string, RequestInit]
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(String(init.body))).toEqual({ subject: 'Hello {{ first_name }}' })
+    expect(result.subject).toBe('Hello {{ first_name }}')
+  })
+
+  it('encodes the key in template paths', async () => {
+    const fetchMock = envelopeFetch(template)
+    vi.stubGlobal('fetch', fetchMock)
+
+    await restoreSystemEmailTemplate('a/b c')
+
+    const calledUrl = String(
+      fetchMock.mock.calls.find(([u]) => String(u).includes('restore-default'))![0]
+    )
+    expect(calledUrl).toContain('/email-template/a%2Fb%20c/restore-default/')
+  })
+
+  it('POSTs unsaved wording for preview and parses the rendered email', async () => {
+    const fetchMock = envelopeFetch({
+      key: 'password_reset',
+      subject: 'Hi Alex',
+      html: '<!doctype html><html></html>',
+      text: 'Hi Alex'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await previewSystemEmailTemplate('password_reset', { body: '<p>Hi</p>' })
+
+    const [url, init] = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes('/preview/')
+    ) as [string, RequestInit]
+    expect(url).toContain('/email-template/password_reset/preview/')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ body: '<p>Hi</p>' })
+    expect(result.subject).toBe('Hi Alex')
+  })
+
+  it('POSTs test sends and returns the recipient', async () => {
+    const fetchMock = envelopeFetch({ key: 'password_reset', sentTo: 'admin@example.com' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await testSendSystemEmailTemplate('password_reset')
+
+    expect(String(fetchMock.mock.calls.find(([u]) => String(u).includes('/test-send/'))![0])).toContain(
+      '/email-template/password_reset/test-send/'
+    )
+    expect(result.sentTo).toBe('admin@example.com')
+  })
+
+  it('gets and patches the global settings', async () => {
+    const fetchMock = envelopeFetch({ emailsEnabled: true, updatedAt: null })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect((await fetchSystemEmailSettings()).emailsEnabled).toBe(true)
+
+    vi.stubGlobal('fetch', envelopeFetch({ emailsEnabled: false, updatedAt: null }))
+    const updated = await updateSystemEmailSettings(false)
+    expect(updated.emailsEnabled).toBe(false)
+  })
+
+  it('rejects when the server omits the enabled flag', async () => {
+    const withoutEnabled: Record<string, unknown> = { ...template }
+    delete withoutEnabled.enabled
+    vi.stubGlobal('fetch', envelopeFetch(withoutEnabled))
+
+    await expect(
+      updateSystemEmailTemplate('password_reset', { subject: 'x' })
+    ).rejects.toThrow()
   })
 })

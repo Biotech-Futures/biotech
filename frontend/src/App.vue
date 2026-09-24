@@ -203,6 +203,15 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
+                    to="/admin/emails"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/emails' }"
+                  >
+                    <span>System Emails</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
                     to="/grading"
                     class="sidebar-sublink"
                     :class="{ active: route.path.startsWith('/grading') }"
