@@ -67,10 +67,10 @@ type TextBlock =
 
 const pdfEscape = (value: unknown) =>
   String(value ?? '')
-    .replaceAll('\\', '\\\\')
-    .replaceAll('(', '\\(')
-    .replaceAll(')', '\\)')
-    .replace(/[^\x20-\x7E]/g, (char) => {
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/[^\x20-\x7E]/g, (char: string) => {
       if (char === '’' || char === '‘') return "'"
       if (char === '–' || char === '—') return '-'
       if (char === '•') return '\\225'
@@ -617,10 +617,10 @@ export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
 
 export const printHtmlDocument = (title: string, bodyHtml: string) => {
   const safeTitle = String(title)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.style.position = 'fixed'

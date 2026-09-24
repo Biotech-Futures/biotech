@@ -363,14 +363,14 @@ const togglePageSelection = () => {
   selectedIds.value = next
 }
 
-const csvEscape = (value: string) => `"${value.replaceAll('"', '""')}"`
+const csvEscape = (value: string) => `"${value.replace(/"/g, '""')}"`
 
 const escapeHtml = (value: string) =>
   value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 
 const rowsToCsv = (rows: Record<string, unknown>[]) => {
   const header = props.columns.map((column) => column.label).join(',')
