@@ -19,14 +19,15 @@
         </div>
 
         <p class="bulk-upload__desc">
-          XLSX or CSV in the export's shape (one row per group)<br />
-          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
-          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
-          <code>overall_comment</code>
+          XLSX or CSV in the export's shape (one row per criterion)<br />
+          <code>criteria_no</code>, <code>mark</code>, <code>comment</code> per row;
+          <code>group_id</code>, <code>group_name</code>, and
+          <code>overall_comment</code> on each group's first row
         </p>
         <p class="bulk-upload__desc">
-          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
-          Column headers must match exactly and extra columns are ignored, so you can fill in
+          Column headers must match exactly; the informational columns
+          (<code>answer</code>, <code>product_category</code>,
+          <code>category_of_solution</code>) are ignored, so you can fill in
           the downloaded sheet and upload it back.
         </p>
 
@@ -58,37 +59,31 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
-              <li>
-                Type:
-                <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
-              </li>
               <!-- Rows failing an earlier check skip the later validations,
                    so hide those lines rather than show a misleading None. -->
-              <template v-if="preview.checks.type_ok">
+              <li>
+                Incorrect group details:
+                <span :class="checkClass(!preview.checks.bad_group_rows.length)">
+                  {{ checkGroupText }}
+                </span>
+              </li>
+              <li v-if="!preview.checks.bad_group_rows.length">
+                Incorrect mark format:
+                <span :class="checkClass(!preview.checks.bad_marks.length)">
+                  {{ checkMarkText }}
+                </span>
+              </li>
+              <template
+                v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
+              >
+                <li class="bulk-upload__check-gap">
+                  Overwriting Existing Records:
+                  <strong class="bulk-upload__count--overwrite">{{ overwriteRowCount }}</strong
+                  >{{ rowsWithGroupsSuffix(preview.updates) }}
+                </li>
                 <li>
-                  Incorrect group details:
-                  <span :class="checkClass(!preview.checks.bad_group_rows.length)">
-                    {{ checkGroupText }}
-                  </span>
+                  Writing New Records: <strong>{{ newRowCount }}</strong>
                 </li>
-                <li v-if="!preview.checks.bad_group_rows.length">
-                  Incorrect mark format:
-                  <span :class="checkClass(!preview.checks.bad_marks.length)">
-                    {{ checkMarkText }}
-                  </span>
-                </li>
-                <template
-                  v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
-                >
-                  <li class="bulk-upload__check-gap">
-                    Overwriting Existing Records:
-                    <strong class="bulk-upload__count--overwrite">{{ overwriteRowCount }}</strong
-                    >{{ rowsWithGroupsSuffix(preview.updates) }}
-                  </li>
-                  <li>
-                    Writing New Records: <strong>{{ newRowCount }}</strong>
-                  </li>
-                </template>
               </template>
             </template>
           </ul>
@@ -156,12 +151,6 @@ const checkHeaderText = computed(() => {
   const c = preview.value?.checks
   if (!c) return ''
   return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
-})
-
-const checkTypeText = computed(() => {
-  const c = preview.value?.checks
-  if (!c) return ''
-  return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
 })
 
 const checkGroupText = computed(() => {

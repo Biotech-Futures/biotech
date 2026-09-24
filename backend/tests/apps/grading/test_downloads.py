@@ -163,28 +163,46 @@ class SaqXlsxExportTests(_GradingFixture):
         rows = list(ws.iter_rows(values_only=True))
         self.assertEqual(
             list(rows[0]),
-            ["group_id", "group_name", "type", "text",
-             "product_category", "category_of_solution",
-             "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
+            ["group_id", "group_name", "answer", "criteria_no", "mark", "comment",
+             "overall_comment", "product_category", "category_of_solution"],
         )
-        (group_id, group_name, kind, text, product_category, category_of_solution,
-         r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
+        # One row per criterion position: one answered question plus a
+        # two-criterion rubric -> two rows for the group.
+        (group_id, group_name, answer, criteria_no, mark, comment,
+         overall_comment, product_category, category_of_solution) = rows[1]
+        self.assertEqual(group_id, self.group.id)
+        self.assertEqual(group_name, "BTF-TEST-1")
+        self.assertEqual(criteria_no, 1)
+        # The answer cell carries the answer under its question prompt.
+        self.assertIn("Team answers", answer)
+        self.assertIn("Some student answers.", answer)
+        # Existing grade pre-filled.
+        self.assertEqual(mark, 8.0)
+        self.assertEqual(comment, "Great claim.")
+        # No SAQ feedback saved in this fixture -> blank, not an error.
+        self.assertIn(overall_comment, (None, ""))
         # The marking key's header selections, with the Other detail inlined.
         self.assertEqual(product_category, "Health, Other: Wearables")
         self.assertEqual(category_of_solution, "Other: App")
-        # No SAQ feedback saved in this fixture -> blank, not an error.
-        self.assertIn(overall_comment, (None, ""))
-        self.assertEqual(group_id, self.group.id)
-        self.assertEqual(group_name, "BTF-TEST-1")
-        self.assertEqual(kind, "SAQs")
-        # The SAQ text cell carries the answers under their question prompt.
-        self.assertIn("Team answers", text)
-        self.assertIn("Some student answers.", text)
-        # Existing grade pre-filled; ungraded criterion left blank, not zero.
-        self.assertEqual(r1_mark, 8.0)
-        self.assertEqual(r1_comment, "Great claim.")
-        self.assertIsNone(r2_mark)
-        self.assertIn(r2_comment, (None, ""))
+        # Second criterion: no answer at that position, no grade — blank
+        # cells, and every group-level column (the ids included) appears
+        # on the first row only.
+        row2 = rows[2]
+        self.assertIn(row2[0], (None, ""))
+        self.assertIn(row2[1], (None, ""))
+        self.assertIn(row2[2], (None, ""))
+        self.assertEqual(row2[3], 2)
+        self.assertIsNone(row2[4])
+        self.assertIn(row2[5], (None, ""))
+        self.assertIn(row2[7], (None, ""))
+        self.assertIn(row2[8], (None, ""))
+        # Fill-in borders (no fill): the mark cell on every criterion row,
+        # the group-level cells on the first row only.
+        self.assertEqual(ws.cell(row=2, column=5).border.left.style, "thin")
+        self.assertEqual(ws.cell(row=2, column=7).border.left.style, "thin")
+        self.assertEqual(ws.cell(row=3, column=5).border.left.style, "thin")
+        self.assertIsNone(ws.cell(row=3, column=7).border.left.style)
+        self.assertIsNone(ws.cell(row=2, column=5).fill.fill_type)
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -199,7 +217,6 @@ class SaqXlsxExportTests(_GradingFixture):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         body = resp.json()
-        self.assertTrue(body["checks"]["type_ok"])
         self.assertEqual(body["checks"]["missing_headers"], [])
         # The untouched export must read as exactly what is already stored:
         # the pre-filled mark is unchanged, the blank criterion is untouched,

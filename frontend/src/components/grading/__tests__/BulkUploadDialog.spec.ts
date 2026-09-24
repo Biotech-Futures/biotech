@@ -10,15 +10,12 @@ const uploadMock = vi.mocked(bulkUploadMarks)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
-  expected_type: 'SAQs',
-  found_type: 'SAQs',
-  type_ok: true,
   bad_group_rows: [],
   bad_marks: [],
   ...over
 })
 
-const rowEntry = (row: number, groupId: number, columns = ['r1_mark']) => ({
+const rowEntry = (row: number, groupId: number, columns = ['mark']) => ({
   row,
   group_id: groupId,
   criterion_id: 1,
@@ -198,31 +195,25 @@ describe('the preview report', () => {
     )
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): None')
-    expect(text).toContain('Type: SAQs')
     expect(text).toContain('Incorrect group details: None')
     expect(text).toContain('Incorrect mark format: None')
     expect(text).toContain('Overwriting Existing Records: 1')
     expect(text).toContain('Writing New Records: 2')
   })
 
-  it('counts and names overwritten sheet rows — not cells — once, in order', async () => {
+  it('counts and names overwritten sheet rows with their columns, in order', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
     await pickFile(
       wrapper,
       response({
-        // Two criteria on row 2 → one listing with merged columns; rows
-        // arrive unsorted. Three cells, two rows → the count says 2.
-        updates: [
-          rowEntry(3, 4),
-          rowEntry(2, 7, ['r1_mark', 'r1_comment']),
-          rowEntry(2, 7, ['r2_mark'])
-        ],
-        summary: { creates: 0, updates: 3, unchanged: 0, errors: 0 }
+        // Rows arrive unsorted; each sheet row is one question's record.
+        updates: [rowEntry(3, 4), rowEntry(2, 7, ['mark', 'comment'])],
+        summary: { creates: 0, updates: 2, unchanged: 0, errors: 0 }
       })
     )
     expect(wrapper.text()).toContain(
-      'Overwriting Existing Records: 2 (row 2 BTF-7 [r1_mark, r1_comment, r2_mark], row 3 BTF-4 [r1_mark])'
+      'Overwriting Existing Records: 2 (row 2 BTF-7 [mark, comment], row 3 BTF-4 [mark])'
     )
   })
 
@@ -232,30 +223,13 @@ describe('the preview report', () => {
     await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ missing_headers: ['r1_comment'], type_ok: false, found_type: null }),
-        errors: [{ row: 1, message: 'missing header r1_comment' }],
+        checks: cleanChecks({ missing_headers: ['comment'] }),
+        errors: [{ row: 1, message: 'missing header comment' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('Missing Column Header(s): r1_comment')
-    expect(text).not.toContain('Type:')
-    expect(text).not.toContain('Incorrect group details')
-  })
-
-  it('a wrong type names both what it found and what it expected', async () => {
-    const wrapper = mountDialog()
-    await openDialog(wrapper)
-    await pickFile(
-      wrapper,
-      response({
-        checks: cleanChecks({ type_ok: false, found_type: 'SAQ' }),
-        errors: [{ row: 2, message: 'wrong type' }],
-        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
-      })
-    )
-    const text = wrapper.text()
-    expect(text).toContain('SAQ (should be SAQs)')
+    expect(text).toContain('Missing Column Header(s): comment')
     expect(text).not.toContain('Incorrect group details')
   })
 
