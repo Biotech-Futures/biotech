@@ -98,9 +98,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/views',
     name: 'admin-views',
-    // TODO(person 2): swap for the real AdminViewsDirectoryPage.vue once it exists.
-    component: () => import('@/components/admin/AdminStubSection.vue'),
-    props: { title: 'Views', description: 'The admin views directory is coming soon.' },
+    component: () => import('@/views/admin/AdminViewsDirectoryPage.vue'),
     meta: { requiresAdmin: true }
   },
   {
