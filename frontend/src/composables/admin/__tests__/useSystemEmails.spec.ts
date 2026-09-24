@@ -37,6 +37,7 @@ const buildTemplate = (overrides: Partial<SystemEmailTemplate> = {}): SystemEmai
   defaultBody: '<p>Hi Alex, reset your password.</p>',
   subject: '',
   body: '',
+  updatedBy: null,
   updatedAt: null,
   mergeTags: [
     { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }

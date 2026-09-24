@@ -93,15 +93,17 @@ class EditedAuthEmailsTests(TestCase):
 
 @override_settings(AUTH_EMAIL_DISPATCH_SYNC=True)
 class AuthEmailTogglesTests(TestCase):
-    def test_reset_switched_off_sends_nothing_but_still_issues_a_token(self):
+    def test_locked_reset_still_sends_even_with_its_own_row_disabled(self):
         SystemEmailTemplate.objects.create(key="password_reset", is_enabled=False)
         user = _user()
         auth_service.send_password_reset(user.email)
 
-        self.assertEqual(mail.outbox, [])
+        # Password reset is account-critical: it cannot be switched off, so the
+        # email still goes out even if a row with is_enabled=False exists.
+        self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(PasswordResetToken.objects.filter(user=user).count(), 1)
 
-    def test_password_changed_switched_off_still_changes_the_password(self):
+    def test_locked_password_changed_notification_still_sends_even_disabled(self):
         SystemEmailTemplate.objects.create(key="password_changed", is_enabled=False)
         user = _user()
         token = PasswordResetToken.create_for_user(user).token
@@ -110,7 +112,8 @@ class AuthEmailTogglesTests(TestCase):
 
         user.refresh_from_db()
         self.assertTrue(user.check_password(STRONG_PWD_NEW))
-        self.assertEqual(mail.outbox, [])
+        # Account-security emails are locked: the notification still goes out.
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_login_code_sends_with_every_switch_off(self):
         SystemEmailSettings.objects.create(emails_enabled=False)

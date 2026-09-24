@@ -136,13 +136,13 @@ const filtered = computed(() => {
 }
 
 .email-type-list__item:hover {
-  border-color: #bfdbfe;
-  background: #f8fafc;
+  border-color: rgba(1, 113, 81, 0.4);
+  background: rgba(1, 113, 81, 0.06);
 }
 
 .email-type-list__item.is-selected {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--dark-green);
+  background: var(--accent-green-soft);
 }
 
 .email-type-list__copy {
@@ -163,7 +163,7 @@ const filtered = computed(() => {
 
 .email-type-list__lock {
   font-size: 0.6875rem;
-  color: #6b7280;
+  color: var(--eucalypt);
 }
 
 .email-type-list__description {

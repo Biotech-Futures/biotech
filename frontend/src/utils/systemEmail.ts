@@ -54,6 +54,7 @@ export const systemEmailTemplateSchema = z.object({
   defaultBody: z.string(),
   subject: z.string(),
   body: z.string(),
+  updatedBy: z.string().nullable(),
   updatedAt: z.string().nullable(),
   mergeTags: z.array(systemEmailMergeTagSchema)
 })

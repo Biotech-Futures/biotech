@@ -9,6 +9,7 @@ file, so nothing changes for recipients until an admin edits something.
 
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
 from django.test import TestCase, override_settings
 from rest_framework import status
@@ -68,16 +69,34 @@ class SystemEmailAdminServiceTests(TestCase):
 
     def test_get_reflects_saved_state(self):
         SystemEmailTemplate.objects.create(
-            key="password_reset",
+            key="announcement",
             subject="Reset now",
             body_html="<p>Hi</p>",
             is_enabled=False,
         )
-        result = get_email_template("password_reset")
+        result = get_email_template("announcement")
         self.assertEqual(result["data"]["subject"], "Reset now")
         self.assertEqual(result["data"]["body"], "<p>Hi</p>")
         self.assertFalse(result["data"]["enabled"])
         self.assertTrue(result["data"]["usingSavedContent"])
+
+    def test_templates_report_who_last_edited_them_and_when(self):
+        result = update_email_template(
+            "announcement",
+            {"subject": "Poster session", "body": "<p>Coming up</p>"},
+            requested_by=self.admin,
+        )
+        self.assertEqual(result["data"]["updatedBy"], "Ada Admin")
+        self.assertIsNotNone(result["data"]["updatedAt"])
+
+        listed = get_email_template("announcement")
+        self.assertEqual(listed["data"]["updatedBy"], "Ada Admin")
+        self.assertEqual(listed["data"]["updatedAt"], result["data"]["updatedAt"])
+
+    def test_unedited_templates_have_no_last_editor(self):
+        result = get_email_template("announcement")
+        self.assertIsNone(result["data"]["updatedBy"])
+        self.assertIsNone(result["data"]["updatedAt"])
 
     # -- update ------------------------------------------------------------
 
@@ -185,33 +204,42 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIsNone(result["data"])
         self.assertIn("nope", result["msg"])
 
-    def test_update_refuses_to_switch_off_locked_type(self):
-        result = update_email_template(
-            "login_code", {"enabled": False}, requested_by=self.admin
-        )
-        self.assertIsNone(result["data"])
-        self.assertIn("cannot be switched off", result["msg"])
-        self.assertFalse(SystemEmailTemplate.objects.filter(key="login_code").exists())
+    def test_update_refuses_to_switch_off_all_locked_types(self):
+        for key in ("login_code", "password_reset", "password_changed"):
+            result = update_email_template(
+                key, {"enabled": False}, requested_by=self.admin
+            )
+            self.assertIsNone(result["data"], key)
+            self.assertIn("cannot be switched off", result["msg"])
+            self.assertFalse(
+                SystemEmailTemplate.objects.filter(key=key).exists(), key
+            )
 
-    def test_locked_type_can_still_be_edited(self):
+    def test_locked_type_can_be_edited_but_not_switched_off(self):
         result = update_email_template(
-            "login_code",
-            {"subject": "Sign in to {{ brand_name }}", "body": "<p>Code {{ otp_code }}</p>"},
+            "password_reset",
+            {"subject": "Reset {{ brand_name }}", "body": "<p>Link {{ reset_link }}</p>"},
             requested_by=self.admin,
         )
         self.assertIsNotNone(result["data"])
         self.assertTrue(result["data"]["enabled"])
 
+        denied = update_email_template(
+            "password_reset", {"enabled": False}, requested_by=self.admin
+        )
+        self.assertIsNone(denied["data"])
+        self.assertIn("account security", denied["msg"])
+
     def test_toggle_does_not_disturb_wording(self):
         update_email_template(
-            "password_reset",
+            "announcement",
             {"subject": "Keep me", "body": "<p>Keep</p>"},
             requested_by=self.admin,
         )
         update_email_template(
-            "password_reset", {"enabled": False}, requested_by=self.admin
+            "announcement", {"enabled": False}, requested_by=self.admin
         )
-        row = SystemEmailTemplate.objects.get(key="password_reset")
+        row = SystemEmailTemplate.objects.get(key="announcement")
         self.assertEqual(row.subject, "Keep me")
         self.assertEqual(row.body_html, "<p>Keep</p>")
         self.assertFalse(row.is_enabled)
@@ -234,14 +262,14 @@ class SystemEmailAdminServiceTests(TestCase):
 
     def test_restore_clears_wording_but_keeps_disabled_state(self):
         update_email_template(
-            "password_reset",
+            "announcement",
             {"subject": "Old", "body": "<p>Old</p>", "enabled": False},
             requested_by=self.admin,
         )
-        result = restore_email_template("password_reset", requested_by=self.admin)
+        result = restore_email_template("announcement", requested_by=self.admin)
         self.assertFalse(result["data"]["usingSavedContent"])
         self.assertFalse(result["data"]["enabled"])
-        row = SystemEmailTemplate.objects.get(key="password_reset")
+        row = SystemEmailTemplate.objects.get(key="announcement")
         self.assertEqual(row.subject, "")
         self.assertEqual(row.body_html, "")
 
@@ -334,9 +362,9 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
 
     def test_test_send_works_even_when_type_is_disabled(self):
-        SystemEmailTemplate.objects.create(key="password_reset", is_enabled=False)
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
         mail.outbox = []
-        result = send_test_email("password_reset", requested_by=self.admin)
+        result = send_test_email("announcement", requested_by=self.admin)
         self.assertIsNotNone(result["data"])
         self.assertEqual(len(mail.outbox), 1)
 
@@ -347,6 +375,35 @@ class SystemEmailAdminServiceTests(TestCase):
             build.return_value.send.side_effect = Exception("smtp down")
             result = send_test_email("password_reset", requested_by=self.admin)
         self.assertIsNone(result["data"])
+
+    def test_test_send_goes_only_to_the_admin_and_fills_every_tag_with_samples(self):
+        # Even tags the admin has no personal value for (reset_link,
+        # expiry_minutes) are replaced with the registry's synthetic samples, so
+        # a test email never carries a literal {{ tag }} to the inbox.
+        mail.outbox = []
+        result = send_test_email(
+            "password_reset",
+            requested_by=self.admin,
+            subject="For {{ first_name }}: {{ brand_name }}",
+            body="<p>Hi {{ first_name }}, reset via {{ reset_link }} in "
+            + "{{ expiry_minutes }} min.</p>",
+        )
+        self.assertEqual(result["data"]["sentTo"], self.admin.email)
+
+        (message,) = mail.outbox
+        self.assertEqual(message.to, [self.admin.email])
+        self.assertEqual(message.subject, f"For Alex: {settings.BRAND_NAME}")
+        html = next(
+            body for body, mimetype in message.alternatives if mimetype == "text/html"
+        )
+        self.assertIn("<p>Hi Alex, reset via", html)
+        self.assertIn(
+            "https://biotechfutures.org/#/auth/reset-password?token=abc", html
+        )
+
+        combined = message.subject + message.body + html
+        self.assertNotIn("{{", combined)
+        self.assertNotIn("}}", combined)
 
     # -- settings ----------------------------------------------------------
 

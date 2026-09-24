@@ -85,6 +85,7 @@ EMAIL_TYPES = (
         description="Sent when a user asks to reset their password.",
         default_subject="{{ brand_name }}: Update your password",
         default_template="emails/password_reset.html",
+        locked=True,
         merge_tags=(
             _FIRST_NAME,
             MergeTag("reset_link", "Link to set a new password", "https://biotechfutures.org/#/auth/reset-password?token=abc", "RESET_PASSWORD_LINK"),
@@ -98,6 +99,7 @@ EMAIL_TYPES = (
         description="Sent after a user's password is successfully changed.",
         default_subject="{{ brand_name }}: Your password was changed",
         default_template="emails/password_changed.html",
+        locked=True,
         merge_tags=(
             _FIRST_NAME,
             MergeTag("changed_at", "When the password was changed (UTC)", "18 Sep 2026, 10:30", "CHANGED_AT"),

@@ -12,6 +12,10 @@
           ></i>
         </h2>
         <p class="email-editor__description">{{ emailTemplate.description }}</p>
+        <p v-if="lastEditedLabel()" class="email-editor__last-edited">
+          <i class="fas fa-user-pen" aria-hidden="true"></i>
+          {{ lastEditedLabel() }}
+        </p>
       </div>
 
       <label class="email-editor__switch">
@@ -35,7 +39,7 @@
 
     <p v-if="emailTemplate.locked" class="email-editor__note">
       <i class="fas fa-shield-halved" aria-hidden="true"></i>
-      Account sign-in would break if this email were paused, so it always sends.
+      {{ lockReason() }}
     </p>
 
     <p
@@ -130,6 +134,32 @@ const props = defineProps<{
   testing: boolean
   restoring: boolean
 }>()
+
+const lockReason = () => {
+  if (!props.emailTemplate.locked) return ''
+  switch (props.emailTemplate.key) {
+    case 'login_code':
+      return 'Account sign-in would break if this email were paused, so it always sends.'
+    case 'password_reset':
+    case 'password_changed':
+      return 'Account security depends on this email reaching users, so it always sends.'
+    default:
+      return 'This email is required by the platform, so it always sends.'
+  }
+}
+
+const lastEditedLabel = () => {
+  const { updatedBy, updatedAt } = props.emailTemplate
+  if (!updatedBy || !updatedAt) return ''
+  const when = new Date(updatedAt).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+  return `Last edited by ${updatedBy} \u00b7 ${when}`
+}
 
 const emit = defineEmits<{
   (e: 'update:subject', value: string): void
@@ -239,7 +269,7 @@ const insertIntoSubject = (token: string) => {
 }
 
 .email-editor__switch input:checked + .email-editor__switch-track {
-  background: #2563eb;
+  background: var(--dark-green);
 }
 
 .email-editor__switch-knob {
@@ -264,6 +294,15 @@ const insertIntoSubject = (token: string) => {
   min-width: 3.5rem;
 }
 
+.email-editor__last-edited {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
 .email-editor__note {
   display: flex;
   align-items: center;
@@ -271,9 +310,9 @@ const insertIntoSubject = (token: string) => {
   margin: 0;
   padding: 0.5rem 0.75rem;
   border-radius: 0.375rem;
-  background: #eff6ff;
+  background: var(--accent-green-soft);
   font-size: 0.75rem;
-  color: #1e40af;
+  color: var(--dark-green);
 }
 
 .email-editor__note--muted {
@@ -306,7 +345,8 @@ const insertIntoSubject = (token: string) => {
 
 .email-editor__subject:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .email-editor__actions {

@@ -31,8 +31,8 @@
     <p v-if="!emailsEnabled && !loading" class="admin-emails__banner" role="status">
       <i class="fas fa-circle-pause" aria-hidden="true"></i>
       <span>
-        All system emails are paused, except sign-in emails, which always send. Turn the switch
-        back on to resume them.
+        All system emails are paused, except sign-in, password reset and password change emails,
+        which always send. Turn the switch back on to resume them.
       </span>
     </p>
 
@@ -174,7 +174,7 @@ onMounted(async () => {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #111827;
+  color: var(--charcoal);
 }
 
 .admin-emails__subtitle {
@@ -207,7 +207,7 @@ onMounted(async () => {
 }
 
 .admin-emails__global input:checked + .admin-emails__global-track {
-  background: #2563eb;
+  background: var(--dark-green);
 }
 
 .admin-emails__global-knob {

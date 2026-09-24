@@ -46,6 +46,7 @@ const buildTemplate = (overrides: Partial<SystemEmailTemplate> = {}): SystemEmai
   defaultBody: '<p>Hi Alex, reset your password.</p>',
   subject: '',
   body: '',
+  updatedBy: null,
   updatedAt: null,
   mergeTags: [
     { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
@@ -105,6 +106,27 @@ describe('AdminEmailsPage', () => {
     const wrapper = await mountPage()
     const subject = wrapper.find('#email-subject')
     expect((subject.element as HTMLInputElement).value).toBe('Reset your password')
+  })
+
+  it('shows who last edited an email and a key-aware lock reason', async () => {
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+      buildTemplate({
+        locked: true,
+        usingSavedContent: true,
+        updatedBy: 'Ada Admin',
+        updatedAt: '2026-09-18T10:30:00Z'
+      })
+    ])
+    const wrapper = await mountPage()
+    const text = wrapper.text()
+    expect(text).toContain('Last edited by Ada Admin')
+    expect(text).toContain('Account security depends on this email')
+
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+      buildTemplate({ key: 'login_code', name: 'Login code', locked: true })
+    ])
+    const loginWrapper = await mountPage()
+    expect(loginWrapper.text()).toContain('Account sign-in would break')
   })
 
   it('saves edited wording through the editor', async () => {

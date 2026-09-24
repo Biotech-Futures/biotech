@@ -52,6 +52,12 @@ logger = logging.getLogger(__name__)
 SUBJECT_MAX_LENGTH = 255
 
 
+def _editor_name(user) -> str:
+    """A display name for the person who last changed a template/setting."""
+    full_name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    return full_name or user.email
+
+
 def _default_body(email_type) -> str:
     """The email's built-in wording for the editor to pre-fill, or '' if unavailable.
 
@@ -107,6 +113,7 @@ def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
         "defaultBody": _default_body(email_type),
         "subject": row.subject if row is not None else "",
         "body": row.body_html if row is not None else "",
+        "updatedBy": _editor_name(row.updated_by) if row is not None and row.updated_by else None,
         "updatedAt": row.updated_at.isoformat() if row is not None and row.updated_at else None,
         "mergeTags": [
             {
@@ -241,8 +248,9 @@ def update_email_template(
     email_type = get_email_type(key)
 
     if fields.get("enabled") is False and email_type.locked:
+        reason = "signing in" if email_type.key == "login_code" else "account security"
         return {
-            "msg": f"The '{email_type.name}' email is required for signing in "
+            "msg": f"The '{email_type.name}' email is required for {reason} "
             + "and cannot be switched off.",
             "data": None,
         }

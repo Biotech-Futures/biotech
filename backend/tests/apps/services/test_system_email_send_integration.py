@@ -1,36 +1,25 @@
 """Integration tests: real senders consume admin-configured system-emails.
 
-These tests are currently FAILING.
-They pin the end-to-end contract: a sender such as
-``send_login_code`` or ``send_password_reset`` must honour the wording and the
-on/off switches that the admin editor saves, via the shared send helpers in
-``apps/services.system_email``.
+These pin the end-to-end contract: a sender such as ``send_login_code`` or
+``notify_waitlist_promoted`` must honour the wording and the on/off switches
+that the admin editor saves, via the shared send helpers in
+``apps/services.system_email``. The senders are now wired through
+``render_system_email`` / ``is_email_enabled``, so these are green (and must
+stay green) — do NOT mark them ``@unittest.expectedFailure``.
 
-Right now the senders still build their own messages and ignore the saved
-registry state, so every test here (except the locked-login guard at the end)
-fails until the send points are rewired to go through ``render_system_email`` /
-``is_email_enabled``:
+Note the three *account-security* types (``login_code``, ``password_reset``,
+``password_changed``) are locked: an admin cannot switch them off, and these
+tests pin that they keep sending even when the global switch is off or their
+own row says disabled. Toggle tests therefore use an unlocked type
+(``event_promotion``) as the sender under test.
 
-* ``apps/services/auth_service.send_login_code``          -> login_code
-* ``apps/services/auth_service.send_password_reset``      -> password_reset
-* ``apps/services/auth_service`` password-changed notify  -> password_changed
-* ``apps/submissions/emails.py``                          -> submission_confirmation / reminder
-* ``apps/events/services.py``                             -> event_promotion / rsvp_reminder
-* ``apps/admin/services/announcement.py``                 -> announcement
-* the chat digest                                         -> unread_messages
-* the grading finalist notify                             -> finalist_notification
-
-Once the senders are wired up, run this module with::
+Run with::
 
     python manage.py test tests.apps.services.test_system_email_send_integration \
         --settings=config.settings_test
-
-and it should go fully green.
-
-Warning: do NOT mark these ``@unittest.expectedFailure``. They must visibly fail
-while the wiring is missing, so the red status is the signal that the work is
-incomplete.
 """
+
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.core import mail
@@ -40,6 +29,8 @@ from apps.admin.services.system_email import (
     update_email_settings,
     update_email_template,
 )
+from apps.events.models import Events
+from apps.events.promotion_email import notify_waitlist_promoted
 from apps.services.auth_service import send_login_code, send_password_reset
 from apps.users.models import User
 
@@ -59,6 +50,16 @@ def _active_user(email="ada@example.com", first_name="Ada"):
         first_name=first_name,
         last_name="Lovelace",
         account_status=User.AccountStatus.ACTIVE,
+    )
+
+
+def _event():
+    start = datetime.now(dt_timezone.utc) + timedelta(days=1)
+    return Events.objects.create(
+        event_name="BIOTech Symposium",
+        start_datetime=start,
+        ends_datetime=start + timedelta(hours=2),
+        event_format="in_person",
     )
 
 
@@ -113,37 +114,46 @@ class SenderConsumesSavedWordingTests(TestCase):
 
 @override_settings(EMAIL_BACKEND=LOCMEM, AUTH_EMAIL_DISPATCH_SYNC=True)
 class SenderHonoursTogglesTests(TestCase):
-    """The per-type and global switches an admin flips must gate real sends."""
+    """The per-type and global switches an admin flips must gate real sends.
+
+    Uses the unlocked ``event_promotion`` sender: the account-security types
+    are locked and must keep sending (covered below).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="promoted@example.com", password="pw"
+        )
 
     def test_per_type_switch_off_suppresses_the_sender(self):
         owner = _owner()
-        update_email_template("password_reset", {"enabled": False}, requested_by=owner)
-        user = _active_user()
+        event = _event()
+        update_email_template("event_promotion", {"enabled": False}, requested_by=owner)
         mail.outbox = []
 
-        send_password_reset(user.email)
+        notify_waitlist_promoted(event_id=event.id, user_id=self.user.id)
 
         self.assertEqual(mail.outbox, [])
 
     def test_global_switch_off_suppresses_unlocked_sender_emails(self):
         owner = _owner()
+        event = _event()
         update_email_settings(False, requested_by=owner)
-        user = _active_user()
         mail.outbox = []
 
-        send_password_reset(user.email)
+        notify_waitlist_promoted(event_id=event.id, user_id=self.user.id)
 
         self.assertEqual(mail.outbox, [])
 
-    def test_global_switch_off_never_blocks_the_locked_login_code(self):
-        # This guard already passes: the login flow is locked by design. It
-        # stays green after the rewiring because the shared toggle path knows
-        # that locked types always send.
+    def test_global_switch_off_never_blocks_locked_account_security_emails(self):
+        # Sign-in, password reset and password change must always be able to
+        # reach the user; the shared toggle path knows they are locked.
         owner = _owner()
         update_email_settings(False, requested_by=owner)
         user = _active_user()
         mail.outbox = []
 
         self.assertTrue(send_login_code(user.email))
+        send_password_reset(user.email)
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)

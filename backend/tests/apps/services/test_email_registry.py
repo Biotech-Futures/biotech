@@ -38,9 +38,9 @@ class RegistryShapeTests(SimpleTestCase):
         for key, email_type in EMAIL_REGISTRY.items():
             self.assertEqual(email_type.key, key)
 
-    def test_only_login_code_is_locked(self):
+    def test_account_security_and_signin_emails_are_locked(self):
         locked = {t.key for t in EMAIL_TYPES if t.locked}
-        self.assertEqual(locked, {"login_code"})
+        self.assertEqual(locked, {"login_code", "password_reset", "password_changed"})
 
     def test_every_type_has_name_description_subject_and_template(self):
         for email_type in EMAIL_TYPES:

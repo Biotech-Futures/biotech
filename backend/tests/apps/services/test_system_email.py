@@ -42,27 +42,32 @@ class ToggleTests(TestCase):
         self.assertFalse(SystemEmailSettings.objects.exists())
 
     def test_type_switched_off(self):
-        SystemEmailTemplate.objects.create(key="password_reset", is_enabled=False)
-        self.assertFalse(is_email_enabled("password_reset"))
-        self.assertTrue(is_email_enabled("password_changed"))
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
+        self.assertFalse(is_email_enabled("announcement"))
+        self.assertTrue(is_email_enabled("submission_reminder"))
 
     def test_global_switch_off_disables_unlocked_types(self):
         disable_globally()
-        self.assertFalse(is_email_enabled("password_reset"))
         self.assertFalse(is_email_enabled("announcement"))
+        self.assertFalse(is_email_enabled("submission_reminder"))
 
-    def test_locked_type_ignores_the_global_switch(self):
+    def test_locked_types_ignore_the_global_switch(self):
         disable_globally()
-        self.assertTrue(is_email_enabled("login_code"))
+        for key in ("login_code", "password_reset", "password_changed"):
+            with self.subTest(key=key):
+                self.assertTrue(is_email_enabled(key))
 
-    def test_locked_type_ignores_its_own_switch(self):
-        SystemEmailTemplate.objects.create(key="login_code", is_enabled=False)
-        self.assertTrue(is_email_enabled("login_code"))
+    def test_locked_types_ignore_their_own_switch(self):
+        for key in ("login_code", "password_reset", "password_changed"):
+            SystemEmailTemplate.objects.create(key=key, is_enabled=False)
+        for key in ("login_code", "password_reset", "password_changed"):
+            with self.subTest(key=key):
+                self.assertTrue(is_email_enabled(key))
 
     def test_database_error_fails_open(self):
         with mock.patch.object(SystemEmailTemplate.objects, "filter", side_effect=DatabaseError), \
                 self.assertLogs("apps.services.system_email", level="ERROR") as logs:
-            self.assertTrue(is_email_enabled("password_reset"))
+            self.assertTrue(is_email_enabled("announcement"))
         self.assertIn("toggle_check_failed", logs.output[0])
 
     def test_unknown_type_raises(self):
@@ -205,9 +210,9 @@ class SendTests(TestCase):
         self.assertEqual(message.mixed_subtype, "related")
 
     def test_skips_when_switched_off(self):
-        SystemEmailTemplate.objects.create(key="password_reset", is_enabled=False)
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
         with self.assertLogs("apps.services.system_email", level="INFO"):
-            result = send_system_email("password_reset", "alex@example.test", RESET_CONTEXT)
+            result = send_system_email("announcement", "alex@example.test", {})
         self.assertEqual(result, SKIPPED)
         self.assertEqual(mail.outbox, [])
 

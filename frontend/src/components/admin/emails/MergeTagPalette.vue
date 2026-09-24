@@ -44,17 +44,17 @@ const tagTitle = (tag: SystemEmailMergeTag) =>
 
 .merge-tags__tag {
   padding: 0.25rem 0.5rem;
-  border: 1px solid #c7d2fe;
+  border: 1px solid rgba(1, 113, 81, 0.35);
   border-radius: 0.375rem;
-  background: #eef2ff;
-  color: #3730a3;
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .merge-tags__tag:hover {
-  background: #e0e7ff;
-  border-color: #818cf8;
+  background: rgba(1, 113, 81, 0.18);
+  border-color: var(--dark-green);
 }
 
 .merge-tags__tag code {
