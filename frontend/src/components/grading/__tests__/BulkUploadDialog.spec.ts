@@ -10,21 +10,21 @@ const uploadMock = vi.mocked(bulkUploadMarks)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
-  expected_type: 'SAQs',
-  found_type: 'SAQs',
-  type_ok: true,
   bad_group_rows: [],
   bad_marks: [],
   ...over
 })
 
-const rowEntry = (row: number, groupId: number) => ({
+const rowEntry = (row: number, groupId: number, columns = ['mark'], criteriaNo = 1) => ({
   row,
   group_id: groupId,
   criterion_id: 1,
+  criteria_no: criteriaNo,
   submission_id: 1,
   mark: '5.00',
-  comment: ''
+  comment: '',
+  group_name: `BTF-${groupId}`,
+  columns
 })
 
 const response = (over: Partial<BulkUploadResponse> = {}): BulkUploadResponse => ({
@@ -52,18 +52,16 @@ const openDialog = async (wrapper: Wrapper) => {
   await buttonNamed(wrapper, /^Upload marks$/).trigger('click')
 }
 
-const pickFile = async (wrapper: Wrapper, name = 'marks.csv') => {
+// Picking a file previews it automatically, so the preview response (when
+// given) is queued before the change event fires.
+const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'marks.csv') => {
+  if (body) uploadMock.mockResolvedValueOnce(body)
   const input = wrapper.find('input[type="file"]')
   Object.defineProperty(input.element, 'files', {
     value: [new File(['group_id,type\n'], name, { type: 'text/csv' })],
     configurable: true
   })
   await input.trigger('change')
-}
-
-const runPreview = async (wrapper: Wrapper, body: BulkUploadResponse) => {
-  uploadMock.mockResolvedValueOnce(body)
-  await buttonNamed(wrapper, /Preview/).trigger('click')
   await flushPromises()
 }
 
@@ -96,7 +94,7 @@ describe('opening the dialog', () => {
   it('reopens clean after closing, with the previous file forgotten', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
+    await pickFile(wrapper, response())
     expect(wrapper.text()).toContain('marks.csv')
 
     await buttonNamed(wrapper, /^×$/).trigger('click')
@@ -105,43 +103,72 @@ describe('opening the dialog', () => {
   })
 })
 
-describe('the two-step flow', () => {
-  it('offers Preview only once a file is chosen, and Apply only after a preview', async () => {
+describe('the pick → auto-preview → apply flow', () => {
+  it('disables Apply until a file has been previewed', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    expect(buttonNamed(wrapper, /Preview/).attributes('disabled')).toBeDefined()
-    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
-
-    await pickFile(wrapper)
-    expect(buttonNamed(wrapper, /Preview/).attributes('disabled')).toBeUndefined()
     expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
   })
 
-  it('previews as a dry run, never a write', async () => {
+  it('shows a Previewing… hint while the dry run is in flight', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    let resolvePreview!: (body: BulkUploadResponse) => void
+    uploadMock.mockImplementationOnce(() => new Promise((resolve) => (resolvePreview = resolve)))
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['group_id,type\n'], 'marks.csv', { type: 'text/csv' })],
+      configurable: true
+    })
+    await input.trigger('change')
+    expect(wrapper.text()).toContain('Previewing…')
+
+    resolvePreview(response())
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Previewing…')
+  })
+
+  it('previews automatically on pick — one dry run, never a write', async () => {
     const wrapper = mountDialog('SAQ')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response())
+    await pickFile(wrapper, response())
+    expect(uploadMock).toHaveBeenCalledTimes(1)
     expect(uploadMock).toHaveBeenCalledWith('SAQ', expect.any(File), true)
+    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeUndefined()
   })
 
-  it('choosing a different file discards the stale preview', async () => {
+  it('choosing a different file re-previews it, replacing the stale report', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 3, updates: 0, unchanged: 0, errors: 0 } }))
-    expect(wrapper.text()).toContain('Writing New Records')
+    await pickFile(
+      wrapper,
+      response({
+        creates: [rowEntry(4, 9), rowEntry(5, 10), rowEntry(6, 11)],
+        summary: { creates: 3, updates: 0, unchanged: 0, errors: 0 }
+      })
+    )
+    expect(wrapper.text()).toContain('Writing New Records: 3')
 
-    await pickFile(wrapper, 'other.csv')
-    expect(wrapper.text()).not.toContain('Writing New Records')
+    await pickFile(
+      wrapper,
+      response({
+        errors: [{ row: 2, message: 'non-numeric mark' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      }),
+      'other.csv'
+    )
+    expect(wrapper.text()).toContain('other.csv')
+    expect(wrapper.text()).not.toContain('Writing New Records: 3')
     expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
   })
 
   it('applies with a real write and reports how much was written', async () => {
     const wrapper = mountDialog('SAQ')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 2, updates: 0, unchanged: 0, errors: 0 } }))
+    await pickFile(
+      wrapper,
+      response({ summary: { creates: 2, updates: 0, unchanged: 0, errors: 0 } })
+    )
 
     uploadMock.mockResolvedValueOnce(response({ applied: true, written: 3 }))
     await buttonNamed(wrapper, /Apply/).trigger('click')
@@ -154,81 +181,123 @@ describe('the two-step flow', () => {
 })
 
 describe('the preview report', () => {
-  it('shows None for every check on a clean sheet, plus both record counts', async () => {
+  it('shows None for every check on a clean sheet, plus group-based record counts', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
+        // Group 7 overwrites; groups 9 and 10 are new (group 9 spans two
+        // criteria rows yet still counts once — groups, not rows).
+        creates: [rowEntry(4, 9, ['mark'], 1), rowEntry(5, 9, ['mark'], 2), rowEntry(6, 10)],
         updates: [rowEntry(2, 7)],
-        summary: { creates: 4, updates: 1, unchanged: 0, errors: 0 }
+        summary: { creates: 3, updates: 1, unchanged: 0, errors: 0 }
       })
     )
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): None')
-    expect(text).toContain('Type: SAQs')
     expect(text).toContain('Incorrect group details: None')
     expect(text).toContain('Incorrect mark format: None')
     expect(text).toContain('Overwriting Existing Records: 1')
-    expect(text).toContain('Writing New Records: 4')
+    expect(text).toContain('Writing New Records: 2')
   })
 
-  it('names each overwritten sheet row with its group, once, in order', async () => {
+  it('an untouched re-upload reports zero records of both kinds', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        // Two criteria on row 2 → one listing; rows arrive unsorted.
-        updates: [rowEntry(3, 4), rowEntry(2, 7), rowEntry(2, 7)],
+        unchanged: [rowEntry(2, 7), rowEntry(3, 8)],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 0')
+  })
+
+  it('a category-only change counts as writing a new record', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        marking_categories: [
+          {
+            row: 2,
+            group_id: 7,
+            product_categories: ['Health'],
+            product_category_other: '',
+            solution_category: 'Treatment',
+            solution_category_other: ''
+          }
+        ],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 1')
+  })
+
+  it('counts overwritten groups and folds their cells into one listing each', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites cells on two criteria -> one listing; the
+        // count says 2 because two groups are touched.
+        updates: [
+          rowEntry(4, 7, ['mark'], 3),
+          rowEntry(5, 7, ['mark', 'comment'], 4),
+          rowEntry(8, 9, ['mark'], 1)
+        ],
         summary: { creates: 0, updates: 3, unchanged: 0, errors: 0 }
       })
     )
-    expect(wrapper.text()).toContain('(row 2 [group_id 7], row 3 [group_id 4])')
+    expect(wrapper.text()).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [3_mark, 4_mark, 4_comment], BTF-9 [1_mark])'
+    )
   })
 
   it('a missing header stops the report there, hiding checks that never ran', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ missing_headers: ['r1_comment'], type_ok: false, found_type: null }),
-        errors: [{ row: 1, message: 'missing header r1_comment' }],
+        checks: cleanChecks({ missing_headers: ['criteria_no'] }),
+        errors: [{ row: 1, message: 'missing column header(s): criteria_no' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('Missing Column Header(s): r1_comment')
-    expect(text).not.toContain('Type:')
+    expect(text).toContain('Missing Column Header(s): criteria_no')
     expect(text).not.toContain('Incorrect group details')
   })
 
-  it('a wrong type names both what it found and what it expected', async () => {
-    const wrapper = mountDialog()
+  it('wide-shape sheets (non SAQ) keep the Type check line', async () => {
+    const wrapper = mountDialog('POSTER')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ type_ok: false, found_type: 'SAQ' }),
+        checks: cleanChecks({ expected_type: 'Poster', found_type: 'SAQs', type_ok: false }),
         errors: [{ row: 2, message: 'wrong type' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('SAQ (should be SAQs)')
+    expect(text).toContain('SAQs (should be Poster)')
     expect(text).not.toContain('Incorrect group details')
   })
 
   it('bad group rows are named with their reason and hide the mark check', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
         checks: cleanChecks({ bad_group_rows: [{ row: 2, reason: 'name should be BTF-1' }] }),
@@ -244,8 +313,7 @@ describe('the preview report', () => {
   it('any error keeps Apply disabled, so a broken sheet cannot be committed', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
         errors: [{ row: 2, message: 'non-numeric mark' }],
@@ -257,22 +325,34 @@ describe('the preview report', () => {
 })
 
 describe('request failures', () => {
-  it('a failed preview is reported in the dialog, which stays open', async () => {
+  it('a failed auto-preview is reported in the dialog, which stays open', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
     uploadMock.mockRejectedValueOnce(new Error('server unavailable'))
-    await buttonNamed(wrapper, /Preview/).trigger('click')
-    await flushPromises()
+    await pickFile(wrapper)
     expect(wrapper.text()).toContain('Preview failed:')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+  })
+
+  it('re-picking a file after a failure previews again', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    uploadMock.mockRejectedValueOnce(new Error('server unavailable'))
+    await pickFile(wrapper)
+    expect(wrapper.text()).toContain('Preview failed:')
+
+    await pickFile(wrapper, response())
+    expect(wrapper.text()).not.toContain('Preview failed:')
+    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeUndefined()
   })
 
   it('a failed apply keeps the dialog open with the preview intact', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 1, updates: 0, unchanged: 0, errors: 0 } }))
+    await pickFile(
+      wrapper,
+      response({ summary: { creates: 1, updates: 0, unchanged: 0, errors: 0 } })
+    )
 
     uploadMock.mockRejectedValueOnce(new Error('write refused'))
     await buttonNamed(wrapper, /Apply/).trigger('click')

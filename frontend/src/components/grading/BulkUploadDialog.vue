@@ -18,17 +18,37 @@
           </button>
         </div>
 
-        <p class="bulk-upload__desc">
-          XLSX or CSV in the export's shape (one row per group)<br />
-          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
-          Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
-          <code>overall_comment</code>
-        </p>
-        <p class="bulk-upload__desc">
-          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
-          Column headers must match exactly and extra columns are ignored, so you can fill in
-          the downloaded sheet and upload it back.
-        </p>
+        <template v-if="code === 'SAQ'">
+          <p class="bulk-upload__desc">
+            .xlsx or .csv in the export's shape (one row per criterion)
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers are:<br />
+            <code>group_id</code>, <code>group_name</code>,<br />
+            Then <code>criteria_no</code>, <code>mark</code>, <code>comment</code>,<br />
+            Then <code>overall_comment</code>
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers must match exactly.<br />
+            Entering <code>group_id</code> in a row makes it the group's first row.<br />
+            Criteria number must be listed one after another (vertically). [<code>mark</code>
+            and <code>comment</code> to be assigned to each criteria]<br />
+            Extra columns and rows are ignored.
+          </p>
+        </template>
+        <template v-else>
+          <p class="bulk-upload__desc">
+            .xlsx or .csv in the export's shape (one row per group)<br />
+            <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
+            <code>overall_comment</code>
+          </p>
+          <p class="bulk-upload__desc">
+            Column headers must match exactly.<br />
+            Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+            Extra columns and rows are ignored.
+          </p>
+        </template>
 
         <div class="bulk-upload__file-row">
           <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
@@ -45,6 +65,7 @@
         />
 
         <p v-if="requestError" class="bulk-upload__request-error">{{ requestError }}</p>
+        <p v-if="busy === 'preview'" class="bulk-upload__desc">Previewing…</p>
 
         <div v-if="preview" class="bulk-upload__preview">
           <ul v-if="preview.checks" class="bulk-upload__checks">
@@ -57,37 +78,46 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
-              <li>
+              <!-- Wide-shape sheets only — SAQ's shape has no type column. -->
+              <li v-if="preview.checks.type_ok !== undefined">
                 Type:
                 <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
               </li>
               <!-- Rows failing an earlier check skip the later validations,
                    so hide those lines rather than show a misleading None. -->
-              <template v-if="preview.checks.type_ok">
+              <template v-if="preview.checks.type_ok !== false">
+              <li>
+                Incorrect group details:
+                <span :class="checkClass(!preview.checks.bad_group_rows.length)">
+                  {{ checkGroupText }}
+                </span>
+              </li>
+              <li v-if="!preview.checks.bad_group_rows.length">
+                Incorrect mark format:
+                <span :class="checkClass(!preview.checks.bad_marks.length)">
+                  {{ checkMarkText }}
+                </span>
+              </li>
+              <template
+                v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
+              >
+                <li class="bulk-upload__check-gap">
+                  Overwriting Existing Records:
+                  <!-- Amber only when something is actually overwritten;
+                       a harmless 0 gets the checks' ok green. -->
+                  <strong
+                    :class="
+                      overwriteGroupCount > 0
+                        ? 'bulk-upload__count--overwrite'
+                        : 'bulk-upload__check--ok'
+                    "
+                    >{{ overwriteGroupCount }}</strong
+                  >{{ groupsSuffix(preview.updates) }}
+                </li>
                 <li>
-                  Incorrect group details:
-                  <span :class="checkClass(!preview.checks.bad_group_rows.length)">
-                    {{ checkGroupText }}
-                  </span>
+                  Writing New Records: <strong>{{ newGroupCount }}</strong>
                 </li>
-                <li v-if="!preview.checks.bad_group_rows.length">
-                  Incorrect mark format:
-                  <span :class="checkClass(!preview.checks.bad_marks.length)">
-                    {{ checkMarkText }}
-                  </span>
-                </li>
-                <template
-                  v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
-                >
-                  <li class="bulk-upload__check-gap">
-                    Overwriting Existing Records:
-                    <strong>{{ preview.summary.updates }}</strong
-                    >{{ rowsWithGroupsSuffix(preview.updates) }}
-                  </li>
-                  <li>
-                    Writing New Records: <strong>{{ preview.summary.creates }}</strong>
-                  </li>
-                </template>
+              </template>
               </template>
             </template>
           </ul>
@@ -95,14 +125,6 @@
         </div>
 
         <div class="bulk-upload__footer">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="!file || busy !== 'idle'"
-            @click="doPreview"
-          >
-            {{ busy === 'preview' ? 'Previewing…' : 'Preview' }}
-          </button>
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -126,11 +148,13 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
-// Two-step flow:
-//   1. Pick a file → dry_run=true → diff summary + errors table.
+// Flow:
+//   1. Pick a file → previews automatically (dry_run=true) → diff summary +
+//      errors table. Re-previewing (e.g. after a failed request) = picking
+//      the file again; onFileChange keeps that possible for the same file.
 //   2. If no errors, "Apply" → dry_run=false → emit + close.
 // Single dialog rather than a wizard: fewer clicks, admin can swap the file
-// and re-preview in place. The backend re-parses on apply so the committed
+// and it re-previews in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
 const props = defineProps<{ code: string }>()
 
@@ -165,7 +189,7 @@ const checkHeaderText = computed(() => {
 
 const checkTypeText = computed(() => {
   const c = preview.value?.checks
-  if (!c) return ''
+  if (!c || c.type_ok === undefined) return ''
   return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
 })
 
@@ -183,14 +207,45 @@ const checkMarkText = computed(() => {
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
 
-// "(row 2 [group_id 1], row 3 [group_id 4])" — distinct sheet rows, sorted,
-// each with its group. Used for the overwrite count.
-const rowsWithGroupsSuffix = (entries: BulkUploadRowEntry[]) => {
+// Group-level counts — a "record" is one group's marks: a group touching
+// any existing grade is an overwrite, and the rest of the recognized
+// groups are written as new.
+const overwriteGroupCount = computed(() =>
+  preview.value ? new Set(preview.value.updates.map((e) => e.group_id)).size : 0
+)
+const newGroupCount = computed(() => {
+  if (!preview.value) return 0
+  // Groups that actually write something new — created grades or changed
+  // marking-key categories. Unchanged groups write nothing, so an
+  // untouched re-upload reports 0 of both kinds; a group already counted
+  // as overwriting is not double counted here.
+  const overwriting = new Set(preview.value.updates.map((e) => e.group_id))
+  return new Set(
+    [
+      ...preview.value.creates.map((e) => e.group_id),
+      ...(preview.value.marking_categories ?? []).map((e) => e.group_id)
+    ].filter((id) => !overwriting.has(id))
+  ).size
+})
+
+// "(BTF1 [3_mark, 3_comment, 4_mark], …)" — one listing per overwritten
+// group, in sheet order, naming each overwritten cell as
+// <criteria_no>_<column>. Sits beside the overwrite count.
+const groupsSuffix = (entries: BulkUploadRowEntry[]) => {
   if (!entries.length) return ''
-  const groupByRow = new Map<number, number>()
-  for (const e of entries) if (!groupByRow.has(e.row)) groupByRow.set(e.row, e.group_id)
-  const rows = [...groupByRow.keys()].sort((a, b) => a - b)
-  return ` (${rows.map((r) => `row ${r} [group_id ${groupByRow.get(r)}]`).join(', ')})`
+  const byGroup = new Map<number, { label: string; columns: string[] }>()
+  for (const e of entries) {
+    const info = byGroup.get(e.group_id) ?? {
+      label: e.group_name || `group_id ${e.group_id}`,
+      columns: []
+    }
+    const prefix = e.criteria_no != null ? `${e.criteria_no}_` : ''
+    info.columns.push(...(e.columns ?? []).map((c) => `${prefix}${c}`))
+    byGroup.set(e.group_id, info)
+  }
+  return ` (${[...byGroup.values()]
+    .map(({ label, columns }) => (columns.length ? `${label} [${columns.join(', ')}]` : label))
+    .join(', ')})`
 }
 
 const reset = () => {
@@ -216,8 +271,15 @@ const closeDialog = () => {
 
 const onFileChange = () => {
   file.value = fileInput.value?.files?.[0] ?? null
+  // Clear the native input now that the File is captured — browsers skip
+  // the change event when the same file is re-picked, and re-picking is
+  // the only way to retry a failed preview.
+  if (fileInput.value) fileInput.value.value = ''
   preview.value = null
   requestError.value = ''
+  // Preview immediately — the dry run gates Apply anyway, so make the
+  // admin's next click Apply, not Preview.
+  if (file.value) void doPreview()
 }
 
 const doPreview = async () => {
@@ -387,6 +449,11 @@ const doApply = async () => {
 .bulk-upload__check--bad {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* Overwrites are the risky half of an apply — flag the count in amber. */
+.bulk-upload__count--overwrite {
+  color: #eab308;
 }
 
 .bulk-upload__footer {

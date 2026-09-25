@@ -3,16 +3,72 @@ the job polling endpoint, and the SAQ XLSX export round-trip."""
 import io
 import zipfile
 from decimal import Decimal
+from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import Grade, GradingJob
+from apps.grading.models import Grade, GradingJob, GroupMarkingCategories
+from apps.grading.services import zip as zip_service
+from apps.grading.services.content import ComponentEntry
 
 from .fixtures import _GradingFixture
+
+
+class BuildSubmissionsZipTests(SimpleTestCase):
+    """Direct coverage of the zip builder's concurrent blob prefetch: with
+    far more entries than pool workers, the archive must still come out in
+    entry order with each entry's own bytes — byte-identical to what the old
+    sequential loop produced."""
+
+    @staticmethod
+    def _entry(i: int, *, file: dict | None = None, text: str = "", link: str = "") -> ComponentEntry:
+        return ComponentEntry(
+            submission_id=i, group_id=i, group_name=f"Group-{i:03d}",
+            component_id=2, component_code="POSTER",
+            submitted_at=None, is_late=False,
+            file=file, text=text, link=link,
+        )
+
+    def test_prefetch_preserves_order_content_and_missing_markers(self):
+        blobs = {f"key-{i}": f"payload-{i}".encode() for i in range(40)}
+        entries = []
+        for i in range(40):
+            entries.append(self._entry(i, file={"storage_key": f"key-{i}", "name": f"p{i}.pdf"}))
+            # Interleave file-less entries: they hold no pool slot and must
+            # not disturb the ordering around them.
+            if i % 10 == 0:
+                entries.append(self._entry(1000 + i, text="answers", link="https://x.example"))
+        entries.append(self._entry(999, file={"storage_key": "gone", "name": "lost.pdf"}))
+
+        def fake_open(entry):
+            key = entry.file["storage_key"]
+            if key not in blobs:
+                raise FileNotFoundError(key)
+            return io.BytesIO(blobs[key])
+
+        with mock.patch.object(zip_service, "open_file", side_effect=fake_open):
+            payload = zip_service.build_submissions_zip(entries, group_folder=False)
+
+        zf = zipfile.ZipFile(io.BytesIO(payload))
+        year = timezone.now().year
+        expected = []
+        for entry in entries:
+            stem = f"{year}_{entry.group_name}_Poster"
+            if entry.file and entry.file["storage_key"] in blobs:
+                expected.append(f"{stem}.pdf")
+            elif entry.file:
+                expected.append(f"{stem}_MISSING.txt")
+            else:
+                expected.extend([f"{stem}.txt", f"{stem}_Link.txt"])
+        self.assertEqual(zf.namelist(), expected)
+        for i in range(40):
+            self.assertEqual(zf.read(f"{year}_Group-{i:03d}_Poster.pdf"), blobs[f"key-{i}"])
+        self.assertIn(b"Original blob missing: gone", zf.read(f"{year}_Group-999_Poster_MISSING.txt"))
 
 
 class GroupDownloadViewTests(_GradingFixture):
@@ -36,23 +92,28 @@ class GroupDownloadViewTests(_GradingFixture):
 
         zf = zipfile.ZipFile(io.BytesIO(resp.content))
         names = set(zf.namelist())
-        # Group folder + component subfolders with the right pseudo-files.
-        self.assertIn("BTF-TEST-1/SAQ/text.txt", names)
-        self.assertIn("BTF-TEST-1/PROTOTYPE/link.txt", names)
+        # Single-group download: no group subfolder, flat
+        # <Year>_<Group>_<Component> files at the archive root.
+        year = timezone.now().year
+        base = f"{year}_BTF-TEST-1"
+        self.assertIn(f"{base}_SAQs.txt", names)
+        self.assertIn(f"{base}_Prototype_Link.txt", names)
         # The fixture's poster storage key has no backing blob; the archive
         # notes it instead of failing.
-        self.assertIn("BTF-TEST-1/POSTER/MISSING.txt", names)
-        self.assertIn("Some student answers.", zf.read("BTF-TEST-1/SAQ/text.txt").decode())
-        self.assertEqual(zf.read("BTF-TEST-1/PROTOTYPE/link.txt").decode().strip(), "https://example.com/prototype")
+        self.assertIn(f"{base}_Poster_MISSING.txt", names)
+        self.assertIn("Some student answers.", zf.read(f"{base}_SAQs.txt").decode())
+        self.assertEqual(
+            zf.read(f"{base}_Prototype_Link.txt").decode().strip(),
+            "https://example.com/prototype",
+        )
 
     def test_component_filter(self):
         url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
-        # Single-component downloads skip the redundant component folder layer.
-        self.assertTrue(all(n.startswith("BTF-TEST-1/") for n in names), names)
-        self.assertTrue(all("/SAQ/" not in n for n in names), names)
+        year = timezone.now().year
+        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.txt"])
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
@@ -152,28 +213,50 @@ class SaqXlsxExportTests(_GradingFixture):
         return download.content
 
     def test_sheet_carries_the_upload_shape_with_marks_prefilled(self):
+        GroupMarkingCategories.objects.create(
+            group=self.group,
+            product_categories=["Health", "Other"],
+            product_category_other="Wearables",
+            solution_category="Other",
+            solution_category_other="App",
+        )
         ws = load_workbook(io.BytesIO(self._export_xlsx())).active
         rows = list(ws.iter_rows(values_only=True))
         self.assertEqual(
             list(rows[0]),
-            ["group_id", "group_name", "type", "text",
-             "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
+            ["group_id", "group_name", "answer", "criteria_no", "mark", "comment",
+             "overall_comment", "product_category", "category_of_solution"],
         )
-        (group_id, group_name, kind, text,
-         r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
-        # No SAQ feedback saved in this fixture -> blank, not an error.
-        self.assertIn(overall_comment, (None, ""))
+        # One row per criterion position: one answered question plus a
+        # two-criterion rubric -> two rows for the group.
+        (group_id, group_name, answer, criteria_no, mark, comment,
+         overall_comment, product_category, category_of_solution) = rows[1]
         self.assertEqual(group_id, self.group.id)
         self.assertEqual(group_name, "BTF-TEST-1")
-        self.assertEqual(kind, "SAQs")
-        # The SAQ text cell carries the answers under their question prompt.
-        self.assertIn("Team answers", text)
-        self.assertIn("Some student answers.", text)
-        # Existing grade pre-filled; ungraded criterion left blank, not zero.
-        self.assertEqual(r1_mark, 8.0)
-        self.assertEqual(r1_comment, "Great claim.")
-        self.assertIsNone(r2_mark)
-        self.assertIn(r2_comment, (None, ""))
+        self.assertEqual(criteria_no, 1)
+        # The answer cell carries the answer under its question prompt.
+        self.assertIn("Team answers", answer)
+        self.assertIn("Some student answers.", answer)
+        # Existing grade pre-filled.
+        self.assertEqual(mark, 8.0)
+        self.assertEqual(comment, "Great claim.")
+        # No SAQ feedback saved in this fixture -> blank, not an error.
+        self.assertIn(overall_comment, (None, ""))
+        # The marking key's header selections, with the Other detail inlined.
+        self.assertEqual(product_category, "Health, Other: Wearables")
+        self.assertEqual(category_of_solution, "Other: App")
+        # Second criterion: no answer at that position, no grade — blank
+        # cells, and every group-level column (the ids included) appears
+        # on the first row only.
+        row2 = rows[2]
+        self.assertIn(row2[0], (None, ""))
+        self.assertIn(row2[1], (None, ""))
+        self.assertIn(row2[2], (None, ""))
+        self.assertEqual(row2[3], 2)
+        self.assertIsNone(row2[4])
+        self.assertIn(row2[5], (None, ""))
+        self.assertIn(row2[7], (None, ""))
+        self.assertIn(row2[8], (None, ""))
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -188,7 +271,6 @@ class SaqXlsxExportTests(_GradingFixture):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         body = resp.json()
-        self.assertTrue(body["checks"]["type_ok"])
         self.assertEqual(body["checks"]["missing_headers"], [])
         # The untouched export must read as exactly what is already stored:
         # the pre-filled mark is unchanged, the blank criterion is untouched,
@@ -196,5 +278,5 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertEqual(
             body["summary"],
             {"creates": 0, "updates": 0, "unchanged": 1,
-             "overall_comments": 0, "errors": 0},
+             "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )

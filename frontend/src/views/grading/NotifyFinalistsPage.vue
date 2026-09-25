@@ -61,7 +61,6 @@
         <table class="notify-finalists__table">
           <thead>
             <tr>
-              <th>ID</th>
               <th>Group</th>
               <th>Notified at</th>
               <th class="notify-finalists__cell--center">Notify</th>
@@ -69,10 +68,9 @@
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="4" class="notify-finalists__empty">No finalists yet.</td>
+              <td colspan="3" class="notify-finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="f in finalists" :key="f.group_id">
-              <td class="notify-finalists__muted">#{{ f.group_id }}</td>
               <td class="notify-finalists__cell--strong">{{ f.group_name }}</td>
               <td>
                 <span v-if="f.notified" class="notify-finalists__notified">

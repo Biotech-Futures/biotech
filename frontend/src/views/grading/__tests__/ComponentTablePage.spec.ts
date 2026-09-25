@@ -175,16 +175,29 @@ describe('the table', () => {
     expect(wrapper.find('.component-table__empty').text()).toBe('No groups match your search.')
   })
 
+  it('sorting by group name starts ascending and toggles', async () => {
+    const wrapper = await mountPage()
+    const groupSort = wrapper
+      .findAll('.component-table__sort')
+      .find((b) => b.text().includes('Group'))!
+    await groupSort.trigger('click')
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
+    await groupSort.trigger('click')
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['BTF-2', 'BTF-1', 'Alpha Team'])
+  })
+
   it('progress sort pins unsubmitted rows last in both directions', async () => {
     const wrapper = await mountPage()
     const progressSort = wrapper
       .findAll('.component-table__sort')
       .find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
     await progressSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
   })
 

@@ -42,6 +42,40 @@ class GradeBulkViewTests(_GradingFixture):
         g.refresh_from_db()
         self.assertEqual(g.mark, Decimal("9.00"))
 
+    def test_untouched_criteria_create_no_grades(self):
+        # The form sends the whole rubric; blank criteria must not become
+        # Grade rows attributed to the saver.
+        url = reverse("grading:grade-bulk")
+        payload = {"items": [
+            {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "8.00", "comment": ""},
+            {"submission": self.saq_submission.id, "criterion": self.saq_c2.id, "mark": None, "comment": ""},
+        ]}
+        resp = self.client.post(url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(Grade.objects.count(), 1)
+        self.assertFalse(
+            Grade.objects.filter(submission=self.saq_submission, criterion=self.saq_c2).exists()
+        )
+
+    def test_unchanged_values_keep_the_original_marker(self):
+        # Re-saving the same value is a no-op, not a new attribution.
+        other = type(self.staff).objects.create_user(
+            email="first.marker@example.com", first_name="First", last_name="Marker",
+            password="pw12345!", is_staff=True,
+        )
+        Grade.objects.create(
+            submission=self.saq_submission, criterion=self.saq_c1,
+            mark=Decimal("8.00"), comment="Great.", graded_by=other,
+        )
+        url = reverse("grading:grade-bulk")
+        payload = {"items": [
+            {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "8.00", "comment": "Great."},
+        ]}
+        resp = self.client.post(url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        g = Grade.objects.get(submission=self.saq_submission, criterion=self.saq_c1)
+        self.assertEqual(g.graded_by_id, other.id)
+
     def test_overall_comment_saved_with_bulk(self):
         url = reverse("grading:grade-bulk")
         payload = {

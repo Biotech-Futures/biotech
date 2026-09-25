@@ -154,7 +154,7 @@ describe('the group marks ranking', () => {
     resolveIdMock.mockReturnValue(null)
     const wrapper = await mountPage()
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.finalists__banner--error').text()).toBe('No group matches that name or ID.')
+    expect(wrapper.find('.finalists__banner--error').text()).toBe('No group matches that name.')
     expect(addMock).not.toHaveBeenCalled()
   })
 

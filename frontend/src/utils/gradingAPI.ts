@@ -280,10 +280,14 @@ export interface BulkUploadRowEntry {
   row: number
   group_id: number
   criterion_id: number
+  criteria_no?: number
   submission_id: number
   mark: string | null
   comment: string
   grade_id?: number
+  // Updates only: the group's name and the sheet columns whose values differ.
+  group_name?: string | null
+  columns?: string[]
   old_mark?: string | null
   old_comment?: string
 }
@@ -297,23 +301,39 @@ export interface BulkUploadSummary {
   creates: number
   updates: number
   unchanged: number
+  overall_comments?: number
+  // SAQ shape only: marking key selections parsed from the sheet.
+  marking_categories?: number
   errors: number
 }
 
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
-  expected_type: string
-  found_type: string | null
-  type_ok: boolean
+  // Wide-shape sheets only (POSTER/REPORT/PROTOTYPE): the type column
+  // check. Absent for SAQ's per-criterion shape, which has no type.
+  expected_type?: string
+  found_type?: string | null
+  type_ok?: boolean
   bad_group_rows: { row: number; reason: string }[]
   bad_marks: { row: number; column: string; hint: string }[]
+}
+
+export interface BulkUploadCategoryEntry {
+  row: number
+  group_id: number
+  product_categories: string[]
+  product_category_other: string
+  solution_category: string
+  solution_category_other: string
 }
 
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  // SAQ shape only: marking key changes parsed from the sheet.
+  marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]
   checks?: BulkUploadChecks
   summary: BulkUploadSummary

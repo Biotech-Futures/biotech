@@ -49,7 +49,6 @@
       <div class="group-marking__header">
         <h2 class="group-marking__title">
           {{ payload.group.group_name }}
-          <span class="group-marking__id">#{{ groupId }}</span>
         </h2>
         <div class="group-marking__search-field">
           <span class="group-marking__search-label">Search</span>
@@ -117,14 +116,16 @@
             <!-- The stamp row lives inside the left pane so its actions hug
                  the PDF's right edge, tracking the divider when dragged. -->
             <p class="group-marking__pane-stamp">
-              <span v-if="combinedSubmittedLabel">
-                Submitted at {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
-                <template v-if="combinedMarkerText">
-                  · Marker:
-                  <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
-                    {{ combinedMarkerText }}
-                  </span>
-                </template>
+              <span>
+                Marker:
+                <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
+                  {{ combinedMarkerText }}
+                  <i
+                    v-if="combinedHasMultipleMarkers"
+                    class="fas fa-users group-marking__stamp-marker-icon"
+                    aria-hidden="true"
+                  ></i>
+                </span>
                 <span
                   v-if="categoriesStatus"
                   class="group-marking__stamp-status"
@@ -237,19 +238,15 @@
                    edge; the rubric column offsets to stay level below. -->
               <p class="group-marking__pane-stamp">
                 <span>
-                  Submitted at {{ singleSubmittedLabel
-                  }}<template v-if="activeBlock.submission.is_late"> (late)</template>
-                  <template v-if="singleMarkerName">
-                    · Marker:
-                    <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
-                      {{ singleMarkerName }}
-                      <i
-                        v-if="(singleGraderNames?.length ?? 0) > 1"
-                        class="fas fa-users group-marking__stamp-marker-icon"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </template>
+                  Marker:
+                  <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
+                    {{ singleMarkerName }}
+                    <i
+                      v-if="(singleGraderNames?.length ?? 0) > 1"
+                      class="fas fa-users group-marking__stamp-marker-icon"
+                      aria-hidden="true"
+                    ></i>
+                  </span>
                   <span
                     v-if="categoriesStatus && activeBlock.component.code === 'SAQ'"
                     class="group-marking__stamp-status"
@@ -469,26 +466,6 @@ const markersFor = (block: ComponentBlock) => {
 
 const criterionMarkers = computed(() => (activeBlock.value ? markersFor(activeBlock.value) : []))
 
-// Both combined sections share one Submission row, so the stamp is shown
-// once above them rather than repeated per pane.
-const combinedSubmission = computed(
-  () => saqBlock.value?.submission ?? posterBlock.value?.submission ?? null
-)
-// "9/2/2026 19:48" — 24-hour, no seconds, no comma, matching the tables.
-const stampLabel = (iso: string) => {
-  const d = new Date(iso)
-  return `${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  })}`
-}
-
-const combinedSubmittedLabel = computed(() =>
-  combinedSubmission.value ? stampLabel(combinedSubmission.value.submitted_at) : ''
-)
-const combinedIsLate = computed(() => combinedSubmission.value?.is_late === true)
-
 // Last marker of each combined section; collapsed to one name when the same
 // person marked both. The tooltip lists every criterion's marker.
 const combinedMarkerText = computed(() => {
@@ -509,6 +486,16 @@ const combinedMarkerTooltip = computed(() => {
     lines.push(...markersFor(posterBlock.value).map((m) => `Poster ${m.name}: ${m.marker}`))
   }
   return lines.join('\n')
+})
+
+// Several distinct people marked across the two sections — flagged with
+// the same group icon the tables use.
+const combinedHasMultipleMarkers = computed(() => {
+  const names = new Set<string>()
+  for (const block of [saqBlock.value, posterBlock.value]) {
+    if (block) markersFor(block).forEach((m) => names.add(m.marker))
+  }
+  return names.size > 1
 })
 
 // Open/Download live on the hoisted stamp line. Same rules as the preview's
@@ -545,9 +532,6 @@ const downloadStampFile = async (url: string | null, fileName?: string | null) =
 
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.
-const singleSubmittedLabel = computed(() =>
-  activeBlock.value?.submission ? stampLabel(activeBlock.value.submission.submitted_at) : ''
-)
 const singleMarkerName = computed(() =>
   isComponentMode.value ? currentRow.value?.last_grader_name : activeBlock.value?.last_grader_name
 )
@@ -630,13 +614,13 @@ const goto = (id: number | null) => {
   )
 }
 
-// Same search box as the marking tables; Open resolves the typed name or ID
+// Same search box as the marking tables; Open resolves the typed name
 // and navigates within the current mode (component or by-group).
 const openSearch = () => {
   searchError.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    searchError.value = 'No group matches that name or ID.'
+    searchError.value = 'No group matches that name.'
     return
   }
   searchQuery.value = ''
@@ -809,14 +793,22 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-/* Search sits centered in the header row, between the title and the Prev/
-   Next/Download buttons. The error overlays below so it never stretches
+/* Search fills the header row between the title and the Prev/Next/
+   Download buttons. The error overlays below so it never stretches
    the row. */
 /* Unlike the table pages, the label sits inline, left of the textbox. */
 .group-marking__search-field {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  /* Basis = the cluster with the box at its 155px floor (label + gaps +
+     box + Open). The wrapping header breaks lines at basis sizes, so the
+     basis must be the floor-sized cluster or the row wraps before the
+     box has shrunk back to 155. Cap = the same cluster with the box at
+     its 252px cap; once capped, the auto margins center it in the row. */
+  flex: 1 1 300px;
+  min-width: 0;
+  max-width: 400px;
   margin-inline: auto;
 }
 
@@ -833,11 +825,16 @@ const downloadAll = async () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-/* Same width as the By Component page's search box. */
+/* Absorbs the header row's leftover space between the table pages'
+   155px floor and 252px cap; the Open button rides its right edge. */
 .group-marking__picker {
-  width: 252px;
+  flex: 1 1 155px;
+  min-width: 155px;
+  max-width: 252px;
 }
 
 .group-marking__search-error {
@@ -863,12 +860,6 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
-}
-
-.group-marking__id {
-  color: var(--text-muted);
-  font-size: 1.35rem;
-  font-weight: 400;
 }
 
 .group-marking__header-actions {

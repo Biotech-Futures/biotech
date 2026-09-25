@@ -49,10 +49,11 @@ describe('typing and suggestions', () => {
     const options = wrapper.findAll('.group-search__option')
     expect(options).toHaveLength(1)
     expect(options[0]!.text()).toContain('Alpha Team')
-    expect(options[0]!.text()).toContain('ID 3')
+    // Group ids are not exposed anywhere in the dropdown.
+    expect(options[0]!.text()).not.toContain('ID')
   })
 
-  it('matches digits against both ids and names', async () => {
+  it('matches digits against names only, never ids', async () => {
     const wrapper = await mountInput({ modelValue: '1' })
     await wrapper.find('input').trigger('focus')
     const names = wrapper.findAll('.group-search__name').map((n) => n.text())
@@ -92,11 +93,14 @@ describe('resolveId', () => {
     return (wrapper.vm as unknown as { resolveId: () => number | null }).resolveId()
   }
 
-  it('treats digits as a literal id', async () => {
+  it('digits resolve through names, never as a literal id', async () => {
+    // "12" matches the name "Group 12"; "3" matches no NAME even though
+    // a group with id 3 exists — id lookup is gone.
     expect(await resolve('12')).toBe(12)
+    expect(await resolve('3')).toBeNull()
   })
 
-  it('rejects a non-positive id and a blank value', async () => {
+  it('rejects a blank or unmatched value', async () => {
     expect(await resolve('0')).toBeNull()
     expect(await resolve('   ')).toBeNull()
   })

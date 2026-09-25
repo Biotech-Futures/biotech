@@ -193,7 +193,8 @@ describe('the combined SAQs & Poster view', () => {
   it('is the default when both sections exist, under the group heading', async () => {
     const wrapper = await mountPage()
     expect(wrapper.find('.group-marking__title').text()).toContain('Alpha Team')
-    expect(wrapper.find('.group-marking__title').text()).toContain('#3')
+    // The heading shows the group name alone — no id.
+    expect(wrapper.find('.group-marking__title').text()).not.toContain('#')
     const active = wrapper.find('[role="tab"][aria-selected="true"]')
     expect(active.text()).toBe('SAQs & Poster')
     // Both previews and both rubric forms render.
@@ -204,7 +205,9 @@ describe('the combined SAQs & Poster view', () => {
   it('hoists one shared stamp naming each section marker', async () => {
     const wrapper = await mountPage()
     const stamp = wrapper.find('.group-marking__pane-stamp')
-    expect(stamp.text()).toContain('Submitted')
+    // The stamp carries the marker only — no submitted-at timestamp.
+    expect(stamp.text()).not.toContain('Submitted')
+    expect(stamp.text()).toContain('Marker:')
     expect(stamp.find('.group-marking__stamp-marker').text()).toBe('SAQ: Ada Grader · Poster: Bob Marker')
     expect(stamp.find('.group-marking__stamp-marker').attributes('title')).toContain('SAQ 1: Ada Grader')
     // The poster PDF gets its Open action on the stamp line.
@@ -305,7 +308,7 @@ describe('walking the cohort', () => {
     pushMock.mockClear()
     resolveIdMock.mockReturnValue(null)
     await wrapper.find('.group-marking__search-form').trigger('submit')
-    expect(wrapper.find('.group-marking__search-error').text()).toBe('No group matches that name or ID.')
+    expect(wrapper.find('.group-marking__search-error').text()).toBe('No group matches that name.')
     expect(pushMock).not.toHaveBeenCalled()
   })
 })

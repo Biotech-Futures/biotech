@@ -139,9 +139,14 @@ describe('setting a deadline', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('cannot submit without a closing time', async () => {
+  it('defaults the closing time to today at 23:59, and clearing it blocks submit', async () => {
     fetchMock.mockResolvedValueOnce({ deadline: null })
     const wrapper = await mountPage()
+    const input = wrapper.find('input[type="datetime-local"]')
+    expect((input.element as HTMLInputElement).value).toMatch(/T23:59$/)
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+
+    await input.setValue('')
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 })

@@ -35,7 +35,13 @@ from django.contrib.auth import get_user_model
 from apps.groups.models.group_members import GroupMembership
 from apps.users.models import StudentProfile
 
-from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
+from ..models import (
+    Grade,
+    GradingJob,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
+)
 from .content import feedback_map, submission_entries
 from .docx import (
     certificate_context,
@@ -44,7 +50,7 @@ from .docx import (
     render_participation_certificate,
 )
 from .xlsx import build_saq_xlsx
-from .zip import _safe, build_submissions_zip
+from .zip import _COMPONENT_LABELS, _safe, build_submissions_zip
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +86,11 @@ def _run_job(job_id: int) -> None:
             )
 
         if kind == "component_zip":
-            # One component per job — skip the redundant folder layer.
-            payload = build_submissions_zip(entries, component_folder=False)
-            filename = f"{component.code}-bundle.zip"
+            # Flat — one component per bundle, so group file names can't
+            # collide and folders would just be an extra layer.
+            payload = build_submissions_zip(entries, group_folder=False)
+            label = _COMPONENT_LABELS.get(component.code, component.code)
+            filename = f"{timezone.now().year}_BIOTech_{label}.zip"
         elif kind == "component_xlsx":
             criteria = list(
                 RubricCriterion.objects
@@ -103,12 +111,20 @@ def _run_job(job_id: int) -> None:
                 ).items()
                 if component_id == component.id
             }
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair, feedback_by_group)
-            filename = f"{component.code}-saq.xlsx"
+            categories_by_group = {
+                c.group_id: c
+                for c in GroupMarkingCategories.objects.filter(
+                    group_id__in=[e.group_id for e in entries]
+                )
+            }
+            payload = build_saq_xlsx(
+                entries, criteria, grades_by_pair, feedback_by_group, categories_by_group
+            )
+            filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.
             payload = build_submissions_zip(submission_entries())
-            filename = "all-submissions.zip"
+            filename = f"{timezone.now().year}_BIOTech_All.zip"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))
             supervisor_user_id = int(job.params.get("supervisor_user_id"))

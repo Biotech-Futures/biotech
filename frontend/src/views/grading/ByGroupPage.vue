@@ -41,14 +41,13 @@
           <thead>
             <tr>
               <th>
-                <button type="button" class="by-group__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                <button type="button" class="by-group__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th>Group</th>
               <th>
                 <button type="button" class="by-group__sort" @click="setSort('time')">
-                  Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -70,16 +69,15 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="7" class="by-group__empty">
+              <td colspan="6" class="by-group__empty">
                 {{ query.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td class="by-group__muted">#{{ r.group_id }}</td>
               <td class="by-group__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB') }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
                   {{
                     new Date(r.submitted_at).toLocaleTimeString([], {
                       hour: '2-digit',
@@ -160,7 +158,7 @@ const open = () => {
   error.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    error.value = 'No group matches that name or ID.'
+    error.value = 'No group matches that name.'
     return
   }
   void router.push(`/grading/groups/${id}`)
@@ -196,7 +194,10 @@ const fullyMarkedCount = computed(
 )
 
 // Same sorting behaviour as the per-component tables.
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -217,23 +218,23 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: GroupRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.graded : null
 }
 
 const displayRows = computed(() => {
-  // Live-filter the table by the search text (name or ID), matching the
+  // Live-filter the table by the search text (group name), matching the
   // By Component page; the dropdown picker still handles jump-to-group.
   const q = query.value.trim().toLowerCase()
   let sorted = [...rows.value]
   if (q) {
     sorted = sorted.filter(
-      (r) => r.group_name.toLowerCase().includes(q) || String(r.group_id).includes(q)
+      (r) => r.group_name.toLowerCase().includes(q)
     )
   }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   sorted.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -382,9 +383,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  /* Same width as the By Component page's search box. */
-  flex: 1 1 180px;
+  /* Same width as the By Component page's search box; explicit floor so
+     the input's intrinsic minimum can't crowd the row. */
+  flex: 1 1 140px;
+  min-width: 155px;
   max-width: 252px;
+}
+
+.by-group__search-field :deep(.group-search__input) {
+  min-width: 0;
 }
 
 .by-group__search-label {
