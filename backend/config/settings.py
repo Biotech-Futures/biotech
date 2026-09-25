@@ -74,6 +74,10 @@ AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
 AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
 AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
 AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Keep profile photos separate from general media and user submissions. The
+# container is private; the application returns time-limited URLs when a
+# profile is serialized.
+AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
