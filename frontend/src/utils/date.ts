@@ -37,19 +37,6 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-export function formatDateTimeAU(value: string | Date | null | undefined): string {
-  const date = value instanceof Date ? value : value ? new Date(value) : null
-  if (!date || Number.isNaN(date.getTime())) return ''
-
-  return date.toLocaleString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
 export function formatDateAU(value: string | Date): string {
   const date = value instanceof Date ? value : new Date(value)
 
