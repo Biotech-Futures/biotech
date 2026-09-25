@@ -33,10 +33,6 @@
         </div>
       </template>
 
-      <template #cell-lastRun="{ row }">
-        <span class="admin-views-table__muted">{{ lastRunLabel(toView(row)) }}</span>
-      </template>
-
       <template #cell-actions="{ row }">
         <div class="admin-views-table__actions">
           <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
@@ -84,7 +80,6 @@ import AdminDataTable, { type AdminColumn } from '@/components/admin/AdminDataTa
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { deleteAdminView, getAdminViewExportUrl, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { formatDateAU } from '@/utils/date'
 import { roleLabel } from '@/utils/userFormat'
 
 const props = withDefaults(
@@ -110,7 +105,6 @@ const router = useRouter()
 const columns: AdminColumn[] = [
   { key: 'name', label: 'View Name & Description' },
   { key: 'roles', label: 'Filter Summary / Roles' },
-  { key: 'lastRun', label: 'Last Run / Updated' },
   { key: 'actions', label: 'Actions', align: 'right' }
 ]
 
@@ -121,12 +115,6 @@ const rolesFor = (view: AdminView): string[] => {
   const roles = view.targetRoles || []
   if (!roles.length || roles.includes('all')) return ['All roles']
   return roles.map((role) => roleLabel(role))
-}
-
-const lastRunLabel = (view: AdminView): string => {
-  if (view.lastRunAt) return `Run ${formatDateAU(view.lastRunAt)}`
-  if (view.updatedAt) return `Updated ${formatDateAU(view.updatedAt)}`
-  return '—'
 }
 
 const onSelectedChange = (value: Array<string | number>) => emit('update:selected', value)

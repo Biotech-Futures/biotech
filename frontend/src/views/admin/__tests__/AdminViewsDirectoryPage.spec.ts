@@ -3,7 +3,6 @@ import { nextTick } from 'vue'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminViewsDirectoryPage from '@/views/admin/AdminViewsDirectoryPage.vue'
 import * as adminAPI from '@/utils/adminAPI'
-import { formatDateAU } from '@/utils/date'
 
 const mockPush = vi.fn()
 
@@ -524,18 +523,6 @@ describe('AdminViewsDirectoryPage', () => {
 
     const badges = wrapper.findAll('.admin-views-table__badge').map((badge) => badge.text())
     expect(badges).toEqual(['Mentor', 'Student'])
-  })
-
-  it('formats the Last Run / Updated column for run, updated-only, and never-touched views', async () => {
-    const neverTouched = { ...customView, id: 5, lastRunAt: null, updatedAt: null }
-    mockViews([defaultView, customView, neverTouched])
-    wrapper = mountPage()
-    await flushPromises()
-
-    const rows = wrapper.findAll('.admin-table__row')
-    expect(rows[0].text()).toContain(`Run ${formatDateAU(defaultView.lastRunAt!)}`)
-    expect(rows[1].text()).toContain(`Updated ${formatDateAU(customView.updatedAt!)}`)
-    expect(rows[2].text()).toContain('—')
   })
 
   it('navigates to the executed view when Run is clicked on a default view', async () => {
