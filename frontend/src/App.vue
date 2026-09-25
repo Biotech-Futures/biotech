@@ -153,6 +153,15 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
+                    to="/admin/views"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/admin/views') }"
+                  >
+                    <span>Views</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
                     to="/admin/groups"
                     class="sidebar-sublink"
                     :class="{ active: route.path === '/admin/groups' }"
