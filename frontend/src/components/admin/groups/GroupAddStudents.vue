@@ -8,14 +8,17 @@
       }}
     </p>
 
-    <input
-      v-model="search"
-      type="search"
-      class="form-input"
-      placeholder="Search ungrouped students..."
-      aria-label="Search ungrouped students"
-      :disabled="busy"
-    />
+    <div class="group-add__search">
+      <i class="fas fa-magnifying-glass group-add__search-icon" aria-hidden="true"></i>
+      <input
+        v-model="search"
+        type="search"
+        class="form-input group-add__search-input"
+        placeholder="Search ungrouped students..."
+        aria-label="Search ungrouped students"
+        :disabled="busy"
+      />
+    </div>
 
     <p v-if="loadError" class="group-detail__error" role="alert">{{ loadError }}</p>
     <p v-else-if="loading" class="group-detail__muted">Loading students...</p>
@@ -172,6 +175,50 @@ const confirm = async () => {
   margin: 0;
   color: var(--danger);
   font-size: 0.875rem;
+}
+
+/* .form-input isn't global — each admin component styles it — so match the
+   other admin form sheets here. */
+.form-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+  font-size: 0.92rem;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
+}
+
+.form-input:disabled {
+  background-color: var(--bg-light);
+  color: var(--text-muted);
+}
+
+.group-add__search {
+  position: relative;
+}
+
+/* Leave room on the left for the icon so typed text doesn't run under it. */
+.group-add__search-input {
+  padding-left: 2rem;
+}
+
+.group-add__search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
 }
 
 .group-add__list {
