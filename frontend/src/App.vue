@@ -3,7 +3,7 @@
     <header class="header" v-if="!isLoginPage">
       <div class="header-content">
         <div class="logo-section">
-          <RouterLink :to="auth.isSupervisor ? '/profile' : '/dashboard'" class="logo">
+          <RouterLink to="/dashboard" class="logo">
             <div class="logo-icon">
               <img :src="logo" :alt="BRAND_NAME" />
             </div>
@@ -56,39 +56,7 @@
     >
       <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
-          <ul v-if="auth.isSupervisor" class="sidebar-list">
-            <li class="sidebar-item">
-              <RouterLink
-                to="/profile"
-                class="sidebar-link"
-                :class="{ active: route.path === '/profile' }"
-              >
-                <i class="fas fa-user sidebar-icon"></i>
-                <span>My Profile</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-students"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/my-students') }"
-              >
-                <i class="fas fa-user-graduate sidebar-icon"></i>
-                <span>My Students</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-groups"
-                class="sidebar-link"
-                :class="{ active: route.path === '/my-groups' || route.path.includes('/groups') }"
-              >
-                <i class="fas fa-users sidebar-icon"></i>
-                <span>My Groups</span>
-              </RouterLink>
-            </li>
-          </ul>
-          <ul v-else class="sidebar-list">
+          <ul class="sidebar-list">
             <li class="sidebar-item">
               <RouterLink
                 to="/dashboard"
@@ -233,13 +201,6 @@
           </ul>
         </nav>
 
-        <section v-if="auth.isSupervisor" class="sidebar-support" aria-label="Support">
-          <a class="sidebar-link" :href="`mailto:${SUPPORT_EMAIL}`">
-            <i class="fas fa-life-ring sidebar-icon"></i>
-            <span>Contact Support</span>
-          </a>
-        </section>
-
         <button
           type="button"
           class="sidebar-collapse-toggle"
@@ -367,7 +328,7 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
+import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 
 const route = useRoute()
 const router = useRouter()
@@ -422,7 +383,7 @@ const isLoginPage = computed(() =>
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
-  () => !isLoginPage.value && !auth.isSupervisor && route.path.startsWith('/groups'),
+  () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
 
 const sidebarGroups = ref<SidebarGroupOption[]>([])
@@ -480,8 +441,6 @@ const programSearchTargets = [
   { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
   { path: '/resources', terms: ['resource', 'resources', 'library', 'guide', 'material'] },
   { path: '/profile', terms: ['profile', 'account', 'me', 'settings'] },
-  { path: '/my-students', terms: ['student', 'students', 'registered'] },
-  { path: '/my-groups', terms: ['my groups', 'waiting area'] },
 ]
 
 const toggleSidebarCollapsed = () => {
@@ -1025,13 +984,6 @@ select {
 
   width: 72px;
   min-width: 72px;
-}
-
-.sidebar-support {
-  flex: 1;
-  margin-top: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-light);
 }
 
 .sidebar-collapse-toggle {

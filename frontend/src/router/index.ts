@@ -76,7 +76,7 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
+    next('/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
@@ -90,16 +90,13 @@ router.beforeEach((to, from, next) => {
     // pages and send them to the admin dashboard instead.
     next('/admin')
 
-  } else if (auth.isAuthenticated && auth.isSupervisor && to.path === '/dashboard') {
-    next('/profile')
-
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
       return
     }
 
-    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
+    next(auth.isAdmin ? '/admin' : '/dashboard')
   } else {
     next()
   }
