@@ -366,6 +366,120 @@ describe('GroupDetailModal', () => {
     expect(addButton.disabled).toBe(true)
   })
 
+  it('does not count a mentor listed in members toward the seat limit', async () => {
+    const fetchMock = fetchMockFor()
+    const group = groupFixture()
+    group.members = [
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: String(40 + i),
+        name: `Student ${i}`,
+        email: `s${i}@example.com`,
+        role: 'student',
+        membershipId: 300 + i
+      })),
+      { id: '20', name: 'Marie Curie', email: 'marie@example.com', role: 'mentor', membershipId: 200 }
+    ]
+    await mountModal(fetchMock, group)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    expect(dialog()!.textContent).toContain('1 seat left.')
+  })
+
+  it('Back and Cancel return to the member list without adding anyone', async () => {
+    const fetchMock = fetchMockFor({ ungrouped: [ungroupedStudent(30, 'Rosalind', 'Franklin')] })
+    await mountModal(fetchMock)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    clickButton(dialog()!, 'Back to group information')
+    await flushPromises()
+    expect(dialog()!.textContent).toContain('Members (2)')
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    clickButton(dialog()!, 'Cancel')
+    await flushPromises()
+    expect(dialog()!.textContent).toContain('Members (2)')
+
+    const posted = fetchMock.mock.calls.some(([u]) => String(u).includes('/match/confirm/'))
+    expect(posted).toBe(false)
+    expect(wrapper!.emitted('changed')).toBeFalsy()
+  })
+
+  it('disables Add students once an add fills the group', async () => {
+    const fetchMock = fetchMockFor({ ungrouped: [ungroupedStudent(30, 'Rosalind', 'Franklin')] })
+    const group = groupFixture()
+    group.members = Array.from({ length: 4 }, (_, i) => ({
+      id: String(40 + i),
+      name: `Student ${i}`,
+      email: `s${i}@example.com`,
+      role: 'student',
+      membershipId: 300 + i
+    }))
+    await mountModal(fetchMock, group)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    const box = dialog()!.querySelector('input[type="checkbox"]') as HTMLInputElement
+    box.checked = true
+    box.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    clickButton(dialog()!, 'Add (1)')
+    await flushPromises()
+
+    expect(dialog()!.textContent).toContain('Members (5)')
+    const addButton = Array.from(dialog()!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Add students'
+    ) as HTMLButtonElement
+    expect(addButton.disabled).toBe(true)
+  })
+
+  it('a just-added student can be removed again straight away', async () => {
+    const fetchMock = fetchMockFor({ ungrouped: [ungroupedStudent(30, 'Rosalind', 'Franklin')] })
+    await mountModal(fetchMock)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    const box = dialog()!.querySelector('input[type="checkbox"]') as HTMLInputElement
+    box.checked = true
+    box.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    clickButton(dialog()!, 'Add (1)')
+    await flushPromises()
+
+    // Rosalind is the third member row.
+    const removeButtons = Array.from(dialog()!.querySelectorAll('button')).filter(
+      (b) => b.textContent?.trim() === 'Remove'
+    )
+    expect(removeButtons).toHaveLength(3)
+    removeButtons[2].dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    expect(confirmDialog()!.textContent).toContain('Remove Rosalind Franklin from BTF1?')
+    clickButton(confirmDialog()!, 'Remove')
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/group/1/members/30/') && (i as RequestInit | undefined)?.method === 'DELETE'
+    )
+    expect(call).toBeDefined()
+    expect(dialog()!.textContent).not.toContain('Rosalind Franklin')
+  })
+
+  it('reopens on the member list rather than the picker', async () => {
+    const fetchMock = fetchMockFor()
+    await mountModal(fetchMock)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+    await wrapper!.setProps({ modelValue: false })
+    await wrapper!.setProps({ modelValue: true })
+    await flushPromises()
+
+    expect(dialog()!.textContent).toContain('Members (2)')
+    expect(dialog()!.querySelector('input[type="search"]')).toBeNull()
+  })
+
   it('removes a message after confirmation and decrements the total', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
     await mountModal(fetchMock)
