@@ -38,12 +38,24 @@ const gifMessage = {
   edited_at: null
 }
 
+const ungroupedStudent = (id: number, firstName: string, lastName: string) => ({
+  id,
+  firstName,
+  lastName,
+  email: `${firstName.toLowerCase()}@example.com`,
+  role: 'student',
+  groupId: null,
+  groupName: null
+})
+
 const fetchMockFor = (opts: {
   page1?: unknown[]
   page2?: unknown[]
   total?: number
   /** When set, every DELETE responds 409 with this message instead of succeeding. */
   deleteError?: string
+  /** Ungrouped students returned by GET /user/ for the add-students picker. */
+  ungrouped?: unknown[]
 } = {}) => {
   // Message deletes are tracked so a later GET reflects them, mirroring the
   // real backend (the component re-fetches the page after a removal).
@@ -84,6 +96,30 @@ const fetchMockFor = (opts: {
           JSON.stringify({
             msg: 'ok',
             data: { items, total, page, limit: 50, has_more: page === 1 && total > 50 }
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    if (method === 'GET' && u.includes('/user/')) {
+      const items = opts.ungrouped ?? []
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'ok',
+            data: { items, total: items.length, page: 1, limit: 100, hasMore: false }
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    if (method === 'POST' && u.includes('/match/confirm/')) {
+      const body = JSON.parse(String(init?.body ?? '{}'))
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'Assignments confirmed successfully',
+            data: { assigned_count: body.assignments?.length ?? 0 }
           }),
           { status: 200 }
         )
@@ -240,6 +276,94 @@ describe('GroupDetailModal', () => {
     // The member is still listed and nothing was emitted to the parent.
     expect(dialog()!.textContent).toContain('Ada Lovelace')
     expect(wrapper!.emitted('changed')).toBeFalsy()
+  })
+
+  it('adds ungrouped students to the group and emits changed', async () => {
+    const fetchMock = fetchMockFor({
+      ungrouped: [ungroupedStudent(30, 'Rosalind', 'Franklin'), ungroupedStudent(31, 'Alan', 'Turing')]
+    })
+    await mountModal(fetchMock)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+
+    // Picker only asks for ungrouped students.
+    const userCall = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/'))
+    expect(String(userCall![0])).toContain('inGroup=no')
+    expect(String(userCall![0])).toContain('role=student')
+    expect(dialog()!.textContent).toContain('3 seats left')
+
+    const rosalind = Array.from(dialog()!.querySelectorAll('label')).find((l) =>
+      l.textContent?.includes('Rosalind Franklin')
+    )!
+    const checkbox = rosalind.querySelector('input[type="checkbox"]') as HTMLInputElement
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    clickButton(dialog()!, 'Add (1)')
+    await flushPromises()
+
+    const confirmCall = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/match/confirm/') && (i as RequestInit | undefined)?.method === 'POST'
+    )
+    expect(confirmCall).toBeDefined()
+    expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({
+      assignments: [{ studentId: 30, groupId: 1 }]
+    })
+
+    // Back on the info view with the new member listed.
+    expect(dialog()!.textContent).toContain('Members (3)')
+    expect(dialog()!.textContent).toContain('Rosalind Franklin')
+    expect(wrapper!.emitted('changed')).toBeTruthy()
+  })
+
+  it('disables Add students when the group is full', async () => {
+    const fetchMock = fetchMockFor()
+    const full = groupFixture()
+    full.members = Array.from({ length: 5 }, (_, i) => ({
+      id: String(40 + i),
+      name: `Student ${i}`,
+      email: `s${i}@example.com`,
+      role: 'student',
+      membershipId: 300 + i
+    }))
+    await mountModal(fetchMock, full)
+
+    const addButton = Array.from(dialog()!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Add students'
+    ) as HTMLButtonElement
+    expect(addButton.disabled).toBe(true)
+  })
+
+  it('blocks adding more students than there are free seats', async () => {
+    const fetchMock = fetchMockFor({
+      ungrouped: [ungroupedStudent(30, 'Rosalind', 'Franklin'), ungroupedStudent(31, 'Alan', 'Turing')]
+    })
+    const almostFull = groupFixture()
+    almostFull.members = Array.from({ length: 4 }, (_, i) => ({
+      id: String(40 + i),
+      name: `Student ${i}`,
+      email: `s${i}@example.com`,
+      role: 'student',
+      membershipId: 300 + i
+    }))
+    await mountModal(fetchMock, almostFull)
+
+    clickButton(dialog()!, 'Add students')
+    await flushPromises()
+
+    for (const box of Array.from(dialog()!.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]) {
+      box.checked = true
+      box.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await flushPromises()
+
+    expect(dialog()!.textContent).toContain('Only 1 seat left')
+    const addButton = Array.from(dialog()!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Add (2)'
+    ) as HTMLButtonElement
+    expect(addButton.disabled).toBe(true)
   })
 
   it('removes a message after confirmation and decrements the total', async () => {
