@@ -89,13 +89,9 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at']
     validators = []
-    # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
-    # check flows through validate() and surfaces as non_field_errors (the shape
-    # the frontend expects), not a group_name field error.
-    # Optional on write: a blank name means "auto-generate BTF<n>" (see perform_create).
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},
     }
@@ -109,17 +105,6 @@ class GroupSerializer(serializers.ModelSerializer):
       if 'group_name' in attrs and not attrs['group_name'].strip():
         raise serializers.ValidationError({'group_name': ['This field may not be blank.']})
 
-    group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))
-    deleted_at = attrs.get('deleted_at', getattr(self.instance, 'deleted_at', None))
-
-    if group_name and deleted_at is None:
-      qs = Groups.objects.filter(group_name=group_name, deleted_at__isnull=True)
-      if self.instance is not None:
-        qs = qs.exclude(pk=self.instance.pk)
-      if qs.exists():
-        raise serializers.ValidationError({
-          'non_field_errors': ['An active group with this name already exists.']
-        })
     return attrs
 
 

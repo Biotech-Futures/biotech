@@ -68,9 +68,11 @@ class UserSerializer(serializers.ModelSerializer):
     #student
     pg_firstname = serializers.SerializerMethodField()
     pg_lastname = serializers.SerializerMethodField()
+    pg_email = serializers.SerializerMethodField()
     year_lvl = serializers.SerializerMethodField()
     school_name = serializers.SerializerMethodField()
     join_perm = serializers.SerializerMethodField()
+    joinperm_granted_at = serializers.SerializerMethodField()
 
     #mentor
     ment_inst = serializers.SerializerMethodField()
@@ -115,9 +117,11 @@ class UserSerializer(serializers.ModelSerializer):
             "current_role_name",
             "pg_firstname",
             "pg_lastname",
+            "pg_email",
             "year_lvl",
             "school_name",
             "join_perm",
+            "joinperm_granted_at",
             "ment_inst",
             "ment_reason",
             "ment_max_groups",
@@ -267,6 +271,11 @@ class UserSerializer(serializers.ModelSerializer):
     def get_pg_lastname(self, obj):
         sp = self._student_profile(obj)
         return None if sp is None else sp.pg_last_name
+
+    @extend_schema_field(serializers.EmailField(allow_null=True))
+    def get_pg_email(self, obj):
+        sp = self._student_profile(obj)
+        return None if sp is None else sp.pg_email
     
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_year_lvl(self, obj):
@@ -282,6 +291,11 @@ class UserSerializer(serializers.ModelSerializer):
     def get_join_perm(self, obj):
         sp = self._student_profile(obj)
         return None if sp is None else sp.has_join_permission
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_joinperm_granted_at(self, obj):
+        sp = self._student_profile(obj)
+        return None if sp is None else sp.joinperm_granted_at
     
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_ment_inst(self, obj):
@@ -381,6 +395,100 @@ class UserSerializer(serializers.ModelSerializer):
         # portal via `AdminPasswordStatusView.hasPassword` and so requires no
         # new schema / migration.
         return not obj.has_usable_password()
+
+
+class SupervisedStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    school_name = serializers.CharField(allow_blank=True)
+    year_lvl = serializers.CharField(allow_blank=True)
+    interests = serializers.ListField(child=serializers.CharField())
+    pg_first_name = serializers.CharField(allow_blank=True)
+    pg_last_name = serializers.CharField(allow_blank=True)
+    pg_email = serializers.EmailField(allow_blank=True, allow_null=True)
+    parent_guardian_flag = serializers.BooleanField()
+    has_join_permission = serializers.BooleanField()
+    joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
+    joinperm_granted_at = serializers.DateTimeField(allow_null=True)
+    group_id = serializers.IntegerField(allow_null=True)
+    group_name = serializers.CharField(allow_null=True)
+
+
+class SupervisedGroupMemberSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    role = serializers.CharField()
+
+
+class SupervisedGroupSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    group_name = serializers.CharField()
+    members = SupervisedGroupMemberSerializer(many=True)
+    interests = serializers.ListField(child=serializers.CharField())
+
+
+class SupervisedGroupNameSerializer(serializers.Serializer):
+    group_name = serializers.CharField(max_length=255)
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
+
+
+class SupervisedGroupWriteSerializer(serializers.Serializer):
+    group_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
+
+
+class SupervisedInterestCatalogSerializer(serializers.Serializer):
+    interests = serializers.ListField(child=serializers.CharField())
+
+
+class SupervisedGroupMemberChangeSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    role = serializers.ChoiceField(
+        choices=["student", "mentor"],
+        required=False,
+        default="student",
+    )
+
+
+class SupervisedMentorSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255)
+    last_name = serializers.CharField(max_length=255)
+    school_name = serializers.CharField(max_length=255)
+    year_lvl = serializers.ChoiceField(choices=[(str(year), str(year)) for year in range(9, 13)])
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+    )
+
+
+class SupervisedStudentGuardianSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    pg_first_name = serializers.CharField(max_length=255)
+    pg_last_name = serializers.CharField(max_length=255)
+    pg_email = serializers.EmailField(required=False, allow_blank=True)
 
 
 class BulkUserStatusSerializer(serializers.Serializer):

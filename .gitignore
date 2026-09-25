@@ -52,6 +52,12 @@ backend/config/settings_uitest.py
 backend/.venv/
 backend/media/
 /.claude
+docker-compose.local.yml
 
 # PR-body workflow artifacts
 PR_BODY_*.md
+
+# Local reference dumps and machine-only files
+New_Consent_Form_Info/
+Reference_Documents/
+adminweb/pnpm-workspace.yaml

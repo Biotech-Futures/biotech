@@ -20,14 +20,13 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q
-from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 from apps.common.rbac import is_admin
 
 from .models import (
@@ -471,11 +470,12 @@ REMINDER_KINDS = {
                 "subject": "Starting soon: {event_name}",
                 "headline": "Starting soon",
                 "intro": (
-                    f"Just a quick reminder — your {settings.BRAND_NAME} event "
-                    "starts in about an hour."
+                    "Just a quick reminder — your {brand} event "
+                    "{lead_phrase}."
                 ),
                 "closing": "See you very soon!",
-                "preheader_phrase": "starts in about an hour",
+                "preheader_phrase": "{lead_phrase}",
+                "lead_is_dynamic": True,
             },
         ),
     },
@@ -489,15 +489,19 @@ def send_due_rsvp_reminders(*, kind=None, dry_run=False):
     one. dry_run=True reports counts without claiming or sending.
     Returns (events_processed, emails_sent, emails_failed) summed
     across kinds.
+
+    When an admin has switched these reminders off, returns before any
+    event is claimed, so nothing is marked as reminded.
     """
-    if kind is None:
-        kinds = tuple(REMINDER_KINDS.keys())
-    elif kind in REMINDER_KINDS:
-        kinds = (kind,)
-    else:
+    if kind is not None and kind not in REMINDER_KINDS:
         raise ValueError(
             f"Unknown reminder kind {kind!r}; choose from {sorted(REMINDER_KINDS)}."
         )
+    if not is_email_enabled("rsvp_reminder"):
+        logger.info("RSVP reminders are turned off; nothing sent.")
+        return 0, 0, 0
+
+    kinds = tuple(REMINDER_KINDS.keys()) if kind is None else (kind,)
 
     events_processed = 0
     emails_sent = 0
@@ -513,8 +517,8 @@ def send_due_rsvp_reminders(*, kind=None, dry_run=False):
 def _dispatch_reminder_kind(kind, *, dry_run):
     cfg = REMINDER_KINDS[kind]
     field = cfg["field"]
-    hours_ahead = int(getattr(settings, cfg["hours_ahead_setting"]))
-    window_hours = int(getattr(settings, cfg["window_hours_setting"]))
+    hours_ahead = float(getattr(settings, cfg["hours_ahead_setting"]))
+    window_hours = float(getattr(settings, cfg["window_hours_setting"]))
 
     now = timezone.now()
     window_start = now + timedelta(hours=hours_ahead)
@@ -603,6 +607,39 @@ def _format_event_times_for_user(event, user_tz_name: str):
     return when_full, date_label, time_label
 
 
+def _relative_start_phrase(lead: timedelta) -> str:
+    """Human phrase for how soon an event starts, from its real start time.
+
+    Rounds to the nearest 15 minutes so the copy tracks the actual lead
+    time: an event caught in the 1h window at 1h45m out reads "starts in
+    about an hour and 45 minutes", not a stock "starts in about an hour".
+    """
+    minutes = max(0, int(lead.total_seconds() // 60))
+    rounded = 15 * round(minutes / 15)
+
+    if rounded <= 0:
+        return "starts in a few minutes"
+    if rounded <= 15:
+        return "starts in about 15 minutes"
+    if rounded <= 30:
+        return "starts in about half an hour"
+    if rounded < 60:
+        return "starts in under an hour"
+
+    hours, tail = divmod(rounded, 60)
+    if tail == 0:
+        label = "an hour" if hours == 1 else f"{hours} hours"
+    elif hours == 1 and tail == 30:
+        label = "an hour and a half"
+    elif hours == 1:
+        label = f"an hour and {tail} minutes"
+    elif tail == 30:
+        label = f"{hours} and a half hours"
+    else:
+        label = f"{hours} hours {tail} minutes"
+    return f"starts in about {label}"
+
+
 def _send_audience_reminders(event, audience):
     rsvps = (
         EventRsvp.objects.filter(
@@ -614,6 +651,12 @@ def _send_audience_reminders(event, audience):
     )
 
     subject = audience["subject"].format(event_name=event.event_name)
+    intro = audience["intro"]
+    preheader_phrase = audience["preheader_phrase"]
+    if audience.get("lead_is_dynamic"):
+        lead_phrase = _relative_start_phrase(event.start_datetime - timezone.now())
+        intro = intro.format(brand=settings.BRAND_NAME, lead_phrase=lead_phrase)
+        preheader_phrase = preheader_phrase.format(lead_phrase=lead_phrase)
     location_text, location_map_url = _event_location_lines(event)
 
     from_email = settings.DEFAULT_FROM_EMAIL
@@ -634,9 +677,9 @@ def _send_audience_reminders(event, audience):
             **brand_context(),
             "First_Name": first_name,
             "HEADLINE": audience["headline"],
-            "INTRO": audience["intro"],
+            "INTRO": intro,
             "CLOSING": audience["closing"],
-            "PREHEADER": f"{event.event_name} {audience['preheader_phrase']}.",
+            "PREHEADER": f"{event.event_name} {preheader_phrase}.",
             "EVENT_NAME": event.event_name,
             "EVENT_WHEN_TEXT": when_full,
             "EVENT_DATE": date_label,
@@ -667,15 +710,13 @@ def _send_audience_reminders(event, audience):
 def _send_one_reminder(*, subject, recipient, from_email, ctx):
     # Extracted so resilience tests can patch a single seam.
     plain_body = _build_plain_reminder_body(ctx)
-    html_body = render_to_string("emails/rsvp_reminder.html", ctx)
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=plain_body,
-        from_email=from_email,
-        to=[recipient],
+    # The unedited subject is just {{ reminder_subject }}, i.e. ``subject``.
+    rendered = render_system_email(
+        "rsvp_reminder",
+        {**ctx, "REMINDER_SUBJECT": subject},
+        default_text=plain_body,
     )
-    msg.attach_alternative(html_body, "text/html")
-    attach_inline_logo(msg)
+    msg = build_message(rendered, recipient, from_email=from_email)
     msg.send(fail_silently=False)
 
 

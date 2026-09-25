@@ -24,13 +24,16 @@ from apps.common.role_names import (
     ROLE_SUPERVISOR,
     get_role_by_name,
 )
-from apps.groups.models import Countries, CountryStates, Groups
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
 from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
+    SupervisedStudentGuardianSerializer,
+    SupervisedStudentProfileUpdateSerializer,
+    SupervisedStudentSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
     StudentSelfProfileUpdateSerializer,
@@ -413,7 +416,219 @@ class ProfileImageUploadView(APIView):
             raise serializers.ValidationError({"image": "Select an image to upload."})
         save_profile_image(user=request.user, uploaded_file=image)
         return Response(UserSerializer(request.user).data)
-    
+
+
+class SupervisedStudentsView(APIView):
+    """Roster of students linked to the authenticated supervisor."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+    serializer_class = SupervisedStudentSerializer
+
+    @extend_schema(responses={200: SupervisedStudentSerializer(many=True)})
+    def get(self, request):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        profiles = list(
+            StudentProfile.objects.filter(supervisor_id=request.user.id)
+            .select_related("user")
+            .order_by("user__first_name", "user__last_name", "user_id")
+        )
+        user_ids = [profile.user_id for profile in profiles]
+        interests_by_user = {}
+        if user_ids:
+            for user_id, desc in (
+                UserInterest.objects.filter(user_id__in=user_ids)
+                .select_related("interest")
+                .order_by("interest__interest_desc")
+                .values_list("user_id", "interest__interest_desc")
+            ):
+                interests_by_user.setdefault(user_id, []).append(desc)
+
+        group_by_user = {}
+        if user_ids:
+            for membership in (
+                GroupMembership.objects.filter(
+                    user_id__in=user_ids,
+                    left_at__isnull=True,
+                    membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                )
+                .select_related("group")
+                .order_by("id")
+            ):
+                group_by_user.setdefault(membership.user_id, membership)
+
+        payload = []
+        for profile in profiles:
+            membership = group_by_user.get(profile.user_id)
+            group = membership.group if membership else None
+            payload.append({
+                "id": profile.user_id,
+                "first_name": profile.user.first_name,
+                "last_name": profile.user.last_name,
+                "email": profile.user.email,
+                "school_name": profile.school_name or "",
+                "year_lvl": profile.year_lvl or "",
+                "interests": interests_by_user.get(profile.user_id, []),
+                "pg_first_name": profile.pg_first_name or "",
+                "pg_last_name": profile.pg_last_name or "",
+                "pg_email": profile.pg_email or "",
+                "parent_guardian_flag": profile.parent_guardian_flag,
+                "has_join_permission": profile.has_join_permission,
+                "joinperm_response_id": profile.joinperm_responseID or "",
+                "joinperm_granted_at": profile.joinperm_granted_at,
+                "group_id": None if group is None or group.deleted_at else group.id,
+                "group_name": None if group is None or group.deleted_at else group.group_name,
+            })
+
+        return Response(SupervisedStudentSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=SupervisedStudentGuardianSerializer,
+        responses={200: SupervisedStudentSerializer(many=True)},
+    )
+    @transaction.atomic
+    def patch(self, request):
+        """Record parent/guardian details for one or more supervised students."""
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        serializer = SupervisedStudentGuardianSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student_ids = serializer.validated_data["student_ids"]
+        pg_first_name = serializer.validated_data["pg_first_name"].strip()
+        pg_last_name = serializer.validated_data["pg_last_name"].strip()
+        pg_email = (serializer.validated_data.get("pg_email") or "").strip() or None
+
+        profiles = list(
+            StudentProfile.objects.select_related("user").filter(
+                supervisor_id=request.user.id,
+                user_id__in=student_ids,
+            )
+        )
+        found_ids = {profile.user_id for profile in profiles}
+        missing = [student_id for student_id in student_ids if student_id not in found_ids]
+        if missing:
+            raise PermissionDenied("One or more students are not on your roster.")
+
+        for profile in profiles:
+            profile.pg_first_name = pg_first_name
+            profile.pg_last_name = pg_last_name
+            profile.pg_email = pg_email
+            profile.parent_guardian_flag = True
+            profile.save(
+                update_fields=[
+                    "pg_first_name",
+                    "pg_last_name",
+                    "pg_email",
+                    "parent_guardian_flag",
+                ]
+            )
+
+        return self.get(request)
+
+
+def _supervised_student_row(profile):
+    interests = list(
+        UserInterest.objects.filter(user_id=profile.user_id)
+        .order_by("interest__interest_desc")
+        .values_list("interest__interest_desc", flat=True)
+    )
+    membership = (
+        GroupMembership.objects.filter(
+            user_id=profile.user_id,
+            left_at__isnull=True,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        .select_related("group")
+        .order_by("id")
+        .first()
+    )
+    group = membership.group if membership else None
+    return {
+        "id": profile.user_id,
+        "first_name": profile.user.first_name,
+        "last_name": profile.user.last_name,
+        "email": profile.user.email,
+        "school_name": profile.school_name or "",
+        "year_lvl": profile.year_lvl or "",
+        "interests": interests,
+        "pg_first_name": profile.pg_first_name or "",
+        "pg_last_name": profile.pg_last_name or "",
+        "pg_email": profile.pg_email or "",
+        "parent_guardian_flag": profile.parent_guardian_flag,
+        "has_join_permission": profile.has_join_permission,
+        "joinperm_response_id": profile.joinperm_responseID or "",
+        "joinperm_granted_at": profile.joinperm_granted_at,
+        "group_id": None if group is None or group.deleted_at else group.id,
+        "group_name": None if group is None or group.deleted_at else group.group_name,
+    }
+
+
+class SupervisedStudentDetailView(APIView):
+    """Update a supervised student profile after parent/guardian permission."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(
+        request=SupervisedStudentProfileUpdateSerializer,
+        responses={200: SupervisedStudentSerializer},
+    )
+    @transaction.atomic
+    def patch(self, request, pk):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        profile = (
+            StudentProfile.objects.select_related("user")
+            .filter(supervisor_id=request.user.id, user_id=pk)
+            .first()
+        )
+        if profile is None:
+            raise PermissionDenied("This student is not on your roster.")
+        if not profile.has_join_permission:
+            raise PermissionDenied(
+                "This student profile can be edited after parent/guardian permission is recorded."
+            )
+
+        serializer = SupervisedStudentProfileUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        user = profile.user
+        user.first_name = data["first_name"].strip()
+        user.last_name = data["last_name"].strip()
+        user.save(update_fields=["first_name", "last_name"])
+
+        profile.school_name = data["school_name"].strip()
+        profile.year_lvl = data["year_lvl"]
+        profile.save(update_fields=["school_name", "year_lvl"])
+
+        if "interests" in data:
+            descriptions = []
+            seen = set()
+            for item in data["interests"]:
+                label = str(item).strip()
+                key = label.lower()
+                if not label or key in seen:
+                    continue
+                seen.add(key)
+                descriptions.append(label)
+            UserInterest.objects.filter(user=user).delete()
+            for label in descriptions:
+                interest, _created = AreasOfInterest.objects.get_or_create(
+                    interest_desc__iexact=label,
+                    defaults={"interest_desc": label},
+                )
+                UserInterest.objects.create(user=user, interest=interest)
+
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
+
+
 class UserRegisterView(APIView):
     """Public student self-registration endpoint.
 
@@ -577,6 +792,8 @@ class ReceiveJoinPermissionView(APIView):
 
         sp.has_join_permission = True
         sp.joinperm_responseID = databody["ResponseID"]
+        if sp.joinperm_granted_at is None:
+            sp.joinperm_granted_at = timezone.now()
         sp.save()
 
         return Response(data["body"])

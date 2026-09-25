@@ -5,27 +5,6 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { ApiError } from '@/utils/apiError'
 import type { SubmissionDetail, SubmissionRecord } from '@/utils/submissionsAPI'
 
-/**
- * Behaviour tests for the submission portal.
- *
- * Deliberately about the rules a student can be hurt by rather than about
- * markup: whether a submitted entry can still be quietly edited, whether a
- * closed deadline is enforced in the page and not only on the server, and
- * whether the progress count tells the truth. Formatting helpers are covered
- * in utils/__tests__/submissionFormat.spec.ts.
- *
- * Two design points these specs pin down, because both are easy to "fix" into
- * something worse:
- *
- * * Submit is never disabled for an incomplete entry. It stays clickable and
- *   the server answers with the list of unanswered questions, which the page
- *   then names. Greying the button out instead would leave a student hunting
- *   for which box is blank.
- * * A locked entry offers "Resubmit" (reopen it), and only once reopened does
- *   the action become "New Attempt". The first ever submission is plain
- *   "Submit".
- */
-
 const saveDraft = vi.fn()
 const submitEntry = vi.fn()
 const reopenEntry = vi.fn()
@@ -39,8 +18,6 @@ vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
     saveDraft: (...args: unknown[]) => saveDraft(...args),
     submitEntry: (...args: unknown[]) => submitEntry(...args),
     reopenEntry: (...args: unknown[]) => reopenEntry(...args),
-    // Previewing pulls a blob over the network; no spec here asserts on a
-    // rendered PDF, so keep it inert.
     fetchPreviewObjectUrl: vi.fn().mockResolvedValue(''),
     releasePreview: vi.fn(),
   }
@@ -72,18 +49,20 @@ const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.
 const emptyRecord = (): SubmissionRecord => ({
   answers: {},
   poster: null,
+  poster_checks: null,
   report: null,
   prototype: null,
   prototype_url: '',
   submitted_answers: null,
   submitted_poster: null,
+  submitted_poster_checks: null,
   submitted_report: null,
   submitted_prototype: null,
   submitted_prototype_url: '',
   submitted_at: null,
   submitted_by_name: '',
   reopened_at: null,
-  status: 'in_progress',
+  stage: 'not_started',
   is_submitted: false,
   is_locked: false,
   is_late: false,
@@ -119,7 +98,7 @@ const submittedDetail = () =>
       submitted_answers: ANSWERED,
       submitted_poster: POSTER,
       submitted_at: new Date().toISOString(),
-      status: 'submitted',
+      stage: 'submitted',
       is_submitted: true,
       is_locked: true,
     },
@@ -136,7 +115,7 @@ const reopenedDetail = () => {
       submitted_poster: POSTER,
       submitted_at: new Date(now - 60_000).toISOString(),
       reopened_at: new Date(now).toISOString(),
-      status: 'in_progress',
+      stage: 'revising',
       is_submitted: true,
       is_locked: false,
     },
@@ -145,11 +124,10 @@ const reopenedDetail = () => {
 
 const stub = { template: '<div />' }
 
-// The page renders a RouterLink back to the team, so that named route has to
-// exist here or every mount throws while resolving it.
 const ROUTES = [
-  { path: '/submission/:id', name: 'submission', component: stub },
+  { path: '/groups/:id/submission', name: 'group-submission', component: stub },
   { path: '/groups/:id', name: 'group-detail', component: stub },
+  { path: '/resources/:id', name: 'resource-detail', component: stub },
 ]
 
 let pinia: Pinia
@@ -158,9 +136,13 @@ let wrapper: VueWrapper | null = null
 const mountPage = async (detail: SubmissionDetail) => {
   fetchSubmission.mockResolvedValue(detail)
   const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-  await router.push('/submission/1')
+  await router.push('/groups/1/submission')
   await router.isReady()
-  wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+  // Attached to the document so focus can actually move.
+  wrapper = mount(GroupSubmissionPage, {
+    attachTo: document.body,
+    global: { plugins: [router, pinia] },
+  })
   for (let i = 0; i < 4; i += 1) await flushPromises()
   return wrapper
 }
@@ -168,7 +150,6 @@ const mountPage = async (detail: SubmissionDetail) => {
 const buttons = () => wrapper!.findAll('button')
 const buttonNamed = (label: RegExp) => buttons().find((b) => label.test(b.text().trim()))
 
-/** The submit control lives on the final step of the wizard, not the first. */
 const goToLastStep = async () => {
   await buttonNamed(/Additional/)!.trigger('click')
   await flushPromises()
@@ -179,14 +160,12 @@ beforeEach(() => {
   setActivePinia(pinia)
   vi.clearAllMocks()
   vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
-  // Changing step scrolls back to the top. jsdom has no layout, so the real
-  // call prints "Not implemented" for every step change and buries the results.
+  // jsdom has no scrollTo; stubbed to keep test output readable.
   vi.stubGlobal('scrollTo', vi.fn())
 })
 
 afterEach(() => {
-  // The page runs an interval for the countdown and a debounce timer for
-  // auto-save; leaking either hangs the run.
+  // Unmounted so the countdown and auto-save timers cannot hang the run.
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
@@ -199,7 +178,6 @@ describe('required-answer progress', () => {
   })
 
   it('does not count whitespace as an answer', async () => {
-    // A student who typed a space must not be told the question is done.
     await mountPage(
       buildDetail({ submission: { answers: { solution_purpose: 'Real.', inspiration: '   ' } } }),
     )
@@ -226,20 +204,78 @@ describe('submitting', () => {
     expect(buttonNamed(/^Submit$/)?.attributes('disabled')).toBeUndefined()
   })
 
-  it('names the unanswered questions when the server refuses', async () => {
+  it('refuses an incomplete entry without listing every unanswered question', async () => {
     await mountPage(buildDetail({ submission: { answers: {}, poster: POSTER } }))
     await goToLastStep()
-    saveDraft.mockResolvedValue({ deadline: submittedDetail().deadline, submission: emptyRecord() })
-    submitEntry.mockRejectedValue(
-      Object.assign(new Error('Required answers missing.'), {
-        body: { missing: ['solution_purpose'] },
-      }),
-    )
 
     await buttonNamed(/^Submit$/)!.trigger('click')
     await flushPromises()
 
-    expect(submitEntry).toHaveBeenCalled()
+    // toContain, not toBe: the banner carries a dismiss control of its own.
+    const message = wrapper!.find('.submission-message').text()
+    expect(message).toContain('Some required questions have not been answered.')
+    expect(message).not.toContain(QUESTIONS[0].prompt)
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('clears an error banner by itself after four seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      await mountPage(buildDetail({ submission: { answers: {}, poster: POSTER } }))
+      await goToLastStep()
+      await buttonNamed(/^Submit$/)!.trigger('click')
+      await flushPromises()
+      expect(wrapper!.find('.submission-message').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4000)
+
+      expect(wrapper!.find('.submission-message').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends the student to the first unanswered question, not merely back a step', async () => {
+    await mountPage(
+      buildDetail({
+        submission: { answers: { solution_purpose: 'Done.' }, poster: POSTER },
+      }),
+    )
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    expect(document.activeElement?.id).toBe(QUESTIONS[1].key)
+  })
+
+  it('sends the student to the poster step when only the poster is missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A poster must be uploaded before the entry can be submitted.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Poster')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('reports both when the questions are unanswered and the poster is missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: {}, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'Some required questions have not been answered, and no poster has been uploaded.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    expect(submitEntry).not.toHaveBeenCalled()
   })
 
   it('calls the API when submit is pressed', async () => {
@@ -268,8 +304,6 @@ describe('a submitted entry', () => {
   })
 
   it('cannot be edited without reopening it first', async () => {
-    // The snapshot only survives because editing is refused here; a writable
-    // box would let a student quietly replace what was submitted.
     await mountPage(submittedDetail())
     const boxes = wrapper!.findAll('textarea')
     expect(boxes.length).toBeGreaterThan(0)
@@ -287,9 +321,73 @@ describe('a submitted entry', () => {
     })
     await resubmit!.trigger('click')
     await flushPromises()
+    await wrapper!.find('[data-testid="reopen-confirm"]').trigger('click')
+    await flushPromises()
 
     expect(reopenEntry).toHaveBeenCalledWith('1')
     expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('asks before reopening, and says the current submission stands', async () => {
+    await mountPage(submittedDetail())
+
+    await wrapper!.find('[data-testid="resubmit"]').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper!.find('[data-testid="reopen-dialog"]')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('stays in place')
+    expect(reopenEntry).not.toHaveBeenCalled()
+  })
+
+  it('asks in the page rather than through the browser', async () => {
+    await mountPage(submittedDetail())
+
+    await wrapper!.find('[data-testid="resubmit"]').trigger('click')
+    await flushPromises()
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
+  })
+
+  it('does nothing at all if the question is declined', async () => {
+    await mountPage(submittedDetail())
+
+    await wrapper!.find('[data-testid="resubmit"]').trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="reopen-cancel"]').trigger('click')
+    await flushPromises()
+
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="reopen-dialog"]').exists()).toBe(false)
+  })
+
+  it('closes on Escape without reopening', async () => {
+    await mountPage(submittedDetail())
+
+    await wrapper!.find('[data-testid="resubmit"]').trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="reopen-dialog"]').trigger('keydown.esc')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="reopen-dialog"]').exists()).toBe(false)
+    expect(reopenEntry).not.toHaveBeenCalled()
+  })
+
+  it('reopens only once the dialog is confirmed', async () => {
+    await mountPage(submittedDetail())
+    reopenEntry.mockResolvedValue({
+      deadline: reopenedDetail().deadline,
+      submission: reopenedDetail().submission!,
+    })
+
+    await wrapper!.find('[data-testid="resubmit"]').trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="reopen-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(reopenEntry).toHaveBeenCalledWith('1')
+    expect(wrapper!.find('[data-testid="reopen-dialog"]').exists()).toBe(false)
   })
 })
 
@@ -301,18 +399,16 @@ describe('a reopened entry', () => {
     })
   })
 
-  it('calls the action New Attempt rather than Submit', async () => {
+  it('still calls the action Submit, not something else', async () => {
     await mountPage(reopenedDetail())
     await goToLastStep()
-    expect(buttonNamed(/New Attempt/i)).toBeTruthy()
-    expect(buttonNamed(/^Submit$/)).toBeUndefined()
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
+    expect(buttonNamed(/New Attempt/i)).toBeUndefined()
   })
 })
 
 describe('a closed deadline', () => {
   it('refuses editing in the page, not only on the server', async () => {
-    // The server is the real gate, but leaving the boxes live would invite a
-    // student to write a long answer only to have the save rejected.
     await mountPage(buildDetail({ isOpen: false, submission: null }))
     const boxes = wrapper!.findAll('textarea')
     expect(boxes.length).toBeGreaterThan(0)
@@ -333,7 +429,7 @@ describe('loading failure', () => {
   it('reports the error instead of rendering an empty form', async () => {
     fetchSubmission.mockRejectedValue(new Error('network down'))
     const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-    await router.push('/submission/1')
+    await router.push('/groups/1/submission')
     await router.isReady()
     wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
     for (let i = 0; i < 4; i += 1) await flushPromises()
@@ -344,9 +440,6 @@ describe('loading failure', () => {
 })
 
 describe('the deadline passing while the page is open', () => {
-  // Both cases below start from an entry that is open and editable — the
-  // student has not been told the deadline passed, because as far as the
-  // last successful fetch knew, it had not.
   const openDetail = () => buildDetail({ submission: { answers: ANSWERED } })
 
   it('closes the page when a save is refused as too late, instead of leaving it retrying forever', async () => {
@@ -360,12 +453,10 @@ describe('the deadline passing while the page is open', () => {
     await new Promise((resolve) => setTimeout(resolve, 2200))
     await flushPromises()
 
-    // The one failed save is enough to know writes are refused — the page
-    // does not wait for a second attempt to say so.
     wrapper!.findAll('textarea').forEach((box) => {
       expect(box.attributes('disabled')).toBeDefined()
     })
-    expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+    expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
     expect(wrapper!.text()).toMatch(/deadline has passed/i)
   })
 
@@ -380,8 +471,7 @@ describe('the deadline passing while the page is open', () => {
     await flushPromises()
     expect(saveDraft).toHaveBeenCalledTimes(1)
 
-    // The box is now disabled, so this models the field already having been
-    // in the middle of an edit when the refusal landed, not a fresh attempt.
+    // Models an edit already in progress when the refusal landed.
     saveDraft.mockClear()
     await wrapper!.vm.$forceUpdate()
     await new Promise((resolve) => setTimeout(resolve, 2200))
@@ -390,37 +480,30 @@ describe('the deadline passing while the page is open', () => {
   })
 
   it('notices the deadline passing even for a student who is only reading', async () => {
-    // No save ever fires here — nothing is being typed — so the only way the
-    // page can find out is by asking again once the clock reaches closes_at.
     vi.useFakeTimers()
     try {
       const open = buildDetail({ submission: { answers: ANSWERED } })
       open.deadline.closes_at = new Date(Date.now() + 30_000).toISOString()
 
-      // The initial load resolves before the clock is advanced at all, so
-      // this mock is consumed once and does not affect the later re-check.
       fetchSubmission.mockResolvedValueOnce(open)
       const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-      await router.push('/submission/1')
+      await router.push('/groups/1/submission')
       await router.isReady()
       wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
       await flushPromises()
       expect(fetchSubmission).toHaveBeenCalledTimes(1)
 
-      // Only now does the server start reporting the deadline as passed — the
-      // re-check has to happen after this point to observe it.
       fetchSubmission.mockResolvedValue({
         ...open,
         deadline: { ...open.deadline, is_open: false }
       })
 
-      // The countdown ticks once a minute; that tick is what notices the
-      // clock has crossed closes_at and triggers the re-check.
+      // The once-a-minute countdown tick triggers the re-check.
       await vi.advanceTimersByTimeAsync(60_000)
       await flushPromises()
 
       expect(fetchSubmission).toHaveBeenCalledTimes(2)
-      expect(wrapper!.find('.submission-closed').exists()).toBe(true)
+      expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
       wrapper!.findAll('textarea').forEach((box) => {
         expect(box.attributes('disabled')).toBeDefined()
       })
@@ -430,9 +513,6 @@ describe('the deadline passing while the page is open', () => {
   })
 
   it('does not assume closed just because the announced time passed, since a grace period may still be running', async () => {
-    // The server is always asked rather than the client deciding on its own:
-    // closes_at passing does not mean writes are refused, and the client is
-    // never told how long any grace period is.
     vi.useFakeTimers()
     try {
       const open = buildDetail({ submission: { answers: ANSWERED } })
@@ -440,13 +520,11 @@ describe('the deadline passing while the page is open', () => {
       fetchSubmission.mockResolvedValue(open)
 
       const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
-      await router.push('/submission/1')
+      await router.push('/groups/1/submission')
       await router.isReady()
       wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
       await flushPromises()
 
-      // The re-check finds the server still accepting writes — a grace
-      // window — because every call keeps returning the same open mock.
       await vi.advanceTimersByTimeAsync(60_000)
       await flushPromises()
 
@@ -478,8 +556,6 @@ describe('an answer over its word limit', () => {
   })
 
   it('leaves the status honestly showing unsaved changes rather than saved', async () => {
-    // A save can succeed for everything else while this one answer is still
-    // only sitting in the browser — the status line must not claim otherwise.
     const detail = buildDetail({ submission: { answers: ANSWERED } })
     await mountPage(detail)
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
@@ -493,9 +569,6 @@ describe('an answer over its word limit', () => {
   })
 
   it('refuses to submit rather than silently sending the last saved version', async () => {
-    // changedAnswers() would otherwise send whatever was saved before the
-    // student went over the limit — technically valid, but not what is
-    // currently in the box, which is worse than refusing outright.
     await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
     await goToLastStep()
     await wrapper!.findAll('textarea')[0].setValue(overLimit)
@@ -505,7 +578,32 @@ describe('an answer over its word limit', () => {
     await flushPromises()
 
     expect(submitEntry).not.toHaveBeenCalled()
-    expect(saveDraft).not.toHaveBeenCalled()
+    // Leaving a step flushes auto-save, so check no save carried the over-limit answer.
+    for (const [, payload] of saveDraft.mock.calls) {
+      expect(Object.keys(payload.answers)).not.toContain(QUESTIONS[0].key)
+    }
+  })
+
+  it('names one question, never a list, and leaves the counts out', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED, poster: POSTER } })
+    await mountPage(detail)
+    // Leaving a step flushes auto-save, so this spec sets its own resolved value.
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await goToLastStep()
+    const boxes = wrapper!.findAll('textarea')
+    await boxes[0].setValue(overLimit)
+    await boxes[1].setValue(overLimit)
+    await flushPromises()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    const text = wrapper!.find('.submission-message').text()
+    expect(text).toContain(QUESTIONS[0].prompt)
+    expect(text).not.toContain(QUESTIONS[1].prompt)
+    expect(text).not.toContain('limit')
+    expect(text).not.toContain('words')
   })
 
   it('names the question by its prompt, not its database key', async () => {
@@ -520,5 +618,512 @@ describe('an answer over its word limit', () => {
     const message = wrapper!.find('.submission-message').text()
     expect(message).toContain(QUESTIONS[0].prompt)
     expect(message).not.toContain(QUESTIONS[0].key)
+  })
+})
+
+describe('the poster template link', () => {
+  const goToPoster = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('reads as one instruction with the section body, not two separate lines', async () => {
+    // Every tab's header stays mounted, so only the poster tab carries the template sentence.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await goToPoster()
+
+    const intro = wrapper!.get('.submission-template-link').element.closest('p')
+    expect(intro?.textContent).toContain('Upload a PDF.')
+    expect(intro?.textContent).toContain("Your poster must use the programme's")
+  })
+
+  it('marks the template as a link with an icon, not colour alone', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await goToPoster()
+
+    const link = wrapper!.find('.submission-template-link')
+    expect(link.attributes('href')).toBe('#/resources/9')
+    expect(link.find('i.fa-arrow-up-right-from-square').exists()).toBe(true)
+  })
+})
+
+describe('what the format checks found about the poster', () => {
+  const warned = (warnings: { code: string; message: string }[]) =>
+    buildDetail({
+      submission: {
+        answers: ANSWERED,
+        poster: POSTER,
+        poster_checks: {
+          has_text: true,
+          unreadable: false,
+          warnings: warnings.map((w) => ({ ...w, passed: false })),
+        },
+      },
+    })
+
+  const goToPoster = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('points at the requirements rather than naming what it could not find', async () => {
+    await mountPage(
+      warned([{ code: 'team_code', message: 'We could not find your team code (BTF1).' }]),
+    )
+    await goToPoster()
+
+    const notice = wrapper!.find('.poster-notice').text()
+    expect(notice).toContain('submission requirements')
+    expect(notice).not.toContain('could not find')
+  })
+
+  it('leads with the upload having worked, so it does not read as a refusal', async () => {
+    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').text()).toMatch(/^Uploaded\./)
+  })
+
+  it('keeps the notice to a single line', async () => {
+    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
+    await goToPoster()
+
+    expect(wrapper!.findAll('.poster-notice p')).toHaveLength(1)
+  })
+
+  it('clears the notice by itself after four seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      await mountPage(warned([{ code: 'a_series_size', message: 'Not an A-series size.' }]))
+      await goToPoster()
+      expect(wrapper!.find('.poster-notice').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4000)
+
+      expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not warn at all when the poster passed every check', async () => {
+    await mountPage(
+      buildDetail({
+        submission: {
+          answers: ANSWERED,
+          poster: POSTER,
+          poster_checks: { has_text: true, unreadable: false, warnings: [] },
+        },
+      }),
+    )
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+  })
+
+  it('says nothing about a poster that carried no readable text', async () => {
+    await mountPage(
+      buildDetail({
+        submission: {
+          answers: ANSWERED,
+          poster: POSTER,
+          poster_checks: { has_text: false, unreadable: false, warnings: [] },
+        },
+      }),
+    )
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+  })
+
+  it('reports on the submitted poster once the entry is locked', async () => {
+    // The draft and submitted findings disagree, so the wrong one would show a notice.
+    const detail = submittedDetail()
+    detail.submission!.poster_checks = {
+      has_text: true,
+      unreadable: false,
+      warnings: [{ code: 'team_code', message: 'Draft finding.', passed: false }],
+    }
+    detail.submission!.submitted_poster_checks = {
+      has_text: true,
+      unreadable: false,
+      warnings: [],
+    }
+    await mountPage(detail)
+    await goToPoster()
+
+    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+  })
+})
+
+describe('moving between steps', () => {
+  it('offers Submit from the first step, not only the last', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
+  })
+
+  it('keeps each arrow labelled with where it goes', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    const forward = buttons().find((b) => b.attributes('aria-label')?.startsWith('Next:'))
+    expect(forward?.attributes('aria-label')).toBe('Next: Poster')
+  })
+
+  it('disables the back arrow on the first step rather than removing it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    const back = buttons().find((b) => b.attributes('aria-label') === 'Previous step')
+    expect(back?.attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('what the status line says', () => {
+  const line = () => wrapper!.find('.status-line').text()
+
+  const at = (stage: SubmissionRecord['stage'], isOpen: boolean, extra = {}) =>
+    buildDetail({
+      isOpen,
+      submission: { stage, ...extra },
+    })
+
+  it('invites a team that has not started while the window is open', async () => {
+    await mountPage(at('not_started', true))
+    expect(line()).toContain('Not Started')
+  })
+
+  it('says a started entry is in progress while the window is open', async () => {
+    await mountPage(at('in_progress', true, { answers: ANSWERED }))
+    expect(line()).toContain('In Progress')
+  })
+
+  it('says submitted while the window is open', async () => {
+    await mountPage(submittedDetail())
+    expect(line()).toContain('Submitted')
+  })
+
+  it('reassures a team mid-revision that their entry still stands', async () => {
+    await mountPage(reopenedDetail())
+    const text = line()
+    expect(text).toContain('In Progress')
+    expect(text).toContain('still stands')
+  })
+
+  it('tells a team that never started that nothing went in', async () => {
+    await mountPage(at('not_started', false))
+    const text = line()
+    expect(text).toContain('Not Submitted')
+    expect(text).toContain('Submissions are closed')
+    expect(text).not.toContain('In Progress')
+  })
+
+  it('tells a team with an unsubmitted draft that it never went in', async () => {
+    await mountPage(at('in_progress', false, { answers: ANSWERED }))
+    const text = line()
+    expect(text).toContain('Not Submitted')
+    expect(text).toContain('Submissions are closed')
+    expect(text).not.toContain('never submitted')
+    expect(text).not.toContain('In Progress')
+  })
+
+  it('still says submitted once the window has closed', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+    expect(line()).toContain('Submitted')
+  })
+
+  it('tells a team who ran out of time mid-revision that the revision did not count', async () => {
+    const detail = reopenedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+
+    const text = line()
+    expect(text).toContain('Submitted')
+    expect(text).toContain('unfinished revision was not submitted')
+    expect(text).not.toContain('In Progress')
+  })
+})
+
+describe('which copy of the entry is shown', () => {
+  const SUBMITTED_ANSWERS = { solution_purpose: 'SUBMITTED.', inspiration: 'SUBMITTED.' }
+  const DRAFT_ANSWERS = { solution_purpose: 'DRAFT.', inspiration: 'DRAFT.' }
+  const SUBMITTED_POSTER = { ...POSTER, name: 'submitted.pdf' }
+  const DRAFT_POSTER = { ...POSTER, name: 'draft.pdf' }
+
+  const midRevision = (isOpen: boolean) => {
+    const now = Date.now()
+    return buildDetail({
+      isOpen,
+      submission: {
+        stage: 'revising',
+        answers: DRAFT_ANSWERS,
+        poster: DRAFT_POSTER,
+        submitted_answers: SUBMITTED_ANSWERS,
+        submitted_poster: SUBMITTED_POSTER,
+        submitted_at: new Date(now - 60_000).toISOString(),
+        reopened_at: new Date(now).toISOString(),
+        is_submitted: true,
+        is_locked: false,
+      },
+    })
+  }
+
+  it('shows the draft while a revision is still possible', async () => {
+    await mountPage(midRevision(true))
+    expect(wrapper!.findAll('textarea')[0].element.value).toBe('DRAFT.')
+  })
+
+  it('shows what was submitted once the window has closed', async () => {
+    await mountPage(midRevision(false))
+    expect(wrapper!.findAll('textarea')[0].element.value).toBe('SUBMITTED.')
+  })
+
+  it('shows the submitted poster once the window has closed', async () => {
+    await mountPage(midRevision(false))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-file').text()).toContain('submitted.pdf')
+  })
+})
+
+describe('how the status line is worded', () => {
+  it('does not repeat the deadline date the header already shows', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { stage: 'not_started' } }))
+
+    const text = wrapper!.find('.status-line').text()
+    expect(text).toContain('Submissions are closed.')
+    expect(text).not.toMatch(/deadline passed on/i)
+  })
+
+  it('ends the headline with a full stop when a detail follows it', async () => {
+    await mountPage(submittedDetail())
+
+    expect(wrapper!.find('.status-line__state').text()).toBe('Submitted.')
+  })
+
+  it('says the window is shut in the status line, not a separate banner', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { stage: 'not_started' } }))
+
+    expect(wrapper!.find('.submission-closed').exists()).toBe(false)
+    expect(wrapper!.find('.status-line').text()).toContain('Submissions are closed')
+  })
+
+  it('leaves the headline unpunctuated when it stands alone', async () => {
+    await mountPage(buildDetail({ submission: { stage: 'in_progress', answers: ANSWERED } }))
+
+    expect(wrapper!.find('.status-line__state').text()).toBe('In Progress')
+  })
+})
+
+describe('how the deadline reads', () => {
+  it('leaves the year out when the deadline falls this year', async () => {
+    await mountPage(buildDetail({}))
+
+    expect(wrapper!.find('.submission-due__date').text()).not.toContain(
+      String(new Date().getFullYear()),
+    )
+  })
+
+  it('names the year when the deadline is in another one', async () => {
+    const nextYear = new Date()
+    nextYear.setFullYear(nextYear.getFullYear() + 1)
+    const detail = buildDetail({})
+    detail.deadline.closes_at = nextYear.toISOString()
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('.submission-due__date').text()).toContain(
+      String(nextYear.getFullYear()),
+    )
+  })
+
+  it('shows the countdown while the window is open', async () => {
+    await mountPage(buildDetail({}))
+
+    expect(wrapper!.find('.submission-remaining').exists()).toBe(true)
+  })
+
+  it('drops the countdown entirely once the closing time has passed', async () => {
+    const detail = buildDetail({})
+    detail.deadline.closes_at = new Date(Date.now() - 3_600_000).toISOString()
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('.submission-remaining').exists()).toBe(false)
+    expect(wrapper!.find('.submission-due__date').exists()).toBe(true)
+  })
+
+  it('marks the countdown as near inside the last day', async () => {
+    const detail = buildDetail({})
+    detail.deadline.closes_at = new Date(Date.now() + 3 * 3_600_000).toISOString()
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('.submission-remaining').classes()).toContain('is-near')
+  })
+})
+
+describe('the word counter', () => {
+  it('stays hidden until there is something to count', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    expect(wrapper!.findAll('.submission-count')).toHaveLength(0)
+  })
+
+  it('appears once a question is answered, for that question only', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('Two words')
+    await flushPromises()
+
+    const counts = wrapper!.findAll('.submission-count')
+    expect(counts).toHaveLength(1)
+    expect(counts[0].text()).toContain('2 / 150 words')
+  })
+
+  it('treats whitespace as nothing, the same as the progress count does', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('   ')
+    await flushPromises()
+
+    expect(wrapper!.findAll('.submission-count')).toHaveLength(0)
+  })
+
+  it('still shows a count that is over the limit', async () => {
+    await mountPage(buildDetail({ submission: null }))
+
+    await wrapper!.findAll('textarea')[0].setValue('word '.repeat(151))
+    await flushPromises()
+
+    const count = wrapper!.find('.submission-count')
+    expect(count.exists()).toBe(true)
+    expect(count.classes()).toContain('is-over-limit')
+  })
+})
+
+describe('how the preview loads the document', () => {
+  const openPosterTab = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('points the frame at the endpoint rather than fetching the bytes', async () => {
+    // fetch() could not read Azure's cross-origin redirect; a frame can.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const src = wrapper!.find('.preview-frame').attributes('src') ?? ''
+    expect(src).toContain('/files/poster/preview/')
+    expect(src).not.toMatch(/^blob:/)
+  })
+
+  it('keys the frame to the stored file so a replacement is not served from cache', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const src = wrapper!.find('.preview-frame').attributes('src') ?? ''
+    expect(src).toContain(encodeURIComponent(POSTER.storage_key))
+  })
+
+  it('shows nothing to preview when no file is attached', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await openPosterTab()
+
+    expect(wrapper!.find('.preview-frame').exists()).toBe(false)
+    expect(wrapper!.find('.preview-empty').exists()).toBe(true)
+  })
+})
+
+describe('collapsing a preview', () => {
+  const openPosterTab = async () => {
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('starts open, so an uploaded poster is visible without asking', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper!.find('.preview-panel').classes()).not.toContain('is-collapsed')
+  })
+
+  it('folds away when the heading is pressed', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    await wrapper!.find('[data-testid="toggle-poster-preview"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="toggle-poster-preview"]').attributes('aria-expanded')).toBe(
+      'false',
+    )
+    expect(wrapper!.find('.preview-panel').classes()).toContain('is-collapsed')
+  })
+
+  it('hides the document rather than unloading it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    await wrapper!.find('[data-testid="toggle-poster-preview"]').trigger('click')
+    await flushPromises()
+
+    const body = wrapper!.find('#poster-preview-body')
+    expect(body.exists()).toBe(true)
+    expect((body.element as HTMLElement).style.display).toBe('none')
+  })
+
+  it('opens again on a second press', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await openPosterTab()
+
+    const toggle = () => wrapper!.find('[data-testid="toggle-poster-preview"]')
+    await toggle().trigger('click')
+    await toggle().trigger('click')
+    await flushPromises()
+
+    expect(toggle().attributes('aria-expanded')).toBe('true')
+  })
+})
+
+describe('as a section of the group page', () => {
+
+  it('keeps the page wrapper, which carries every design token', async () => {
+    // Every design token for the section is declared on .content-area.
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(wrapper!.find('.content-area').exists()).toBe(true)
+  })
+
+  it('carries no masthead, which the group page header already covers', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.portal-brand').exists()).toBe(false)
+  })
+
+  it('keeps the deadline, which nothing else on the group page states', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.submission-due').exists()).toBe(true)
+  })
+
+  it('carries no back link, which pointed at the page it now lives on', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('.submission-back').exists()).toBe(false)
+  })
+
+  it('keeps everything that matters', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+
+    expect(wrapper!.findAll('textarea')).toHaveLength(QUESTIONS.length)
+    expect(wrapper!.find('.submission-due').exists()).toBe(true)
+    expect(wrapper!.find('.status-line').exists()).toBe(true)
+    expect(wrapper!.find('.submission-steps').exists()).toBe(true)
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
   })
 })

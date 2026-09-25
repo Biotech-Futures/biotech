@@ -1,65 +1,39 @@
-"""Models for the team submission platform.
-
-A team fills in a set of short-answer questions and attaches up to three files
-(a poster, an optional scientific report, and an optional prototype) plus an
-optional link. They may keep changing their entry until the deadline passes.
-
-Scope notes, deliberate for this first version:
-
-* Entries are **per team**. There is no route for a student who is not in a
-  group to submit on their own; whether the competition allows that is an open
-  question with the client.
-* There is a **single submission round**. No column records which year or round
-  a submission belongs to, so a second round would need a schema change.
-"""
+"""Models for team competition submissions: questions, deadlines and entries."""
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 
-def _default_cohort() -> int:
-    """Fallback cohort for a draft row.
+# Read by the page and by cohort reports, so these strings are a contract.
+STAGE_NOT_STARTED = "not_started"
+STAGE_IN_PROGRESS = "in_progress"
+STAGE_SUBMITTED = "submitted"
+STAGE_REVISING = "revising"
 
-    Deliberately a plain year rather than a lookup: this module cannot import
-    ``services`` (which imports these models), and a draft's cohort is
-    overwritten with the authoritative value when the entry is submitted.
-    """
+
+def _default_cohort() -> int:
+    """Fallback cohort for a draft; replaced with the real cohort on submit."""
     return timezone.now().year
 
 
 class SubmissionQuestion(models.Model):
-    """One short-answer question on the entry form.
+    """One short-answer question on the entry form."""
 
-    Questions live here rather than in the frontend so they can be reworded,
-    reordered or retired without a code change, and — just as importantly — so
-    the server knows what each stored answer *means*. Exporting answers to a
-    spreadsheet needs column headings, and a bare ``{"q1": ...}`` blob cannot
-    supply them.
-    """
-
-    # Stable identifier that stored answers are keyed by. Kept separate from
-    # ``prompt`` so the wording can be rewritten freely — fixing a typo must
-    # never orphan answers students have already written.
+    # Separate from prompt so rewording a question never orphans its answers.
     key = models.CharField(max_length=32, unique=True)
     prompt = models.TextField()
     help_text = models.CharField(max_length=255, blank=True)
     order = models.PositiveIntegerField(default=0)
     is_required = models.BooleanField(default=False)
-    # Blank means no limit. Words rather than characters because that is the
-    # rule the competition actually publishes ("max 150 words each") and the
-    # one their Qualtrics form enforces.
+    # Blank means no limit.
     max_words = models.PositiveIntegerField(null=True, blank=True)
-    # Retired rather than deleted: deleting would strand the matching answers
-    # in the JSON with nothing left to label them.
+    # Retired rather than deleted, so existing answers keep their label.
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "submission_question"
         verbose_name = "Submission question"
-        # ``order`` is not unique — swapping two questions around would
-        # otherwise need a temporary value to dodge the constraint. ``id``
-        # breaks ties so the sequence is still stable.
         ordering = ["order", "id"]
         indexes = [models.Index(fields=["is_active", "order"])]
 
@@ -72,35 +46,18 @@ class SubmissionQuestion(models.Model):
 
     @staticmethod
     def count_words(text: str) -> int:
-        """Words in an answer, counted the way the competition's form does.
-
-        Qualtrics validates these answers with ``^\\s*(\\S+\\s+){0,149}\\S*$``,
-        which is simply "runs of non-whitespace separated by whitespace". Any
-        cleverer definition — stripping punctuation, handling hyphenation —
-        would disagree with the tool students were previously measured by.
-        """
         return len((text or "").split())
 
 
 class SubmissionInstruction(models.Model):
-    """Guidance shown above each section of the entry form.
-
-    Held here rather than in the page so the programme team can reword their
-    own guidance without a code change. The wording is expected to be revised
-    several times before a competition runs, and each revision would otherwise
-    need a developer and a deploy.
-    """
+    """Guidance shown above each section of the entry form, editable by admins."""
 
     class Section(models.TextChoices):
         QUESTIONS = "questions", "Questions"
         POSTER = "poster", "Poster"
         EXTRAS = "extras", "Additional materials"
 
-    # One block per section of the form; the section names match the tabs.
     section = models.CharField(max_length=32, choices=Section.choices, unique=True)
-    # Displayed as the section's title, with `body` as the line beneath it —
-    # the same shape the client's Qualtrics form uses ("Short Answer Questions"
-    # above "Max 150 words each").
     heading = models.CharField(max_length=120, blank=True)
     body = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,22 +72,22 @@ class SubmissionInstruction(models.Model):
 
 
 class Deadline(models.Model):
-    """The closing time that applies to every team by default.
-
-    Individual teams can be given more time through :class:`GroupExtension`;
-    this row is the baseline everything else is measured against.
-    """
+    """The closing time that applies to every team without an extension."""
 
     closes_at = models.DateTimeField()
-    # Extra time accepted after closes_at without announcing it. The programme
-    # publishes one date but stays deliberately generous, so that a student in
-    # a timezone well behind the announced one is not cut off partway through
-    # their own deadline day. Students are shown closes_at; the server enforces
-    # closes_at + grace_hours.
+    # Unannounced extra time: students see closes_at, the server enforces the sum.
     grace_hours = models.PositiveIntegerField(default=0)
-    # Rows are kept rather than deleted so a past round stays on record. Only
-    # the active one is consulted when deciding whether submissions are open.
+    # Only the active row is consulted; past rows are kept on record.
     is_active = models.BooleanField(default=True)
+    # Who announced it — shown on the admin page so a changed deadline has a
+    # name attached. Null for rows created before this field (or via scripts).
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deadlines_set",
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -145,16 +102,19 @@ class Deadline(models.Model):
 class GroupExtension(models.Model):
     """Extra time granted to one team.
 
-    Only teams that were actually given an extension have a row here, so the
-    absence of a row is the normal case and means "use the standard deadline".
+    Revoked rows are kept as history; only one ACTIVE (un-revoked) extension
+    may exist per group — enforced by a partial unique constraint.
     """
 
-    group = models.OneToOneField(
+    group = models.ForeignKey(
         "groups.Groups",
         on_delete=models.CASCADE,
-        related_name="submission_extension",
+        related_name="submission_extensions",
     )
     extended_until = models.DateTimeField()
+    # Same quiet buffer as the global deadline: students see extended_until,
+    # the server keeps accepting for these hours after it.
+    grace_hours = models.PositiveIntegerField(default=0)
     reason = models.TextField(blank=True)
     granted_at = models.DateTimeField(default=timezone.now)
     granted_by = models.ForeignKey(
@@ -164,73 +124,82 @@ class GroupExtension(models.Model):
         blank=True,
         related_name="granted_submission_extensions",
     )
+    # Soft revoke: the row is kept as the audit trail (who revoked, when);
+    # readers that decide whether a team can still submit ignore revoked rows.
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="revoked_submission_extensions",
+    )
 
     class Meta:
         db_table = "submission_group_extension"
         verbose_name = "Group extension"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_extension_per_group",
+            )
+        ]
 
     def __str__(self):
         return f"{self.group} until {self.extended_until:%Y-%m-%d %H:%M} UTC"
 
 
+class SubmissionReminder(models.Model):
+    """The last day a team was reminded, so a rerun job never emails twice."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="submission_reminder",
+    )
+    last_sent_on = models.DateField()
+
+    class Meta:
+        db_table = "submission_reminder"
+        verbose_name = "Submission reminder"
+
+    def __str__(self):
+        return f"{self.group} last reminded {self.last_sent_on}"
+
+
 class Submission(models.Model):
-    """One team's entry. Resubmitting updates this row rather than adding one.
+    """One team's entry. Resubmitting updates this row rather than adding one."""
 
-    Keeping a single row per team means the history of earlier attempts is not
-    retained. That is a deliberate simplification: a full version history is
-    what a judging system needs in order to prove what existed at the moment
-    the deadline passed, and judging is out of scope here.
-    """
-
-    # OneToOne rather than ForeignKey so the database itself refuses a second
-    # submission for the same team, instead of relying on application code.
-    #
-    # A consequence worth being explicit about: a team can hold exactly one
-    # entry, ever. That is safe because group names come from a single
-    # continuous series (``Groups.create_auto_named``) rather than restarting
-    # each year, so a team re-forming for a later competition is a new group.
     group = models.OneToOneField(
         "groups.Groups",
         on_delete=models.CASCADE,
         related_name="submission",
     )
 
-    # Which competition year this entry belongs to. Stored rather than inferred
-    # from ``submitted_at`` because the two genuinely disagree: a deadline in
-    # September with a grace window, or a granted extension, can put the act of
-    # submitting in a different calendar year from the competition itself.
-    # Indexed because "every entry in this cohort" is the query a judging or
-    # reporting tool runs first. The authoritative value is written at submit
-    # (see services.current_cohort); the default only covers drafts.
+    # Stored, since a grace window can put submitting in a different year.
     cohort = models.PositiveIntegerField(default=_default_cohort, db_index=True)
 
-    # Short-answer responses, keyed by question id: {"q1": "...", "q2": "..."}.
-    # Held as JSON because the real questions are not known yet — they come
-    # from the client's existing Qualtrics form. This lets the question set
-    # change without a database migration each time.
+    # Keyed by question key.
     answers = models.JSONField(default=dict, blank=True)
 
-    # Each attachment is stored as one JSON object holding everything needed to
-    # serve the file back: {"storage_key", "name", "mime", "size"}. Three flat
-    # columns rather than twelve, and nothing ever needs to search inside them
-    # — they are only ever read back for a single team at a time.
+    # Each attachment is {"storage_key", "name", "mime", "size"}.
     poster = models.JSONField(null=True, blank=True)
     report = models.JSONField(null=True, blank=True)
     prototype = models.JSONField(null=True, blank=True)
     prototype_url = models.URLField(blank=True)
 
-    # --- the submitted copy -------------------------------------------------
-    # Taken at the moment of submitting and left alone afterwards. Editing works
-    # on the live fields above, so a team that reopens their entry and does not
-    # finish still has exactly what they submitted. Without this, abandoning a
-    # resubmission would quietly replace a valid entry with a half-edited one.
+    # What the format checks found at upload.
+    poster_checks = models.JSONField(null=True, blank=True)
+
+    # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
     submitted_answers = models.JSONField(null=True, blank=True)
     submitted_poster = models.JSONField(null=True, blank=True)
+    submitted_poster_checks = models.JSONField(null=True, blank=True)
     submitted_report = models.JSONField(null=True, blank=True)
     submitted_prototype = models.JSONField(null=True, blank=True)
     submitted_prototype_url = models.URLField(blank=True)
 
-    # Empty submitted_at means the team has saved a draft but never submitted.
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -239,11 +208,9 @@ class Submission(models.Model):
         blank=True,
         related_name="submissions_made",
     )
-    # Set when a team chooses to resubmit. Later than submitted_at means they
-    # are editing again; the submitted copy above stays put until they finish.
+    # Later than submitted_at means the team is editing again.
     reopened_at = models.DateTimeField(null=True, blank=True)
-    # Recorded at the moment of submitting rather than computed on read, so a
-    # later change to the deadline cannot retroactively make an entry late.
+    # Recorded at submit, so a later deadline change cannot make an entry late.
     is_late = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -253,50 +220,50 @@ class Submission(models.Model):
         db_table = "submission"
         verbose_name = "Submission"
 
-    # Slots whose file details are copied into the submitted set.
     FILE_SLOTS = ("poster", "report", "prototype")
 
     def __str__(self):
-        return f"{self.group} ({self.status})"
+        return f"{self.group} ({self.stage})"
 
     @property
     def is_submitted(self) -> bool:
-        """A completed submission exists, whether or not it is being revised."""
         return self.submitted_at is not None
 
     @property
     def is_locked(self) -> bool:
-        """Editing is closed: submitted, and not currently reopened."""
+        """Submitted and not currently reopened."""
         if self.submitted_at is None:
             return False
         return self.reopened_at is None or self.reopened_at <= self.submitted_at
 
     @property
-    def status(self) -> str:
-        return "submitted" if self.is_locked else "in_progress"
+    def has_content(self) -> bool:
+        if any(str(value).strip() for value in (self.answers or {}).values()):
+            return True
+        if self.prototype_url:
+            return True
+        return any(getattr(self, slot) for slot in self.FILE_SLOTS)
+
+    @property
+    def stage(self) -> str:
+        """How far the entry has got, independent of whether the deadline has passed."""
+        if self.submitted_at is None:
+            return STAGE_IN_PROGRESS if self.has_content else STAGE_NOT_STARTED
+        return STAGE_SUBMITTED if self.is_locked else STAGE_REVISING
 
     def snapshot(self, user):
-        """Copy the working entry into the submitted set.
-
-        Called only once a submission passes validation, which is what makes an
-        abandoned resubmission harmless — nothing here runs until a team
-        actually finishes.
-        """
+        """Copy the working entry into the submitted set."""
         self.submitted_answers = dict(self.answers or {})
         for slot in self.FILE_SLOTS:
             setattr(self, f"submitted_{slot}", getattr(self, slot))
         self.submitted_prototype_url = self.prototype_url
+        self.submitted_poster_checks = self.poster_checks
         self.submitted_at = timezone.now()
         self.submitted_by = user
         self.reopened_at = None
 
     def submitted_storage_keys(self) -> set[str]:
-        """Storage keys the submitted copy still depends on.
-
-        A replaced file cannot be deleted while the submitted copy points at
-        it, or reopening an entry and swapping a file would destroy what was
-        actually submitted.
-        """
+        """Storage keys the submitted copy still points at, which must not be deleted."""
         keys = set()
         for slot in self.FILE_SLOTS:
             stored = getattr(self, f"submitted_{slot}") or {}

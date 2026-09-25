@@ -83,20 +83,74 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
-  // Deliberately NOT nested under /groups. Submission is its own section that
-  // references a team, rather than a sub-page of one — which also keeps the
-  // Groups sidebar item from highlighting here, since it matches on '/groups'
-  // appearing anywhere in the path.
-  { path: '/submission', name: 'submission', component: () => import('@/views/SubmissionLandingPage.vue') },
-  { path: '/submission/:id', name: 'group-submission', component: () => import('@/views/GroupSubmissionPage.vue') },
+  { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
+  { path: '/submission', redirect: '/groups' },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
   { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
-  { path: '/admin', redirect: '/dashboard' },
+  { path: '/admin', name: 'admin', component: () => import('@/views/admin/AdminDashboardPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminPeoplePage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  {
+    // Admin-only grading section. meta.adminOnly is merged into every child
+    // route's meta by Vue Router, so the global guard covers the whole tree.
+    path: '/grading',
+    component: () => import('@/views/grading/GradingPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/grading/components/SAQ' },
+      // Legacy path from before the component-picker landing was removed.
+      { path: 'by-component', redirect: '/grading/components/SAQ' },
+      { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
+      { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
+      // Both marking routes render the same page — the route name decides the
+      // chrome (jump card, Download all, tab navigation). They hide the app's
+      // side navigation (meta.hideSidebar): the preview/rubric split wants
+      // the full width.
+      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
+      // Legacy paths — Management moved to its own /management section.
+      { path: 'management', redirect: '/management' },
+      {
+        path: 'management/:rest(.*)*',
+        redirect: (to) => {
+          const rest = to.params.rest
+          return `/management/${Array.isArray(rest) ? rest.join('/') : rest}`
+        }
+      },
+      { path: 'deadline', redirect: '/management/submission-deadline' },
+      { path: 'release', redirect: '/management/release-marks' },
+      { path: 'settings', redirect: '/management/document-setup' },
+      { path: 'notify-finalists', redirect: '/management/notify-finalists' }
+    ]
+  },
+  {
+    // Admin-only management section — the run-the-competition levers. Same
+    // adminOnly meta merge as /grading above.
+    path: '/management',
+    component: () => import('@/views/grading/ManagementPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/management/submission-deadline' },
+      { path: 'new-year', name: 'management-new-year', component: () => import('@/views/grading/YearPage.vue') },
+      // Legacy path from before the Season → Year rename.
+      { path: 'new-season', redirect: '/management/new-year' },
+      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
+      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
+      { path: 'release-marks', name: 'management-release', component: () => import('@/views/grading/ReleasePage.vue') },
+      { path: 'release-certificates', name: 'management-release-certificates', component: () => import('@/views/grading/ReleaseCertificatesPage.vue') },
+      { path: 'document-setup', name: 'management-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') }
+    ]
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

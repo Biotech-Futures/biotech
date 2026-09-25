@@ -7,15 +7,10 @@ import {
   isDeadlineNear
 } from '@/utils/submissionFormat'
 
-// A fixed point to measure deadlines against, so these never depend on when
-// they are run.
 const NOW = new Date('2026-09-01T00:00:00Z').getTime()
 const inHours = (h: number) => new Date(NOW + h * 3600_000).toISOString()
 
 describe('countWords', () => {
-  // This has to agree with the server, which splits on runs of whitespace, and
-  // with the client's Qualtrics validation regex. A counter that disagrees
-  // tells a student their answer fits and then has the save rejected.
   it('counts words separated by single spaces', () => {
     expect(countWords('one two three four five')).toBe(5)
   })
@@ -32,7 +27,6 @@ describe('countWords', () => {
   })
 
   it('counts hyphenated and punctuated words as one each', () => {
-    // Matches the server rather than being linguistically clever.
     expect(countWords('state-of-the-art solution, tested.')).toBe(3)
   })
 
@@ -59,8 +53,6 @@ describe('formatFileSize', () => {
   })
 
   it('reports zero rather than calling it unknown', () => {
-    // An empty file is a real thing that was uploaded; "unknown" is reserved
-    // for a size the server did not record.
     expect(formatFileSize(0)).toBe('0 bytes')
     expect(formatFileSize(null)).toBe('unknown size')
     expect(formatFileSize(undefined)).toBe('unknown size')
@@ -84,8 +76,9 @@ describe('describeTimeRemaining', () => {
     )
   })
 
-  it('says closing rather than a negative count once the moment has passed', () => {
-    expect(describeTimeRemaining(inHours(-1), NOW)).toBe('Closing now')
+  it('says nothing at all once the moment has passed, rather than counting negative', () => {
+    expect(describeTimeRemaining(inHours(-1), NOW)).toBe('')
+    expect(describeTimeRemaining(inHours(-25), NOW)).toBe('')
   })
 
   it('says nothing when no deadline is configured', () => {
@@ -123,8 +116,6 @@ describe('describeQuestionStep', () => {
   })
 
   it('does not claim progress it cannot know', () => {
-    // Deliberately a count, not "Done": text in every box does not mean the
-    // answers are finished.
     expect(describeQuestionStep({}, keys)).toBe('Required · 0 of 3')
   })
 

@@ -47,8 +47,8 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.submissions',
+    'apps.grading',
     'apps.services',
-    'matching',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
@@ -68,11 +68,13 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
-# Competition entries live in their own container rather than alongside the
-# general resource library, so student submissions are not mixed in with
-# program-wide material.
-AZURE_SUBMISSION_CONTAINER = config("AZURE_SUBMISSION_CONTAINER", default="submissions")
-# Keep profile photos separate from general media and user submissions.  The
+# Competition entries live apart from the general resource library, with one
+# container per attachment slot, so posters, reports and prototypes are
+# separated at the storage-account level rather than mixed in one namespace.
+AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
+AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
+AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Keep profile photos separate from general media and user submissions. The
 # container is private; the application returns time-limited URLs when a
 # profile is serialized.
 AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
@@ -82,9 +84,39 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the only supported file backend.
-USE_AZURE_BLOB_STORAGE = True
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+# Azure Blob is the supported cloud file backend whenever credentials are configured.
+# In local development without Azure credentials, fall back to local disk storage under MEDIA_ROOT.
+# Production (DEBUG=False) must never write to ephemeral disk: missing Azure credentials
+# or disabling Azure Blob Storage raises ImproperlyConfigured at startup.
+_AZURE_CONFIGURED = bool(
+    AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
+)
+USE_AZURE_BLOB_STORAGE = _AZURE_CONFIGURED or config(
+    "USE_AZURE_BLOB_STORAGE",
+    default=False if DEBUG else True,
+    cast=env_bool,
+)
+if not DEBUG and not (_AZURE_CONFIGURED and USE_AZURE_BLOB_STORAGE):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Azure Blob Storage must be enabled and credentials configured when DEBUG is false. "
+        "Set USE_AZURE_BLOB_STORAGE=true and provide Azure credentials."
+    )
+# Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
+# now, so naming the backend here is what actually routes plain FileFields
+# (the grading templates and director signatures). django-storages picks up
+# the account and AZURE_CONTAINER from the settings above on its own.
+STORAGES = {
+    "default": {
+        "BACKEND": (
+            "storages.backends.azure_storage.AzureStorage"
+            if USE_AZURE_BLOB_STORAGE
+            else "django.core.files.storage.FileSystemStorage"
+        )
+    },
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -103,10 +135,17 @@ CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     default=10 * 1024 * 1024,
     cast=int,
 )
-# Prototypes can be archives, CAD files or video, so they keep the generous
-# ceiling. Posters and reports are held to a much smaller one; note that A0
-# posters with photographs routinely export well above this, so the PDF limit
-# is worth confirming against what the programme actually accepts today.
+# Figures set by the programme after checking last year's entries: the largest
+# poster they received was 18MB, so 20MB is the deliberate headroom above a
+# known real maximum rather than a guess. Reports share that ceiling; both are
+# PDFs of the same kind of thing.
+#
+# The prototype's 50MB is above the request body limit some hosts impose in
+# front of the application (IIS defaults to roughly 28.6MB). Where that applies
+# the upload is rejected before it ever reaches this check, and the student sees
+# the host's error rather than ours — so the platform limit has to be raised to
+# match, or this ceiling is fiction. The two PDF slots share one setting;
+# giving them different limits would need a second.
 SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
     "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
     default=50 * 1024 * 1024,
@@ -114,7 +153,7 @@ SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
 )
 SUBMISSION_PDF_MAX_UPLOAD_SIZE = config(
     "SUBMISSION_PDF_MAX_UPLOAD_SIZE",
-    default=5 * 1024 * 1024,
+    default=20 * 1024 * 1024,
     cast=int,
 )
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
@@ -251,7 +290,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — local PostgreSQL for development
+# Database — local PostgreSQL for development. Local Docker/Postgres installs
+# commonly do not have TLS enabled, so default to disabled in DEBUG and allow
+# explicit override via DB_SSLMODE for production-like environments.
+_DB_SSLMODE = config("DB_SSLMODE", default="disable" if DEBUG else "require")
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -261,7 +303,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": _DB_SSLMODE,
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -290,7 +332,10 @@ USE_I18N = True
 USE_TZ = True
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.smtp.EmailBackend",
+)
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
@@ -408,6 +453,12 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Response headers the SPA is allowed to read on cross-origin fetches.
+# Browsers hide everything but a small safelist otherwise: without this the
+# download filename in Content-Disposition (job exports) and the X-Request-ID
+# that apiError.ts attaches to error reports both read as null in JS.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
 
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's
@@ -556,12 +607,34 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# Shared secret for POST /api/v1/submissions/admin/send-reminders/, the daily
+# nudge to teams whose entry is still outstanding. Same fail-loud contract as
+# above: unset means the endpoint answers 503 rather than standing open.
+SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
+
+SUBMISSION_POSTER_CHECKS_ENABLED = config(
+    "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
+)
+
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# --- Grading platform --------------------------------------------------------
+# GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
+# link previews / unread digests / auth emails: bulk-zip jobs normally run on
+# a daemon thread after transaction.on_commit, but tests set this true to
+# execute inline so assertions can observe the job row and result URL.
+GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# Fires the "you're a finalist" email to every group member. Off by default
+# so local dev / staging don't accidentally spam real students; flip on per
+# environment via env var once the announcement copy is signed off.
+GRADING_FINALIST_EMAIL_ENABLED = config(
+    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
+)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -605,10 +678,10 @@ RSVP_REMINDER_24H_WINDOW_HOURS = config(
     "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
 )
 RSVP_REMINDER_1H_HOURS_AHEAD = config(
-    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=0.5, cast=float
 )
 RSVP_REMINDER_1H_WINDOW_HOURS = config(
-    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=float
 )
 
 # --- Link previews -----------------------------------------------------------

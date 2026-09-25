@@ -1,26 +1,10 @@
-/**
- * Pure formatting and derivation used by the submission portal.
- *
- * Kept out of the page component so it can be tested directly. Three of these
- * have to agree with rules enforced on the server — a counter that disagrees
- * with the server tells a student their answer is fine and then has the save
- * rejected, which is worse than having no counter at all.
- */
+/** Formatting helpers for the submission portal. */
 
-/**
- * Words in an answer.
- *
- * Must match the server, which splits on runs of whitespace, and the client's
- * Qualtrics form, whose validation regex `^\s*(\S+\s+){0,149}\S*$` does the
- * same. Anything cleverer — stripping punctuation, joining hyphenated words —
- * would disagree with what actually gets accepted.
- */
+/** Splits on whitespace, matching the server's word count. */
 export function countWords(text: string | null | undefined): number {
   return (text || '').split(/\s+/).filter(Boolean).length
 }
 
-/** Human-readable file size. Whole megabytes lose the decimal, so a stated
- *  limit reads "5 MB" rather than "5.0 MB". */
 export function formatFileSize(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return 'unknown size'
   if (bytes >= 1024 * 1024) {
@@ -31,13 +15,6 @@ export function formatFileSize(bytes: number | null | undefined): string {
   return `${bytes} bytes`
 }
 
-/**
- * How long until a deadline, in the largest useful unit.
- *
- * Days while there are days left, then hours, then minutes — a student three
- * weeks out does not need the minute count, and one with ten minutes left
- * very much does.
- */
 export function describeTimeRemaining(
   closesAt: string | null | undefined,
   now: number = Date.now()
@@ -45,7 +22,8 @@ export function describeTimeRemaining(
   if (!closesAt) return ''
   const msLeft = new Date(closesAt).getTime() - now
   if (Number.isNaN(msLeft)) return ''
-  if (msLeft <= 0) return 'Closing now'
+  // Empty once passed, so the unannounced grace period is never shown.
+  if (msLeft <= 0) return ''
 
   const minutes = Math.floor(msLeft / 60000)
   const hours = Math.floor(minutes / 60)
@@ -56,7 +34,6 @@ export function describeTimeRemaining(
   return `${minutes} minute${minutes === 1 ? '' : 's'} left`
 }
 
-/** Inside the final day, when the time left is what a student needs to know. */
 export function isDeadlineNear(
   closesAt: string | null | undefined,
   now: number = Date.now()
@@ -66,7 +43,6 @@ export function isDeadlineNear(
   return !Number.isNaN(msLeft) && msLeft > 0 && msLeft < 24 * 60 * 60 * 1000
 }
 
-/** Short factual note for a wizard step: what it needs, and what is filled in. */
 export function describeQuestionStep(
   answers: Record<string, string>,
   questionKeys: string[]

@@ -36,7 +36,13 @@ if USE_AZURE_BLOB_STORAGE and not (
         "Local Azure Blob Storage requires AZURE_CONNECTION_STRING or both "
         "AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY."
     )
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+if not USE_AZURE_BLOB_STORAGE:
+    # settings.py builds this mapping for Azure, so replace it wholesale when
+    # local storage is selected.
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 

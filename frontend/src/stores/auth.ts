@@ -25,9 +25,11 @@ interface User {
   state?: { id: number; stateName: string } | null
   pg_firstname?: string | null
   pg_lastname?: string | null
+  pg_email?: string | null
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
+  joinperm_granted_at?: string | null
   interests?: string[]
   supervisor_name?: string | null
   supervisor_email?: string | null

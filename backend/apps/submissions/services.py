@@ -1,8 +1,4 @@
-"""Deadline rules for team submissions.
-
-Everything that needs to know "can this team still submit?" goes through
-:func:`deadline_for_group` so the rule lives in exactly one place.
-"""
+"""Deadline rules for team submissions."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,14 +11,7 @@ from .models import Deadline, GroupExtension
 
 @dataclass(frozen=True)
 class DeadlineInfo:
-    """When a particular team closes, and whether that came from an extension.
-
-    ``closes_at`` is the date the team is shown. ``enforced_until`` is when
-    writes actually stop being accepted, which may be later: the programme
-    announces a single deadline but quietly accepts submissions for a further
-    grace period so nobody in a far-behind timezone loses part of their
-    deadline day. An extension replaces both.
-    """
+    """``closes_at`` is the date shown; ``enforced_until`` adds the unannounced grace period."""
 
     closes_at: datetime | None
     is_extended: bool
@@ -30,9 +19,7 @@ class DeadlineInfo:
 
     @property
     def is_open(self) -> bool:
-        # No configured deadline means closed rather than open-forever: a
-        # missing or deactivated Deadline row is far more likely to be a
-        # misconfiguration than an intention to accept entries indefinitely.
+        # No deadline configured counts as closed.
         cutoff = self.enforced_until or self.closes_at
         if cutoff is None:
             return False
@@ -47,24 +34,11 @@ class DeadlineInfo:
 
 
 def active_deadline() -> Deadline | None:
-    """The deadline currently in force, or None if none is configured."""
     return Deadline.objects.filter(is_active=True).order_by("-created_at").first()
 
 
 def current_cohort() -> int:
-    """The competition year an entry belongs to.
-
-    Read from the active deadline rather than the clock, and deliberately *not*
-    from a team's own extended date. Both matter:
-
-    * A submission made inside a grace window that crosses New Year still
-      belongs to the year the competition closed in, so the clock is wrong.
-    * A team granted an extension into the following January is still competing
-      in the same cohort as everyone else, so the per-team date is wrong too.
-
-    Falls back to the current year only when no deadline is configured at all,
-    which is a misconfiguration rather than a normal state.
-    """
+    """The competition year, from the active deadline so grace windows and extensions stay in it."""
     deadline = active_deadline()
     if deadline is not None:
         return timezone.localtime(deadline.closes_at).year
@@ -72,24 +46,19 @@ def current_cohort() -> int:
 
 
 def deadline_for_group(group_id: int) -> DeadlineInfo:
-    """Resolve the closing time that applies to one team.
-
-    An extension wins outright rather than being compared against the standard
-    deadline. Applying the granted date exactly as entered keeps the admin
-    screen predictable — the date shown is the date enforced — at the cost of
-    letting a mistyped earlier date shorten a team's window.
-
-    An extension also applies when no standard deadline exists at all, since it
-    is an explicit per-team decision rather than a fallback.
-    """
-    extension = GroupExtension.objects.filter(group_id=group_id).first()
+    """The closing time for one team; an extension replaces the standard deadline outright."""
+    extension = GroupExtension.objects.filter(
+        group_id=group_id, revoked_at__isnull=True
+    ).first()
     if extension is not None:
-        # An extension is a granted date, not an announced one, so no further
-        # grace is added on top — what the admin entered is what applies.
+        # An extension carries its own quiet grace hours rather than
+        # inheriting the global deadline's — the admin granting it decides
+        # both the shown date and the buffer.
         return DeadlineInfo(
             closes_at=extension.extended_until,
             is_extended=True,
-            enforced_until=extension.extended_until,
+            enforced_until=extension.extended_until
+            + timedelta(hours=extension.grace_hours),
         )
 
     deadline = active_deadline()

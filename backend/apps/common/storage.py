@@ -56,8 +56,16 @@ class ChatAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_CHAT_CONTAINER"
 
 
-class SubmissionAzureStorage(_BaseAzureContainerStorage):
-    container_setting_name = "AZURE_SUBMISSION_CONTAINER"
+class PosterAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_POSTER_CONTAINER"
+
+
+class ReportAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_REPORT_CONTAINER"
+
+
+class PrototypeAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_PROTOTYPE_CONTAINER"
 
 
 class ProfileImageAzureStorage(_BaseAzureContainerStorage):
@@ -302,8 +310,18 @@ def get_chat_storage() -> ManagedContainerStorage:
 
 
 @lru_cache(maxsize=2)
-def get_submission_storage() -> ManagedContainerStorage:
-    return ManagedContainerStorage("submissions", SubmissionAzureStorage)
+def get_poster_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("posters", PosterAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_report_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("reports", ReportAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_prototype_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("prototypes", PrototypeAzureStorage)
 
 
 @lru_cache(maxsize=2)
@@ -317,5 +335,7 @@ def reset_managed_storage_caches() -> None:
     # tests from getting a stale backend instance.
     get_resource_storage.cache_clear()
     get_chat_storage.cache_clear()
-    get_submission_storage.cache_clear()
+    get_poster_storage.cache_clear()
+    get_report_storage.cache_clear()
+    get_prototype_storage.cache_clear()
     get_profile_image_storage.cache_clear()

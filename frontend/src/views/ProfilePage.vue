@@ -202,7 +202,9 @@
           <div class="profile-field"><span class="profile-field-label">First Name:</span><span class="profile-field-value">{{ user.student.guardianFirstName }}</span></div>
           <div class="profile-field"><span class="profile-field-label">Last Name:</span><span class="profile-field-value">{{ user.student.guardianLastName }}</span></div>
           <div class="profile-field"><span class="profile-field-label">Email:</span><span class="profile-field-value">{{ user.student.guardianEmail }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Permission:</span><span class="profile-field-value permission-status" :class="{ received: user.student.permissionReceived }">{{ user.student.permissionReceived ? 'Received' : 'Not received — contact support to resend the guardian invitation.' }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Permission:</span><span class="profile-field-value permission-status" :class="{ received: user.student.permissionReceived }">{{ user.student.permissionStatus }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">Not recorded</span></div>
+          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.student.permissionReceived ? 'No further reminder required' : 'Contact support to confirm the next reminder' }}</span></div>
           <p class="profile-note">Some registration details are managed by your supervisor. Contact your supervisor or <a :href="`mailto:${supportEmail}`">support</a> if a locked detail needs updating.</p>
         </div>
 
@@ -503,6 +505,20 @@ const valueOrFallback = (value, fallback = 'Not provided') => {
   return text || fallback
 }
 
+const formatPermissionReceivedAt = (value) => {
+  if (!value) return ''
+  const receivedAt = new Date(value)
+  if (Number.isNaN(receivedAt.getTime())) return ''
+  return receivedAt.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: auth.timeZone || 'Australia/Sydney',
+  })
+}
+
 const listOrEmpty = (value) => {
   if (!Array.isArray(value)) return []
 
@@ -543,6 +559,9 @@ const user = computed(() => {
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
+  const permissionReceived = Boolean(source?.join_perm)
+  const permissionReceivedAt = formatPermissionReceivedAt(source?.joinperm_granted_at)
+
   return {
     name: fullName,
     email: source?.email || 'Unavailable',
@@ -562,7 +581,10 @@ const user = computed(() => {
       guardianFirstName: valueOrFallback(source?.pg_firstname, unsetLabel),
       guardianLastName: valueOrFallback(source?.pg_lastname, unsetLabel),
       guardianEmail: valueOrFallback(source?.pg_email, unsetLabel),
-      permissionReceived: Boolean(source?.join_perm)
+      permissionReceived,
+      permissionStatus: permissionReceived
+        ? `Received${permissionReceivedAt ? ` on ${permissionReceivedAt}` : ''}`
+        : 'Not received — contact support to resend the guardian invitation.'
     },
     mentor: {
       hasDetails: hasMentorDetails,
