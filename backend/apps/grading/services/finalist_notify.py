@@ -1,80 +1,130 @@
 """Finalist notification email.
 
-Off by default. Enable per environment with ``GRADING_FINALIST_EMAIL_ENABLED``.
 Uses the transactional mailbox (``DEFAULT_FROM_EMAIL`` / ``EMAIL_HOST_USER``)
 already configured for the rest of the platform — no new relay to set up.
 
-The spec (page 80) says: "if flagging from the grading system and piping of
-text can be implemented into the announcements, this is not required as a
-dedicated system email. However, would be a 'nice to have'." — so this is
-the "nice to have" fallback for when the announcement piping isn't ready.
+The wording is the client's own finalist email (sent from Power Automate in
+2025); the Symposium date, confirm-by date, slides due date and registration
+link come from :class:`FinalistEmailSettings`, set on the Notify Finalists
+page, and nothing is sent until all of them are set. The email asks one team
+member to reply, so replies go to the support mailbox.
 """
 from __future__ import annotations
 
 import logging
+from datetime import date
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.utils import timezone
 
-from apps.groups.models.group_members import GroupMembership
+from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.mailer import send_async
+from apps.submissions.emails import recipients_for, send_individually
 
-from ..models import FinalistFlag
+from ..models import FinalistEmailSettings, FinalistFlag
 
 logger = logging.getLogger(__name__)
 
+# Shown in a preview where a detail hasn't been filled in yet.
+NOT_SET = "[not set]"
 
-def notify_finalist(flag: FinalistFlag, actor=None) -> bool:
-    """Send the "you're a finalist" email to every active member of the group.
+# The Symposium runs in Sydney, so "today" for its dates is Sydney's.
+SYMPOSIUM_TZ = ZoneInfo("Australia/Sydney")
 
-    No-op when the env flag is off, or when the flag has already been
-    ``notified`` (avoids re-mailing on toggle churn). Returns True when an
-    email was actually dispatched, False otherwise. Non-fatal on send errors
-    — the finalist flag itself stays intact.
+
+def symposium_today() -> date:
+    return timezone.localdate(timezone=SYMPOSIUM_TZ)
+
+
+def _long_date(day: date | None) -> str:
+    """"Friday, 24 October 2025"; built from parts because "%-d" fails on Windows."""
+    if day is None:
+        return NOT_SET
+    return f"{day:%A}, {day.day} {day:%B %Y}"
+
+
+def subject_line() -> str:
+    return f"Congratulations – You’re a {settings.BRAND_NAME} Finalist!"
+
+
+def render_finalist_email(group_name: str, details: FinalistEmailSettings) -> tuple[str, str]:
+    """The email's plain-text and HTML bodies for one team."""
+    context = {
+        **brand_context(),
+        "GROUP_NAME": group_name,
+        "SYMPOSIUM_DATE": _long_date(details.symposium_date),
+        "CONFIRM_BY": _long_date(details.confirm_by),
+        "SLIDES_DUE": _long_date(details.slides_due),
+        "REGISTER_URL": details.registration_url or NOT_SET,
+    }
+    text = render_to_string("emails/finalist_notification.txt", context)
+    html = render_to_string("emails/finalist_notification.html", context)
+    return text, html
+
+
+class _TeamEmails:
+    """One team's messages as one task on the shared mail pool (so login codes
+    are not delayed). If none of them could be sent, the team goes back to
+    not notified, so the page shows it and a later send can retry."""
+
+    def __init__(self, messages, flag_id: int):
+        self.messages = messages
+        self.flag_id = flag_id
+
+    def send(self) -> int:
+        sent, _ = send_individually(self.messages, kind="finalist_notification")
+        if not sent:
+            logger.error("finalist_notify.all_failed flag=%s", self.flag_id)
+            FinalistFlag.objects.filter(pk=self.flag_id).update(
+                notified=False, notified_at=None, notified_by=None
+            )
+        return sent
+
+
+def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettings | None = None) -> bool:
+    """Email every active member of a finalist team (students, mentors and
+    supervisors), each their own copy.
+
+    No-op when the flag has already been ``notified`` (avoids re-mailing on
+    toggle churn), when the email details aren't all set, or when the team
+    has nobody to mail. Returns True when the
+    team's emails were queued. The team is marked notified before they go, so
+    pressing Send again while they are on their way can't mail it twice.
     """
-    if not getattr(settings, "GRADING_FINALIST_EMAIL_ENABLED", False):
-        logger.info("finalist notify skipped: GRADING_FINALIST_EMAIL_ENABLED off (group=%s)", flag.group_id)
-        return False
     if flag.notified:
         logger.info("finalist notify skipped: already notified (group=%s)", flag.group_id)
         return False
+    details = details or FinalistEmailSettings.load()
+    if not details.is_complete:
+        logger.info("finalist notify skipped: email details not set (group=%s)", flag.group_id)
+        return False
 
-    recipients = list(
-        GroupMembership.objects.filter(
-            group_id=flag.group_id,
-            left_at__isnull=True,
-        )
-        .exclude(user__email="")
-        .values_list("user__email", flat=True)
-    )
+    recipients = recipients_for(flag.group)
     if not recipients:
         logger.info("finalist notify skipped: group %s has no active members with emails", flag.group_id)
         return False
 
-    subject = f"Congratulations — {flag.group.group_name} is a BIOTech Futures finalist"
-    body = (
-        f"Hi,\n\n"
-        f"Your group ({flag.group.group_name}) has been selected as a finalist "
-        f"for the BIOTech Futures Challenge. The BIOTech Futures team will be in "
-        f"touch with details about presenting at the symposium.\n\n"
-        f"Kind regards,\n"
-        f"BIOTech Futures Team\n"
-    )
-
-    try:
-        send_mail(
-            subject=subject,
-            message=body,
+    text, html = render_finalist_email(flag.group.group_name, details)
+    messages = []
+    for address in recipients:
+        message = EmailMultiAlternatives(
+            subject=subject_line(),
+            body=text,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=recipients,
-            fail_silently=False,
+            to=[address],
+            # "Have one team member reply to this email": replies reach support.
+            reply_to=[settings.SUPPORT_EMAIL],
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("finalist notify failed: group=%s", flag.group_id)
-        return False
+        message.attach_alternative(html, "text/html")
+        attach_inline_logo(message)
+        messages.append(message)
 
     flag.notified = True
     flag.notified_at = timezone.now()
     flag.notified_by = actor
     flag.save(update_fields=["notified", "notified_at", "notified_by"])
+    send_async(_TeamEmails(messages, flag.pk), kind="finalist_notification")
     return True

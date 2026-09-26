@@ -14,6 +14,8 @@ from .download import (
 )
 from .finalist import (
     FinalistCandidatesView,
+    FinalistEmailPreviewView,
+    FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
     FinalistToggleView,
@@ -34,6 +36,8 @@ __all__ = [
     "ComponentDownloadView",
     "ComponentMarkingListView",
     "FinalistCandidatesView",
+    "FinalistEmailPreviewView",
+    "FinalistEmailSettingsView",
     "FinalistListView",
     "FinalistNotifyAllView",
     "FinalistToggleView",

@@ -315,6 +315,39 @@ class GradingSettings(SingletonModel):
         return "GradingSettings"
 
 
+class FinalistEmailSettings(SingletonModel):
+    """The details the finalist email gives teams about the Symposium, set on
+    the Notify Finalists page each year. Nothing is sent until all are set."""
+
+    symposium_date = models.DateField(null=True, blank=True)
+    confirm_by = models.DateField(null=True, blank=True)
+    slides_due = models.DateField(null=True, blank=True)
+    registration_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://events.humanitix.com/biotech-futures-symposium",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "finalist_email_settings"
+
+    def __str__(self):
+        return "FinalistEmailSettings"
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(
+            self.symposium_date and self.confirm_by and self.slides_due and self.registration_url
+        )
+
+    DATE_FIELDS = ("symposium_date", "confirm_by", "slides_due")
+
+    def dates_before(self, today) -> list[str]:
+        """The date fields set to a day before ``today`` (last year's, say)."""
+        return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
+
+
 class GradingJob(models.Model):
     KIND_BULK_ZIP = "bulk_zip"
     KIND_MARKS_RELEASE = "marks_release"

@@ -11,6 +11,8 @@ from .views import (
     ComponentDownloadView,
     ComponentMarkingListView,
     FinalistCandidatesView,
+    FinalistEmailPreviewView,
+    FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
     FinalistToggleView,
@@ -95,6 +97,12 @@ urlpatterns = [
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
     path("finalists/notify/", FinalistNotifyAllView.as_view(), name="finalist-notify"),
     path("finalists/candidates/", FinalistCandidatesView.as_view(), name="finalist-candidates"),
+    path("finalists/email/", FinalistEmailSettingsView.as_view(), name="finalist-email"),
+    path(
+        "finalists/email/preview/",
+        FinalistEmailPreviewView.as_view(),
+        name="finalist-email-preview",
+    ),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
 
     # M9 — read-only analytics for Team 4's dashboards.

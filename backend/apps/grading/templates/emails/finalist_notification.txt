@@ -1,0 +1,36 @@
+{% autoescape off %}{# Keep the wording in step with finalist_notification.html. #}Congratulations – You’re a {{ BRAND_NAME }} Finalist!
+
+Dear members of {{ GROUP_NAME }},
+
+Congratulations! Your team has been selected as a finalist in the
+{{ BRAND_NAME }} Challenge.
+
+IMPORTANT: The Symposium is in-person only at the University of Sydney on
+{{ SYMPOSIUM_DATE }}.
+
+PLEASE CONFIRM ATTENDANCE
+  - Have one team member reply to this email to confirm if your team can
+    attend the Symposium.
+  - Please confirm by {{ CONFIRM_BY }}. If your team cannot attend, your spot
+    may be passed to the next team.
+
+Register for the Symposium:
+{{ REGISTER_URL }}
+
+PRESENTATION REQUIREMENTS
+  - Prepare a 3-minute presentation with a slide deck of no more than 3
+    content slides (a title slide and a references slide are allowed in
+    addition).
+  - Slides may include videos, but no sound will be supported.
+  - An upload link will be provided. Slides are due by {{ SLIDES_DUE }}.
+
+A full copy of your marks and certificates will be provided after the
+Symposium.
+
+Warm regards,
+The {{ BRAND_NAME }} Team
+
+--
+You’re receiving this email because your team participated in the
+{{ BRAND_NAME }} Challenge.
+{% endautoescape %}

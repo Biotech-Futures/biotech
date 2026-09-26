@@ -1,3 +1,4 @@
+import base64
 import os
 from email.mime.image import MIMEImage
 
@@ -28,6 +29,13 @@ def brand_context() -> dict:
         "CONTACT_EMAIL": getattr(settings, "SUPPORT_EMAIL", "support@biotechfutures.org"),
         "SENDER_EMAIL": getattr(settings, "EMAIL_FROM_ADDRESS", "info@biotechfutures.org"),
     }
+
+
+def logo_data_uri() -> str:
+    """The logo as a ``data:`` URI, for showing an email in a browser (a
+    preview), where the ``cid:`` part a sent message carries doesn't exist."""
+    with open(_LOGO_PATH, "rb") as fh:
+        return "data:image/png;base64," + base64.b64encode(fh.read()).decode("ascii")
 
 
 def attach_inline_logo(msg) -> None:

@@ -4,9 +4,6 @@ Admins mark the top ~30 groups as finalists after marking closes. Flagging is
 idempotent — re-POSTing an already-flagged group updates ``flagged_at`` and
 optionally re-fires the notification. The ``notified`` bool on the flag lets
 the notification path avoid spamming groups when admins toggle repeatedly.
-
-Notification is env-gated by ``GRADING_FINALIST_EMAIL_ENABLED`` so local dev
-never accidentally emails real people; toggle explicitly per environment.
 """
 from __future__ import annotations
 
@@ -16,16 +13,103 @@ from django.db import transaction
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import permissions, status
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
+from apps.services.email_branding import LOGO_CID, logo_data_uri
 
-from ..models import FinalistFlag, Grade, Rubric, SubmissionComponent
+from ..models import FinalistEmailSettings, FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import IsGrader
 from ..services import content
-from ..services.finalist_notify import notify_finalist
+from ..services.finalist_notify import (
+    notify_finalist,
+    render_finalist_email,
+    subject_line,
+    symposium_today,
+)
+
+MISSING_DETAILS = (
+    "Set the Symposium date, confirm-by date, slides due date and registration "
+    "link before sending."
+)
+PAST_DATES = "The email's dates can't be before today. Update them before sending."
+
+
+class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FinalistEmailSettings
+        fields = ["symposium_date", "confirm_by", "slides_due", "registration_url"]
+
+    def validate(self, attrs):
+        # A date can't be set to a day before today. One saved earlier that
+        # has since passed may stay while other details are edited; sending
+        # is what refuses it.
+        today = symposium_today()
+        errors = {}
+        for name in FinalistEmailSettings.DATE_FIELDS:
+            day = attrs.get(name)
+            if day and day < today and day != getattr(self.instance, name, None):
+                errors[name] = "Can't be before today."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class FinalistEmailSettingsView(APIView):
+    """GET/PATCH /api/v1/grading/finalists/email/ — the dates and link the
+    finalist email gives teams. Also says whether the email is complete."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    @staticmethod
+    def _payload(details: FinalistEmailSettings) -> dict:
+        today = symposium_today()
+        return {
+            **FinalistEmailSettingsSerializer(details).data,
+            "complete": details.is_complete,
+            # Sydney's today: the earliest the dates may be, and which saved
+            # ones are already before it.
+            "today": today,
+            "dates_in_past": details.dates_before(today),
+        }
+
+    def get(self, request):
+        return Response(self._payload(FinalistEmailSettings.load()))
+
+    def patch(self, request):
+        details = FinalistEmailSettings.load()
+        serializer = FinalistEmailSettingsSerializer(details, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(self._payload(details))
+
+
+class FinalistEmailPreviewView(APIView):
+    """POST /api/v1/grading/finalists/email/preview/ — the email exactly as
+    a finalist would get it, for the details in the body (unsaved edits) or
+    the saved ones. Addressed to the first finalist team not yet notified."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def post(self, request):
+        details = FinalistEmailSettings.load()
+        serializer = FinalistEmailSettingsSerializer(details, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        # Show the edits without saving them.
+        for field, value in serializer.validated_data.items():
+            setattr(details, field, value)
+        flag = (
+            FinalistFlag.objects.select_related("group")
+            .order_by("notified", "group__group_name")
+            .first()
+        )
+        group_name = flag.group.group_name if flag else "Team name"
+        _, html = render_finalist_email(group_name, details)
+        # A browser has no cid: part to resolve, so the logo goes in inline.
+        html = html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+        return Response({"subject": subject_line(), "group_name": group_name, "html": html})
 
 
 class FinalistListView(APIView):
@@ -256,14 +340,19 @@ class FinalistNotifyAllView(APIView):
     Optional body ``{"group_ids": [1, 2, ...]}`` restricts the send to those
     groups; omitted or empty means every un-notified finalist.
 
-    ``notify_finalist`` is a no-op per flag when it was already notified or
-    when ``GRADING_FINALIST_EMAIL_ENABLED`` is off, so this is safe to press
+    Refused until every email detail is set. ``notify_finalist`` is a no-op
+    per flag when it was already notified, so this is safe to press
     repeatedly.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def post(self, request):
+        details = FinalistEmailSettings.load()
+        if not details.is_complete:
+            return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
+        if details.dates_before(symposium_today()):
+            return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
         flags = FinalistFlag.objects.select_related("group").filter(notified=False)
         group_ids = request.data.get("group_ids")
         if group_ids:
@@ -273,7 +362,9 @@ class FinalistNotifyAllView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             flags = flags.filter(group_id__in=group_ids)
-        sent = sum(1 for flag in flags if notify_finalist(flag, actor=request.user))
+        sent = sum(
+            1 for flag in flags if notify_finalist(flag, actor=request.user, details=details)
+        )
         return Response({
             "sent": sent,
             "pending": FinalistFlag.objects.filter(notified=False).count(),
