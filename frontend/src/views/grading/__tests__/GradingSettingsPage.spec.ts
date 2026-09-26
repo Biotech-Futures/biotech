@@ -108,7 +108,7 @@ describe('loading', () => {
     const wrapper = await mountPage()
     const found = wrapper.findAll('code.is-found').map((c) => c.text())
     expect(found).toContain('{{TeamCode}}')
-    expect(found).not.toContain('{{SAQTotal}}')
+    expect(found).not.toContain('{{SMTotal}}')
   })
 
   it('lists stray placeholders that would render blank', async () => {
@@ -197,12 +197,12 @@ describe('saving', () => {
 
 describe('template picking and testing', () => {
   it('scanning a picked file recolours the chips without saving anything', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['TeamCode', 'SAQTotal']))
+    candidateScanMock.mockResolvedValueOnce(scan(['TeamCode', 'SMTotal']))
     const wrapper = await mountPage()
     await pickFile(wrapper, '.docx', 'draft.docx', 0)
     expect(candidateScanMock).toHaveBeenCalledWith('marks-summary', expect.any(File))
     const found = wrapper.findAll('code.is-found').map((c) => c.text())
-    expect(found).toContain('{{SAQTotal}}')
+    expect(found).toContain('{{SMTotal}}')
     expect(wrapper.text()).toContain('selected file')
     expect(updateMock).not.toHaveBeenCalled()
   })
@@ -242,7 +242,7 @@ describe('template picking and testing', () => {
   })
 
   it('Reset drops picked files and re-describes the saved templates', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['SAQTotal']))
+    candidateScanMock.mockResolvedValueOnce(scan(['SMTotal']))
     const wrapper = await mountPage()
     await pickFile(wrapper, '.docx', 'draft.docx', 0)
     expect(wrapper.text()).toContain('draft.docx')

@@ -254,8 +254,12 @@ def _heading(singular: str, plural: str, count: int) -> str:
 def marks_release_fields(context: dict) -> dict:
     """Flatten our context into the BTF marks release template's fields.
 
-    Poster criteria map to P1..P10 in rubric order, SAQ to S1..S4. Fields we
-    don't model (project title/category) render blank.
+    Criteria map in rubric order, each to its name as the rubric words it,
+    its mark and its comment: poster to PosterRubric1 / PM1 / PosterComment1
+    .. 10, SAQ to ShortAnswerQuestionRubric1 / SM1 /
+    ShortAnswerQuestionComment1 .. 4. PosterOverallComment and
+    ShortAnswerQuestionOverallComment are the overall comments. Fields we
+    don't model (project title) render blank.
     """
     by_code = {c.get("code"): c for c in context.get("components", [])}
 
@@ -281,9 +285,11 @@ def marks_release_fields(context: dict) -> dict:
         "Supervisors": context.get("supervisors", ""),
         "SchoolHeading": _heading("School", "Schools", context.get("school_count", 0)),
         "Schools": context.get("schools", ""),
-        "PosterComment": (by_code.get("POSTER") or {}).get("overall_comment", "")
+        "PosterOverallComment": (by_code.get("POSTER") or {}).get("overall_comment", "")
         or context.get("poster_comment", ""),
-        "SAQComment": (by_code.get("SAQ") or {}).get("overall_comment", ""),
+        "ShortAnswerQuestionOverallComment": (by_code.get("SAQ") or {}).get(
+            "overall_comment", ""
+        ),
         # Configurable per the spec; blank until an admin sets them.
         "Director1Name": context.get("director_1_name", ""),
         "Director2Name": context.get("director_2_name", ""),
@@ -292,19 +298,20 @@ def marks_release_fields(context: dict) -> dict:
         # The year marks were released, e.g. "2026" (see _released_on).
         "Year": _year_of(context.get("released_on")),
     }
-    for i in range(10):
-        c = poster[i] if i < len(poster) else None
-        fields[f"P{i + 1}"] = _mark_text(c.get("mark")) if c else ""
-        fields[f"P{i + 1}Comment"] = (c.get("comment") or "") if c else ""
-    for i in range(4):
-        c = saq[i] if i < len(saq) else None
-        fields[f"S{i + 1}"] = _mark_text(c.get("mark")) if c else ""
-        fields[f"S{i + 1}Comment"] = (c.get("comment") or "") if c else ""
+    for rows, count, rubric, mark, comment in (
+        (poster, 10, "PosterRubric", "PM", "PosterComment"),
+        (saq, 4, "ShortAnswerQuestionRubric", "SM", "ShortAnswerQuestionComment"),
+    ):
+        for i in range(count):
+            c = rows[i] if i < len(rows) else None
+            fields[f"{rubric}{i + 1}"] = (c.get("name") or "") if c else ""
+            fields[f"{mark}{i + 1}"] = _mark_text(c.get("mark")) if c else ""
+            fields[f"{comment}{i + 1}"] = (c.get("comment") or "") if c else ""
 
     poster_total = _sum_marks(poster)
     saq_total = _sum_marks(saq)
-    fields["PosterTotal"] = _mark_text(poster_total)
-    fields["SAQTotal"] = _mark_text(saq_total)
+    fields["PMTotal"] = _mark_text(poster_total)
+    fields["SMTotal"] = _mark_text(saq_total)
     fields["CombinedTotal"] = _mark_text(poster_total + saq_total)
     return fields
 

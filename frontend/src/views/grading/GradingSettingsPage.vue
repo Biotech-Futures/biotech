@@ -78,9 +78,12 @@
               <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
             <ul class="grading-settings__tokens">
-              <li v-for="chip in SUMMARY_TOKENS" :key="chip.label">
-                <code :class="{ 'is-found': isFound('marks-summary', chip) }">{{ chip.label }}</code>
-              </li>
+              <template v-for="chip in SUMMARY_TOKENS" :key="chip.label">
+                <li v-if="chip.newLine" class="grading-settings__tokens-break" aria-hidden="true"></li>
+                <li>
+                  <code :class="{ 'is-found': isFound('marks-summary', chip) }">{{ chip.label }}</code>
+                </li>
+              </template>
             </ul>
             <p v-if="unknownIn('marks-summary').length" class="grading-settings__unknown">
               Variables present in the selected file but not recognised (these render blank):
@@ -290,6 +293,8 @@ const FIELD_LABELS: Record<string, string> = {
 interface Placeholder {
   label: string
   names: string[]
+  /** Starts a new row instead of wrapping on after the chip before it. */
+  newLine?: boolean
 }
 
 const token = (name: string): Placeholder => ({ label: `{{${name}}}`, names: [name] })
@@ -298,6 +303,8 @@ const series = (prefix: string, count: number, suffix = ''): Placeholder => {
   return { label: `{{${names[0]}}} … {{${names[names.length - 1]}}}`, names }
 }
 
+// Team details, then marks and comments, then totals and directors: each
+// group starts on a row of its own.
 const SUMMARY_TOKENS: Placeholder[] = [
   token('Year'),
   token('TeamCode'),
@@ -311,14 +318,16 @@ const SUMMARY_TOKENS: Placeholder[] = [
   token('Supervisors'),
   token('SchoolHeading'),
   token('Schools'),
-  series('P', 10),
-  series('P', 10, 'Comment'),
-  token('PosterComment'),
-  series('S', 4),
-  series('S', 4, 'Comment'),
-  token('SAQComment'),
-  token('PosterTotal'),
-  token('SAQTotal'),
+  { ...series('PosterRubric', 10), newLine: true },
+  series('PM', 10),
+  series('PosterComment', 10),
+  token('PosterOverallComment'),
+  series('ShortAnswerQuestionRubric', 4),
+  series('SM', 4),
+  series('ShortAnswerQuestionComment', 4),
+  token('ShortAnswerQuestionOverallComment'),
+  { ...token('PMTotal'), newLine: true },
+  token('SMTotal'),
   token('CombinedTotal'),
   token('Director1Signature'),
   token('Director2Signature'),
@@ -583,6 +592,13 @@ const save = async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+/* An empty full-width row: forces a line break, and its row gap leaves a
+   little space between the groups either side. */
+.grading-settings__tokens-break {
+  flex-basis: 100%;
+  height: 0;
 }
 
 .grading-settings__tokens code {

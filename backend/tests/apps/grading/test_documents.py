@@ -55,7 +55,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("BTF-TEST-1", xml)      # TeamCode
         self.assertIn("S1 4 (Nice claim.)", xml)  # S1 mark as a whole number, S1 comment
         self.assertIn("total 7.5 ", xml)         # CombinedTotal = 4.00 + 3.50
-        self.assertIn("Strong poster overall.", xml)  # PosterComment
+        self.assertIn("Strong poster overall.", xml)  # PosterOverallComment
 
     def test_director_positions_fill_both_templates(self):
         from apps.grading.services.docx import (
@@ -98,7 +98,9 @@ class ClientDocxTemplateTests(_GradingFixture):
         ComponentFeedback.objects.create(
             group=self.group, component=self.saq, comment="Clear, well argued answers.",
         )
-        template = _build_docx("Poster: {{PosterComment}} | SAQ: {{SAQComment}}")
+        template = _build_docx(
+            "Poster: {{PosterOverallComment}} | SAQ: {{ShortAnswerQuestionOverallComment}}"
+        )
         context = marks_summary_context(self.group, 2026, _grades_payload(self.group, 2026))
         xml = self._document_xml(render_marks_summary_data(template, context))
         self.assertIn("Poster: Strong poster overall. | SAQ: Clear, well argued answers.", xml)
@@ -302,6 +304,26 @@ class ClientDocxTemplateTests(_GradingFixture):
         ):
             self.assertIn("Chair 2027", self._document_xml(data))
 
+    def test_the_template_check_knows_the_criterion_names_but_not_the_old_ones(self):
+        from apps.grading.services.docx import scan_template_data
+
+        report = scan_template_data("marks-summary", _build_docx(
+            "{{PosterRubric10}}: {{PM10}}/5 {{PosterComment10}} {{PosterOverallComment}} "
+            "{{ShortAnswerQuestionRubric4}}: {{SM4}}/5 {{ShortAnswerQuestionComment4}} "
+            "{{ShortAnswerQuestionOverallComment}} {{PMTotal}} {{SMTotal}} "
+            "{{P1}} {{P1Comment}} {{S1}} {{S1Comment}} {{PR1}} {{PosterComment}} {{SAQComment}} "
+            "{{PosterTotal}} {{SAQTotal}}"
+        ))
+        self.assertEqual(report["present"], [
+            "PM10", "PMTotal", "PosterComment10", "PosterOverallComment", "PosterRubric10",
+            "SM4", "SMTotal", "ShortAnswerQuestionComment4", "ShortAnswerQuestionOverallComment",
+            "ShortAnswerQuestionRubric4",
+        ])
+        self.assertEqual(report["unknown"], [
+            "P1", "P1Comment", "PR1", "PosterComment", "PosterTotal", "S1", "S1Comment",
+            "SAQComment", "SAQTotal",
+        ])
+
     def test_the_template_check_recognises_year(self):
         from apps.grading.services.docx import scan_template_data
 
@@ -500,6 +522,34 @@ class DocxEngineEdgeTests(SimpleTestCase):
         ])
         self.assertEqual(total, Decimal("4.75"))
 
+    def test_criterion_name_mark_and_comment_follow_rubric_order(self):
+        from apps.grading.services.docx import marks_release_fields
+
+        poster = [
+            {"name": "Identifies problem", "mark": "4.00", "comment": "Clear."},
+            {"name": "Well organised", "mark": "", "comment": ""},
+        ]
+        saq = [{"name": "Clear claim", "mark": "3.00", "comment": "Focused."}]
+        fields = marks_release_fields({"components": [
+            {"code": "POSTER", "criteria": poster},
+            {"code": "SAQ", "criteria": saq},
+        ]})
+        self.assertEqual(
+            [fields[f"{k}{n}"] for n in (1, 2, 3) for k in ("PosterRubric", "PM", "PosterComment")],
+            ["Identifies problem", "4", "Clear.", "Well organised", "", "", "", "", ""],
+        )
+        self.assertEqual(
+            [fields[f"{k}{n}"] for n in (1, 2)
+             for k in ("ShortAnswerQuestionRubric", "SM", "ShortAnswerQuestionComment")],
+            ["Clear claim", "3", "Focused.", "", "", ""],
+        )
+        self.assertLessEqual(
+            {f"PosterRubric{n}" for n in range(1, 11)} | {f"SM{n}" for n in range(1, 5)},
+            set(fields),
+        )
+        for old in ("P1", "P1Comment", "PR1", "S1", "S1Comment"):
+            self.assertNotIn(old, fields)
+
     def test_marks_print_as_whole_numbers_when_whole(self):
         from apps.grading.services.docx import marks_release_fields
 
@@ -510,10 +560,10 @@ class DocxEngineEdgeTests(SimpleTestCase):
             {"code": "SAQ", "criteria": saq},
         ]})
         self.assertEqual(
-            [fields[f"P{i}"] for i in range(1, 6)], ["4", "4.5", "1.92", "", "5"]
+            [fields[f"PM{i}"] for i in range(1, 6)], ["4", "4.5", "1.92", "", "5"]
         )
-        self.assertEqual(fields["PosterTotal"], "15.42")
-        self.assertEqual(fields["SAQTotal"], "10")
+        self.assertEqual(fields["PMTotal"], "15.42")
+        self.assertEqual(fields["SMTotal"], "10")
         self.assertEqual(fields["CombinedTotal"], "25.42")
         # No marks at all still prints a plain zero.
         self.assertEqual(marks_release_fields({})["CombinedTotal"], "0")

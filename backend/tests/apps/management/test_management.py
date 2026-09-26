@@ -317,7 +317,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertIn("Director1Signature", data["present"])
         self.assertEqual(data["unknown"], ["Typoed"])
         # Placeholders the template does not use are absent, not reported.
-        self.assertNotIn("SAQTotal", data["present"])
+        self.assertNotIn("SMTotal", data["present"])
 
     def test_template_scan_unknown_kind_404s(self):
         r = self.client.get(
