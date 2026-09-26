@@ -31,6 +31,24 @@
             </span>
           </div>
         </div>
+        <div class="admin-view-executed__header-actions">
+          <span :title="view.isDefault ? 'System default views cannot be edited' : undefined">
+            <button
+              type="button"
+              class="btn btn-outline"
+              :disabled="view.isDefault"
+              @click="queryDrawerOpen = true"
+            >
+              <i class="fas fa-sliders" aria-hidden="true"></i>
+              Edit Query Criteria
+            </button>
+          </span>
+          <button type="button" class="btn btn-outline" :disabled="exporting" @click="exportCsv">
+            <span v-if="exporting" class="admin-view-executed__spinner" aria-hidden="true"></span>
+            <i v-else class="fas fa-file-csv" aria-hidden="true"></i>
+            {{ exporting ? 'Exporting...' : 'Export CSV' }}
+          </button>
+        </div>
       </header>
 
       <p v-if="error" class="admin-view-executed__error" role="alert">
@@ -217,6 +235,9 @@
 
     <!-- View detail sheet -->
     <AdminUserDetailSheet :open="viewOpen" :user="detailUser" @close="onViewClose" @edit="openEditFromView" />
+
+    <!-- Edit query criteria -->
+    <AdminViewQueryDrawer v-model="queryDrawerOpen" :view="view" @saved="onQuerySaved" />
   </div>
 </template>
 
@@ -229,6 +250,7 @@ import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminViewBulkBar from '@/components/admin/views/AdminViewBulkBar.vue'
+import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
 import AdminViewResultsTable from '@/components/admin/views/AdminViewResultsTable.vue'
 import {
   useAdminViewExecuted,
@@ -297,7 +319,9 @@ const {
   countries,
   states,
   supervisors,
-  init
+  init,
+  exporting,
+  exportCsv
 } = useAdminViewExecuted(viewId)
 
 const goBack = (): void => {
@@ -342,6 +366,15 @@ const onSingleDeleteConfirmed = (): void => {
   void runSingleDelete()
 }
 
+// Editing a view's query criteria can change which rows match and how many
+// there are, unlike editing a single user — reload() (not loadResults()) is
+// intentional here so results restart from page 1 against the fresh criteria.
+const queryDrawerOpen = ref(false)
+
+const onQuerySaved = (): void => {
+  reload()
+}
+
 watch(viewId, reload, { immediate: true })
 onMounted(() => {
   void init()
@@ -374,6 +407,13 @@ onMounted(() => {
   gap: 1.25rem;
   justify-content: space-between;
   margin-bottom: 1.25rem;
+}
+
+.admin-view-executed__header-actions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.6rem;
 }
 
 .detail-header h1 {
@@ -520,5 +560,29 @@ onMounted(() => {
   background-color: var(--white);
   color: var(--charcoal);
   font: inherit;
+}
+
+.admin-view-executed__spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.5rem;
+  vertical-align: -2px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--dark-green);
+  border-radius: 50%;
+  animation: admin-view-executed-spin 0.8s linear infinite;
+}
+
+@keyframes admin-view-executed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-view-executed__spinner {
+    animation: none;
+  }
 }
 </style>

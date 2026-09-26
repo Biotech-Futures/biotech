@@ -7,6 +7,7 @@ import {
   fetchAdminCountries,
   fetchAdminStates,
   fetchAdminUsers,
+  getAdminViewExportUrl,
   runAdminView,
   setAdminUserActive,
   type AdminUser,
@@ -428,6 +429,44 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     }
   }
 
+  // -- CSV export ----------------------------------------------------------------
+  // The backend sets a Content-Disposition filename (export_view_csv in
+  // backend/apps/admin/services/views.py), but Content-Disposition isn't on the
+  // CORS-exposed-headers allowlist here, so a cross-origin fetch can't read it —
+  // derive a filename client-side instead, mirroring the backend's own slug rule.
+  const exporting = ref(false)
+
+  const csvFilename = computed(() => {
+    const slug = (view.value?.name || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_')
+    return `${slug || 'view'}_export.csv`
+  })
+
+  const exportCsv = async (): Promise<void> => {
+    if (!Number.isFinite(viewId.value) || viewId.value <= 0) return
+    exporting.value = true
+    try {
+      const url = getAdminViewExportUrl(viewId.value, appliedSearch.value || undefined)
+      const res = await fetch(url, { method: 'GET', credentials: 'include' })
+      if (!res.ok) {
+        throw new Error(`Failed to export CSV: ${res.statusText}`)
+      }
+      const blob = await res.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = csvFilename.value
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (err: unknown) {
+      logApiError('admin.views.export', err)
+      error.value = err instanceof Error ? err.message : 'Unable to export CSV right now.'
+    } finally {
+      exporting.value = false
+    }
+  }
+
   return {
     view,
     rows,
@@ -484,6 +523,8 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     countries,
     states,
     supervisors,
-    init
+    init,
+    exporting,
+    exportCsv
   }
 }
