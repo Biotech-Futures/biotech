@@ -154,6 +154,35 @@ describe('saving', () => {
     expect(wrapper.find('.grading-settings__banner--ok').text()).toBe('Files updated.')
   })
 
+  it("a changed detail shows that director's save hint, and only theirs", async () => {
+    const wrapper = await mountPage()
+    // The hint sits under the director's signature row, at the end of their fields.
+    const hintUnder = (director: 1 | 2) =>
+      wrapper
+        .findAll('div.grading-settings__field')
+        .find((f) => f.find('span').text() === `Director ${director} Signature`)!
+        .find('.grading-settings__save-hint')
+    const detailsHint = 'Click Update to save details'
+    expect(hintUnder(1).exists()).toBe(false)
+    expect(hintUnder(2).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 2 Name').setValue('Dr. Bob Brown')
+    expect(hintUnder(2).text()).toBe(detailsHint)
+    expect(hintUnder(1).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 2 Name').setValue('') // back to the saved value
+    expect(hintUnder(2).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 1 Position').setValue('Co-Chair')
+    expect(hintUnder(1).text()).toBe(detailsHint)
+    await fieldNamed(wrapper, 'Director 1 Position').setValue('Chair')
+    expect(hintUnder(1).exists()).toBe(false)
+
+    await pickFile(wrapper, 'image/*', 'new-sig.png', 1)
+    expect(hintUnder(2).text()).toBe(detailsHint)
+    expect(hintUnder(1).exists()).toBe(false)
+  })
+
   it('a position edit enables Update and is saved', async () => {
     updateMock.mockResolvedValueOnce(detail({ director_2_position: 'Co-Chair' }))
     const wrapper = await mountPage()

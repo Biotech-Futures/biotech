@@ -30,7 +30,12 @@
               </button>
               <span class="grading-settings__file-name">{{ sig1?.name || baseName(settings.director_1_signature) || 'No file selected.' }}</span>
             </div>
-            <p v-if="sig1" class="grading-settings__save-hint">Click Update to save signatures</p>
+            <p
+              v-if="director1Changed"
+              class="grading-settings__save-hint grading-settings__save-hint--director"
+            >
+              Click Update to save details
+            </p>
             <input ref="sig1Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig1 = fileOf($event)" />
           </div>
           <label class="grading-settings__field">
@@ -49,7 +54,12 @@
               </button>
               <span class="grading-settings__file-name">{{ sig2?.name || baseName(settings.director_2_signature) || 'No file selected.' }}</span>
             </div>
-            <p v-if="sig2" class="grading-settings__save-hint">Click Update to save signatures</p>
+            <p
+              v-if="director2Changed"
+              class="grading-settings__save-hint grading-settings__save-hint--director"
+            >
+              Click Update to save details
+            </p>
             <input ref="sig2Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig2 = fileOf($event)" />
           </div>
         </div>
@@ -77,13 +87,14 @@
               Expected variables:<br />
               <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
-            <ul class="grading-settings__tokens">
-              <template v-for="chip in SUMMARY_TOKENS" :key="chip.label">
-                <li v-if="chip.newLine" class="grading-settings__tokens-break" aria-hidden="true"></li>
-                <li>
-                  <code :class="{ 'is-found': isFound('marks-summary', chip) }">{{ chip.label }}</code>
-                </li>
-              </template>
+            <ul
+              v-for="(group, index) in SUMMARY_GROUPS"
+              :key="index"
+              class="grading-settings__tokens"
+            >
+              <li v-for="chip in group" :key="chip.label">
+                <code :class="{ 'is-found': isFound('marks-summary', chip) }">{{ chip.label }}</code>
+              </li>
             </ul>
             <p v-if="unknownIn('marks-summary').length" class="grading-settings__unknown">
               Variables present in the selected file but not recognised (these render blank):
@@ -225,19 +236,32 @@ const hasPickedFiles = computed(() =>
   Boolean(sig1.value || sig2.value || summaryTpl.value || certTpl.value)
 )
 
-// Update stays disabled until something actually differs from the loaded
-// settings — an edited director name or position, or a picked file.
-const hasChanges = computed(() => {
+// Each director's details differ from what is saved: an edited name or
+// position, or a picked signature. Drives that director's save hint.
+const director1Changed = computed(() => {
   const s = settings.value
   if (!s) return false
   return (
     d1.value !== (s.director_1_name || '') ||
-    d2.value !== (s.director_2_name || '') ||
     p1.value !== (s.director_1_position || '') ||
-    p2.value !== (s.director_2_position || '') ||
-    hasPickedFiles.value
+    Boolean(sig1.value)
   )
 })
+const director2Changed = computed(() => {
+  const s = settings.value
+  if (!s) return false
+  return (
+    d2.value !== (s.director_2_name || '') ||
+    p2.value !== (s.director_2_position || '') ||
+    Boolean(sig2.value)
+  )
+})
+
+// Update stays disabled until something actually differs from the loaded
+// settings — an edited director detail or a picked file.
+const hasChanges = computed(
+  () => director1Changed.value || director2Changed.value || hasPickedFiles.value
+)
 
 // The text fields as the form currently holds them, for either save body.
 const directorText = () => ({
@@ -293,8 +317,6 @@ const FIELD_LABELS: Record<string, string> = {
 interface Placeholder {
   label: string
   names: string[]
-  /** Starts a new row instead of wrapping on after the chip before it. */
-  newLine?: boolean
 }
 
 const token = (name: string): Placeholder => ({ label: `{{${name}}}`, names: [name] })
@@ -303,38 +325,45 @@ const series = (prefix: string, count: number, suffix = ''): Placeholder => {
   return { label: `{{${names[0]}}} … {{${names[names.length - 1]}}}`, names }
 }
 
-// Team details, then marks and comments, then totals and directors: each
-// group starts on a row of its own.
-const SUMMARY_TOKENS: Placeholder[] = [
-  token('Year'),
-  token('TeamCode'),
-  token('ProjectTitle'),
-  token('ProjectCategoryHeading'),
-  token('ProjectCategory'),
-  token('SolutionCategory'),
-  token('Students'),
-  token('Mentor'),
-  token('SupervisorHeading'),
-  token('Supervisors'),
-  token('SchoolHeading'),
-  token('Schools'),
-  { ...series('PosterRubric', 10), newLine: true },
-  series('PM', 10),
-  series('PosterComment', 10),
-  token('PosterOverallComment'),
-  series('ShortAnswerQuestionRubric', 4),
-  series('SM', 4),
-  series('ShortAnswerQuestionComment', 4),
-  token('ShortAnswerQuestionOverallComment'),
-  { ...token('PMTotal'), newLine: true },
-  token('SMTotal'),
-  token('CombinedTotal'),
-  token('Director1Signature'),
-  token('Director2Signature'),
-  token('Director1Name'),
-  token('Director2Name'),
-  token('Director1Position'),
-  token('Director2Position')
+// Team details, then marks and comments, then totals and directors. Each
+// group is its own list, so the space between groups matches the space
+// between the other parts of the template card.
+const SUMMARY_GROUPS: Placeholder[][] = [
+  [
+    token('Year'),
+    token('TeamCode'),
+    token('ProjectTitle'),
+    token('ProjectCategoryHeading'),
+    token('ProjectCategory'),
+    token('SolutionCategory'),
+    token('Students'),
+    token('Mentor'),
+    token('SupervisorHeading'),
+    token('Supervisors'),
+    token('SchoolHeading'),
+    token('Schools')
+  ],
+  [
+    series('PosterRubric', 10),
+    series('PM', 10),
+    series('PosterComment', 10),
+    token('PosterOverallComment'),
+    series('ShortAnswerQuestionRubric', 4),
+    series('SM', 4),
+    series('ShortAnswerQuestionComment', 4),
+    token('ShortAnswerQuestionOverallComment')
+  ],
+  [
+    token('PMTotal'),
+    token('SMTotal'),
+    token('CombinedTotal'),
+    token('Director1Signature'),
+    token('Director2Signature'),
+    token('Director1Name'),
+    token('Director2Name'),
+    token('Director1Position'),
+    token('Director2Position')
+  ]
 ]
 const CERTIFICATE_FIELDS: Placeholder[] = [
   'Year',
@@ -550,7 +579,7 @@ const save = async () => {
   padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.9rem;
 }
 
 .grading-settings__template .grading-settings__note {
@@ -592,13 +621,6 @@ const save = async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-}
-
-/* An empty full-width row: forces a line break, and its row gap leaves a
-   little space between the groups either side. */
-.grading-settings__tokens-break {
-  flex-basis: 100%;
-  height: 0;
 }
 
 .grading-settings__tokens code {
@@ -647,6 +669,12 @@ const save = async () => {
   color: #b8860b;
   font-size: 0.85rem;
   margin: 0;
+}
+
+/* Same space above as below: the field's own 0.3rem gap plus this makes the
+   0.85rem the next field sits below it. */
+.grading-settings__save-hint--director {
+  margin-top: 0.55rem;
 }
 
 .grading-settings__actions {
