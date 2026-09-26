@@ -1,7 +1,6 @@
 <template>
   <div class="finalists">
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
-    <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
 
     <section>
       <h3 class="card-title finalists__list-title">
@@ -23,14 +22,15 @@
       <div class="card finalists__search-card">
         <div class="finalists__search-field">
           <span class="finalists__search-label">Search</span>
-          <form class="finalists__form" @submit.prevent="add">
+          <!-- Plain filter: no form, so Enter never flags a group. Flagging
+               goes through each row's Add button only. -->
+          <div class="finalists__form">
             <GroupSearchInput
-              ref="picker"
               v-model="groupQuery"
               class="finalists__picker"
               :show-suggestions="false"
             />
-          </form>
+          </div>
         </div>
       </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
@@ -205,7 +205,7 @@
                   type="button"
                   class="btn btn-outline btn-sm"
                   :disabled="isMutating"
-                  @click="remove(f.group_id)"
+                  @click="pendingRemoval = f"
                 >
                   Remove
                 </button>
@@ -221,6 +221,31 @@
       </div>
       </template>
     </section>
+
+    <div v-if="pendingRemoval" class="finalists__overlay" @click.self="pendingRemoval = null">
+      <div class="finalists__dialog" role="dialog" aria-modal="true" aria-label="Remove finalist">
+        <h4 class="finalists__dialog-title">Remove this finalist?</h4>
+        <p class="finalists__dialog-body">
+          <strong>{{ pendingRemoval.group_name }}</strong> will no longer be a finalist.
+          <template v-if="pendingRemoval.notified">
+            Their team has already been emailed that they are a finalist.
+          </template>
+        </p>
+        <div class="finalists__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="pendingRemoval = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isMutating"
+            @click="remove(pendingRemoval.group_id)"
+          >
+            {{ isMutating ? 'Removing…' : 'Remove finalist' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -233,7 +258,8 @@ import {
   removeFinalist,
   type FinalistCandidateRow,
   type FinalistCandidatesResponse,
-  type FinalistListResponse
+  type FinalistListResponse,
+  type FinalistRow
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
@@ -242,9 +268,7 @@ const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const actionMessage = ref('')
 const isMutating = ref(false)
-const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
 
 const finalists = computed(() => list.value?.finalists ?? [])
@@ -271,7 +295,7 @@ const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
 // Live-filter the Group Marks table by the search text (group name),
-// matching the other marking tables; resolveId still powers the Add button.
+// matching the other marking tables.
 const candidates = computed(() => {
   const rows = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
@@ -314,7 +338,6 @@ onMounted(() => {
 })
 
 const addFromRow = async (id: number) => {
-  actionMessage.value = ''
   actionError.value = ''
   isMutating.value = true
   try {
@@ -327,38 +350,20 @@ const addFromRow = async (id: number) => {
   }
 }
 
-const add = async () => {
-  actionMessage.value = ''
-  actionError.value = ''
-  const id = picker.value?.resolveId() ?? null
-  if (id == null) {
-    actionError.value = 'No group matches that name.'
-    return
-  }
-  isMutating.value = true
-  try {
-    await addFinalist(id)
-    groupQuery.value = ''
-    await Promise.all([load(), loadCandidates()])
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    isMutating.value = false
-  }
-}
+// Remove asks first: the row's button opens the popup, its confirm removes.
+const pendingRemoval = ref<FinalistRow | null>(null)
 
 const remove = async (id: number) => {
-  actionMessage.value = ''
   actionError.value = ''
   isMutating.value = true
   try {
     await removeFinalist(id)
-    actionMessage.value = 'Finalist removed.'
     await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isMutating.value = false
+    pendingRemoval.value = null
   }
 }
 </script>
@@ -442,6 +447,44 @@ const remove = async (id: number) => {
   letter-spacing: 0.03em;
 }
 
+/* Remove-finalist confirm — same treatment as the Extend Deadline popups. */
+.finalists__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.finalists__dialog {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  padding: 1.25rem 1.5rem;
+  max-width: 26rem;
+  width: 100%;
+}
+
+.finalists__dialog-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.finalists__dialog-body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--charcoal);
+}
+
+.finalists__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .finalists__banner {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
@@ -452,11 +495,6 @@ const remove = async (id: number) => {
 .finalists__banner--error {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
-}
-
-.finalists__banner--ok {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
 }
 
 .finalists__load-error {

@@ -65,6 +65,9 @@ const fillForm = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
   await wrapper.find('input[type="datetime-local"]').setValue('2026-11-08T09:00')
 }
 
+const grantButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+  wrapper.findAll('button').find((b) => /^(Grant|Saving…)$/.test(b.text().trim()))!
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
@@ -144,7 +147,7 @@ describe('granting', () => {
     resolveIdMock.mockReturnValue(null)
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     expect(wrapper.find('.extensions__banner--error').text()).toBe('No group matches that name.')
     expect(saveMock).not.toHaveBeenCalled()
   })
@@ -156,7 +159,7 @@ describe('granting', () => {
     const wrapper = await mountPage()
     await fillForm(wrapper)
     await wrapper.find('textarea').setValue('Storm damage')
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(saveMock).toHaveBeenCalledWith(
@@ -165,6 +168,10 @@ describe('granting', () => {
     expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension granted.')
     expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
     expect(listMock).toHaveBeenCalledTimes(2) // mount + refresh
+
+    // The success message clears itself after 3.5 seconds.
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(wrapper.find('.extensions__banner--ok').exists()).toBe(false)
   })
 
   it('shows the server refusal when a grant bounces', async () => {
@@ -172,7 +179,7 @@ describe('granting', () => {
     saveMock.mockRejectedValueOnce(new Error('must be later than the current deadline'))
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
     expect(wrapper.find('.extensions__banner--error').text()).toContain(
       'must be later than the current deadline'
@@ -184,7 +191,7 @@ describe('granting', () => {
     saveMock.mockResolvedValueOnce({ extension: extension() })
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     // Nothing saved yet — the warning dialog intervenes, naming the group.
@@ -203,7 +210,7 @@ describe('granting', () => {
     resolveIdMock.mockReturnValue(7)
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     await wrapper.find('.extensions__dialog button').trigger('click') // Cancel
@@ -219,7 +226,7 @@ describe('granting', () => {
     saveMock.mockResolvedValueOnce({ extension: extension() })
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
     expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
     expect(saveMock).toHaveBeenCalled()
@@ -227,28 +234,64 @@ describe('granting', () => {
 
   it('cannot grant with the group or date missing', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(grantButton(wrapper).attributes('disabled')).toBeDefined()
     await fillForm(wrapper)
-    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(grantButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it('pressing Enter in the form does not grant', async () => {
+    resolveIdMock.mockReturnValue(8)
+    const wrapper = await mountPage()
+    await fillForm(wrapper)
+    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.extensions__banner--error').exists()).toBe(false)
   })
 })
 
 describe('revoking', () => {
-  it('revokes through the row button and refreshes', async () => {
+  const confirmRevoke = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
+    await wrapper.find('.extensions__dialog').findAll('button').at(-1)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('the row button asks first, naming the group and its extension', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('tbody button').trigger('click')
+    const dialog = wrapper.find('.extensions__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('Revoke this extension?')
+    expect(dialog.text()).toContain('BTF-1')
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('confirming revokes and refreshes', async () => {
     removeMock.mockResolvedValueOnce(undefined as never)
     const wrapper = await mountPage()
     await wrapper.find('tbody button').trigger('click')
-    await flushPromises()
+    await confirmRevoke(wrapper)
     expect(removeMock).toHaveBeenCalledWith(7)
-    expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension revoked.')
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+    // The refreshed table is the confirmation; no success banner.
+    expect(wrapper.find('.extensions__banner--ok').exists()).toBe(false)
     expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancelling revokes nothing', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('tbody button').trigger('click')
+    await wrapper.find('.extensions__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+    expect(removeMock).not.toHaveBeenCalled()
   })
 
   it('reports a failed revoke', async () => {
     removeMock.mockRejectedValueOnce(new Error('gone already'))
     const wrapper = await mountPage()
     await wrapper.find('tbody button').trigger('click')
-    await flushPromises()
+    await confirmRevoke(wrapper)
     expect(wrapper.find('.extensions__banner--error').text()).toContain('gone already')
   })
 })

@@ -67,6 +67,9 @@
           </div>
       </div>
 
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--ok">
+        Processing files for Download
+      </p>
       <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
@@ -222,8 +225,21 @@ const startJob = (format: 'zip' | 'xlsx') => {
   void job.start(code.value, format)
 }
 
-const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied - wrote ${written} row${written === 1 ? '' : 's'}.`
+const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
+
+// "Marks applied. Overwrote existing records for 2 groups and wrote new
+// records for 1 group." Counted in groups, like the upload preview.
+const appliedMessage = ({ overwritten, created }: { overwritten: number; created: number }) => {
+  const parts: string[] = []
+  if (overwritten) parts.push(`overwrote existing records for ${groupCount(overwritten)}`)
+  if (created) parts.push(`wrote new records for ${groupCount(created)}`)
+  if (!parts.length) return 'Marks applied. No records changed.'
+  const detail = parts.join(' and ')
+  return `Marks applied. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+}
+
+const onUploadApplied = async (counts: { overwritten: number; created: number }) => {
+  uploadMessage.value = appliedMessage(counts)
   await load()
 }
 

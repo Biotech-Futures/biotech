@@ -18,37 +18,28 @@
           </button>
         </div>
 
-        <template v-if="code === 'SAQ'">
-          <p class="bulk-upload__desc">
-            .xlsx or .csv in the export's shape (one row per criterion)
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers are:<br />
-            <code>group_id</code>, <code>group_name</code>,<br />
-            Then <code>criteria_no</code>, <code>mark</code>, <code>comment</code>,<br />
-            Then <code>overall_comment</code>
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers must match exactly.<br />
-            Entering <code>group_id</code> in a row makes it the group's first row.<br />
-            Criteria number must be listed one after another (vertically). [<code>mark</code>
-            and <code>comment</code> to be assigned to each criteria]<br />
-            Extra columns and rows are ignored.
-          </p>
-        </template>
-        <template v-else>
-          <p class="bulk-upload__desc">
-            .xlsx or .csv in the export's shape (one row per group)<br />
-            <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+        <p class="bulk-upload__desc">
+          .xlsx or .csv in the export's shape (one row per group)<br />
+          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+          <template v-if="code === 'SAQ'">
+            Then <code>q1</code>, <code>q2</code> … (the answers, not read on upload),<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion,<br />
+            Then <code>overall_comment</code>, <code>product_category</code> and
+            <code>category_of_solution</code>
+          </template>
+          <template v-else>
             Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
             <code>overall_comment</code>
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers must match exactly.<br />
-            Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
-            Extra columns and rows are ignored.
-          </p>
-        </template>
+          </template>
+        </p>
+        <p class="bulk-upload__desc">
+          Column headers must match exactly.<br />
+          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          <template v-if="code === 'SAQ'">
+            Items in <code>product_category</code> are split on commas<br />
+          </template>
+          Extra columns and rows are ignored.
+        </p>
 
         <div class="bulk-upload__file-row">
           <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
@@ -78,7 +69,7 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
-              <!-- Wide-shape sheets only — SAQ's shape has no type column. -->
+              <!-- The sheet's type column check. -->
               <li v-if="preview.checks.type_ok !== undefined">
                 Type:
                 <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
@@ -112,7 +103,9 @@
                         : 'bulk-upload__check--ok'
                     "
                     >{{ overwriteGroupCount }}</strong
-                  >{{ groupsSuffix(preview.updates) }}
+                  >{{
+                    groupsSuffix(preview.updates, overallCommentOverwrites, categoryOverwrites)
+                  }}
                 </li>
                 <li>
                   Writing New Records: <strong>{{ newGroupCount }}</strong>
@@ -143,6 +136,8 @@
 import { computed, ref } from 'vue'
 import {
   bulkUploadMarks,
+  type BulkUploadCategoryEntry,
+  type BulkUploadOverallCommentEntry,
   type BulkUploadResponse,
   type BulkUploadRowEntry
 } from '@/utils/gradingAPI'
@@ -168,7 +163,8 @@ const TYPE_LABELS: Record<string, string> = {
 const typeLabel = computed(() => TYPE_LABELS[props.code] ?? props.code)
 
 const emit = defineEmits<{
-  applied: [written: number]
+  // Groups overwritten and groups written new, counted like the preview.
+  applied: [counts: { overwritten: number; created: number }]
 }>()
 
 const open = ref(false)
@@ -207,43 +203,87 @@ const checkMarkText = computed(() => {
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
 
-// Group-level counts — a "record" is one group's marks: a group touching
-// any existing grade is an overwrite, and the rest of the recognized
-// groups are written as new.
-const overwriteGroupCount = computed(() =>
-  preview.value ? new Set(preview.value.updates.map((e) => e.group_id)).size : 0
-)
-const newGroupCount = computed(() => {
-  if (!preview.value) return 0
-  // Groups that actually write something new — created grades or changed
-  // marking-key categories. Unchanged groups write nothing, so an
-  // untouched re-upload reports 0 of both kinds; a group already counted
-  // as overwriting is not double counted here.
-  const overwriting = new Set(preview.value.updates.map((e) => e.group_id))
+// Overall comments a sheet changes. Replacing or clearing a stored comment
+// is an overwrite (a blank cell in an older export wipes it); writing one
+// where none was stored is a new record.
+const commentOverwrites = (r: BulkUploadResponse) =>
+  (r.overall_comments ?? []).filter((e) => e.old_comment !== '')
+
+// Category changes likewise: replacing or clearing a group's stored
+// categories is an overwrite; setting them for the first time is new.
+const categoryChangeOverwrites = (r: BulkUploadResponse) =>
+  (r.marking_categories ?? []).filter((e) => (e.overwritten_columns ?? []).length > 0)
+
+// Group-level counts, shared by the preview and the applied summary — a
+// "record" is one group's marks: a group touching any existing grade,
+// overall comment or category is an overwrite, and the rest of the
+// recognized groups are written as new.
+const overwritingGroupIds = (r: BulkUploadResponse) =>
+  new Set([
+    ...r.updates.map((e) => e.group_id),
+    ...commentOverwrites(r).map((e) => e.group_id),
+    ...categoryChangeOverwrites(r).map((e) => e.group_id)
+  ])
+
+// Groups that actually write something new — created grades, new overall
+// comments or first-time marking-key categories. Unchanged groups write
+// nothing, so an untouched re-upload reports 0 of both kinds; a group
+// already counted as overwriting is not double counted here.
+const newGroupIds = (r: BulkUploadResponse) => {
+  const overwriting = overwritingGroupIds(r)
   return new Set(
     [
-      ...preview.value.creates.map((e) => e.group_id),
-      ...(preview.value.marking_categories ?? []).map((e) => e.group_id)
+      ...r.creates.map((e) => e.group_id),
+      ...(r.overall_comments ?? []).filter((e) => e.old_comment === '').map((e) => e.group_id),
+      ...(r.marking_categories ?? []).map((e) => e.group_id)
     ].filter((id) => !overwriting.has(id))
-  ).size
-})
+  )
+}
 
-// "(BTF1 [3_mark, 3_comment, 4_mark], …)" — one listing per overwritten
-// group, in sheet order, naming each overwritten cell as
-// <criteria_no>_<column>. Sits beside the overwrite count.
-const groupsSuffix = (entries: BulkUploadRowEntry[]) => {
-  if (!entries.length) return ''
-  const byGroup = new Map<number, { label: string; columns: string[] }>()
-  for (const e of entries) {
-    const info = byGroup.get(e.group_id) ?? {
-      label: e.group_name || `group_id ${e.group_id}`,
+const overallCommentOverwrites = computed(() =>
+  preview.value ? commentOverwrites(preview.value) : []
+)
+const categoryOverwrites = computed(() =>
+  preview.value ? categoryChangeOverwrites(preview.value) : []
+)
+const overwriteGroupCount = computed(() =>
+  preview.value ? overwritingGroupIds(preview.value).size : 0
+)
+const newGroupCount = computed(() => (preview.value ? newGroupIds(preview.value).size : 0))
+
+// "(BTF1 [r3_mark, r3_comment, r4_mark, overall_comment, product_category], …)"
+// — one listing per overwritten group, in sheet order, naming each
+// overwritten cell by its sheet column, then overall_comment and the category
+// columns when those are overwritten too. Sits beside the overwrite count.
+const groupsSuffix = (
+  entries: BulkUploadRowEntry[],
+  comments: BulkUploadOverallCommentEntry[] = [],
+  categories: BulkUploadCategoryEntry[] = []
+) => {
+  if (!entries.length && !comments.length && !categories.length) return ''
+  const byGroup = new Map<number, { row: number; label: string; columns: string[] }>()
+  const groupInfo = (groupId: number, row: number, name?: string | null) => {
+    const info = byGroup.get(groupId) ?? {
+      row,
+      label: name || `group_id ${groupId}`,
       columns: []
     }
-    const prefix = e.criteria_no != null ? `${e.criteria_no}_` : ''
-    info.columns.push(...(e.columns ?? []).map((c) => `${prefix}${c}`))
-    byGroup.set(e.group_id, info)
+    info.row = Math.min(info.row, row)
+    byGroup.set(groupId, info)
+    return info
+  }
+  for (const e of entries) {
+    groupInfo(e.group_id, e.row, e.group_name).columns.push(...(e.columns ?? []))
+  }
+  // The sheet's last columns, so they close the group's listing.
+  for (const c of comments) {
+    groupInfo(c.group_id, c.row, c.group_name).columns.push('overall_comment')
+  }
+  for (const c of categories) {
+    groupInfo(c.group_id, c.row, c.group_name).columns.push(...(c.overwritten_columns ?? []))
   }
   return ` (${[...byGroup.values()]
+    .sort((a, b) => a.row - b.row)
     .map(({ label, columns }) => (columns.length ? `${label} [${columns.join(', ')}]` : label))
     .join(', ')})`
 }
@@ -304,7 +344,12 @@ const doApply = async () => {
     const data = await bulkUploadMarks(props.code, file.value, false)
     busy.value = 'idle'
     open.value = false
-    emit('applied', data.written ?? 0)
+    // The apply response carries the diff re-parsed at commit time, so the
+    // counts describe what was actually written.
+    emit('applied', {
+      overwritten: overwritingGroupIds(data).size,
+      created: newGroupIds(data).size
+    })
     reset()
   } catch (err) {
     busy.value = 'idle'

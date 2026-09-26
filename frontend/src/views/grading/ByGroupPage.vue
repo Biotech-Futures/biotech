@@ -31,6 +31,9 @@
         </div>
       </div>
 
+      <p v-if="job.isBusy.value" class="by-group__banner by-group__banner--ok">
+        Processing files for Download
+      </p>
       <p v-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
         {{ job.error.value }}
       </p>

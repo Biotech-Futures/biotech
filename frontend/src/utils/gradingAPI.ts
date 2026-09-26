@@ -280,7 +280,6 @@ export interface BulkUploadRowEntry {
   row: number
   group_id: number
   criterion_id: number
-  criteria_no?: number
   submission_id: number
   mark: string | null
   comment: string
@@ -302,7 +301,7 @@ export interface BulkUploadSummary {
   updates: number
   unchanged: number
   overall_comments?: number
-  // SAQ shape only: marking key selections parsed from the sheet.
+  // SAQ sheets only: marking key selections parsed from the sheet.
   marking_categories?: number
   errors: number
 }
@@ -310,8 +309,7 @@ export interface BulkUploadSummary {
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
-  // Wide-shape sheets only (POSTER/REPORT/PROTOTYPE): the type column
-  // check. Absent for SAQ's per-criterion shape, which has no type.
+  // The sheet's type column check ("SAQs", "Poster", …).
   expected_type?: string
   found_type?: string | null
   type_ok?: boolean
@@ -322,16 +320,33 @@ export interface BulkUploadChecks {
 export interface BulkUploadCategoryEntry {
   row: number
   group_id: number
+  group_name?: string | null
+  // The category columns this change touches, and those of them that had a
+  // stored value (replaced or cleared) rather than being set for the first time.
+  columns?: string[]
+  overwritten_columns?: string[]
   product_categories: string[]
   product_category_other: string
   solution_category: string
   solution_category_other: string
 }
 
+/** A group's overall comment the sheet changes. An empty old_comment means
+ *  none was stored (a new record); otherwise it's replaced or cleared. */
+export interface BulkUploadOverallCommentEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  component_id: number
+  comment: string
+  old_comment: string
+}
+
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  overall_comments?: BulkUploadOverallCommentEntry[]
   // SAQ shape only: marking key changes parsed from the sheet.
   marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]

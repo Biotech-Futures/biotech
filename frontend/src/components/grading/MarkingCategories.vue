@@ -30,7 +30,6 @@
             class="marking-categories__other"
             :disabled="!form.product_categories.includes(OTHER)"
             aria-label="Other product category"
-            @input="queueSave"
           />
         </label>
       </div>
@@ -68,7 +67,6 @@
             class="marking-categories__other"
             :disabled="form.solution_category !== OTHER"
             aria-label="Other solution category"
-            @input="queueSave"
           />
         </label>
       </div>
@@ -78,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   fetchGroupCategories,
   saveGroupCategories,
@@ -88,7 +86,8 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const props = defineProps<{ groupId: number }>()
 
-// Save state renders on the page's "Submitted" line, not inside the boxes.
+// Only a failed load reports here (the page shows it in its error banner).
+// Saving is the page's Save button, which calls save() below.
 const emit = defineEmits<{
   (e: 'status', value: { text: string; error: boolean } | null): void
 }>()
@@ -102,70 +101,72 @@ const PRODUCT_OPTIONS = [
 const SOLUTION_OPTIONS = ['Product/Device', 'Technique/Method', 'Treatment']
 const OTHER = 'Other'
 
-const form = reactive<GroupCategories>({
+const blank = (): GroupCategories => ({
   product_categories: [],
   product_category_other: '',
   solution_category: '',
   solution_category_other: ''
 })
+const copy = (c: GroupCategories): GroupCategories => ({
+  ...c,
+  product_categories: [...c.product_categories]
+})
+const sameCategories = (a: GroupCategories, b: GroupCategories) =>
+  a.product_category_other === b.product_category_other &&
+  a.solution_category === b.solution_category &&
+  a.solution_category_other === b.solution_category_other &&
+  [...a.product_categories].sort().join('\n') === [...b.product_categories].sort().join('\n')
 
-let loaded = false
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-let statusTimer: ReturnType<typeof setTimeout> | null = null
+const form = reactive<GroupCategories>(blank())
+// The selections as last loaded or saved, to tell unsaved edits apart.
+const stored = ref<GroupCategories>(blank())
+const loaded = ref(false)
+
+// Edits the Save button has not stored yet. The page folds this into the
+// SAQ form's dirty state, so Save enables and the leave guards ask first.
+const isDirty = computed(() => loaded.value && !sameCategories(form, stored.value))
 
 watch(
   () => props.groupId,
   async (id) => {
-    loaded = false
+    loaded.value = false
     emit('status', null)
     try {
-      Object.assign(form, await fetchGroupCategories(id))
-      loaded = true
+      const data = await fetchGroupCategories(id)
+      stored.value = copy(data)
+      Object.assign(form, copy(data))
+      loaded.value = true
     } catch (err) {
-      emit('status', { text: apiErrorFromUnknown(err).message, error: true })
+      emit('status', {
+        text: `Category load failed: ${apiErrorFromUnknown(err).message}`,
+        error: true
+      })
     }
   },
   { immediate: true }
 )
 
+// Called by the page's Save button. A failure throws for the page to
+// report, and the edits stay unsaved so pressing Save again retries.
 const save = async () => {
-  if (!loaded) return
-  try {
-    Object.assign(form, await saveGroupCategories(props.groupId, { ...form }))
-    emit('status', { text: 'Saved.', error: false })
-    if (statusTimer) clearTimeout(statusTimer)
-    statusTimer = setTimeout(() => emit('status', null), 1500)
-  } catch (err) {
-    emit('status', {
-      text: `Save failed: ${apiErrorFromUnknown(err).message}`,
-      error: true
-    })
-  }
+  if (!isDirty.value) return
+  const sent = copy(form)
+  const saved = await saveGroupCategories(props.groupId, sent)
+  stored.value = copy(saved)
+  // Keep anything typed while the request was in flight.
+  if (sameCategories(form, sent)) Object.assign(form, copy(saved))
 }
 
-// Selections save themselves shortly after the last change — no button, the
-// same way the checkbox on the certificates release page behaves.
-const queueSave = () => {
-  if (!loaded) return
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => void save(), 600)
-}
-
-onBeforeUnmount(() => {
-  if (saveTimer) clearTimeout(saveTimer)
-  if (statusTimer) clearTimeout(statusTimer)
-})
+defineExpose({ isDirty, save })
 
 const toggleProduct = (option: string) => {
   const idx = form.product_categories.indexOf(option)
   if (idx >= 0) form.product_categories.splice(idx, 1)
   else form.product_categories.push(option)
-  queueSave()
 }
 
 const pickSolution = (option: string) => {
   form.solution_category = option
-  queueSave()
 }
 </script>
 
@@ -173,8 +174,27 @@ const pickSolution = (option: string) => {
 .marking-categories {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0;
   margin-bottom: 1rem;
+  /* Same width as the rubric form below it (RubricForm's max-width). */
+  max-width: 22rem;
+}
+
+/* Both boxes read as one seamless panel, like the rubric criteria below:
+   no gap, no divider between them. */
+.marking-categories__group + .marking-categories__group {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  /* Tighter than a fresh box's top padding: the section above already
+     leaves room below its options. */
+  padding-top: 0.2rem;
+}
+
+.marking-categories__group:has(+ .marking-categories__group) {
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .marking-categories__group {

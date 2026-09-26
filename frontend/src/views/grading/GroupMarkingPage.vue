@@ -103,8 +103,17 @@
       <p v-if="actionError" class="group-marking__banner group-marking__banner--error">
         {{ actionError }}
       </p>
-      <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
-        Marks saved.
+      <p v-if="categoriesError" class="group-marking__banner group-marking__banner--error">
+        {{ categoriesError }}
+      </p>
+      <p v-if="savedMessage" class="group-marking__banner group-marking__banner--ok">
+        {{ savedMessage }}
+      </p>
+      <p
+        v-if="isDownloading || isStampDownloading"
+        class="group-marking__banner group-marking__banner--ok"
+      >
+        Processing files for Download
       </p>
 
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
@@ -125,13 +134,6 @@
                     class="fas fa-users group-marking__stamp-marker-icon"
                     aria-hidden="true"
                   ></i>
-                </span>
-                <span
-                  v-if="categoriesStatus"
-                  class="group-marking__stamp-status"
-                  :class="{ 'is-error': categoriesStatus.error }"
-                >
-                  · {{ categoriesStatus.text }}
                 </span>
               </span>
               <span v-if="posterLinks.previewable" class="group-marking__stamp-actions">
@@ -154,9 +156,6 @@
                 </button>
               </span>
             </p>
-            <!-- Category boxes span above the nested split, so the answers
-                 AND the pdf both start below them. -->
-            <MarkingCategories :group-id="groupId" @status="categoriesStatus = $event" />
             <!-- Nested split: drag the divider to trade space between the
                  answers and the poster. -->
             <ResizableSplit>
@@ -192,6 +191,13 @@
           >
             <div>
               <h4 class="group-marking__rubric-title">{{ saqBlock.component.name }}</h4>
+              <!-- Category boxes open the SAQ rubric; its Save button stores
+                   them together with the marks. -->
+              <MarkingCategories
+                ref="categoriesForm"
+                :group-id="groupId"
+                @status="onCategoriesStatus"
+              />
               <RubricForm
                 ref="saqForm"
                 :submission="saqBlock.submission"
@@ -199,6 +205,7 @@
                 :grades="saqBlock.grades"
                 :overall-comment-label="overallCommentLabel(saqBlock.component.code)"
                 :is-saving="saveStatus === 'saving'"
+                :extra-dirty="categoriesDirty"
                 @save="saveSaqMarks"
               />
             </div>
@@ -247,13 +254,6 @@
                       aria-hidden="true"
                     ></i>
                   </span>
-                  <span
-                    v-if="categoriesStatus && activeBlock.component.code === 'SAQ'"
-                    class="group-marking__stamp-status"
-                    :class="{ 'is-error': categoriesStatus.error }"
-                  >
-                    · {{ categoriesStatus.text }}
-                  </span>
                 </span>
                 <span v-if="singleLinks.previewable" class="group-marking__stamp-actions">
                   <a
@@ -274,11 +274,6 @@
                   </button>
                 </span>
               </p>
-              <MarkingCategories
-                v-if="activeBlock.component.code === 'SAQ'"
-                :group-id="groupId"
-                @status="categoriesStatus = $event"
-              />
               <SubmissionPreview
                 :submission="activeBlock.submission"
                 :component="activeBlock.component"
@@ -289,6 +284,14 @@
           </template>
           <template #right>
             <div class="group-marking__pane-offset">
+              <!-- Category boxes open the SAQ rubric; its Save button stores
+                   them together with the marks. -->
+              <MarkingCategories
+                v-if="activeBlock.component.code === 'SAQ'"
+                ref="categoriesForm"
+                :group-id="groupId"
+                @status="onCategoriesStatus"
+              />
               <RubricForm
                 ref="rubricForm"
                 :submission="activeBlock.submission"
@@ -296,6 +299,7 @@
                 :grades="activeBlock.grades"
                 :overall-comment-label="overallCommentLabel(activeBlock.component.code)"
                 :is-saving="saveStatus === 'saving'"
+                :extra-dirty="activeBlock.component.code === 'SAQ' && categoriesDirty"
                 @save="saveMarks"
               >
                 <template #actions>
@@ -321,6 +325,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import ResizableSplit from '@/components/grading/ResizableSplit.vue'
@@ -368,7 +373,8 @@ const allRows = ref<ComponentListPayload[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+const saveStatus = ref<'idle' | 'saving'>('idle')
+const { message: savedMessage, show: flashSaved } = useFlashMessage()
 const isDownloading = ref(false)
 const activeCode = ref<string | null>(null)
 const rubricForm = ref<InstanceType<typeof RubricForm> | null>(null)
@@ -394,9 +400,18 @@ const effectiveCode = computed(() =>
 
 const isCombined = computed(() => effectiveCode.value === COMBINED_CODE)
 
-// Categories save-state, surfaced on the "Submitted" line rather than in
-// the boxes themselves; cleared whenever the section or group changes.
-const categoriesStatus = ref<{ text: string; error: boolean } | null>(null)
+// The SAQ category boxes save with the SAQ Save button; their unsaved edits
+// count as the SAQ form's own (enabling Save and the leave guards).
+const categoriesForm = ref<InstanceType<typeof MarkingCategories> | null>(null)
+const categoriesDirty = computed(() => Boolean(categoriesForm.value?.isDirty))
+
+// Only a failed category load reports here. It has its own banner so a
+// marks save never clears it; it is cleared whenever the section or group
+// changes.
+const categoriesError = ref('')
+const onCategoriesStatus = (status: { text: string; error: boolean } | null) => {
+  categoriesError.value = status?.error ? status.text : ''
+}
 
 // Full browser width for the pdf/answer splits; Prototype (a link + zip)
 // doesn't need it and keeps the normal centred layout.
@@ -404,7 +419,7 @@ watch(
   effectiveCode,
   (code) => {
     markingFullWidth.value = code != null && code !== 'PROTOTYPE'
-    categoriesStatus.value = null
+    categoriesError.value = ''
   },
   { immediate: true }
 )
@@ -519,14 +534,18 @@ const singleLinks = computed(() => fileLinks(activeBlock.value?.submission ?? nu
 
 // Download via a blob fetch so it saves instead of opening — a plain link is
 // cross-origin (download attribute ignored) and local /media/ serves inline.
+const isStampDownloading = ref(false)
 const downloadStampFile = async (url: string | null, fileName?: string | null) => {
   if (!url) return
+  isStampDownloading.value = true
   try {
     await downloadSubmissionFile(url, fileName || 'submission.pdf')
   } catch {
     // If the fetch is blocked (e.g. Azure blob CORS), fall back to the direct
     // URL — its SAS attachment disposition still downloads there.
     window.open(url, '_blank', 'noopener')
+  } finally {
+    isStampDownloading.value = false
   }
 }
 
@@ -704,6 +723,7 @@ watch(
   () => {
     activeCode.value = null
     saveStatus.value = 'idle'
+    savedMessage.value = ''
     actionError.value = ''
     void load()
   },
@@ -713,9 +733,11 @@ watch(
 const saveMarksForBlock = async (
   block: ComponentBlock,
   items: GradeBulkItem[],
-  overallComment: string | null
+  overallComment: string | null,
+  withCategories = false
 ) => {
   saveStatus.value = 'saving'
+  savedMessage.value = ''
   actionError.value = ''
   try {
     const submissionId = block.submission?.id
@@ -726,6 +748,8 @@ const saveMarksForBlock = async (
         ? [{ submission: submissionId, component: componentCode, comment: overallComment }]
         : undefined
     )
+    // The SAQ Save also stores the category boxes (a no-op when unchanged).
+    if (withCategories) await categoriesForm.value?.save()
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.
     // In the combined view the other section's form keeps its unsaved edits
     // across this — RubricForm preserves dirty rows for the same entry.
@@ -735,7 +759,8 @@ const saveMarksForBlock = async (
     ])
     payload.value = groupPayload
     rows.value = rowsPayload
-    saveStatus.value = 'saved'
+    saveStatus.value = 'idle'
+    flashSaved('Marks saved.')
   } catch (err) {
     saveStatus.value = 'idle'
     actionError.value = `Save failed: ${apiErrorFromUnknown(err).message}`
@@ -743,11 +768,14 @@ const saveMarksForBlock = async (
 }
 
 const saveMarks = (items: GradeBulkItem[], overallComment: string | null) => {
-  if (activeBlock.value) void saveMarksForBlock(activeBlock.value, items, overallComment)
+  const block = activeBlock.value
+  if (block) {
+    void saveMarksForBlock(block, items, overallComment, block.component.code === 'SAQ')
+  }
 }
 
 const saveSaqMarks = (items: GradeBulkItem[], overallComment: string | null) => {
-  if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment)
+  if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment, true)
 }
 
 const savePosterMarks = (items: GradeBulkItem[], overallComment: string | null) => {
@@ -872,7 +900,7 @@ const downloadAll = async () => {
 }
 
 /* Soft green fill lifts Prev/Next off the page without competing with the
-   solid-green primary actions (Save marks). Download all stays plain outline. */
+   solid-green primary actions (Save). Download all stays plain outline. */
 .group-marking__nav-btn {
   background: var(--accent-green-soft);
   border-color: var(--dark-green);
@@ -989,14 +1017,6 @@ const downloadAll = async () => {
 .group-marking__stamp-marker-icon {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.group-marking__stamp-status {
-  color: var(--dark-green);
-}
-
-.group-marking__stamp-status.is-error {
-  color: var(--danger);
 }
 
 .group-marking__combined-rubrics {

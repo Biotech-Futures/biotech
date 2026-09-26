@@ -20,16 +20,10 @@ const candidatesMock = vi.mocked(fetchFinalistCandidates)
 const finalistsMock = vi.mocked(fetchFinalists)
 const removeMock = vi.mocked(removeFinalist)
 
-const resolveIdMock = vi.fn<() => number | null>()
 const GroupSearchInputStub = defineComponent({
   name: 'GroupSearchInput',
   props: { modelValue: { type: String, default: '' }, showSuggestions: { type: Boolean, default: true } },
   emits: ['update:modelValue'],
-  methods: {
-    resolveId(): number | null {
-      return resolveIdMock()
-    }
-  },
   template:
     '<input class="picker" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
 })
@@ -64,7 +58,6 @@ const mountPage = async () => {
 beforeEach(() => {
   addMock.mockReset().mockResolvedValue(undefined as never)
   removeMock.mockReset().mockResolvedValue(undefined as never)
-  resolveIdMock.mockReset()
   candidatesMock.mockReset().mockResolvedValue({
     components: [
       { code: 'SAQ', name: 'Short Answer Questions' },
@@ -150,22 +143,14 @@ describe('the group marks ranking', () => {
     expect(candidatesMock).toHaveBeenCalledTimes(2)
   })
 
-  it('adding by search refuses an unresolvable group', async () => {
-    resolveIdMock.mockReturnValue(null)
-    const wrapper = await mountPage()
-    await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.finalists__banner--error').text()).toBe('No group matches that name.')
-    expect(addMock).not.toHaveBeenCalled()
-  })
-
-  it('adding by search flags the resolved group and clears the query', async () => {
-    resolveIdMock.mockReturnValue(1)
+  it('pressing Enter in the search only filters, never flags', async () => {
     const wrapper = await mountPage()
     await wrapper.find('.picker').setValue('BTF-1')
-    await wrapper.find('form').trigger('submit')
+    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(addMock).toHaveBeenCalledWith(1)
-    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(addMock).not.toHaveBeenCalled()
+    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('BTF-1')
   })
 
   it('a refused add is reported', async () => {
@@ -185,12 +170,52 @@ describe('the current finalists', () => {
     expect(table.text()).toContain('Ada Admin')
   })
 
-  it('removing unflags and refreshes', async () => {
+  it('Remove asks first, naming the group', async () => {
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    const dialog = wrapper.find('.finalists__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('Remove this finalist?')
+    expect(dialog.text()).toContain('BTF-2')
+    expect(dialog.text()).not.toContain('already been emailed')
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('confirming unflags and refreshes', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog').findAll('button').at(-1)!.trigger('click')
     await flushPromises()
     expect(removeMock).toHaveBeenCalledWith(2)
     expect(finalistsMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
+    // The refreshed tables are the confirmation; no success banner.
+    expect(wrapper.text()).not.toContain('Finalist removed.')
+  })
+
+  it('cancelling removes nothing', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('warns when the team was already emailed that they are a finalist', async () => {
+    finalistsMock.mockResolvedValue({
+      finalists: [
+        {
+          group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
+          flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
+          notified_by: 'Ada Admin'
+        }
+      ]
+    })
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    expect(wrapper.find('.finalists__dialog').text()).toContain(
+      'Their team has already been emailed that they are a finalist.'
+    )
   })
 
   it('says so when nobody is flagged yet', async () => {

@@ -137,6 +137,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, notifyFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -147,7 +148,7 @@ const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const actionMessage = ref('')
+const { message: actionMessage, show: flashAction } = useFlashMessage()
 const sendingMode = ref<'all' | 'selected' | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
@@ -208,10 +209,11 @@ const confirmSend = async () => {
   sendingMode.value = mode
   try {
     const result = await notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined)
-    actionMessage.value =
+    flashAction(
       result.sent > 0
         ? `Sent ${result.sent} notification ${result.sent === 1 ? 'email' : 'emails'}.`
         : 'No emails sent — every finalist team is already notified, or email is disabled on the backend.'
+    )
     selectedIds.value = new Set()
     await load()
   } catch (err) {
