@@ -4,9 +4,9 @@ Accepts an XLSX or CSV in the SAME shape the component export writes, so
 admins can download the sheet, fill it in off-platform, and upload it
 back. Every component uses one shape, one row per group:
 
-    group_id | group_name | type | [q1 | q2 | …]
-             | r1_mark | r1_comment | r2_mark | r2_comment | …
-             | overall_comment | [product_category | category_of_solution]
+    year | group_name | type | [q1 | q2 | …]
+         | r1_mark | r1_comment | r2_mark | r2_comment | …
+         | overall_comment | [product_category | category_of_solution]
 
 ``type`` must match the component's label ("SAQs", "Poster", …) so a sheet
 can't land in the wrong component tab. ``rN`` maps to the component's
@@ -18,9 +18,13 @@ from the export's own formatting: known options by name, anything else as
 the Other text ("Health and Medicine, Wearables" / "App").
 
 Rules:
-    * Missing required headers fail the file: ``group_id``, ``type`` and
-      every ``rN_mark``/``rN_comment`` of the rubric. Unrecognised extra
-      columns are simply ignored.
+    * Missing required headers fail the file: ``year``, ``group_name``,
+      ``type`` and every ``rN_mark``/``rN_comment`` of the rubric.
+      Unrecognised extra columns are simply ignored.
+    * ``year`` must be the current challenge year (``current_cohort``) on
+      every row. The team is the one with that name among the year's teams
+      that submitted this component; a name no such team has, or one that
+      two of them share, is refused rather than guessed.
     * ``overall_comment`` and the two category columns are optional —
       omitting one leaves what it would set alone.
     * A PRESENT but blank mark+comment pair where no Grade exists is
@@ -48,10 +52,13 @@ from ..models import (
     RubricCriterion,
     SubmissionComponent,
 )
+from apps.groups.models.groups import Groups
+from apps.submissions.services import current_cohort
+
 from .content import submission_entries
 
 
-WIDE_REQUIRED_COLUMNS = ("group_id", "type")
+WIDE_REQUIRED_COLUMNS = ("year", "group_name", "type")
 
 # Friendly ``type`` labels, matching what the export writes.
 TYPE_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PROTOTYPE": "Prototype"}
@@ -203,10 +210,14 @@ def _iter_rows(file, filename: str) -> Iterable[tuple[int, dict]]:
 
 
 def _parse_int(value: str) -> int | None:
+    """A whole number, including one a spreadsheet wrote as "2026.0"."""
     try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
+        number = Decimal(str(value).strip())
+    except InvalidOperation:
         return None
+    if not number.is_finite() or number != number.to_integral_value():
+        return None
+    return int(number)
 
 
 def _parse_mark(value: str) -> tuple[Decimal | None, str | None]:
@@ -243,6 +254,10 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
         "expected_type": TYPE_LABELS.get(component_code, component_code),
         "found_type": None,
         "type_ok": True,
+        # The sheet's year column check, reported like the type check.
+        "expected_year": None,
+        "found_year": None,
+        "year_ok": True,
         "bad_group_rows": [],
         "bad_marks": [],
     }
@@ -266,6 +281,18 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
     entries = list(submission_entries(component_code=component_code))
     submissions_by_group = {e.group_id: e.submission_id for e in entries}
     names_by_group = {e.group_id: e.group_name for e in entries}
+    # Rows name their team; only this challenge year's teams can be named.
+    challenge_year = current_cohort()
+    diff.checks["expected_year"] = challenge_year
+    this_years_teams = set(
+        Groups.objects.filter(id__in=submissions_by_group, year=challenge_year).values_list(
+            "id", flat=True
+        )
+    )
+    groups_by_name: dict[str, list[int]] = {}
+    for gid in this_years_teams:
+        groups_by_name.setdefault(names_by_group[gid].strip(), []).append(gid)
+    label = TYPE_LABELS.get(component_code, component_code)
     grades_by_pair: dict[tuple[int, int], Grade] = {
         (g.submission.group_id, g.criterion_id): g
         for g in Grade.objects.filter(
@@ -298,6 +325,8 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
             problems = [c for c in required if c not in row]
             if "type" in row:
                 diff.checks["found_type"] = (row.get("type") or "").strip() or None
+            if "year" in row:
+                diff.checks["found_year"] = (row.get("year") or "").strip() or None
             if problems:
                 diff.checks["missing_headers"] = problems
                 diff.errors.append({
@@ -317,40 +346,46 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
             })
             continue
 
-        group_id = _parse_int(row["group_id"])
-        if group_id is None:
-            diff.checks["bad_group_rows"].append({"row": row_num, "reason": "group_id is not a number"})
-            diff.errors.append({"row": row_num, "message": "group_id must be an integer"})
-            continue
+        def refuse(reason: str, message: str) -> None:
+            diff.checks["bad_group_rows"].append({"row": row_num, "reason": reason})
+            diff.errors.append({"row": row_num, "message": message})
 
-        if group_id in seen_groups:
-            diff.checks["bad_group_rows"].append({"row": row_num, "reason": f"duplicate of group {group_id}"})
-            diff.errors.append({"row": row_num, "message": f"duplicate row for group_id={group_id}"})
-            continue
-        seen_groups.add(group_id)
-
-        submission_id = submissions_by_group.get(group_id)
-        if submission_id is None:
-            diff.checks["bad_group_rows"].append({"row": row_num, "reason": f"group {group_id} has no submission"})
-            diff.errors.append({"row": row_num, "message": f"group {group_id} has no {component_code} submission to grade"})
-            continue
-
-        # When the sheet carries group_name, it must match the id's actual
-        # group — catches a row whose id was edited onto the wrong group.
-        given_name = (row.get("group_name") or "").strip()
-        if "group_name" in row and given_name and given_name != names_by_group.get(group_id):
-            diff.checks["bad_group_rows"].append({
-                "row": row_num,
-                "reason": f"name should be {names_by_group.get(group_id)!r}",
-            })
+        raw_year = (row.get("year") or "").strip()
+        if _parse_int(raw_year) != challenge_year:
+            if diff.checks["year_ok"]:
+                diff.checks["year_ok"] = False
+                diff.checks["found_year"] = raw_year or None
             diff.errors.append({
                 "row": row_num,
-                "message": (
-                    f"group_name {given_name!r} does not match group "
-                    f"{group_id} ({names_by_group.get(group_id)!r})"
-                ),
+                "message": f"year {raw_year!r} is not {challenge_year}, the current challenge year",
             })
             continue
+
+        given_name = (row.get("group_name") or "").strip()
+        matches = groups_by_name.get(given_name, [])
+        if not given_name:
+            refuse("group_name is blank", "group_name is blank")
+            continue
+        if not matches:
+            refuse(
+                f"no {label} submission from {given_name!r}",
+                f"no team named {given_name!r} in {challenge_year} has a {label} submission to grade",
+            )
+            continue
+        if len(matches) > 1:
+            refuse(
+                f"{len(matches)} teams are named {given_name!r}",
+                f"{len(matches)} teams in {challenge_year} are named {given_name!r}, so this row "
+                "cannot be matched to one; rename one of them",
+            )
+            continue
+        group_id = matches[0]
+        submission_id = submissions_by_group[group_id]
+
+        if group_id in seen_groups:
+            refuse(f"duplicate of {given_name!r}", f"duplicate row for {given_name!r}")
+            continue
+        seen_groups.add(group_id)
 
         for i, criterion in enumerate(ordered_criteria, start=1):
             range_hint = f"should be 0 to {_fmt_mark(criterion.max_mark)}"

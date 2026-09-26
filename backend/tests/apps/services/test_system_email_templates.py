@@ -59,10 +59,14 @@ class EventPromotionTemplateTests(SimpleTestCase):
 
 
 class FinalistTemplateTests(SimpleTestCase):
-    def test_shows_group_name_and_original_wording(self):
+    def test_shows_group_name_dates_link_and_the_clients_wording(self):
         html = render_to_string("emails/finalist_notification.html", sample_context("finalist_notification"))
-        self.assertIn("Your group (CRISPR Research 01) has been selected as a finalist", html)
-        self.assertIn("will be in touch with details about presenting at the symposium", html)
+        self.assertIn("Dear members of <strong>CRISPR Research 01</strong>", html)
+        self.assertIn("Your team has been selected as a <strong>finalist</strong>", html)
+        self.assertIn("Friday, 23 October 2026", html)   # Symposium
+        self.assertIn("Sunday, 4 October 2026", html)    # confirm by
+        self.assertIn("Friday, 16 October 2026", html)   # slides due
+        self.assertIn('href="https://events.humanitix.com/biotech-futures-symposium"', html)
 
     def test_escapes_group_name(self):
         context = sample_context("finalist_notification")

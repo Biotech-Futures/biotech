@@ -311,6 +311,11 @@ export interface BulkUploadChecks {
   missing_headers: string[]
   // The sheet's type column check ("SAQs", "Poster", …).
   expected_type?: string
+  /** The only year the sheet's rows may carry: the current challenge year. */
+  expected_year?: number
+  /** The first wrong year a row carried, or the sheet's year when all are right. */
+  found_year?: string | null
+  year_ok?: boolean
   found_type?: string | null
   type_ok?: boolean
   bad_group_rows: { row: number; reason: string }[]
@@ -372,8 +377,10 @@ export interface FinalistListResponse {
 
 export interface GradingSettingsDetail {
   director_1_name: string
+  director_1_position: string
   director_1_signature: string | null
   director_2_name: string
+  director_2_position: string
   director_2_signature: string | null
   marks_summary_template: string | null
   certificate_template: string | null
@@ -465,6 +472,11 @@ export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadlin
   return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/')
 }
 
+/** The current challenge year, as the backend's current_cohort works it out:
+ *  the deadline's year, or the calendar year while no deadline exists. */
+export const challengeYear = (deadline: SubmissionDeadline | null) =>
+  deadline ? new Date(deadline.closes_at).getFullYear() : new Date().getFullYear()
+
 // POST /api/v1/grading/deadline/ — set a new deadline (newest active row wins).
 export function saveSubmissionDeadline(
   closesAt: string,
@@ -532,7 +544,6 @@ export function fetchComponentRows(code: string, year?: number): Promise<Compone
 // Which placeholders the active docx template actually contains.
 export interface TemplateScan {
   uploaded: boolean
-  dialect: 'tokens' | 'controls' | 'none'
   /** Placeholders present that the renderer knows how to fill. */
   present: string[]
   /** Placeholders present that would be left blank — usually typos. */
@@ -656,15 +667,26 @@ export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
   })
 }
 
-// GET /api/v1/grading/settings/ — director names + template metadata.
+// GET /api/v1/grading/settings/ — director names and positions + template metadata.
 export function fetchGradingSettings(): Promise<GradingSettingsDetail> {
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/')
 }
 
-// PATCH /api/v1/grading/settings/ — JSON for name-only edits, FormData when
+// PATCH /api/v1/grading/settings/ — JSON for text-only edits, FormData when
 // any file (signature / docx template) is being uploaded.
 export function updateGradingSettings(
-  patch: Partial<Pick<GradingSettingsDetail, 'director_1_name' | 'director_2_name' | 'component_weights'>> | FormData
+  patch:
+    | Partial<
+        Pick<
+          GradingSettingsDetail,
+          | 'director_1_name'
+          | 'director_1_position'
+          | 'director_2_name'
+          | 'director_2_position'
+          | 'component_weights'
+        >
+      >
+    | FormData
 ): Promise<GradingSettingsDetail> {
   const isForm = patch instanceof FormData
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/', {
@@ -712,6 +734,8 @@ export interface FinalistCandidateRow {
   criterion_markers: { label: string; marker: string }[]
   is_finalist: boolean
   has_submission: boolean
+  /** Components the team submitted that still have unmarked criteria. */
+  incomplete: string[]
 }
 
 export interface FinalistCandidatesResponse {
@@ -734,13 +758,63 @@ export function notifyFinalists(groupIds?: number[]): Promise<{ sent: number; pe
   })
 }
 
+/** What the finalist email tells teams about the Symposium (dates as YYYY-MM-DD). */
+export interface FinalistEmailFields {
+  symposium_date: string | null
+  confirm_by: string | null
+  slides_due: string | null
+  registration_url: string
+}
+
+export interface FinalistEmailDetails extends FinalistEmailFields {
+  /** Every detail is set, so the email can go out. */
+  complete: boolean
+  /** Sydney's today (YYYY-MM-DD): the earliest any of the dates may be. */
+  today: string
+  /** Saved date fields already before today, which block sending. */
+  dates_in_past: string[]
+}
+
+// GET /api/v1/grading/finalists/email/ — the finalist email's dates and link.
+export function fetchFinalistEmailDetails(): Promise<FinalistEmailDetails> {
+  return requestJson<FinalistEmailDetails>('/api/v1/grading/finalists/email/')
+}
+
+// PATCH /api/v1/grading/finalists/email/ — save them.
+export function updateFinalistEmailDetails(
+  fields: Partial<FinalistEmailFields>
+): Promise<FinalistEmailDetails> {
+  return requestJson<FinalistEmailDetails>('/api/v1/grading/finalists/email/', {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+export interface FinalistEmailPreview {
+  subject: string
+  /** The team the preview is addressed to. */
+  group_name: string
+  html: string
+}
+
+// POST /api/v1/grading/finalists/email/preview/ — the email as a finalist
+// would get it, for the given (possibly unsaved) details. Sends nothing.
+export function previewFinalistEmail(
+  fields: Partial<FinalistEmailFields>
+): Promise<FinalistEmailPreview> {
+  return requestJson<FinalistEmailPreview>('/api/v1/grading/finalists/email/preview/', {
+    method: 'POST',
+    body: JSON.stringify(fields)
+  })
+}
+
 // GET /api/v1/grading/finalists/ — the current finalist set.
 export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
 // POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
-// fires the notification email (server-gated by GRADING_FINALIST_EMAIL_ENABLED).
+// fires the notification email (once the email details are set).
 export function addFinalist(groupId: number, notify = false): Promise<void> {
   return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, {
     method: 'POST',

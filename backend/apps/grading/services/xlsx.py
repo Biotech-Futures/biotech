@@ -4,16 +4,15 @@ Client explicitly said spreadsheet is easier than PDF for SAQ marking off-
 platform, so this is the primary text-export path. Shape — one row per
 group:
 
-    | group_id | group_name | type ("SAQs")
+    | year | group_name | type ("SAQs")      (year: the team's challenge year)
     | q1 | q2 | …            (each answer under its question, in bold)
     | r1_mark | r1_comment | r2_mark | r2_comment | …   (one pair per criterion)
     | overall_comment | product_category | category_of_solution
 
 ``qN`` columns line up by question across groups (a group that skipped an
 optional question gets a blank cell), in the questions' form order. Marks
-and comments are pre-filled from existing grades, so the sheet doubles as a
-fillable marking template — the bulk-upload parser accepts this exact shape
-back (the ``qN`` columns are informational and never parsed).
+and comments are pre-filled from existing grades. The bulk upload identifies
+teams by a ``group_id`` column, which this sheet no longer carries.
 """
 from __future__ import annotations
 
@@ -87,6 +86,7 @@ def build_saq_xlsx(
     feedback_by_group: dict[int, str] | None = None,
     categories_by_group: dict[int, GroupMarkingCategories] | None = None,
     questions: Iterable[str] = (),
+    years_by_group: dict[int, int] | None = None,
 ) -> bytes:
     """Return XLSX bytes for the given SAQ component entries.
 
@@ -94,17 +94,19 @@ def build_saq_xlsx(
     criterion N fills the ``rN_mark`` / ``rN_comment`` pair. ``questions``
     is every question prompt in form order, which fixes the ``qN`` column
     order. ``grades_by_pair`` maps ``(submission_id, criterion_id) -> Grade``
-    for pre-filling existing marks/comments. All data is pushed from the
-    caller so the export layer stays ORM-free.
+    for pre-filling existing marks/comments. ``years_by_group`` maps a group
+    id to its challenge year for the ``year`` column. All data is pushed from
+    the caller so the export layer stays ORM-free.
     """
     entries = list(entries)
     criteria_list = list(criteria)
     grades_by_pair = grades_by_pair or {}
     feedback_by_group = feedback_by_group or {}
     categories_by_group = categories_by_group or {}
+    years_by_group = years_by_group or {}
     prompts = _question_columns(entries, questions)
 
-    headers = ["group_id", "group_name", "type"]
+    headers = ["year", "group_name", "type"]
     headers += [f"q{i}" for i in range(1, len(prompts) + 1)]
     for i in range(1, len(criteria_list) + 1):
         headers += [f"r{i}_mark", f"r{i}_comment"]
@@ -121,7 +123,7 @@ def build_saq_xlsx(
     for entry in entries:
         cats = categories_by_group.get(entry.group_id)
         answers = dict(entry.answers)
-        row = [entry.group_id, entry.group_name, TYPE_LABELS["SAQ"]]
+        row = [years_by_group.get(entry.group_id), entry.group_name, TYPE_LABELS["SAQ"]]
         row += [
             _answer_cell(prompt, answers[prompt]) if prompt in answers else ""
             for prompt in prompts
@@ -140,7 +142,7 @@ def build_saq_xlsx(
         ws.append(row)
 
     # Answers, comments and the category columns wrap in fixed-width columns
-    # (the categories treated like comments); ids, group names, type and marks
+    # (the categories treated like comments); year, group names, type and marks
     # keep the default width.
     widths = {}
     wrapped: set[int] = set()

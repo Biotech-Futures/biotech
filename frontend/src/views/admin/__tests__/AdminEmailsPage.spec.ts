@@ -152,19 +152,56 @@ describe('AdminEmailsPage', () => {
     })
   })
 
-  it('flips the global switch', async () => {
+  const dialogTitled = (wrapper: Awaited<ReturnType<typeof mountPage>>, title: string) =>
+    wrapper.findAllComponents(ConfirmDialog).find((dialog) => dialog.props('title') === title)!
+
+  it('asks before pausing all emails, and pauses only once confirmed', async () => {
     const wrapper = await mountPage()
     vi.mocked(updateSystemEmailSettings).mockResolvedValue({
       emailsEnabled: false,
       updatedAt: null
     })
 
-    const globalSwitch = wrapper.find('.admin-emails__global input[role="switch"]')
+    const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')
     await globalSwitch.setValue(false)
+    await flushPromises()
+
+    const dialog = dialogTitled(wrapper, 'Pause all system emails?')
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(updateSystemEmailSettings).not.toHaveBeenCalled()
+    expect(globalSwitch.element.checked).toBe(true)
+
+    await dialog.vm.$emit('confirm')
     await flushPromises()
 
     expect(updateSystemEmailSettings).toHaveBeenCalledWith(false)
     expect(wrapper.text()).toContain('Emails paused')
+  })
+
+  it('keeps emails on when the pause is cancelled', async () => {
+    const wrapper = await mountPage()
+    const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')
+    await globalSwitch.setValue(false)
+    await flushPromises()
+
+    await dialogTitled(wrapper, 'Pause all system emails?').vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(updateSystemEmailSettings).not.toHaveBeenCalled()
+    expect(globalSwitch.element.checked).toBe(true)
+    expect(wrapper.text()).toContain('Emails on')
+  })
+
+  it('turns paused emails back on without asking', async () => {
+    vi.mocked(fetchSystemEmailSettings).mockResolvedValue({ emailsEnabled: false, updatedAt: null })
+    const wrapper = await mountPage()
+    vi.mocked(updateSystemEmailSettings).mockResolvedValue({ emailsEnabled: true, updatedAt: null })
+
+    await wrapper.find('.admin-emails__global input[role="switch"]').setValue(true)
+    await flushPromises()
+
+    expect(updateSystemEmailSettings).toHaveBeenCalledWith(true)
+    expect(dialogTitled(wrapper, 'Pause all system emails?').props('modelValue')).toBe(false)
   })
 
   it('confirms before restoring default wording', async () => {
@@ -178,7 +215,7 @@ describe('AdminEmailsPage', () => {
     await editor.vm.$emit('restore')
     await flushPromises()
 
-    const dialog = wrapper.findComponent(ConfirmDialog)
+    const dialog = dialogTitled(wrapper, 'Restore default wording?')
     expect(dialog.props('modelValue')).toBe(true)
 
     await dialog.vm.$emit('confirm')
@@ -205,10 +242,8 @@ describe('AdminEmailsPage', () => {
     await wrapper.findComponent(EmailEditor).vm.$emit('test-send')
     await flushPromises()
 
-    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {
-      subject: 'Reset your password',
-      body: '<p>Hi Alex, reset your password.</p>'
-    })
+    // Unchanged built-in wording is sent from the template file.
+    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {})
     expect(wrapper.text()).toContain('admin@example.com')
   })
 })

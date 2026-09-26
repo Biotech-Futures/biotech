@@ -227,15 +227,15 @@ class SaqXlsxExportTests(_GradingFixture):
         # One answered question and a two-criterion rubric.
         self.assertEqual(
             list(rows[0]),
-            ["group_id", "group_name", "type", "q1",
+            ["year", "group_name", "type", "q1",
              "r1_mark", "r1_comment", "r2_mark", "r2_comment",
              "overall_comment", "product_category", "category_of_solution"],
         )
         # One row per group.
         self.assertEqual(len(rows), 2)
-        (group_id, group_name, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
+        (year, group_name, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
          overall_comment, product_category, category_of_solution) = rows[1]
-        self.assertEqual(group_id, self.group.id)
+        self.assertEqual(year, self.group.year)  # the team's challenge year
         self.assertEqual(group_name, "BTF-TEST-1")
         self.assertEqual(row_type, "SAQs")
         # The answer cell carries the answer under its question prompt.
@@ -330,7 +330,7 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         # nobody answered gets no column.
         self.assertEqual(
             list(rows[0]),
-            ["group_id", "group_name", "type", "q1", "q2", "q3",
+            ["year", "group_name", "type", "q1", "q2", "q3",
              "overall_comment", "product_category", "category_of_solution"],
         )
         answers = [[cell or None for cell in row[3:6]] for row in rows[1:]]

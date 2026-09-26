@@ -20,7 +20,7 @@
 
         <p class="bulk-upload__desc">
           .xlsx or .csv in the export's shape (one row per group)<br />
-          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+          <code>year</code>, <code>group_name</code>, <code>type</code>,<br />
           <template v-if="code === 'SAQ'">
             Then <code>q1</code>, <code>q2</code> … (the answers, not read on upload),<br />
             Then <code>r1_mark</code>/<code>r1_comment</code> per criterion,<br />
@@ -34,6 +34,7 @@
         </p>
         <p class="bulk-upload__desc">
           Column headers must match exactly.<br />
+          Value of <code>year</code> is <code>{{ shownYear }}</code> for all rows<br />
           Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
           <template v-if="code === 'SAQ'">
             Items in <code>product_category</code> are split on commas<br />
@@ -69,20 +70,25 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
-              <!-- The sheet's type column check. -->
+              <!-- The sheet's year column check, then its teams, then its type. -->
+              <li v-if="preview.checks.year_ok !== undefined">
+                Year:
+                <span :class="checkClass(preview.checks.year_ok)">{{ checkYearText }}</span>
+              </li>
+              <!-- Only when a row's team can't be matched; nothing to say otherwise. -->
+              <li v-if="preview.checks.bad_group_rows.length">
+                Incorrect group details:
+                <span class="bulk-upload__check--bad">{{ checkGroupText }}</span>
+              </li>
               <li v-if="preview.checks.type_ok !== undefined">
                 Type:
                 <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
               </li>
               <!-- Rows failing an earlier check skip the later validations,
                    so hide those lines rather than show a misleading None. -->
-              <template v-if="preview.checks.type_ok !== false">
-              <li>
-                Incorrect group details:
-                <span :class="checkClass(!preview.checks.bad_group_rows.length)">
-                  {{ checkGroupText }}
-                </span>
-              </li>
+              <template
+                v-if="preview.checks.type_ok !== false && preview.checks.year_ok !== false"
+              >
               <li v-if="!preview.checks.bad_group_rows.length">
                 Incorrect mark format:
                 <span :class="checkClass(!preview.checks.bad_marks.length)">
@@ -136,6 +142,9 @@
 import { computed, ref } from 'vue'
 import {
   bulkUploadMarks,
+  challengeYear,
+  fetchSubmissionDeadline,
+  type SubmissionDeadline,
   type BulkUploadCategoryEntry,
   type BulkUploadOverallCommentEntry,
   type BulkUploadResponse,
@@ -174,6 +183,14 @@ const requestError = ref('')
 const busy = ref<'idle' | 'preview' | 'apply'>('idle')
 const fileInput = ref<HTMLInputElement | null>(null)
 
+// The year every row must carry: the current challenge year. The preview's
+// answer from the server wins once there is one; until then it is worked out
+// from the deadline the same way.
+const deadline = ref<SubmissionDeadline | null>(null)
+const shownYear = computed(
+  () => preview.value?.checks?.expected_year ?? challengeYear(deadline.value)
+)
+
 // The four preview report lines, from the parser's categorised checks.
 const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-upload__check--bad')
 
@@ -187,6 +204,14 @@ const checkTypeText = computed(() => {
   const c = preview.value?.checks
   if (!c || c.type_ok === undefined) return ''
   return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
+})
+
+const checkYearText = computed(() => {
+  const c = preview.value?.checks
+  if (!c || c.year_ok === undefined) return ''
+  return c.year_ok
+    ? String(c.expected_year)
+    : `${c.found_year || 'missing'} (should be ${c.expected_year})`
 })
 
 const checkGroupText = computed(() => {
@@ -301,6 +326,10 @@ const reset = () => {
 const openDialog = () => {
   reset()
   open.value = true
+  // Best-effort: without it the calendar year stands in.
+  fetchSubmissionDeadline()
+    .then((r) => (deadline.value = r.deadline))
+    .catch(() => {})
 }
 
 const closeDialog = () => {

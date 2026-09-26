@@ -253,6 +253,18 @@ class GradingSettingsViewTests(_GradingFixture):
         r2 = self.client.get(reverse("grading:settings"))
         self.assertEqual(r2.json()["director_2_name"], "Bob B")
 
+    def test_get_and_patch_director_positions(self):
+        r = self.client.patch(
+            reverse("grading:settings"),
+            {"director_1_position": "Chair", "director_2_position": "Co-Chair"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["director_1_position"], "Chair")
+
+        r2 = self.client.get(reverse("grading:settings"))
+        self.assertEqual(r2.json()["director_2_position"], "Co-Chair")
+
     def test_template_test_render_streams_synthetic_docx(self):
         _seed_doc_templates()
         for kind in ("marks-summary", "certificate"):
@@ -280,7 +292,7 @@ class GradingSettingsViewTests(_GradingFixture):
             self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
             self.assertEqual(
                 r.json(),
-                {"uploaded": False, "dialect": "none", "present": [], "unknown": []},
+                {"uploaded": False, "present": [], "unknown": []},
             )
 
     def test_template_scan_flags_unrecognised_tokens(self):
@@ -305,7 +317,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertIn("Director1Signature", data["present"])
         self.assertEqual(data["unknown"], ["Typoed"])
         # Placeholders the template does not use are absent, not reported.
-        self.assertNotIn("SAQTotal", data["present"])
+        self.assertNotIn("SMTotal", data["present"])
 
     def test_template_scan_unknown_kind_404s(self):
         r = self.client.get(
@@ -434,7 +446,6 @@ class GradingSettingsViewTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         data = r.json()
-        self.assertEqual(data["dialect"], "tokens")
         self.assertIn("TeamCode", data["present"])
         self.assertEqual(data["unknown"], ["Typoed"])
         # Preview only — nothing was stored.
@@ -478,7 +489,6 @@ class GradingSettingsViewTests(_GradingFixture):
             format="multipart",
         )
         self.assertEqual(scan.status_code, status.HTTP_200_OK, scan.content)
-        self.assertEqual(scan.json()["dialect"], "tokens")
         self.assertIn("TeamCode", scan.json()["present"])
         self.assertEqual(scan.json()["unknown"], ["Typoed"])
 

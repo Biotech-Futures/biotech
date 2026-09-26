@@ -135,6 +135,37 @@ describe('the aggregated group table', () => {
     expect(row.find('.by-group__done').exists()).toBe(true)
   })
 
+  it("counts only the components a team submitted towards its progress total", async () => {
+    // Every component has criteria (4 SAQ, 10 poster, 13 report, 5 prototype
+    // = 32); BTF-1 submitted SAQ and poster only, Alpha Team a poster only.
+    const totals: Record<string, number> = { SAQ: 4, POSTER: 10, REPORT: 13, PROTOTYPE: 5 }
+    rowsMock.mockImplementation(async (code: string) =>
+      payload(code, totals[code]!, [
+        componentRow({
+          submission_id: code === 'SAQ' || code === 'POSTER' ? 11 : null,
+          criteria_graded: code === 'SAQ' ? 4 : code === 'POSTER' ? 3 : 0
+        }),
+        componentRow({
+          group_id: 3,
+          group_name: 'Alpha Team',
+          submission_id: code === 'POSTER' ? 13 : null,
+          submitted_at: code === 'POSTER' ? '2026-09-02T09:00:00Z' : null,
+          criteria_graded: code === 'POSTER' ? 10 : 0
+        })
+      ]) as never
+    )
+    const wrapper = await mountPage()
+    const rowNamed = (name: string) =>
+      wrapper.findAll('tbody tr').find((r) => r.text().includes(name))!
+
+    expect(rowNamed('BTF-1').text()).toContain('7/14') // not 7/32
+    // No SAQ answers, but the poster is in: submitted, fully marked, openable.
+    const alpha = rowNamed('Alpha Team')
+    expect(alpha.text()).toContain('10/10')
+    expect(alpha.find('.by-group__done').exists()).toBe(true)
+    expect(alpha.find('a').attributes('href')).toBe('/grading/groups/3')
+  })
+
   it('keeps rendering when some components have no rubric yet', async () => {
     const wrapper = await mountPage()
     // REPORT and PROTOTYPE threw — the table still shows all three groups.

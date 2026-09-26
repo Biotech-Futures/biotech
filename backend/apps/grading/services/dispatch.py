@@ -33,7 +33,8 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
-from apps.submissions.models import SubmissionQuestion
+from apps.groups.models.groups import Groups
+from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import StudentProfile
 
 from ..models import (
@@ -123,6 +124,12 @@ def _run_job(job_id: int) -> None:
             questions = SubmissionQuestion.objects.order_by("order", "id").values_list(
                 "prompt", flat=True
             )
+            # Each team's challenge year, for the sheet's year column.
+            years_by_group = dict(
+                Groups.objects.filter(id__in=[e.group_id for e in entries]).values_list(
+                    "id", "year"
+                )
+            )
             payload = build_saq_xlsx(
                 entries,
                 criteria,
@@ -130,6 +137,7 @@ def _run_job(job_id: int) -> None:
                 feedback_by_group,
                 categories_by_group,
                 questions=list(questions),
+                years_by_group=years_by_group,
             )
             filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
         elif kind == "all_zip":
@@ -215,6 +223,15 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
         ):
             student_groups.setdefault(m.user_id, m.group)
 
+    # Mirrors the student endpoints: a team that never submitted has no marks
+    # summary or certificate, so its students get nothing in the bundle.
+    submitted_group_ids = set(
+        Submission.objects.filter(
+            group__in=[g.id for g in student_groups.values()],
+            submitted_at__isnull=False,
+        ).values_list("group_id", flat=True)
+    )
+
     # Mirrors the student endpoint: excluded finalists get no participation
     # certificate in the bundle either, so the two downloads never disagree.
     excluded_group_ids: set[int] = set()
@@ -231,7 +248,7 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for sp in students:
             group = student_groups.get(sp.user_id)
-            if group is None:
+            if group is None or group.id not in submitted_group_ids:
                 continue
             folder = _safe(sp.user.get_full_name() or sp.user.email)
             if include_summaries:

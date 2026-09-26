@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 
 from apps.events.models import Events
 from apps.events.promotion_email import notify_waitlist_promoted
-from apps.grading.models import FinalistFlag
+from apps.grading.models import FinalistEmailSettings, FinalistFlag
 from apps.grading.services.finalist_notify import notify_finalist
 from apps.groups.models import GroupMembership, Groups
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
@@ -113,9 +113,17 @@ class WaitlistPromotionEmailTests(TestCase):
         self.assertEqual(mail.outbox, [])
 
 
-@override_settings(GRADING_FINALIST_EMAIL_ENABLED=True)
 class FinalistEmailTests(TestCase):
     def setUp(self):
+        from apps.grading.services.finalist_notify import symposium_today
+
+        # The email isn't sent until its dates and link are set.
+        today = symposium_today()
+        FinalistEmailSettings.objects.create(
+            symposium_date=today + timedelta(days=30),
+            confirm_by=today + timedelta(days=10),
+            slides_due=today + timedelta(days=20),
+        )
         self.group = Groups.objects.create(group_name="CRISPR Research 01")
         for email in ("one@example.com", "two@example.com"):
             member = User.objects.create_user(email=email, password="x", first_name="M", last_name="B")
@@ -129,17 +137,21 @@ class FinalistEmailTests(TestCase):
         self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["one@example.com", "two@example.com"])
         for message in mail.outbox:
             self.assertEqual(len(message.to), 1)  # members never see each other's addresses
-            self.assertEqual(message.subject, "Congratulations — CRISPR Research 01 is a BIOTech Futures finalist")
-            self.assertIn("Your group (CRISPR Research 01) has been selected as a finalist", message.body)
+            self.assertEqual(message.subject, "Congratulations – You’re a BIOTech Futures Finalist!")
+            self.assertIn("Dear members of CRISPR Research 01,", message.body)
+            self.assertIn("Your team has been selected as a finalist", message.body)
             self.assertIn("CRISPR Research 01", _html(message))
+            self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
         self.flag.refresh_from_db()
         self.assertTrue(self.flag.notified)
         self.assertEqual(self.flag.notified_by, self.admin)
 
-    @override_settings(GRADING_FINALIST_EMAIL_ENABLED=False)
-    def test_environment_switch_still_takes_priority(self):
+    def test_nothing_is_sent_until_the_email_details_are_set(self):
+        FinalistEmailSettings.objects.update(slides_due=None)
         self.assertFalse(notify_finalist(self.flag))
         self.assertEqual(mail.outbox, [])
+        self.flag.refresh_from_db()
+        self.assertFalse(self.flag.notified)
 
     def test_switched_off_by_admin_sends_nothing_and_leaves_flag_unnotified(self):
         SystemEmailTemplate.objects.create(key="finalist_notification", is_enabled=False)
@@ -161,7 +173,7 @@ class FinalistEmailTests(TestCase):
         self.assertFalse(self.flag.notified)
         self.assertFalse(any("@example.com" in line for line in logs.output))
 
-    def test_partial_delivery_still_marks_notified(self):
+    def test_partial_delivery_leaves_flag_unnotified_for_a_retry(self):
         real_send = mail.EmailMultiAlternatives.send
 
         def fail_for_one(message, *args, **kwargs):
@@ -171,10 +183,10 @@ class FinalistEmailTests(TestCase):
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_one), \
                 self.assertLogs("apps.grading.services.finalist_notify", level="ERROR"):
-            self.assertTrue(notify_finalist(self.flag))
+            self.assertFalse(notify_finalist(self.flag))
         self.assertEqual([m.to for m in mail.outbox], [["two@example.com"]])
         self.flag.refresh_from_db()
-        self.assertTrue(self.flag.notified)
+        self.assertFalse(self.flag.notified)
 
     def test_edited_email_uses_the_saved_wording(self):
         SystemEmailTemplate.objects.create(

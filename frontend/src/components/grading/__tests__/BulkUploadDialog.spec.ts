@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
-import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
+import {
+  bulkUploadMarks,
+  fetchSubmissionDeadline,
+  type BulkUploadResponse
+} from '@/utils/gradingAPI'
 
-vi.mock('@/utils/gradingAPI', () => ({
-  bulkUploadMarks: vi.fn()
+// The real challengeYear, so the dialog's year follows the same rule as the app.
+vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/gradingAPI')>()),
+  bulkUploadMarks: vi.fn(),
+  fetchSubmissionDeadline: vi.fn()
 }))
 const uploadMock = vi.mocked(bulkUploadMarks)
+const deadlineMock = vi.mocked(fetchSubmissionDeadline)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
@@ -66,7 +74,7 @@ const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'mar
   if (body) uploadMock.mockResolvedValueOnce(body)
   const input = wrapper.find('input[type="file"]')
   Object.defineProperty(input.element, 'files', {
-    value: [new File(['group_id,type\n'], name, { type: 'text/csv' })],
+    value: [new File(['year,group_name,type\n'], name, { type: 'text/csv' })],
     configurable: true
   })
   await input.trigger('change')
@@ -75,6 +83,7 @@ const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'mar
 
 beforeEach(() => {
   uploadMock.mockReset()
+  deadlineMock.mockReset().mockResolvedValue({ deadline: null })
 })
 
 describe('opening the dialog', () => {
@@ -119,6 +128,55 @@ describe('opening the dialog', () => {
     await openDialog(poster)
     expect(poster.text()).not.toContain('q1')
     expect(poster.text()).not.toContain('product_category')
+  })
+
+  it('asks for year and group_name, not group_id, and gives the year every row carries', async () => {
+    // The challenge year follows the deadline, like the backend's current_cohort.
+    deadlineMock.mockResolvedValue({
+      deadline: {
+        closes_at: '2027-09-18T03:59:00Z',
+        grace_hours: 0,
+        is_open: true,
+        set_by: null,
+        created_at: '2027-01-01T00:00:00Z'
+      }
+    })
+    const wrapper = mountDialog('POSTER')
+    await openDialog(wrapper)
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).toContain('year, group_name, type')
+    expect(text).not.toContain('group_id')
+    // The year line sits just before the type line.
+    expect(text).toMatch(/Value of year is 2027 for all rows\s*Value of type is Poster for all rows/)
+  })
+
+  it('without a deadline, the year shown is this calendar year', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await flushPromises()
+    expect(wrapper.text()).toContain(`Value of year is ${new Date().getFullYear()} for all rows`)
+  })
+
+  it("once a file is previewed, the server's year is the one shown", async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(wrapper, {
+      creates: [],
+      updates: [],
+      unchanged: [],
+      errors: [],
+      summary: {
+        creates: 0,
+        updates: 0,
+        unchanged: 0,
+        overall_comments: 0,
+        marking_categories: 0,
+        errors: 0
+      },
+      checks: cleanChecks({ expected_year: 2031 })
+    } as never)
+    expect(wrapper.text()).toContain('Value of year is 2031 for all rows')
   })
 
   it('reopens clean after closing, with the previous file forgotten', async () => {
@@ -237,7 +295,8 @@ describe('the preview report', () => {
     )
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): None')
-    expect(text).toContain('Incorrect group details: None')
+    // Nothing wrong with the teams, so no group details line at all.
+    expect(text).not.toContain('Incorrect group details')
     expect(text).toContain('Incorrect mark format: None')
     expect(text).toContain('Overwriting Existing Records: 1')
     expect(text).toContain('Writing New Records: 2')
@@ -419,6 +478,67 @@ describe('the preview report', () => {
     const text = wrapper.text()
     expect(text).toContain('SAQs (should be Poster)')
     expect(text).not.toContain('Incorrect group details')
+  })
+
+  it('shows the Year check just before Type, green with the year when right', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2026', year_ok: true,
+          expected_type: 'SAQs', found_type: 'SAQs', type_ok: true
+        })
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toMatch(/Year:\s*2026\s*Type:\s*SAQs/)
+    const year = wrapper.findAll('.bulk-upload__checks li').find((li) => li.text().startsWith('Year:'))!
+    expect(year.find('.bulk-upload__check--ok').exists()).toBe(true)
+  })
+
+  it('a wrong year is shown on the Year line and hides the later checks', async () => {
+    const wrapper = mountDialog('POSTER')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2025', year_ok: false,
+          expected_type: 'Poster', found_type: 'Poster', type_ok: true
+        }),
+        errors: [{ row: 2, message: 'wrong year' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Year: 2025 (should be 2026)')
+    expect(text).not.toContain('Incorrect mark format')
+    expect(buttonNamed(wrapper, /^Apply$/).attributes('disabled')).toBeDefined()
+  })
+
+  it('lists unmatched teams right after the Year line, before Type', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2026', year_ok: true,
+          expected_type: 'SAQs', found_type: 'SAQs', type_ok: true,
+          bad_group_rows: [{ row: 3, reason: "no SAQs submission from 'BTF99'" }]
+        }),
+        errors: [{ row: 3, message: 'no team' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const lines = wrapper.findAll('.bulk-upload__checks li').map((li) => li.text())
+    expect(lines.slice(1, 4)).toEqual([
+      'Year: 2026',
+      "Incorrect group details: row 3 (no SAQs submission from 'BTF99')",
+      'Type: SAQs'
+    ])
   })
 
   it('bad group rows are named with their reason and hide the mark check', async () => {

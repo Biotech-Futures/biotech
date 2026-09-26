@@ -212,11 +212,23 @@ EMAIL_TYPES = (
     EmailType(
         key="finalist_notification",
         name="Finalist notification",
-        description="Sent to a group's members when an admin marks the group as a finalist.",
-        default_subject="Congratulations — {{ group_name }} is a {{ brand_name }} finalist",
+        description=(
+            "Sent to a finalist team's members from Notify Finalists, with the "
+            "Symposium dates and registration link set there."
+        ),
+        default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
         default_template="emails/finalist_notification.html",
         merge_tags=(
             MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("confirm_by", "Confirm attendance by", "Sunday, 4 October 2026", "CONFIRM_BY"),
+            MergeTag("slides_due", "Slides due", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
             *_BRAND_TAGS,
         ),
     ),

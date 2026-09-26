@@ -18,8 +18,9 @@ Division of labour with the send path (``apps.services.system_email``):
 
 Security notes:
 
-* Admin-written bodies are sanitised with ``nh3`` on every save and preview so
-  a stored email can never carry a <script> or handler attribute into an inbox.
+* Admin-written bodies are sanitised with ``nh3`` (``clean_email_body``) on
+  every save and preview so a stored email can never carry a <script> or
+  handler attribute into an inbox. Only the box and button styles survive.
 * Merge tags are validated against the registry before anything is persisted,
   so a subject/body that references a tag the email cannot fill is rejected
   with a field-level error instead of arriving at the recipient literally.
@@ -30,7 +31,6 @@ Security notes:
 import logging
 import textwrap
 
-import nh3
 from django.db import transaction
 from django.template import Context, TemplateDoesNotExist
 from django.template.loader import get_template
@@ -44,7 +44,7 @@ from apps.services.email_registry import (
     unknown_merge_tags,
 )
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
-from apps.services.system_email import build_message, render_system_email
+from apps.services.system_email import build_message, clean_email_body, render_system_email
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ def update_email_template(
         error = _validate_editable_text(key, "body", fields.get("body"))
         if error:
             return {"msg": error, "data": None}
-        row.body_html = nh3.clean(fields.get("body") or "")
+        row.body_html = clean_email_body(fields.get("body") or "")
         # Derived at render time by the send path; no need to keep in lockstep.
         row.body_text = ""
 
@@ -340,7 +340,7 @@ def _preview_fields(key: str, subject, body) -> tuple:
         error = _validate_editable_text(key, "body", body)
         if error:
             return None, None, error
-        body = nh3.clean(body or "")
+        body = clean_email_body(body or "")
     return subject, body, None
 
 

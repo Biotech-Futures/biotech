@@ -17,7 +17,7 @@
           :checked="emailsEnabled"
           :disabled="loading || togglingGlobal"
           aria-label="Send system emails"
-          @change="toggleGlobal(($event.target as HTMLInputElement).checked)"
+          @change="onGlobalSwitch"
         />
         <span class="admin-emails__global-track" aria-hidden="true">
           <span class="admin-emails__global-knob"></span>
@@ -96,6 +96,17 @@
       :busy="restoring"
       @confirm="onRestoreConfirmed"
     />
+
+    <ConfirmDialog
+      v-model="pauseConfirmOpen"
+      title="Pause all system emails?"
+      message="Every system email (except sign-in, password reset and password change emails) stops going out until you turn this back on. Emails due while paused, like reminders and announcement notices, aren't sent later."
+      confirm-label="Pause emails"
+      busy-label="Pausing..."
+      variant="danger"
+      :busy="togglingGlobal"
+      @confirm="onPauseConfirmed"
+    />
   </div>
 </template>
 
@@ -136,6 +147,24 @@ const {
 } = useSystemEmails()
 
 const restoreConfirmOpen = ref(false)
+const pauseConfirmOpen = ref(false)
+
+/** Turning emails back on is immediate; pausing them all asks first. */
+const onGlobalSwitch = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (input.checked) {
+    void toggleGlobal(true)
+    return
+  }
+  // The switch stays on until the pause is confirmed.
+  input.checked = true
+  pauseConfirmOpen.value = true
+}
+
+const onPauseConfirmed = async () => {
+  await toggleGlobal(false)
+  pauseConfirmOpen.value = false
+}
 
 const onSelect = (key: string) => {
   select(key)
@@ -170,18 +199,14 @@ onMounted(async () => {
   gap: 1rem;
 }
 
+/* Title and subtitle as on the Grading page. */
 .admin-emails__title {
-  margin: 0 0 0.25rem;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--charcoal);
+  margin-bottom: 0.25rem;
 }
 
 .admin-emails__subtitle {
+  color: var(--text-muted);
   margin: 0;
-  max-width: 46rem;
-  font-size: 0.875rem;
-  color: #6b7280;
 }
 
 .admin-emails__global {
