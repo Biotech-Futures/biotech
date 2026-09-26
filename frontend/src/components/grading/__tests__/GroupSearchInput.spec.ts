@@ -20,7 +20,8 @@ const row = (group_id: number, group_name: string) => ({
   markers: [],
   criterion_markers: [],
   is_finalist: false,
-  has_submission: true
+  has_submission: true,
+  incomplete: []
 })
 
 const DIRECTORY = [row(1, 'Group 1'), row(12, 'Group 12'), row(3, 'Alpha Team')]
