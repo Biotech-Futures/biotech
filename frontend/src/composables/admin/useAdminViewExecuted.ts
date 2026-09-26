@@ -1,7 +1,21 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
-import { runAdminView, type AdminUser, type AdminView } from '@/utils/adminAPI'
+import {
+  bulkDeleteUsers,
+  bulkSetUsersActive,
+  deleteAdminUser,
+  fetchAdminCountries,
+  fetchAdminStates,
+  fetchAdminUsers,
+  runAdminView,
+  setAdminUserActive,
+  type AdminUser,
+  type AdminUserCountry,
+  type AdminUserState,
+  type AdminView
+} from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { userName } from '@/utils/userFormat'
 
 export type GroupByOption = 'none' | 'role' | 'status'
 
@@ -66,6 +80,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   const rows = ref<ViewResultRow[]>([])
   const totalCount = ref(0)
   const loading = ref(false)
+  const busy = ref(false)
   const error = ref('')
 
   const page = ref(1)
@@ -81,14 +96,15 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     if (searchTimer) clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
       appliedSearch.value = value.trim()
+      clearSelection()
       reload()
     }, 350)
   })
 
   const badgeLabel = computed(() => (view.value?.isDefault ? 'System Default' : 'Custom View'))
 
-  const columns = computed<AdminColumn[]>(() =>
-    (view.value?.visibleColumns ?? []).map((rawKey) => {
+  const columns = computed<AdminColumn[]>(() => [
+    ...(view.value?.visibleColumns ?? []).map((rawKey) => {
       const key = canonicalColumnKey(rawKey)
       const config = COLUMN_CONFIG[key]
       return {
@@ -96,8 +112,9 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
         label: config?.label ?? columnLabel(rawKey),
         sortable: Boolean(config?.sortBy)
       }
-    })
-  )
+    }),
+    { key: 'actions', label: 'Actions', align: 'right' as const }
+  ])
 
   const emptyMessage = computed(() =>
     loading.value ? '' : `No users found${appliedSearch.value ? ' for the current search.' : '.'}`
@@ -144,6 +161,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
 
   const onSortChange = (next: SortState): void => {
     sortState.value = next
+    clearSelection()
     reload()
   }
 
@@ -160,7 +178,254 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
 
   const onGroupByChange = (next: GroupByOption): void => {
     groupBy.value = next
+    clearSelection()
     reload()
+  }
+
+  // -- Row selection -----------------------------------------------------------
+  // A snapshot map (not just ids) so bulk actions that need row data (e.g. group
+  // assignment) keep working for selections that span multiple pages.
+  const selectedMap = ref<Map<number, ViewResultRow>>(new Map())
+  const selectedIds = computed(() => Array.from(selectedMap.value.keys()))
+  const bulkCount = computed(() => selectedMap.value.size)
+
+  // StudentAssignDialog / confirmStudentAssignments trust the caller completely —
+  // the backend hardcodes membership_role='student' for every id it's given, with
+  // no check that the user actually is one (see backend/apps/admin/services/match.py
+  // confirm_student_assignments). A view's rows aren't guaranteed single-role like
+  // the Users page's Students tab is, so this page has to enforce it client-side:
+  // only allow the bulk assign action when the *actual selection* is all students.
+  const canAssignToGroup = computed(
+    () => selectedMap.value.size > 0 && Array.from(selectedMap.value.values()).every((u) => u.role === 'student')
+  )
+
+  const clearSelection = (): void => {
+    selectedMap.value = new Map()
+  }
+
+  const onSelectedChange = (value: Array<string | number>): void => {
+    const rowById = new Map(rows.value.map((row) => [row.id, row]))
+    const next = new Map<number, ViewResultRow>()
+    for (const id of value) {
+      const numericId = Number(id)
+      const existing = selectedMap.value.get(numericId)
+      next.set(numericId, existing ?? rowById.get(numericId) ?? ({ id: numericId } as ViewResultRow))
+    }
+    selectedMap.value = next
+  }
+
+  // Keep selected snapshots current after a refetch (e.g. a bulk status change).
+  watch(rows, (list) => {
+    if (selectedMap.value.size === 0) return
+    let changed = false
+    const next = new Map(selectedMap.value)
+    for (const row of list) {
+      if (next.has(row.id)) {
+        next.set(row.id, row)
+        changed = true
+      }
+    }
+    if (changed) selectedMap.value = next
+  })
+
+  // -- Detail sheet --------------------------------------------------------------
+  const viewOpen = ref(false)
+  const detailUser = ref<ViewResultRow | null>(null)
+
+  const openView = (user: ViewResultRow): void => {
+    detailUser.value = user
+    viewOpen.value = true
+  }
+
+  const onViewClose = (): void => {
+    viewOpen.value = false
+    detailUser.value = null
+  }
+
+  const onRowClick = (row: Record<string, unknown>): void => {
+    openView(row as unknown as ViewResultRow)
+  }
+
+  // -- Single activate/deactivate -------------------------------------------------
+  const singleToggle = ref({ open: false, userId: 0, message: '' })
+
+  const runActiveChange = async (userId: number, isActive: boolean): Promise<boolean> => {
+    busy.value = true
+    try {
+      await setAdminUserActive(userId, isActive)
+      void loadResults()
+      return true
+    } catch (toggleError) {
+      logApiError('admin.views.toggle', toggleError)
+      return false
+    } finally {
+      busy.value = false
+    }
+  }
+
+  const onToggleActive = (user: ViewResultRow): void => {
+    // Deactivating locks someone out, so confirm it; reactivating is non-destructive.
+    if (user.isActive) {
+      singleToggle.value = {
+        open: true,
+        userId: user.id,
+        message: `${userName(user)} will no longer be able to sign in. You can reactivate them at any time.`
+      }
+      return
+    }
+    void runActiveChange(user.id, true)
+  }
+
+  const runSingleToggle = async (): Promise<void> => {
+    if (!singleToggle.value.userId) return
+    const ok = await runActiveChange(singleToggle.value.userId, false)
+    if (ok) singleToggle.value = { open: false, userId: 0, message: '' }
+  }
+
+  // -- Single delete (reachable from the edit sheet's Delete button) --------------
+  const singleDelete = ref<{ open: boolean; userId: number; message: string; force: boolean }>({
+    open: false,
+    userId: 0,
+    message: '',
+    force: false
+  })
+  const singleDeleteConfirmText = ref('')
+  const singleDeleteConfirmBlocked = computed(
+    () => singleDelete.value.force && singleDeleteConfirmText.value !== 'DELETE'
+  )
+
+  const runSingleDelete = async (): Promise<void> => {
+    const userId = singleDelete.value.userId
+    if (!userId) return
+    busy.value = true
+    try {
+      await deleteAdminUser(userId, singleDelete.value.force)
+      singleDelete.value = { open: false, userId: 0, message: '', force: false }
+      singleDeleteConfirmText.value = ''
+      onViewClose()
+      clearSelection()
+      void loadResults()
+    } catch (deleteError) {
+      logApiError('admin.views.delete', deleteError)
+      error.value = deleteError instanceof Error ? deleteError.message : 'Unable to delete the user right now.'
+    } finally {
+      busy.value = false
+    }
+  }
+
+  // -- Bulk activate/deactivate ----------------------------------------------------
+  const bulkStatus = ref<{
+    open: boolean
+    action: 'activate' | 'deactivate'
+    title: string
+    message: string
+    confirmLabel: string
+  }>({ open: false, action: 'activate', title: '', message: '', confirmLabel: '' })
+
+  const confirmBulkStatus = (isActive: boolean): void => {
+    const action = isActive ? 'activate' : 'deactivate'
+    bulkStatus.value = {
+      open: true,
+      action,
+      confirmLabel: isActive ? 'Activate' : 'Deactivate',
+      title: `${isActive ? 'Activate' : 'Deactivate'} ${bulkCount.value} ${bulkCount.value === 1 ? 'user' : 'users'}?`,
+      message: isActive
+        ? 'The selected users will be able to sign in again.'
+        : 'The selected users will no longer be able to sign in. You can reactivate them at any time.'
+    }
+  }
+
+  const runBulkStatus = async (): Promise<void> => {
+    busy.value = true
+    try {
+      await bulkSetUsersActive({
+        isActive: bulkStatus.value.action === 'activate',
+        userIds: selectedIds.value
+      })
+      bulkStatus.value = { ...bulkStatus.value, open: false }
+      clearSelection()
+      void loadResults()
+    } catch (bulkError) {
+      logApiError('admin.views.bulk-status', bulkError)
+    } finally {
+      busy.value = false
+    }
+  }
+
+  // -- Bulk delete -------------------------------------------------------------
+  const bulkDelete = ref({ open: false })
+  const bulkForce = ref(false)
+  const deleteConfirmText = ref('')
+
+  const bulkDeleteMessage = computed(
+    () =>
+      `This permanently removes the selected ${bulkCount.value === 1 ? 'account' : 'accounts'} and all related data. This cannot be undone.`
+  )
+
+  const deleteConfirmBlocked = computed(() => bulkForce.value && deleteConfirmText.value !== 'DELETE')
+
+  const confirmBulkDelete = (): void => {
+    bulkForce.value = false
+    deleteConfirmText.value = ''
+    bulkDelete.value = { open: true }
+  }
+
+  const runBulkDelete = async (): Promise<void> => {
+    busy.value = true
+    try {
+      const result = await bulkDeleteUsers({
+        userIds: selectedIds.value,
+        force: bulkForce.value
+      })
+      bulkDelete.value = { open: false }
+      clearSelection()
+      void loadResults()
+      if (result?.msg) error.value = result.msg
+    } catch (bulkError) {
+      logApiError('admin.views.bulk-delete', bulkError)
+      error.value =
+        bulkError instanceof Error ? bulkError.message : 'Unable to delete the selected users right now.'
+    } finally {
+      busy.value = false
+    }
+  }
+
+  // -- Bulk assign to group -----------------------------------------------------
+  // Shares StudentAssignDialog with the Users page; it owns group fetching and the
+  // confirm POST itself, so this composable only owns which rows it's open with.
+  const assignOpen = ref(false)
+  const assignStudents = ref<AdminUser[]>([])
+
+  const openBatchAssign = (): void => {
+    if (!canAssignToGroup.value) return
+    assignStudents.value = Array.from(selectedMap.value.values())
+    assignOpen.value = true
+  }
+
+  const onAssignConfirmed = (): void => {
+    clearSelection()
+    reload()
+  }
+
+  // -- Lookups for the edit form sheet (countries / states / supervisors) --------
+  const countries = ref<AdminUserCountry[]>([])
+  const states = ref<AdminUserState[]>([])
+  const supervisors = ref<AdminUser[]>([])
+
+  const init = async (): Promise<void> => {
+    try {
+      const [allCountries, allStates] = await Promise.all([fetchAdminCountries(), fetchAdminStates()])
+      countries.value = allCountries
+      states.value = allStates
+    } catch (metaError) {
+      logApiError('admin.views.meta', metaError)
+    }
+    try {
+      const data = await fetchAdminUsers({ page: 1, limit: 200, role: 'supervisor' })
+      supervisors.value = data.items
+    } catch (supError) {
+      logApiError('admin.views.supervisors', supError)
+    }
   }
 
   return {
@@ -178,11 +443,47 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     emptyMessage,
     badgeLabel,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
+    busy,
     loadResults,
     reload,
     onSortChange,
     onPageChange,
     onPageSizeChange,
-    onGroupByChange
+    onGroupByChange,
+    selectedIds,
+    bulkCount,
+    canAssignToGroup,
+    clearSelection,
+    onSelectedChange,
+    viewOpen,
+    detailUser,
+    openView,
+    onViewClose,
+    onRowClick,
+    singleToggle,
+    onToggleActive,
+    runSingleToggle,
+    singleDelete,
+    singleDeleteConfirmText,
+    singleDeleteConfirmBlocked,
+    runSingleDelete,
+    bulkStatus,
+    confirmBulkStatus,
+    runBulkStatus,
+    bulkDelete,
+    bulkForce,
+    deleteConfirmText,
+    bulkDeleteMessage,
+    deleteConfirmBlocked,
+    confirmBulkDelete,
+    runBulkDelete,
+    assignOpen,
+    assignStudents,
+    openBatchAssign,
+    onAssignConfirmed,
+    countries,
+    states,
+    supervisors,
+    init
   }
 }

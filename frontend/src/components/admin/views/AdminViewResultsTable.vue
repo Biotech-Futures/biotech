@@ -4,6 +4,8 @@
     :rows="tableRows"
     row-key="id"
     :loading="loading"
+    selectable
+    :selected="selected"
     :sort-state="sortState"
     :show-pagination="true"
     :page="page"
@@ -12,12 +14,17 @@
     :page-size-options="pageSizeOptions"
     :empty-message="emptyMessage"
     pager-label="View results pagination"
+    select-all-label="Select all users on this page"
+    @update:selected="emit('update:selected', $event)"
     @update:sort="emit('update:sort', $event)"
     @page-change="emit('page-change', $event)"
     @page-size-change="emit('page-size-change', $event)"
+    @row-click="emit('row-click', $event)"
   >
     <template #cell-name="{ row }">
-      {{ userName(toRow(row)) }}
+      <button type="button" class="admin-view-table__name-btn" @click.stop="emit('view', toRow(row))">
+        {{ userName(toRow(row)) }}
+      </button>
     </template>
     <template #cell-email="{ row }">
       <span class="admin-view-table__muted">{{ toRow(row).email || '—' }}</span>
@@ -74,6 +81,22 @@
     <template #cell-group="{ row }">
       {{ toRow(row).groupName || '—' }}
     </template>
+    <template #cell-actions="{ row }">
+      <div class="admin-view-table__row-actions" @click.stop>
+        <button type="button" class="btn btn-sm btn-outline" @click="emit('edit', toRow(row))">
+          Edit
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm admin-view-table__toggle-btn"
+          :class="toRow(row).isActive ? 'btn-outline' : 'btn-primary'"
+          :title="toRow(row).isActive ? 'Deactivate account' : 'Activate account'"
+          @click="emit('toggle-active', toRow(row))"
+        >
+          {{ toRow(row).isActive ? 'Deactivate' : 'Activate' }}
+        </button>
+      </div>
+    </template>
   </AdminDataTable>
 </template>
 
@@ -94,6 +117,7 @@ const props = defineProps<{
   columns: AdminColumn[]
   rows: ViewResultRow[]
   loading?: boolean
+  selected?: Array<string | number>
   sortState?: SortState
   page?: number
   limit?: number
@@ -103,9 +127,14 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'update:selected', value: Array<string | number>): void
   (e: 'update:sort', value: SortState): void
   (e: 'page-change', page: number): void
   (e: 'page-size-change', size: number): void
+  (e: 'row-click', row: Record<string, unknown>): void
+  (e: 'view', user: ViewResultRow): void
+  (e: 'edit', user: ViewResultRow): void
+  (e: 'toggle-active', user: ViewResultRow): void
 }>()
 
 /** DataTable slots hand rows out as Record<string, unknown>. */
@@ -117,6 +146,38 @@ const tableRows = computed(() => props.rows as unknown as Record<string, unknown
 </script>
 
 <style scoped>
+.admin-view-table__name-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--charcoal);
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.admin-view-table__name-btn:hover {
+  color: var(--dark-green);
+  text-decoration: underline;
+}
+
+.admin-view-table__row-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-view-table__toggle-btn {
+  width: 5.5rem;
+  min-width: 5.5rem;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .admin-view-table__muted {
   color: var(--text-muted);
 }
