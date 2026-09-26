@@ -146,6 +146,14 @@ describe('the group marks ranking', () => {
     const [saq4, poster4] = cells('BTF-4')
     expect(saq4!.text()).toBe('4.00')
     expect(poster4!.text()).toBe('—')
+
+    // The key above the table explains the asterisk.
+    expect(wrapper.find('.finalists__legend').text()).toBe('* Not Marked Completely')
+  })
+
+  it('leaves out the asterisk key when there is no report or prototype column', async () => {
+    const wrapper = await mountPage() // SAQ and POSTER columns only
+    expect(wrapper.find('.finalists__legend').exists()).toBe(false)
   })
 
   it('shows per-component columns with marks, dashes and the total', async () => {

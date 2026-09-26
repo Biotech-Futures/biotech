@@ -32,6 +32,7 @@
             />
           </div>
         </div>
+        <p v-if="showsIncompleteKey" class="finalists__legend">* Not Marked Completely</p>
       </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
       <div v-else class="finalists__scroll finalists__scroll--flush">
@@ -322,6 +323,10 @@ const totalsByGroup = computed(
 const OPTIONAL_PARTS = new Set(['REPORT', 'PROTOTYPE'])
 const notMarkedCompletely = (r: FinalistCandidateRow, code: string) =>
   OPTIONAL_PARTS.has(code) && r.incomplete.includes(code)
+// The key above the table, whenever there is a column the asterisk can appear in.
+const showsIncompleteKey = computed(() =>
+  candidateComponents.value.some((c) => OPTIONAL_PARTS.has(c.code))
+)
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
 // falls back to the flat marker list when no per-criterion data exists.
@@ -439,6 +444,12 @@ const remove = async (id: number) => {
   border-bottom: none;
   border-radius: 8px 8px 0 0;
   box-shadow: none;
+  /* Search on the left, the asterisk key on the right, both on the bottom line. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
 }
 
 .finalists__search-field {
@@ -446,7 +457,14 @@ const remove = async (id: number) => {
   flex-direction: column;
   gap: 0.3rem;
   /* Same width as the By Component page's search box. */
+  flex: 0 1 252px;
   max-width: 252px;
+}
+
+.finalists__legend {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .finalists__search-label {
