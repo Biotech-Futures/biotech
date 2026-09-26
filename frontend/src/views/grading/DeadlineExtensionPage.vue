@@ -9,7 +9,9 @@
         timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
         keeps accepting for the grace hours after it.
       </p>
-      <form class="extensions__form" @submit.prevent="save">
+      <!-- Granting is the Grant button only: Enter in a field (e.g. the
+           search box) must never grant an extension. -->
+      <form class="extensions__form" @submit.prevent>
         <label class="extensions__field extensions__field--group">
           <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
@@ -44,9 +46,10 @@
           ></textarea>
         </label>
         <button
-          type="submit"
+          type="button"
           class="btn btn-primary btn-sm"
           :disabled="isSaving || !groupQuery || !untilLocal"
+          @click="save"
         >
           {{ isSaving ? 'Saving…' : 'Grant' }}
         </button>

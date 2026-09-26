@@ -328,10 +328,22 @@ export interface BulkUploadCategoryEntry {
   solution_category_other: string
 }
 
+/** A group's overall comment the sheet changes. An empty old_comment means
+ *  none was stored (a new record); otherwise it's replaced or cleared. */
+export interface BulkUploadOverallCommentEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  component_id: number
+  comment: string
+  old_comment: string
+}
+
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  overall_comments?: BulkUploadOverallCommentEntry[]
   // SAQ shape only: marking key changes parsed from the sheet.
   marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]

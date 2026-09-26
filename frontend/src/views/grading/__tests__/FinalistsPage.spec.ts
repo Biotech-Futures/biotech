@@ -20,16 +20,10 @@ const candidatesMock = vi.mocked(fetchFinalistCandidates)
 const finalistsMock = vi.mocked(fetchFinalists)
 const removeMock = vi.mocked(removeFinalist)
 
-const resolveIdMock = vi.fn<() => number | null>()
 const GroupSearchInputStub = defineComponent({
   name: 'GroupSearchInput',
   props: { modelValue: { type: String, default: '' }, showSuggestions: { type: Boolean, default: true } },
   emits: ['update:modelValue'],
-  methods: {
-    resolveId(): number | null {
-      return resolveIdMock()
-    }
-  },
   template:
     '<input class="picker" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
 })
@@ -64,7 +58,6 @@ const mountPage = async () => {
 beforeEach(() => {
   addMock.mockReset().mockResolvedValue(undefined as never)
   removeMock.mockReset().mockResolvedValue(undefined as never)
-  resolveIdMock.mockReset()
   candidatesMock.mockReset().mockResolvedValue({
     components: [
       { code: 'SAQ', name: 'Short Answer Questions' },
@@ -150,22 +143,14 @@ describe('the group marks ranking', () => {
     expect(candidatesMock).toHaveBeenCalledTimes(2)
   })
 
-  it('adding by search refuses an unresolvable group', async () => {
-    resolveIdMock.mockReturnValue(null)
-    const wrapper = await mountPage()
-    await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.finalists__banner--error').text()).toBe('No group matches that name.')
-    expect(addMock).not.toHaveBeenCalled()
-  })
-
-  it('adding by search flags the resolved group and clears the query', async () => {
-    resolveIdMock.mockReturnValue(1)
+  it('pressing Enter in the search only filters, never flags', async () => {
     const wrapper = await mountPage()
     await wrapper.find('.picker').setValue('BTF-1')
-    await wrapper.find('form').trigger('submit')
+    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(addMock).toHaveBeenCalledWith(1)
-    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(addMock).not.toHaveBeenCalled()
+    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('BTF-1')
   })
 
   it('a refused add is reported', async () => {
@@ -191,6 +176,8 @@ describe('the current finalists', () => {
     await flushPromises()
     expect(removeMock).toHaveBeenCalledWith(2)
     expect(finalistsMock).toHaveBeenCalledTimes(2)
+    // The refreshed tables are the confirmation; no success banner.
+    expect(wrapper.text()).not.toContain('Finalist removed.')
   })
 
   it('says so when nobody is flagged yet', async () => {

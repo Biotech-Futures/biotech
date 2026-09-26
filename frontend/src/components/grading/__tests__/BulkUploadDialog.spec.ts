@@ -27,6 +27,15 @@ const rowEntry = (row: number, groupId: number, columns = ['mark'], criteriaNo =
   columns
 })
 
+const overallComment = (row: number, groupId: number, comment: string, oldComment: string) => ({
+  row,
+  group_id: groupId,
+  group_name: `BTF-${groupId}`,
+  component_id: 1,
+  comment,
+  old_comment: oldComment
+})
+
 const response = (over: Partial<BulkUploadResponse> = {}): BulkUploadResponse => ({
   creates: [],
   updates: [],
@@ -260,6 +269,45 @@ describe('the preview report', () => {
     expect(wrapper.text()).toContain(
       'Overwriting Existing Records: 2 (BTF-7 [3_mark, 4_mark, 4_comment], BTF-9 [1_mark])'
     )
+  })
+
+  it('a replaced or cleared overall comment is an overwrite, named in the listing', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites a mark and replaces its comment; BTF-8 touches no
+        // grade, but its blank cell clears the stored comment.
+        updates: [rowEntry(2, 7, ['mark'], 3)],
+        overall_comments: [
+          overallComment(2, 7, 'Better now', 'Good work'),
+          overallComment(6, 8, '', 'Strong poster')
+        ],
+        summary: { creates: 0, updates: 1, unchanged: 0, overall_comments: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [3_mark, overall_comment], BTF-8 [overall_comment])'
+    )
+    expect(text).toContain('Writing New Records: 0')
+    expect(wrapper.find('.bulk-upload__count--overwrite').exists()).toBe(true)
+  })
+
+  it('an overall comment where none was stored counts as a new record', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        overall_comments: [overallComment(2, 7, 'First comment', '')],
+        summary: { creates: 0, updates: 0, unchanged: 1, overall_comments: 1, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 1')
   })
 
   it('a missing header stops the report there, hiding checks that never ran', async () => {

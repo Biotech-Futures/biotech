@@ -65,6 +65,9 @@ const fillForm = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
   await wrapper.find('input[type="datetime-local"]').setValue('2026-11-08T09:00')
 }
 
+const grantButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+  wrapper.findAll('button').find((b) => /^(Grant|Saving…)$/.test(b.text().trim()))!
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
@@ -144,7 +147,7 @@ describe('granting', () => {
     resolveIdMock.mockReturnValue(null)
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     expect(wrapper.find('.extensions__banner--error').text()).toBe('No group matches that name.')
     expect(saveMock).not.toHaveBeenCalled()
   })
@@ -156,7 +159,7 @@ describe('granting', () => {
     const wrapper = await mountPage()
     await fillForm(wrapper)
     await wrapper.find('textarea').setValue('Storm damage')
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(saveMock).toHaveBeenCalledWith(
@@ -172,7 +175,7 @@ describe('granting', () => {
     saveMock.mockRejectedValueOnce(new Error('must be later than the current deadline'))
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
     expect(wrapper.find('.extensions__banner--error').text()).toContain(
       'must be later than the current deadline'
@@ -184,7 +187,7 @@ describe('granting', () => {
     saveMock.mockResolvedValueOnce({ extension: extension() })
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     // Nothing saved yet — the warning dialog intervenes, naming the group.
@@ -203,7 +206,7 @@ describe('granting', () => {
     resolveIdMock.mockReturnValue(7)
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
 
     await wrapper.find('.extensions__dialog button').trigger('click') // Cancel
@@ -219,7 +222,7 @@ describe('granting', () => {
     saveMock.mockResolvedValueOnce({ extension: extension() })
     const wrapper = await mountPage()
     await fillForm(wrapper)
-    await wrapper.find('form').trigger('submit')
+    await grantButton(wrapper).trigger('click')
     await flushPromises()
     expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
     expect(saveMock).toHaveBeenCalled()
@@ -227,9 +230,20 @@ describe('granting', () => {
 
   it('cannot grant with the group or date missing', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(grantButton(wrapper).attributes('disabled')).toBeDefined()
     await fillForm(wrapper)
-    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(grantButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it('pressing Enter in the form does not grant', async () => {
+    resolveIdMock.mockReturnValue(8)
+    const wrapper = await mountPage()
+    await fillForm(wrapper)
+    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.extensions__banner--error').exists()).toBe(false)
   })
 })
 

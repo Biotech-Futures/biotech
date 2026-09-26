@@ -309,6 +309,18 @@ class BulkUploadMarksViewTests(_GradingFixture):
             "New note",
         )
 
+    def test_preview_names_the_group_of_a_cleared_overall_comment(self):
+        # A blank first-row cell clears the stored comment; the preview must
+        # say which group loses it, so the dialog can list it as an overwrite.
+        ComponentFeedback.objects.create(group=self.group, component=self.saq, comment="old note")
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "", 1, "", "", "")])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        [entry] = resp.json()["overall_comments"]
+        self.assertEqual(entry["group_name"], "BTF-TEST-1")
+        self.assertEqual(entry["old_comment"], "old note")
+        self.assertEqual(entry["comment"], "")
+
 
 class BulkUploadWideFormatTests(_GradingFixture):
     """POSTER/REPORT/PROTOTYPE keep the legacy wide shape: one row per
@@ -362,6 +374,16 @@ class BulkUploadWideFormatTests(_GradingFixture):
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.json()["checks"]["missing_headers"], ["r1_mark", "r1_comment"])
+
+    def test_preview_names_the_group_of_a_replaced_overall_comment(self):
+        ComponentFeedback.objects.create(group=self.group, component=self.poster, comment="old note")
+        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "", "", "new note")])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        [entry] = resp.json()["overall_comments"]
+        self.assertEqual(entry["group_name"], "BTF-TEST-1")
+        self.assertEqual(entry["old_comment"], "old note")
+        self.assertEqual(entry["comment"], "new note")
 
     def test_commit_persists_wide_marks(self):
         Grade.objects.create(submission=self.poster_submission, criterion=self.poster_c1, mark=Decimal("5"), comment="old")

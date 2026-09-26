@@ -1,7 +1,6 @@
 <template>
   <div class="finalists">
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
-    <p v-if="actionMessage" class="finalists__banner finalists__banner--ok">{{ actionMessage }}</p>
 
     <section>
       <h3 class="card-title finalists__list-title">
@@ -23,14 +22,15 @@
       <div class="card finalists__search-card">
         <div class="finalists__search-field">
           <span class="finalists__search-label">Search</span>
-          <form class="finalists__form" @submit.prevent="add">
+          <!-- Plain filter: no form, so Enter never flags a group. Flagging
+               goes through each row's Add button only. -->
+          <div class="finalists__form">
             <GroupSearchInput
-              ref="picker"
               v-model="groupQuery"
               class="finalists__picker"
               :show-suggestions="false"
             />
-          </form>
+          </div>
         </div>
       </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
@@ -242,9 +242,7 @@ const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const actionMessage = ref('')
 const isMutating = ref(false)
-const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
 
 const finalists = computed(() => list.value?.finalists ?? [])
@@ -271,7 +269,7 @@ const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
 // Live-filter the Group Marks table by the search text (group name),
-// matching the other marking tables; resolveId still powers the Add button.
+// matching the other marking tables.
 const candidates = computed(() => {
   const rows = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
@@ -314,31 +312,10 @@ onMounted(() => {
 })
 
 const addFromRow = async (id: number) => {
-  actionMessage.value = ''
   actionError.value = ''
   isMutating.value = true
   try {
     await addFinalist(id)
-    await Promise.all([load(), loadCandidates()])
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    isMutating.value = false
-  }
-}
-
-const add = async () => {
-  actionMessage.value = ''
-  actionError.value = ''
-  const id = picker.value?.resolveId() ?? null
-  if (id == null) {
-    actionError.value = 'No group matches that name.'
-    return
-  }
-  isMutating.value = true
-  try {
-    await addFinalist(id)
-    groupQuery.value = ''
     await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -348,12 +325,10 @@ const add = async () => {
 }
 
 const remove = async (id: number) => {
-  actionMessage.value = ''
   actionError.value = ''
   isMutating.value = true
   try {
     await removeFinalist(id)
-    actionMessage.value = 'Finalist removed.'
     await Promise.all([load(), loadCandidates()])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -452,11 +427,6 @@ const remove = async (id: number) => {
 .finalists__banner--error {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
-}
-
-.finalists__banner--ok {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
 }
 
 .finalists__load-error {

@@ -411,6 +411,7 @@ def _parse_criteria_upload(file, filename: str, component_code: str) -> UploadDi
                 diff.overall_comments.append({
                     "row": row_num,
                     "group_id": group_id,
+                    "group_name": names_by_group.get(group_id),
                     "component_id": component.id,
                     "comment": new_comment,
                     "old_comment": feedback_by_group.get(group_id) or "",
@@ -687,6 +688,7 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
                 diff.overall_comments.append({
                     "row": row_num,
                     "group_id": group_id,
+                    "group_name": names_by_group.get(group_id),
                     "component_id": component.id,
                     "comment": new_comment,
                     "old_comment": feedback_by_group.get(group_id) or "",
