@@ -71,7 +71,10 @@
                 <span v-else class="finalists__muted">—</span>
               </td>
               <td v-for="c in candidateComponents" :key="c.code">
-                <span v-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
+                <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
+                  {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
+                </span>
+                <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
                 <span v-else class="finalists__muted">—</span>
               </td>
               <td class="finalists__cell--strong">
@@ -312,6 +315,13 @@ const candidatesByGroup = computed(
 const totalsByGroup = computed(
   () => new Map((candidatesResp.value?.rows ?? []).map((r) => [r.group_id, r.total]))
 )
+
+// The optional parts: one a team sent that still has unmarked criteria gets
+// an asterisk, after its mark so far or alone when nothing is marked yet; a
+// dash is left for parts never submitted.
+const OPTIONAL_PARTS = new Set(['REPORT', 'PROTOTYPE'])
+const notMarkedCompletely = (r: FinalistCandidateRow, code: string) =>
+  OPTIONAL_PARTS.has(code) && r.incomplete.includes(code)
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
 // falls back to the flat marker list when no per-criterion data exists.
@@ -584,6 +594,12 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   margin-left: 0.2rem;
   position: relative;
+}
+
+/* Hover text is the browser's own tooltip (title), like the marker names. */
+.finalists__incomplete {
+  margin-left: 0.1rem;
+  cursor: default;
 }
 
 /* Instant tooltip — native title has an uncontrollable hover delay. */

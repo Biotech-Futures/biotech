@@ -146,6 +146,46 @@ class FinalistToggleTests(_GradingFixture):
         self.assertTrue(graded["has_submission"])
         self.assertFalse(rows[ungraded.id]["has_submission"])
 
+    def test_candidates_flag_parts_not_marked_completely(self):
+        from apps.grading.models import Rubric, RubricCriterion, SubmissionComponent
+
+        # A two-criterion report rubric makes REPORT a column; the fixture
+        # team hands in a report with only one of its criteria marked.
+        report = SubmissionComponent.objects.get(code="REPORT")
+        rubric = Rubric.objects.create(component=report, year=2026, active=True)
+        method = RubricCriterion.objects.create(
+            rubric=rubric, name="Method", max_mark=Decimal("5"), order=1
+        )
+        results = RubricCriterion.objects.create(
+            rubric=rubric, name="Results", max_mark=Decimal("5"), order=2
+        )
+        Submission.objects.filter(pk=self.submission.pk).update(submitted_report={
+            "storage_key": "2026/01/01/fixture/report.pdf", "name": "report.pdf",
+            "mime": "application/pdf", "size": 42,
+        })
+        for criterion, mark in ((self.saq_c1, "8"), (self.saq_c2, "4"), (method, "3")):
+            Grade.objects.create(
+                submission=self.submission, criterion=criterion,
+                mark=Decimal(mark), graded_by=self.staff,
+            )
+        empty = Groups.objects.create(group_name="BTF-EMPTY")
+        self.client.force_authenticate(self.staff)
+
+        def rows():
+            body = self.client.get(reverse("grading:finalist-candidates")).json()
+            return {row["group_id"]: row for row in body["rows"]}
+
+        team = rows()[self.group.id]
+        # SAQ fully marked; poster not started; report one of two.
+        self.assertEqual(team["incomplete"], ["POSTER", "REPORT"])
+        self.assertEqual(team["marks"]["REPORT"], "3.00")
+        self.assertEqual(rows()[empty.id]["incomplete"], [])
+
+        Grade.objects.create(
+            submission=self.submission, criterion=results, mark=Decimal("2"), graded_by=self.staff,
+        )
+        self.assertEqual(rows()[self.group.id]["incomplete"], ["POSTER"])
+
     def test_candidates_late_column(self):
         from datetime import timedelta
 

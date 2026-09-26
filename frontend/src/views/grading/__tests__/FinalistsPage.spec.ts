@@ -39,6 +39,7 @@ const candidate = (over: Record<string, unknown> = {}) => ({
   criterion_markers: [{ label: 'SAQ 1', marker: 'Ada Grader' }],
   is_finalist: false,
   has_submission: true,
+  incomplete: [],
   ...over
 })
 
@@ -75,7 +76,8 @@ beforeEach(() => {
         markers: [],
         criterion_markers: [],
         is_finalist: true,
-        has_submission: false
+        has_submission: false,
+        incomplete: []
       })
     ]
   })
@@ -95,6 +97,57 @@ beforeEach(() => {
 })
 
 describe('the group marks ranking', () => {
+  it('stars a report or prototype not marked completely, with the reason on hover', async () => {
+    candidatesMock.mockResolvedValue({
+      components: ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE'].map((code) => ({ code, name: code })),
+      rows: [
+        // Report half marked, prototype never sent.
+        candidate({
+          marks: { SAQ: '12.50', POSTER: '7.00', REPORT: '2.92', PROTOTYPE: null },
+          incomplete: ['REPORT']
+        }),
+        // Report fully marked, prototype sent but not marked at all.
+        candidate({
+          group_id: 3,
+          group_name: 'BTF-3',
+          marks: { SAQ: '10.00', POSTER: '6.00', REPORT: '3.00', PROTOTYPE: null },
+          incomplete: ['PROTOTYPE']
+        }),
+        // Only SAQ/poster incomplete: those columns are left as they are.
+        candidate({
+          group_id: 4,
+          group_name: 'BTF-4',
+          marks: { SAQ: '4.00', POSTER: null, REPORT: null, PROTOTYPE: null },
+          incomplete: ['SAQ', 'POSTER']
+        })
+      ]
+    })
+    const wrapper = await mountPage()
+    const cells = (name: string) =>
+      wrapper
+        .findAll('tbody tr')
+        .find((r) => r.text().includes(name))!
+        .findAll('td')
+        .slice(2, 6) // SAQ, POSTER, REPORT, PROT.
+    const hover = (cell: ReturnType<typeof cells>[number]) =>
+      cell.find('[title]').exists() ? cell.find('[title]').attributes('title') : null
+
+    const [, , report1, prototype1] = cells('BTF-1')
+    expect(report1!.text()).toBe('2.92*')
+    expect(hover(report1!)).toBe('Not Marked Completely')
+    expect(prototype1!.text()).toBe('—')
+    expect(hover(prototype1!)).toBeNull()
+
+    const [, , report3, prototype3] = cells('BTF-3')
+    expect(report3!.text()).toBe('3.00')
+    expect(prototype3!.text()).toBe('*')
+    expect(hover(prototype3!)).toBe('Not Marked Completely')
+
+    const [saq4, poster4] = cells('BTF-4')
+    expect(saq4!.text()).toBe('4.00')
+    expect(poster4!.text()).toBe('—')
+  })
+
   it('shows per-component columns with marks, dashes and the total', async () => {
     const wrapper = await mountPage()
     const headers = wrapper.findAll('thead th').map((h) => h.text())

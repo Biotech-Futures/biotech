@@ -13,7 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -74,6 +74,7 @@ class FinalistCandidatesView(APIView):
              "marks": {"SAQ": "12.50" | null, ...},   # sum of scored marks
              "total": "31.00" | null,                  # sum across components
              "markers": ["Ada Grader", ...],           # deduped, latest first
+             "incomplete": ["REPORT", ...],            # entered, not fully marked
              "is_finalist": bool}
           ]
         }
@@ -116,16 +117,25 @@ class FinalistCandidatesView(APIView):
 
         # One submission id spans an entry's components, so totals must split
         # by the criterion's component or every column would show the same sum.
+        mark_rows = list(
+            Grade.objects.filter(mark__isnull=False)
+            .values("submission_id", "criterion__rubric__component_id")
+            .annotate(total=Sum("mark"), scored=Count("id"))
+        )
         totals = {
             (row["submission_id"], row["criterion__rubric__component_id"]): row["total"]
-            for row in Grade.objects.filter(mark__isnull=False)
-            .values("submission_id", "criterion__rubric__component_id")
-            .annotate(total=Sum("mark"))
+            for row in mark_rows
+        }
+        # How many criteria of each part are scored, to spot parts still being marked.
+        scored = {
+            (row["submission_id"], row["criterion__rubric__component_id"]): row["scored"]
+            for row in mark_rows
         }
 
         # "SAQ 1" / "POSTER 3" labels: rubric position per criterion, prefixed
         # with the component code since this table spans several components.
         criterion_labels: dict[int, tuple[str, int, int]] = {}
+        criteria_count: dict[str, int] = {}
         for component_index, component in enumerate(components):
             rubric = (
                 Rubric.objects.filter(component=component, active=True)
@@ -136,6 +146,7 @@ class FinalistCandidatesView(APIView):
                 continue
             for i, criterion in enumerate(rubric.criteria.all(), start=1):
                 criterion_labels[criterion.id] = (component.code, component_index, i)
+            criteria_count[component.code] = len(rubric.criteria.all())
 
         markers_by_group: dict[int, list[str]] = {}
         criterion_markers_by_group: dict[int, list[dict]] = {}
@@ -179,6 +190,15 @@ class FinalistCandidatesView(APIView):
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
         submitted_group_ids = {e.group_id for e in entries}
+        # Parts a team handed in that still have unscored criteria (including
+        # parts nobody has started), so the table can flag them apart from
+        # parts never sent.
+        incomplete_codes: dict[int, set[str]] = {}
+        for e in entries:
+            if scored.get((e.submission_id, e.component_id), 0) < criteria_count.get(
+                e.component_code, 0
+            ):
+                incomplete_codes.setdefault(e.group_id, set()).add(e.component_code)
 
         rows = []
         for g in groups:
@@ -211,6 +231,9 @@ class FinalistCandidatesView(APIView):
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
                 "is_finalist": g["id"] in finalist_ids,
                 "has_submission": g["id"] in submitted_group_ids,
+                "incomplete": [
+                    c.code for c in components if c.code in incomplete_codes.get(g["id"], ())
+                ],
             })
         rows.sort(
             key=lambda r: (

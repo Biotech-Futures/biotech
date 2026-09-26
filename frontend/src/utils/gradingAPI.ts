@@ -724,6 +724,8 @@ export interface FinalistCandidateRow {
   criterion_markers: { label: string; marker: string }[]
   is_finalist: boolean
   has_submission: boolean
+  /** Components the team submitted that still have unmarked criteria. */
+  incomplete: string[]
 }
 
 export interface FinalistCandidatesResponse {

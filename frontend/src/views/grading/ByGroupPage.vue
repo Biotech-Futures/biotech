@@ -168,7 +168,9 @@ const open = () => {
 }
 
 // One row per group, aggregated across all four components: progress is
-// criteria graded / criteria defined over the whole entry, markers deduped.
+// criteria graded / criteria defined over the components the team actually
+// submitted (a team without a report is not marked down for its criteria),
+// markers deduped.
 const CODES = ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE']
 
 interface GroupRow {
@@ -269,7 +271,6 @@ onMounted(async () => {
     ).filter((p) => p != null)
     if (!payloads.length) throw new Error('Could not load the group list.')
 
-    const totalCriteria = payloads.reduce((sum, p) => sum + p.criteria_total, 0)
     const byGroup = new Map<number, GroupRow>()
     const tooltipLines = new Map<number, string[]>()
 
@@ -280,17 +281,29 @@ onMounted(async () => {
           g = {
             group_id: r.group_id,
             group_name: r.group_name,
-            submission_id: r.submission_id,
-            submitted_at: r.submitted_at,
-            is_late: r.is_late,
-            late_by: r.late_by,
+            submission_id: null,
+            submitted_at: null,
+            is_late: false,
+            late_by: null,
             graded: 0,
-            total: totalCriteria,
+            total: 0,
             markers: [],
             markerTooltip: ''
           }
           byGroup.set(r.group_id, g)
           tooltipLines.set(r.group_id, [])
+        }
+        // A row has a submission only when the team submitted this component:
+        // only those count towards the total, and any of them shows the entry
+        // (one submission covers every component, so they all agree).
+        if (r.submission_id != null) {
+          if (g.submission_id == null) {
+            g.submission_id = r.submission_id
+            g.submitted_at = r.submitted_at
+            g.is_late = r.is_late
+            g.late_by = r.late_by
+          }
+          g.total += payload.criteria_total
         }
         g.graded += r.criteria_graded
         const names = r.grader_names?.length
