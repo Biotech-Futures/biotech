@@ -18,37 +18,25 @@
           </button>
         </div>
 
-        <template v-if="code === 'SAQ'">
-          <p class="bulk-upload__desc">
-            .xlsx or .csv in the export's shape (one row per criterion)
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers are:<br />
-            <code>group_id</code>, <code>group_name</code>,<br />
-            Then <code>criteria_no</code>, <code>mark</code>, <code>comment</code>,<br />
-            Then <code>overall_comment</code>
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers must match exactly.<br />
-            Entering <code>group_id</code> in a row makes it the group's first row.<br />
-            Criteria number must be listed one after another (vertically). [<code>mark</code>
-            and <code>comment</code> to be assigned to each criteria]<br />
-            Extra columns and rows are ignored.
-          </p>
-        </template>
-        <template v-else>
-          <p class="bulk-upload__desc">
-            .xlsx or .csv in the export's shape (one row per group)<br />
-            <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+        <p class="bulk-upload__desc">
+          .xlsx or .csv in the export's shape (one row per group)<br />
+          <code>group_id</code>, <code>group_name</code>, <code>type</code>,<br />
+          <template v-if="code === 'SAQ'">
+            Then <code>q1</code>, <code>q2</code> … (the answers, not read on upload),<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion,<br />
+            Then <code>overall_comment</code>, <code>product_category</code> and
+            <code>category_of_solution</code>
+          </template>
+          <template v-else>
             Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
             <code>overall_comment</code>
-          </p>
-          <p class="bulk-upload__desc">
-            Column headers must match exactly.<br />
-            Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
-            Extra columns and rows are ignored.
-          </p>
-        </template>
+          </template>
+        </p>
+        <p class="bulk-upload__desc">
+          Column headers must match exactly.<br />
+          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          Extra columns and rows are ignored.
+        </p>
 
         <div class="bulk-upload__file-row">
           <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
@@ -78,7 +66,7 @@
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
             <template v-if="!preview.checks.missing_headers.length">
-              <!-- Wide-shape sheets only — SAQ's shape has no type column. -->
+              <!-- The sheet's type column check. -->
               <li v-if="preview.checks.type_ok !== undefined">
                 Type:
                 <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
@@ -248,9 +236,9 @@ const overwriteGroupCount = computed(() =>
 )
 const newGroupCount = computed(() => (preview.value ? newGroupIds(preview.value).size : 0))
 
-// "(BTF1 [3_mark, 3_comment, 4_mark, overall_comment], …)" — one listing per
-// overwritten group, in sheet order, naming each overwritten cell as
-// <criteria_no>_<column>, then overall_comment when that is overwritten too.
+// "(BTF1 [r3_mark, r3_comment, r4_mark, overall_comment], …)" — one listing
+// per overwritten group, in sheet order, naming each overwritten cell by its
+// sheet column, then overall_comment when that is overwritten too.
 // Sits beside the overwrite count.
 const groupsSuffix = (
   entries: BulkUploadRowEntry[],
@@ -269,10 +257,7 @@ const groupsSuffix = (
     return info
   }
   for (const e of entries) {
-    const prefix = e.criteria_no != null ? `${e.criteria_no}_` : ''
-    groupInfo(e.group_id, e.row, e.group_name).columns.push(
-      ...(e.columns ?? []).map((c) => `${prefix}${c}`)
-    )
+    groupInfo(e.group_id, e.row, e.group_name).columns.push(...(e.columns ?? []))
   }
   // The sheet's last column, so it closes the group's listing.
   for (const c of comments) {

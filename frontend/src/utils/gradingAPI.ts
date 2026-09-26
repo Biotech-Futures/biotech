@@ -280,7 +280,6 @@ export interface BulkUploadRowEntry {
   row: number
   group_id: number
   criterion_id: number
-  criteria_no?: number
   submission_id: number
   mark: string | null
   comment: string
@@ -302,7 +301,7 @@ export interface BulkUploadSummary {
   updates: number
   unchanged: number
   overall_comments?: number
-  // SAQ shape only: marking key selections parsed from the sheet.
+  // SAQ sheets only: marking key selections parsed from the sheet.
   marking_categories?: number
   errors: number
 }
@@ -310,8 +309,7 @@ export interface BulkUploadSummary {
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
-  // Wide-shape sheets only (POSTER/REPORT/PROTOTYPE): the type column
-  // check. Absent for SAQ's per-criterion shape, which has no type.
+  // The sheet's type column check ("SAQs", "Poster", …).
   expected_type?: string
   found_type?: string | null
   type_ok?: boolean

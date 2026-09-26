@@ -33,6 +33,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
+from apps.submissions.models import SubmissionQuestion
 from apps.users.models import StudentProfile
 
 from ..models import (
@@ -117,8 +118,18 @@ def _run_job(job_id: int) -> None:
                     group_id__in=[e.group_id for e in entries]
                 )
             }
+            # Every prompt in form order fixes the qN column order; the export
+            # keeps only the questions some group actually answered.
+            questions = SubmissionQuestion.objects.order_by("order", "id").values_list(
+                "prompt", flat=True
+            )
             payload = build_saq_xlsx(
-                entries, criteria, grades_by_pair, feedback_by_group, categories_by_group
+                entries,
+                criteria,
+                grades_by_pair,
+                feedback_by_group,
+                categories_by_group,
+                questions=list(questions),
             )
             filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
         elif kind == "all_zip":
