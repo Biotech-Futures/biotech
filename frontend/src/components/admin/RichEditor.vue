@@ -11,18 +11,34 @@ interface Props {
   modelValue?: string
   placeholder?: string
   readOnly?: boolean
+  /**
+   * Email bodies are sanitised server-side with nh3, which strips base64
+   * images, `data:` URLs and uploaded-file links. Hiding those insert tools
+   * (and the table context bar) keeps the editor honest about what will
+   * actually survive a save.
+   */
+  emailMode?: boolean
+  /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
+  compact?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
-  placeholder: 'Write your announcement…',
-  readOnly: false
+  placeholder: undefined,
+  readOnly: false,
+  emailMode: false,
+  compact: false
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'change', value: string): void
+  (e: 'focus'): void
 }>()
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? (props.emailMode ? 'Write your email…' : 'Write your announcement…')
+)
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
@@ -49,7 +65,7 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     Placeholder.configure({
-      placeholder: props.placeholder
+      placeholder: resolvedPlaceholder.value
     })
   ],
   content: props.modelValue,
@@ -229,10 +245,33 @@ function handleRawInput(e: Event) {
   emit('update:modelValue', target.value)
   emit('change', target.value)
 }
+
+/**
+ * Insert a merge tag (or any text) at the cursor. Exposed so the email page's
+ * merge-tag palette can drop `{{ first_name }}` exactly where the admin is
+ * typing instead of appending it to the end of the body.
+ */
+function insertText(text: string) {
+  if (props.readOnly || !text) return
+  if (rawMode.value) {
+    const next = rawHtml.value ? `${rawHtml.value} ${text}` : text
+    rawHtml.value = next
+    emit('update:modelValue', next)
+    emit('change', next)
+    return
+  }
+  editor.value?.chain().focus().insertContent(text).run()
+}
+
+defineExpose({ insertText })
 </script>
 
 <template>
-  <div class="rich-editor-wrapper">
+  <div
+    class="rich-editor-wrapper"
+    :class="{ 'rich-editor-wrapper--compact': compact }"
+    @focusin="emit('focus')"
+  >
     <!-- Attachment Error Banner -->
     <div v-if="attachmentError" class="rich-editor-alert">
       <i class="fas fa-circle-exclamation mr-1.5"></i>
@@ -407,37 +446,39 @@ function handleRawInput(e: Event) {
 
           <div class="toolbar-sep"></div>
 
-          <!-- Insert Actions -->
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Insert image"
-            @mousedown.prevent="fileInputRef?.click()"
-          >
-            <i class="fas fa-image"></i>
-            <span>Image</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Attach file to selected text"
-            :disabled="uploadingAttachment"
-            @mousedown.prevent="openAttachmentPicker"
-          >
-            <i class="fas fa-paperclip"></i>
-            <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Insert table (3x3)"
-            @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
-          >
-            <i class="fas fa-table"></i>
-            <span>Table</span>
-          </button>
+          <!-- Insert Actions (hidden in email mode: nh3 strips images/files) -->
+          <template v-if="!emailMode">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Insert image"
+              @mousedown.prevent="fileInputRef?.click()"
+            >
+              <i class="fas fa-image"></i>
+              <span>Image</span>
+            </button>
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Attach file to selected text"
+              :disabled="uploadingAttachment"
+              @mousedown.prevent="openAttachmentPicker"
+            >
+              <i class="fas fa-paperclip"></i>
+              <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
+            </button>
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Insert table (3x3)"
+              @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
+            >
+              <i class="fas fa-table"></i>
+              <span>Table</span>
+            </button>
 
-          <div class="toolbar-sep"></div>
+            <div class="toolbar-sep"></div>
+          </template>
 
           <!-- History -->
           <button
@@ -476,7 +517,7 @@ function handleRawInput(e: Event) {
       </div>
 
       <!-- Table Context Toolbar -->
-      <div v-if="isInTable && !rawMode && !readOnly" class="table-context-bar">
+      <div v-if="isInTable && !rawMode && !readOnly && !emailMode" class="table-context-bar">
         <div class="table-context-heading">
           <i class="fas fa-table text-blue-500"></i>
           <span class="table-context-title">Table:</span>
@@ -883,6 +924,16 @@ function handleRawInput(e: Event) {
 .hidden-input {
   display: none;
 }
+
+.rich-editor-wrapper--compact .rich-editor-content-area {
+  min-height: 12rem;
+  padding: 0.75rem 1rem;
+}
+
+.rich-editor-wrapper--compact .rich-editor-raw-area .raw-html-textarea {
+  min-height: 12rem;
+  padding: 0.75rem 1rem;
+}
 </style>
 
 <style>
@@ -1031,5 +1082,9 @@ function handleRawInput(e: Event) {
 
 .rich-editor-content-area .tiptap.ProseMirror .selectedCell {
   background-color: #dbeafe !important;
+}
+
+.rich-editor-wrapper--compact .rich-editor-content-area .tiptap.ProseMirror {
+  min-height: 10rem;
 }
 </style>

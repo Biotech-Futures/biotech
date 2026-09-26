@@ -23,12 +23,7 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 from ..models import FinalistEmailSettings, FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import IsGrader
 from ..services import content
-from ..services.finalist_notify import (
-    notify_finalist,
-    render_finalist_email,
-    subject_line,
-    symposium_today,
-)
+from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
 
 MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
@@ -106,10 +101,11 @@ class FinalistEmailPreviewView(APIView):
             .first()
         )
         group_name = flag.group.group_name if flag else "Team name"
-        _, html = render_finalist_email(group_name, details)
+        # An admin's edited wording shows here too, as it would be sent.
+        rendered = render_finalist_email(group_name, details)
         # A browser has no cid: part to resolve, so the logo goes in inline.
-        html = html.replace(f"cid:{LOGO_CID}", logo_data_uri())
-        return Response({"subject": subject_line(), "group_name": group_name, "html": html})
+        html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+        return Response({"subject": rendered.subject, "group_name": group_name, "html": html})
 
 
 class FinalistListView(APIView):

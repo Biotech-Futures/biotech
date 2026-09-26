@@ -14,6 +14,21 @@ import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
 import type { MentorImportRow } from './adminMentorCsv'
+import {
+  systemEmailPreviewSchema,
+  systemEmailSettingsSchema,
+  systemEmailTemplateListSchema,
+  systemEmailTemplateSchema,
+  systemEmailTestSendSchema
+} from './systemEmail'
+import type {
+  SystemEmailPreview,
+  SystemEmailPreviewPayload,
+  SystemEmailSettings,
+  SystemEmailTemplate,
+  SystemEmailTemplateUpdatePayload,
+  SystemEmailTestSend
+} from './systemEmail'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -1311,3 +1326,60 @@ export const fetchMentorReplaceSuggestions = (groupId: number) =>
   adminGet<AdminEnvelope<MentorReplaceSuggestionsData>>(
     `/mentor-match/replace-suggestions/?groupId=${groupId}`
   ).then((env) => env.data)
+
+// --- System emails ----------------------------------------------------------
+
+const emailTemplatePath = (key: string) => `/email-template/${encodeURIComponent(key)}/`
+
+/** Every email type with its saved wording, tags and on/off state. */
+export const fetchSystemEmailTemplates = (): Promise<SystemEmailTemplate[]> =>
+  adminGet<AdminEnvelope<unknown>>('/email-template/').then(
+    (env) => systemEmailTemplateListSchema.parse(env.data).items
+  )
+
+export const fetchSystemEmailTemplate = (key: string): Promise<SystemEmailTemplate> =>
+  adminGet<AdminEnvelope<unknown>>(emailTemplatePath(key)).then((env) =>
+    systemEmailTemplateSchema.parse(env.data)
+  )
+
+/** Save wording and/or the enabled toggle. Blank subject/body restores defaults. */
+export const updateSystemEmailTemplate = (
+  key: string,
+  payload: SystemEmailTemplateUpdatePayload
+): Promise<SystemEmailTemplate> =>
+  adminPatch<AdminEnvelope<unknown>>(emailTemplatePath(key), payload).then((env) =>
+    systemEmailTemplateSchema.parse(env.data)
+  )
+
+export const restoreSystemEmailTemplate = (key: string): Promise<SystemEmailTemplate> =>
+  adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}restore-default/`).then((env) =>
+    systemEmailTemplateSchema.parse(env.data)
+  )
+
+/** Render the email with sample data and any unsaved edits; sends nothing. */
+export const previewSystemEmailTemplate = (
+  key: string,
+  payload: SystemEmailPreviewPayload = {}
+): Promise<SystemEmailPreview> =>
+  adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}preview/`, payload).then((env) =>
+    systemEmailPreviewSchema.parse(env.data)
+  )
+
+/** Send the email to the requesting admin. Deliberately ignores the toggle. */
+export const testSendSystemEmailTemplate = (
+  key: string,
+  payload: SystemEmailPreviewPayload = {}
+): Promise<SystemEmailTestSend> =>
+  adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-send/`, payload).then((env) =>
+    systemEmailTestSendSchema.parse(env.data)
+  )
+
+export const fetchSystemEmailSettings = (): Promise<SystemEmailSettings> =>
+  adminGet<AdminEnvelope<unknown>>('/email-settings/').then((env) =>
+    systemEmailSettingsSchema.parse(env.data)
+  )
+
+export const updateSystemEmailSettings = (enabled: boolean): Promise<SystemEmailSettings> =>
+  adminPatch<AdminEnvelope<unknown>>('/email-settings/', { enabled }).then((env) =>
+    systemEmailSettingsSchema.parse(env.data)
+  )

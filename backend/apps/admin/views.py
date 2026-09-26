@@ -7,7 +7,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.admin.permissions import IsAdminScoped
-from apps.admin.serializers import BulkUserRowSerializer, bulk_user_error_message
+from apps.admin.serializers import (
+    BulkUserRowSerializer,
+    SystemEmailPreviewSerializer,
+    SystemEmailSettingsUpdateSerializer,
+    SystemEmailTemplateUpdateSerializer,
+    bulk_user_error_message,
+    serializer_error_message,
+)
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_countries, query_states,
@@ -52,6 +59,16 @@ from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor,
     unassign_mentors, recommend_mentors_for_group,
+)
+from apps.admin.services.system_email import (
+    get_email_settings,
+    get_email_template,
+    list_email_templates,
+    preview_email_template,
+    restore_email_template,
+    send_test_email,
+    update_email_settings,
+    update_email_template,
 )
 
 
@@ -1237,6 +1254,147 @@ class AdminSetPasswordView(APIView):
         request.user.save(update_fields=["password"])
         update_session_auth_hash(request, request.user)
         return Response({"msg": "Password set successfully", "data": True})
+
+
+# ============================================================================
+# SYSTEM EMAIL ENDPOINTS
+# ============================================================================
+class SystemEmailTemplateListView(APIView):
+    """GET /api/v1/admin/email-template/ — every type, its tags and on/off state."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_email_templates())
+
+
+class SystemEmailTemplateDetailView(APIView):
+    """GET/PATCH /api/v1/admin/email-template/<key>/ — read or save one type.
+
+    PATCH is field-optional: send only ``subject``/``body`` to edit wording, or
+    only ``enabled`` to flip the switch, so the two never overwrite each other.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, key):
+        result = get_email_template(key)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+    def patch(self, request, key):
+        serializer = SystemEmailTemplateUpdateSerializer(
+            data=request.data, context={"key": key}
+        )
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = update_email_template(
+            key, dict(serializer.validated_data), requested_by=request.user
+        )
+        if result.get("data") is None:
+            # Unknown key is a 404; a rejected edit (locked type/tag) is a 400.
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplatePreviewView(APIView):
+    """POST /api/v1/admin/email-template/<key>/preview/ — render sample data.
+
+    Accepts the editor's unsaved ``subject``/``body`` (optional) so the admin
+    can see changes before saving. Sends nothing.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        serializer = SystemEmailPreviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = preview_email_template(key, **serializer.validated_data)
+        if result.get("data") is None:
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplateTestSendView(APIView):
+    """POST /api/v1/admin/email-template/<key>/test-send/ — send to the admin.
+
+    The recipient is always the requesting admin; the enabled toggle is
+    deliberately bypassed so a disabled email can still be tested.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        serializer = SystemEmailPreviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = send_test_email(
+            key, requested_by=request.user, **serializer.validated_data
+        )
+        if result.get("data") is None:
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplateRestoreView(APIView):
+    """POST /api/v1/admin/email-template/<key>/restore-default/ — drop edits.
+
+    Returns the type to its template-file wording while preserving whether it
+    is switched on, so restoring is never a hidden enable.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = restore_email_template(key, requested_by=request.user)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class SystemEmailSettingsView(APIView):
+    """GET/PATCH /api/v1/admin/email-settings/ — the global on/off switch."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_email_settings())
+
+    def patch(self, request):
+        serializer = SystemEmailSettingsUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = update_email_settings(
+            serializer.validated_data["enabled"], requested_by=request.user
+        )
+        return Response(result)
 
 
 

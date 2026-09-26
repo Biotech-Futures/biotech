@@ -317,13 +317,14 @@ class FinalistNotifyServiceTests(_GradingFixture):
         GroupMembership.objects.create(group=self.group, user=member, membership_role="student")
         flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
 
-        # Every message refused by the relay: nothing got through.
+        # Finalist emails go through the shared system email path now, so the
+        # send seam is the message itself rather than a send_mail import.
         with patch(
-            "apps.grading.services.finalist_notify.send_individually",
-            return_value=(0, 1),
+            "django.core.mail.EmailMultiAlternatives.send",
+            side_effect=Exception("relay down"),
         ):
-            notify_finalist(flag)
-        # Non-fatal: the flag goes back to not notified so a retry can mail later.
+            self.assertFalse(notify_finalist(flag))
+        # Non-fatal: the flag stays not notified so a retry can mail later.
         flag.refresh_from_db()
         self.assertFalse(flag.notified)
         self.assertIsNone(flag.notified_at)
@@ -425,7 +426,7 @@ class FinalistEmailTests(_GradingFixture):
         self.assertTrue(flag.notified)
         self.assertEqual(flag.notified_by, self.staff)
 
-    def test_a_team_whose_every_email_fails_goes_back_to_not_notified(self):
+    def test_a_team_whose_every_email_fails_stays_not_notified(self):
         from unittest.mock import patch
 
         from apps.grading.services.finalist_notify import notify_finalist
@@ -433,10 +434,8 @@ class FinalistEmailTests(_GradingFixture):
         _set_email_details()
         self._member("stu@example.com", "student")
         flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
-        with patch(
-            "apps.grading.services.finalist_notify.send_individually", return_value=(0, 1)
-        ):
-            self.assertTrue(notify_finalist(flag, actor=self.staff))  # queued
+        with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("down")):
+            self.assertFalse(notify_finalist(flag, actor=self.staff))
         flag.refresh_from_db()
         self.assertFalse(flag.notified)
         self.assertIsNone(flag.notified_at)

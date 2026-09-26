@@ -142,7 +142,8 @@ const widgets = [
 const quickLinks = [
   { to: '/admin/users', label: 'Users', icon: 'fa-users' },
   { to: '/admin/groups', label: 'Groups', icon: 'fa-layer-group' },
-  { to: '/admin/tasks', label: 'Tasks', icon: 'fa-list-check' }
+  { to: '/admin/tasks', label: 'Tasks', icon: 'fa-list-check' },
+  { to: '/admin/emails', label: 'System Emails', icon: 'fa-envelope-open-text' }
 ]
 
 const totalUsers = computed(() => {

@@ -1,13 +1,15 @@
 """Finalist notification email.
 
 Uses the transactional mailbox (``DEFAULT_FROM_EMAIL`` / ``EMAIL_HOST_USER``)
-already configured for the rest of the platform — no new relay to set up.
+already configured for the rest of the platform — no new relay to set up — and
+goes through the shared system email path, so admins can switch it off or
+reword it like any other system email.
 
-The wording is the client's own finalist email (sent from Power Automate in
-2025); the Symposium date, confirm-by date, slides due date and registration
-link come from :class:`FinalistEmailSettings`, set on the Notify Finalists
-page, and nothing is sent until all of them are set. The email asks one team
-member to reply, so replies go to the support mailbox.
+The default wording is the client's own finalist email (sent from Power
+Automate in 2025); the Symposium date, confirm-by date, slides due date and
+registration link come from :class:`FinalistEmailSettings`, set on the Notify
+Finalists page, and nothing is sent until all of them are set. The email asks
+one team member to reply, so replies go to the support mailbox.
 """
 from __future__ import annotations
 
@@ -16,17 +18,24 @@ from datetime import date
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from apps.services.email_branding import attach_inline_logo, brand_context
-from apps.services.mailer import send_async
-from apps.submissions.emails import recipients_for, send_individually
+from apps.services.email_branding import brand_context
+from apps.services.system_email import (
+    RenderedEmail,
+    build_message,
+    is_email_enabled,
+    render_system_email,
+)
+from apps.submissions.emails import recipients_for
 
 from ..models import FinalistEmailSettings, FinalistFlag
 
 logger = logging.getLogger(__name__)
+
+EMAIL_KEY = "finalist_notification"
 
 # Shown in a preview where a detail hasn't been filled in yet.
 NOT_SET = "[not set]"
@@ -46,42 +55,25 @@ def _long_date(day: date | None) -> str:
     return f"{day:%A}, {day.day} {day:%B %Y}"
 
 
-def subject_line() -> str:
-    return f"Congratulations – You’re a {settings.BRAND_NAME} Finalist!"
-
-
-def render_finalist_email(group_name: str, details: FinalistEmailSettings) -> tuple[str, str]:
-    """The email's plain-text and HTML bodies for one team."""
-    context = {
-        **brand_context(),
+def finalist_email_context(group_name: str, details: FinalistEmailSettings) -> dict:
+    """The values the email's merge tags and template read."""
+    return {
         "GROUP_NAME": group_name,
         "SYMPOSIUM_DATE": _long_date(details.symposium_date),
         "CONFIRM_BY": _long_date(details.confirm_by),
         "SLIDES_DUE": _long_date(details.slides_due),
         "REGISTER_URL": details.registration_url or NOT_SET,
     }
-    text = render_to_string("emails/finalist_notification.txt", context)
-    html = render_to_string("emails/finalist_notification.html", context)
-    return text, html
 
 
-class _TeamEmails:
-    """One team's messages as one task on the shared mail pool (so login codes
-    are not delayed). If none of them could be sent, the team goes back to
-    not notified, so the page shows it and a later send can retry."""
-
-    def __init__(self, messages, flag_id: int):
-        self.messages = messages
-        self.flag_id = flag_id
-
-    def send(self) -> int:
-        sent, _ = send_individually(self.messages, kind="finalist_notification")
-        if not sent:
-            logger.error("finalist_notify.all_failed flag=%s", self.flag_id)
-            FinalistFlag.objects.filter(pk=self.flag_id).update(
-                notified=False, notified_at=None, notified_by=None
-            )
-        return sent
+def render_finalist_email(group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
+    """The email for one team: an admin's saved wording if there is some,
+    otherwise the client's template, with its plain-text twin."""
+    context = finalist_email_context(group_name, details)
+    default_text = render_to_string(
+        "emails/finalist_notification.txt", {**brand_context(), **context}
+    )
+    return render_system_email(EMAIL_KEY, context, default_text=default_text)
 
 
 def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettings | None = None) -> bool:
@@ -89,13 +81,17 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
     supervisors), each their own copy.
 
     No-op when the flag has already been ``notified`` (avoids re-mailing on
-    toggle churn), when the email details aren't all set, or when the team
-    has nobody to mail. Returns True when the
-    team's emails were queued. The team is marked notified before they go, so
-    pressing Send again while they are on their way can't mail it twice.
+    toggle churn), when an admin has switched the email off, when the email
+    details aren't all set, or when the team has nobody to mail. Returns True
+    when at least one member was emailed; the team is only marked notified
+    then, so a send nobody received can simply be retried.
     """
     if flag.notified:
         logger.info("finalist notify skipped: already notified (group=%s)", flag.group_id)
+        return False
+    if not is_email_enabled(EMAIL_KEY):
+        # Not marked notified, so the group is emailed once an admin turns it back on.
+        logger.info("finalist notify skipped: switched off by an admin (group=%s)", flag.group_id)
         return False
     details = details or FinalistEmailSettings.load()
     if not details.is_complete:
@@ -107,24 +103,57 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
         logger.info("finalist notify skipped: group %s has no active members with emails", flag.group_id)
         return False
 
-    text, html = render_finalist_email(flag.group.group_name, details)
-    messages = []
-    for address in recipients:
-        message = EmailMultiAlternatives(
-            subject=subject_line(),
-            body=text,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[address],
-            # "Have one team member reply to this email": replies reach support.
-            reply_to=[settings.SUPPORT_EMAIL],
-        )
-        message.attach_alternative(html, "text/html")
-        attach_inline_logo(message)
-        messages.append(message)
+    try:
+        rendered = render_finalist_email(flag.group.group_name, details)
+    except Exception:  # noqa: BLE001
+        logger.exception("finalist notify failed to render: group=%s", flag.group_id)
+        return False
+
+    sent = _send_to_each(rendered, recipients, group_id=flag.group_id)
+    if not sent:
+        # Nobody received it: leave the flag unnotified so the next press retries.
+        logger.error("finalist notify failed: no email delivered (group=%s)", flag.group_id)
+        return False
 
     flag.notified = True
     flag.notified_at = timezone.now()
     flag.notified_by = actor
     flag.save(update_fields=["notified", "notified_at", "notified_by"])
-    send_async(_TeamEmails(messages, flag.pk), kind="finalist_notification")
     return True
+
+
+def _send_to_each(rendered, recipients, *, group_id) -> int:
+    """Send one copy per member over a single connection. Returns how many sent.
+
+    One message each rather than one listing the whole group: members would
+    otherwise see each other's addresses, and one bad address would stop
+    everyone's copy.
+    """
+    connection = get_connection(fail_silently=False)
+    try:
+        connection.open()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("finalist notify: connection failed group=%s error=%s", group_id, type(exc).__name__)
+        return 0
+
+    sent = 0
+    try:
+        for address in recipients:
+            message = build_message(
+                rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
+            )
+            # "Have one team member reply to this email": replies reach support.
+            message.reply_to = [settings.SUPPORT_EMAIL]
+            try:
+                message.send(fail_silently=False)
+            except Exception as exc:  # noqa: BLE001
+                # Error type only: SMTP errors carry the recipient address.
+                logger.error("finalist notify: send failed group=%s error=%s", group_id, type(exc).__name__)
+            else:
+                sent += 1
+    finally:
+        try:
+            connection.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return sent

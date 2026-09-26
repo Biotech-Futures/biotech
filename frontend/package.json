@@ -18,6 +18,12 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "naive-ui": "^2.42.0",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.18",
+    "vue-router": "^4.5.1",
+    "vuedraggable": "^4.1.0",
+    "zod": "^4.5.4",
     "@tiptap/core": "^3.30.6",
     "@tiptap/extension-image": "^3.30.6",
     "@tiptap/extension-link": "^3.30.6",
@@ -28,13 +34,7 @@
     "@tiptap/extension-table-row": "^3.30.6",
     "@tiptap/extension-underline": "^3.30.6",
     "@tiptap/starter-kit": "^3.30.6",
-    "@tiptap/vue-3": "^3.30.6",
-    "naive-ui": "^2.42.0",
-    "pinia": "^3.0.3",
-    "vue": "^3.5.18",
-    "vue-router": "^4.5.1",
-    "vuedraggable": "^4.1.0",
-    "zod": "^4.5.4"
+    "@tiptap/vue-3": "^3.30.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
