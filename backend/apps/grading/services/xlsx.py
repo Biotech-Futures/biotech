@@ -139,19 +139,16 @@ def build_saq_xlsx(
         ]
         ws.append(row)
 
-    # Answers and comments wrap in fixed-width columns; ids, group names,
-    # type and marks keep the default width.
-    # The category columns match the comment columns.
-    widths = {
-        "product_category": COMMENT_COLUMN_WIDTH,
-        "category_of_solution": COMMENT_COLUMN_WIDTH,
-    }
+    # Answers, comments and the category columns wrap in fixed-width columns
+    # (the categories treated like comments); ids, group names, type and marks
+    # keep the default width.
+    widths = {}
     wrapped: set[int] = set()
     for index, header in enumerate(headers, start=1):
         if header.startswith("q"):
             widths[header] = QUESTION_COLUMN_WIDTH
             wrapped.add(index)
-        elif header.endswith("comment"):
+        elif header.endswith("comment") or header in ("product_category", "category_of_solution"):
             widths[header] = COMMENT_COLUMN_WIDTH
             wrapped.add(index)
         if header in widths:
@@ -159,7 +156,7 @@ def build_saq_xlsx(
 
     # Every cell sits at the top of its row. Row heights are left unset on
     # purpose: Excel then sizes each row to its tallest wrapped cell (the
-    # longest answer or comment) when the file opens.
+    # longest answer, comment or category list) when the file opens.
     for row in ws.iter_rows():
         for cell in row:
             cell.alignment = Alignment(wrap_text=cell.column in wrapped, vertical="top")

@@ -358,12 +358,13 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         # Question columns are 43 wide.
         self.assertEqual(ws.column_dimensions["D"].width, 43)
         # Comment columns (rN_comment, overall_comment) and both category
-        # columns are 30 wide; the group name keeps the default width.
+        # columns are 30 wide and wrap; the group name keeps the default width.
         headers = [cell.value for cell in ws[1]]
         for index, header in enumerate(headers, start=1):
             letter = get_column_letter(index)
             if header.endswith("comment") or header in ("product_category", "category_of_solution"):
                 self.assertEqual(ws.column_dimensions[letter].width, 30)
+                self.assertTrue(ws[f"{letter}2"].alignment.wrap_text, header)
         self.assertNotIn("B", ws.column_dimensions)
         # No fixed row heights, so Excel fits each row to its tallest cell.
         self.assertIsNone(ws.row_dimensions[2].height)
