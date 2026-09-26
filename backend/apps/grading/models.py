@@ -297,8 +297,11 @@ class CertificatesRelease(SingletonModel):
 
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
+    # The title printed under the name, e.g. "Chair" or "Co-Chair".
+    director_1_position = models.CharField(max_length=255, blank=True)
     director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
     director_2_name = models.CharField(max_length=255, blank=True)
+    director_2_position = models.CharField(max_length=255, blank=True)
     director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
     marks_summary_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
     certificate_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)

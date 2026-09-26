@@ -372,8 +372,10 @@ export interface FinalistListResponse {
 
 export interface GradingSettingsDetail {
   director_1_name: string
+  director_1_position: string
   director_1_signature: string | null
   director_2_name: string
+  director_2_position: string
   director_2_signature: string | null
   marks_summary_template: string | null
   certificate_template: string | null
@@ -655,15 +657,26 @@ export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
   })
 }
 
-// GET /api/v1/grading/settings/ — director names + template metadata.
+// GET /api/v1/grading/settings/ — director names and positions + template metadata.
 export function fetchGradingSettings(): Promise<GradingSettingsDetail> {
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/')
 }
 
-// PATCH /api/v1/grading/settings/ — JSON for name-only edits, FormData when
+// PATCH /api/v1/grading/settings/ — JSON for text-only edits, FormData when
 // any file (signature / docx template) is being uploaded.
 export function updateGradingSettings(
-  patch: Partial<Pick<GradingSettingsDetail, 'director_1_name' | 'director_2_name' | 'component_weights'>> | FormData
+  patch:
+    | Partial<
+        Pick<
+          GradingSettingsDetail,
+          | 'director_1_name'
+          | 'director_1_position'
+          | 'director_2_name'
+          | 'director_2_position'
+          | 'component_weights'
+        >
+      >
+    | FormData
 ): Promise<GradingSettingsDetail> {
   const isForm = patch instanceof FormData
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/', {

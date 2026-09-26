@@ -234,8 +234,21 @@ def _sum_marks(criteria: list[dict]) -> Decimal:
     return total
 
 
-def _two_dp(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01")))
+def _mark_text(value) -> str:
+    """A mark or total as printed: whole numbers without decimals ("4", "40"),
+    a fractional mark without trailing zeros ("4.5"); blank stays blank."""
+    if value in (None, ""):
+        return ""
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        return str(value)
+    return format(number.normalize(), "f")
+
+
+def _heading(singular: str, plural: str, count: int) -> str:
+    """The label in front of a list: plural only when it names more than one."""
+    return plural if count > 1 else singular
 
 
 def marks_release_fields(context: dict) -> dict:
@@ -255,37 +268,44 @@ def marks_release_fields(context: dict) -> dict:
     fields = {
         "TeamCode": context.get("group_name", ""),
         "ProjectTitle": context.get("project_title", ""),
-        "ProjectCategoryHeading": "Project Category",
+        "ProjectCategoryHeading": _heading(
+            "Project Category", "Project Categories", context.get("project_category_count", 0)
+        ),
         "ProjectCategory": context.get("project_category", ""),
         "SolutionCategory": context.get("solution_category", ""),
         "Students": context.get("students", ""),
         "Mentor": context.get("mentors", ""),
-        "SupervisorHeading": "Supervisor(s)",
+        "SupervisorHeading": _heading(
+            "Supervisor", "Supervisors", context.get("supervisor_count", 0)
+        ),
         "Supervisors": context.get("supervisors", ""),
-        "SchoolHeading": "School(s)",
+        "SchoolHeading": _heading("School", "Schools", context.get("school_count", 0)),
         "Schools": context.get("schools", ""),
         "PosterComment": (by_code.get("POSTER") or {}).get("overall_comment", "")
         or context.get("poster_comment", ""),
+        "SAQComment": (by_code.get("SAQ") or {}).get("overall_comment", ""),
         # Configurable per the spec; blank until an admin sets them.
         "Director1Name": context.get("director_1_name", ""),
         "Director2Name": context.get("director_2_name", ""),
+        "Director1Position": context.get("director_1_position", ""),
+        "Director2Position": context.get("director_2_position", ""),
         # The year marks were released, e.g. "2026" (see _released_on).
         "Year": _year_of(context.get("released_on")),
     }
     for i in range(10):
         c = poster[i] if i < len(poster) else None
-        fields[f"P{i + 1}"] = (c.get("mark") or "") if c else ""
+        fields[f"P{i + 1}"] = _mark_text(c.get("mark")) if c else ""
         fields[f"P{i + 1}Comment"] = (c.get("comment") or "") if c else ""
     for i in range(4):
         c = saq[i] if i < len(saq) else None
-        fields[f"S{i + 1}"] = (c.get("mark") or "") if c else ""
+        fields[f"S{i + 1}"] = _mark_text(c.get("mark")) if c else ""
         fields[f"S{i + 1}Comment"] = (c.get("comment") or "") if c else ""
 
     poster_total = _sum_marks(poster)
     saq_total = _sum_marks(saq)
-    fields["PosterTotal"] = _two_dp(poster_total)
-    fields["SAQTotal"] = _two_dp(saq_total)
-    fields["CombinedTotal"] = _two_dp(poster_total + saq_total)
+    fields["PosterTotal"] = _mark_text(poster_total)
+    fields["SAQTotal"] = _mark_text(saq_total)
+    fields["CombinedTotal"] = _mark_text(poster_total + saq_total)
     return fields
 
 
@@ -299,6 +319,8 @@ def certificate_fields(context: dict) -> dict:
         "ProjectTitle": context.get("project_title") or context.get("group_name", ""),
         "Director1Name": context.get("director_1_name", ""),
         "Director2Name": context.get("director_2_name", ""),
+        "Director1Position": context.get("director_1_position", ""),
+        "Director2Position": context.get("director_2_position", ""),
         # The day certificates were released, e.g. "27 September 2026".
         "Date": _long_date(context.get("issued_on")),
         # The year of that same day, e.g. "2026".
@@ -437,12 +459,14 @@ def sample_marks_summary_context() -> dict:
                 "code": "SAQ",
                 "name": "Short Answer Questions",
                 "submitted": True,
-                "overall_comment": "",
+                "overall_comment": "Sample overall SAQ comment.",
                 "criteria": _criteria("SAQ", 4),
             },
         ],
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
+        "director_1_position": settings.director_1_position or "Sample Position One",
+        "director_2_position": settings.director_2_position or "Sample Position Two",
         "generated_at": date.today().isoformat(),
         # Like the certificate's test render: today in Sydney stands in for
         # the release day, even after marks are released.
@@ -618,6 +642,9 @@ def _team_details(group) -> dict:
         "mentors": ", ".join(mentors),
         "supervisors": ", ".join(supervisors),
         "schools": ", ".join(schools),
+        # For the singular/plural headings in front of the last two lists.
+        "supervisor_count": len(supervisors),
+        "school_count": len(schools),
     }
 
 
@@ -630,9 +657,12 @@ def marks_summary_context(group, year: int, components: list[dict]) -> dict:
         "year": year,
         "components": components,
         "project_category": _format_product_category(categories),
+        "project_category_count": len(categories.product_categories or []) if categories else 0,
         "solution_category": _format_solution_category(categories),
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",
+        "director_1_position": settings.director_1_position or "",
+        "director_2_position": settings.director_2_position or "",
         "generated_at": date.today().isoformat(),
         "released_on": _released_on(MarksRelease).isoformat(),
         **_team_details(group),
@@ -659,6 +689,8 @@ def certificate_context(
         "year": year,
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",
+        "director_1_position": settings.director_1_position or "",
+        "director_2_position": settings.director_2_position or "",
         "issued_on": _released_on(CertificatesRelease).isoformat(),
     }
 

@@ -53,10 +53,58 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertNotIn("<<[", xml)
         self.assertNotIn("{{", xml)
         self.assertIn("BTF-TEST-1", xml)      # TeamCode
-        self.assertIn("4.00", xml)            # S1 mark
-        self.assertIn("Nice claim.", xml)     # S1 comment
-        self.assertIn("7.50", xml)            # CombinedTotal = 4.00 + 3.50
+        self.assertIn("S1 4 (Nice claim.)", xml)  # S1 mark as a whole number, S1 comment
+        self.assertIn("total 7.5 ", xml)         # CombinedTotal = 4.00 + 3.50
         self.assertIn("Strong poster overall.", xml)  # PosterComment
+
+    def test_director_positions_fill_both_templates(self):
+        from apps.grading.services.docx import (
+            certificate_context,
+            marks_summary_context,
+            render_certificate_data,
+            render_marks_summary_data,
+            scan_template_data,
+        )
+
+        row = GradingSettings.load()
+        row.director_1_position, row.director_2_position = "Chair", "Co-Chair"
+        row.save()
+        template = _build_docx("{{Director1Position}} and {{Director2Position}}")
+        summary = render_marks_summary_data(template, marks_summary_context(self.group, 2026, []))
+        certificate = render_certificate_data(
+            template, certificate_context("Ada Grader", "BTF-TEST-1", 2026)
+        )
+        self.assertIn("Chair and Co-Chair", self._document_xml(summary))
+        self.assertIn("Chair and Co-Chair", self._document_xml(certificate))
+        for kind in ("marks-summary", "certificate"):
+            report = scan_template_data(kind, template)
+            self.assertEqual(
+                (report["present"], report["unknown"]),
+                (["Director1Position", "Director2Position"], []),
+                kind,
+            )
+
+    def test_saq_comment_is_the_overall_saq_comment(self):
+        from apps.grading.services.docx import (
+            marks_summary_context,
+            render_marks_summary_data,
+            scan_template_data,
+        )
+        from apps.grading.views.student import _grades_payload
+
+        ComponentFeedback.objects.create(
+            group=self.group, component=self.poster, comment="Strong poster overall.",
+        )
+        ComponentFeedback.objects.create(
+            group=self.group, component=self.saq, comment="Clear, well argued answers.",
+        )
+        template = _build_docx("Poster: {{PosterComment}} | SAQ: {{SAQComment}}")
+        context = marks_summary_context(self.group, 2026, _grades_payload(self.group, 2026))
+        xml = self._document_xml(render_marks_summary_data(template, context))
+        self.assertIn("Poster: Strong poster overall. | SAQ: Clear, well argued answers.", xml)
+
+        report = scan_template_data("marks-summary", template)
+        self.assertEqual(report["unknown"], [])
 
     def test_marks_summary_carries_the_markers_categories(self):
         from apps.grading.services.docx import marks_summary_context, render_marks_summary
@@ -77,6 +125,42 @@ class ClientDocxTemplateTests(_GradingFixture):
             marks_summary_context(self.group, 2026, [])
         ))
         self.assertIn("Project: Health and Medicine, Wearables | Solution: App", xml)
+
+    def test_marks_summary_headings_count_the_team(self):
+        from apps.grading.services.docx import marks_summary_context, render_marks_summary_data
+        from apps.groups.models.group_members import GroupMembership
+        from apps.users.models import StudentProfile, User
+
+        roles = GroupMembership.MembershipRoleChoices
+        for i, school in enumerate(("North High", "South High")):
+            student = User.objects.create_user(
+                email=f"s{i}@example.com", first_name=f"Stu{i}", last_name="Dent", password="pw12345!",
+            )
+            GroupMembership.objects.create(group=self.group, user=student, membership_role=roles.STUDENT)
+            StudentProfile.objects.create(
+                user=student, pg_first_name="P", pg_last_name="G", school_name=school, year_lvl="11",
+            )
+        for i in range(2):
+            supervisor = User.objects.create_user(
+                email=f"sup{i}@example.com", first_name=f"Sup{i}", last_name="Visor", password="pw12345!",
+            )
+            GroupMembership.objects.create(group=self.group, user=supervisor, membership_role=roles.SUPERVISOR)
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Health and Medicine", "Regulation Ethics"],
+        )
+
+        template = _build_docx(
+            "{{ProjectCategoryHeading}}: {{ProjectCategory}} | "
+            "{{SupervisorHeading}}: {{Supervisors}} | {{SchoolHeading}}: {{Schools}}"
+        )
+        xml = self._document_xml(render_marks_summary_data(
+            template, marks_summary_context(self.group, 2026, [])
+        ))
+        self.assertIn(
+            "Project Categories: Health and Medicine, Regulation Ethics | "
+            "Supervisors: Sup0 Visor, Sup1 Visor | Schools: North High, South High",
+            xml,
+        )
 
     def test_marks_summary_categories_blank_when_none_chosen(self):
         from apps.grading.services.docx import marks_summary_context
@@ -300,6 +384,23 @@ class DocxEngineEdgeTests(SimpleTestCase):
         ))
         self.assertIn('<w:t xml:space="preserve"> Doe</w:t>', xml)
 
+    def test_headings_are_plural_only_for_more_than_one(self):
+        from apps.grading.services.docx import marks_release_fields
+
+        def headings(count):
+            fields = marks_release_fields({
+                "project_category_count": count,
+                "supervisor_count": count,
+                "school_count": count,
+            })
+            return (fields["ProjectCategoryHeading"], fields["SupervisorHeading"],
+                    fields["SchoolHeading"])
+
+        singular = ("Project Category", "Supervisor", "School")
+        self.assertEqual(headings(0), singular)
+        self.assertEqual(headings(1), singular)
+        self.assertEqual(headings(2), ("Project Categories", "Supervisors", "Schools"))
+
     def test_characters_a_docx_cannot_hold_are_cleaned_not_fatal(self):
         data = _build_docx("{{Comment}}")
         # Shift+Enter and a page break pasted from Word, plus a stray control
@@ -398,6 +499,24 @@ class DocxEngineEdgeTests(SimpleTestCase):
             {"mark": "1.25"},
         ])
         self.assertEqual(total, Decimal("4.75"))
+
+    def test_marks_print_as_whole_numbers_when_whole(self):
+        from apps.grading.services.docx import marks_release_fields
+
+        poster = [{"mark": m} for m in ("4.00", "4.50", "1.92", "", "5.00")]
+        saq = [{"mark": "5.00"}, {"mark": "5.00"}]
+        fields = marks_release_fields({"components": [
+            {"code": "POSTER", "criteria": poster},
+            {"code": "SAQ", "criteria": saq},
+        ]})
+        self.assertEqual(
+            [fields[f"P{i}"] for i in range(1, 6)], ["4", "4.5", "1.92", "", "5"]
+        )
+        self.assertEqual(fields["PosterTotal"], "15.42")
+        self.assertEqual(fields["SAQTotal"], "10")
+        self.assertEqual(fields["CombinedTotal"], "25.42")
+        # No marks at all still prints a plain zero.
+        self.assertEqual(marks_release_fields({})["CombinedTotal"], "0")
 
 
 class DirectorSignatureTests(_GradingFixture):

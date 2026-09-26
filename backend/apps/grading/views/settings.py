@@ -23,8 +23,10 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
         model = GradingSettings
         fields = [
             "director_1_name",
+            "director_1_position",
             "director_1_signature",
             "director_2_name",
+            "director_2_position",
             "director_2_signature",
             "marks_summary_template",
             "certificate_template",

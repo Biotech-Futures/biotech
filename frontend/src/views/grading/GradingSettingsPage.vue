@@ -18,6 +18,10 @@
             <span>Director 1 Name</span>
             <input v-model="d1" type="text" placeholder="e.g. Prof. Alice Adams" />
           </label>
+          <label class="grading-settings__field">
+            <span>Director 1 Position</span>
+            <input v-model="p1" type="text" placeholder="e.g. Chair" />
+          </label>
           <div class="grading-settings__field">
             <span>Director 1 Signature</span>
             <div class="grading-settings__file-row">
@@ -32,6 +36,10 @@
           <label class="grading-settings__field">
             <span>Director 2 Name</span>
             <input v-model="d2" type="text" placeholder="e.g. Dr. Bob Brown" />
+          </label>
+          <label class="grading-settings__field">
+            <span>Director 2 Position</span>
+            <input v-model="p2" type="text" placeholder="e.g. Co-Chair" />
           </label>
           <div class="grading-settings__field">
             <span>Director 2 Signature</span>
@@ -184,6 +192,8 @@ const isSaving = ref(false)
 
 const d1 = ref('')
 const d2 = ref('')
+const p1 = ref('')
+const p2 = ref('')
 const sig1 = ref<File | null>(null)
 const sig2 = ref<File | null>(null)
 const summaryTpl = ref<File | null>(null)
@@ -213,16 +223,33 @@ const hasPickedFiles = computed(() =>
 )
 
 // Update stays disabled until something actually differs from the loaded
-// settings — an edited director name or a picked file.
+// settings — an edited director name or position, or a picked file.
 const hasChanges = computed(() => {
   const s = settings.value
   if (!s) return false
   return (
     d1.value !== (s.director_1_name || '') ||
     d2.value !== (s.director_2_name || '') ||
+    p1.value !== (s.director_1_position || '') ||
+    p2.value !== (s.director_2_position || '') ||
     hasPickedFiles.value
   )
 })
+
+// The text fields as the form currently holds them, for either save body.
+const directorText = () => ({
+  director_1_name: d1.value,
+  director_1_position: p1.value,
+  director_2_name: d2.value,
+  director_2_position: p2.value
+})
+
+const showStoredText = (s: GradingSettingsDetail) => {
+  d1.value = s.director_1_name || ''
+  d2.value = s.director_2_name || ''
+  p1.value = s.director_1_position || ''
+  p2.value = s.director_2_position || ''
+}
 
 // Same unsaved-changes guard as RubricForm: leaving with pending edits or
 // picked files gets a prompt first, since nothing is stored until Update.
@@ -244,7 +271,9 @@ onBeforeRouteLeave(() => !hasChanges.value || window.confirm(UNSAVED_MESSAGE))
 // labels this page shows so the error banner names the file that failed.
 const FIELD_LABELS: Record<string, string> = {
   director_1_name: 'Director 1 Name',
+  director_1_position: 'Director 1 Position',
   director_2_name: 'Director 2 Name',
+  director_2_position: 'Director 2 Position',
   director_1_signature: 'Director 1 Signature',
   director_2_signature: 'Director 2 Signature',
   marks_summary_template: 'Marks summary template',
@@ -273,26 +302,33 @@ const SUMMARY_TOKENS: Placeholder[] = [
   token('Year'),
   token('TeamCode'),
   token('ProjectTitle'),
+  token('ProjectCategoryHeading'),
   token('ProjectCategory'),
   token('SolutionCategory'),
   token('Students'),
   token('Mentor'),
+  token('SupervisorHeading'),
   token('Supervisors'),
+  token('SchoolHeading'),
   token('Schools'),
   series('P', 10),
   series('P', 10, 'Comment'),
   token('PosterComment'),
   series('S', 4),
   series('S', 4, 'Comment'),
+  token('SAQComment'),
   token('PosterTotal'),
   token('SAQTotal'),
   token('CombinedTotal'),
   token('Director1Signature'),
   token('Director2Signature'),
   token('Director1Name'),
-  token('Director2Name')
+  token('Director2Name'),
+  token('Director1Position'),
+  token('Director2Position')
 ]
 const CERTIFICATE_FIELDS: Placeholder[] = [
+  'Year',
   'FirstName',
   'LastName',
   'ProjectTitle',
@@ -301,7 +337,8 @@ const CERTIFICATE_FIELDS: Placeholder[] = [
   'Director2Signature',
   'Director1Name',
   'Director2Name',
-  'Year'
+  'Director1Position',
+  'Director2Position'
 ].map(token)
 
 const testing = ref<'' | 'marks-summary' | 'certificate'>('')
@@ -381,8 +418,7 @@ const load = async () => {
   loadError.value = ''
   try {
     settings.value = await fetchGradingSettings()
-    d1.value = settings.value.director_1_name || ''
-    d2.value = settings.value.director_2_name || ''
+    showStoredText(settings.value)
   } catch (err) {
     settings.value = null
     loadError.value = apiErrorFromUnknown(err).message
@@ -415,7 +451,7 @@ const resetFiles = async () => {
   await loadScans()
 }
 
-// Name-only edits go as JSON; any file present switches the whole PATCH to
+// Text-only edits go as JSON; any file present switches the whole PATCH to
 // multipart (the API accepts both on the same endpoint).
 const save = async () => {
   actionError.value = ''
@@ -423,22 +459,20 @@ const save = async () => {
   isSaving.value = true
   try {
     const hasFile = sig1.value || sig2.value || summaryTpl.value || certTpl.value
-    let body: FormData | { director_1_name: string; director_2_name: string }
+    let body: FormData | ReturnType<typeof directorText>
     if (hasFile) {
       const fd = new FormData()
-      fd.append('director_1_name', d1.value)
-      fd.append('director_2_name', d2.value)
+      for (const [field, value] of Object.entries(directorText())) fd.append(field, value)
       if (sig1.value) fd.append('director_1_signature', sig1.value)
       if (sig2.value) fd.append('director_2_signature', sig2.value)
       if (summaryTpl.value) fd.append('marks_summary_template', summaryTpl.value)
       if (certTpl.value) fd.append('certificate_template', certTpl.value)
       body = fd
     } else {
-      body = { director_1_name: d1.value, director_2_name: d2.value }
+      body = directorText()
     }
     settings.value = await updateGradingSettings(body)
-    d1.value = settings.value.director_1_name || ''
-    d2.value = settings.value.director_2_name || ''
+    showStoredText(settings.value)
     clearFilePickers()
     flashSaved('Files updated.')
     // A newly uploaded template changes which placeholders are present.
