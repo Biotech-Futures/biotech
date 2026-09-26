@@ -45,7 +45,7 @@ def _seed_doc_templates():
         ),
     )
     row.certificate_template = SimpleUploadedFile(
-        "cert.docx", _build_docx("{{firstName}} {{lastName}} — {{projectTitle}}")
+        "cert.docx", _build_docx("{{FirstName}} {{LastName}} — {{ProjectTitle}}")
     )
     row.save()
     return row

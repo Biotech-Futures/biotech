@@ -5,14 +5,11 @@ Templates come from Document Setup uploads only
 with nothing uploaded the render/scan paths report ``TemplateNotConfigured``
 rather than producing a document.
 
-Two template dialects are auto-detected per file:
+Both templates use ``{{FieldName}}`` text variables, typed as plain text in
+the document. They are replaced run-aware so formatting and line breaks
+survive, in the body (tables included) and in every header and footer.
 
-  * ``{{FieldName}}`` text tokens — used by the bundled marks release
-    template. Replaced run-aware so formatting and line breaks survive.
-  * Word content controls with an alias (``firstName``/``lastName``/
-    ``projectTitle``) — the client's merit certificate template.
-
-A file with neither is returned unchanged.
+A file with no variables is returned unchanged.
 """
 from __future__ import annotations
 
@@ -22,13 +19,20 @@ import re
 import zipfile
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 from django.core.files.storage import default_storage
+from django.utils import timezone
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Inches
-from docx.text.run import Run
 
-from ..models import GradingSettings
+from ..models import (
+    CertificatesRelease,
+    GradingSettings,
+    GroupMarkingCategories,
+    MarksRelease,
+)
+from .xlsx import _format_product_category, _format_solution_category
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,9 @@ logger = logging.getLogger(__name__)
 # width keeps every document's signature block the same on the page.
 SIGNATURE_WIDTH = Inches(1.6)
 
+# Documents are dated by Sydney's calendar (see _released_on).
+RELEASE_TZ = ZoneInfo("Australia/Sydney")
+
 
 # ``{{FieldName}}`` text tokens, tolerant of spaces inside the braces.
 _TOKEN_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
@@ -44,6 +51,17 @@ _TOKEN_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 def _token_name(match: re.Match) -> str:
     return match.group(1)
+
+
+# Characters a .docx cannot hold. One pasted into a comment (Word's Shift+Enter
+# is a vertical tab, its page break a form feed) would otherwise abort the
+# whole document, so Word's two breaks become spaces and the rest are dropped.
+_WORD_BREAKS = str.maketrans({"\x0b": " ", "\x0c": " "})
+_NOT_XML_RE = re.compile(r"[\x00-\x08\x0e-\x1f\ud800-\udfff￾￿]")
+
+
+def _xml_safe(text: str) -> str:
+    return _NOT_XML_RE.sub("", text.translate(_WORD_BREAKS))
 
 
 class TemplateNotConfigured(FileNotFoundError):
@@ -110,7 +128,7 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
     for m in reversed(matches):
         if only_known and _token_name(m) not in fields:
             continue
-        value = str(fields.get(_token_name(m), ""))
+        value = _xml_safe(str(fields.get(_token_name(m), "")))
         s, e = m.span()
         start_i = end_i = None
         start_off = end_off = 0
@@ -132,17 +150,10 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
 
     for t_el, new in zip(ts, texts):
         t_el.text = new
-
-
-class _PartOwner:
-    """Minimal parent so a bare ``w:r`` element can be wrapped in a ``Run``.
-
-    ``Run.add_picture`` reaches the document part through its parent; content
-    controls give us the element but no python-docx object to hang it off.
-    """
-
-    def __init__(self, part):
-        self.part = part
+        # Word trims spaces at the edge of a text node unless told to keep
+        # them, and a splice can leave one there ("{{LastName}}" → " Doe").
+        if new != new.strip():
+            t_el.set(qn("xml:space"), "preserve")
 
 
 def _insert_images_in_paragraph(paragraph, images: dict) -> None:
@@ -170,52 +181,40 @@ def _insert_images_in_paragraph(paragraph, images: dict) -> None:
             logger.exception("grading_docx.signature_insert_failed token=%s", name)
 
 
+def _story_containers(doc):
+    """The body, then each header and footer the document actually uses, so
+    variables anywhere a reader can see them get filled."""
+    yield doc
+    seen: set[str] = set()
+    for section in doc.sections:
+        for hf in (
+            section.header,
+            section.first_page_header,
+            section.even_page_header,
+            section.footer,
+            section.first_page_footer,
+            section.even_page_footer,
+        ):
+            # A linked header/footer has no part of its own; touching .part
+            # would add an empty one to the document.
+            if hf.is_linked_to_previous:
+                continue
+            partname = str(hf.part.partname)
+            if partname in seen:
+                continue
+            seen.add(partname)
+            yield hf
+
+
 def _render_token_template(data: bytes, fields: dict, images: dict | None = None) -> bytes:
     doc = Document(io.BytesIO(data))
-    for paragraph in _iter_paragraphs(doc):
-        # Images first: the text pass blanks tokens it does not recognise,
-        # which would erase the image tokens before they are seen.
-        if images:
-            _insert_images_in_paragraph(paragraph, images)
-        _replace_tokens_in_paragraph(paragraph, fields)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Content-control (w:sdt alias) filling
-
-
-def _fill_content_controls(data: bytes, fields: dict, images: dict | None = None) -> bytes:
-    doc = Document(io.BytesIO(data))
-    images = images or {}
-    for sdt in doc.element.body.iter(qn("w:sdt")):
-        pr = sdt.find(qn("w:sdtPr"))
-        alias = pr.find(qn("w:alias")) if pr is not None else None
-        if alias is None:
-            continue
-        name = alias.get(qn("w:val"))
-        if name not in fields and name not in images:
-            continue
-        content = sdt.find(qn("w:sdtContent"))
-        if content is None:
-            continue
-        ts = content.findall(f".//{qn('w:t')}")
-        if not ts:
-            continue
-        if name in images:
-            for t in ts:
-                t.text = ""
-            try:
-                run = Run(ts[0].getparent(), _PartOwner(doc.part))
-                run.add_picture(io.BytesIO(images[name]), width=SIGNATURE_WIDTH)
-            except Exception:
-                logger.exception("grading_docx.signature_insert_failed control=%s", name)
-            continue
-        ts[0].text = str(fields[name])
-        for extra in ts[1:]:
-            extra.text = ""
+    for container in _story_containers(doc):
+        for paragraph in _iter_paragraphs(container):
+            # Images first: the text pass blanks tokens it does not recognise,
+            # which would erase the image tokens before they are seen.
+            if images:
+                _insert_images_in_paragraph(paragraph, images)
+            _replace_tokens_in_paragraph(paragraph, fields)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -270,6 +269,8 @@ def marks_release_fields(context: dict) -> dict:
         # Configurable per the spec; blank until an admin sets them.
         "Director1Name": context.get("director_1_name", ""),
         "Director2Name": context.get("director_2_name", ""),
+        # The year marks were released, e.g. "2026" (see _released_on).
+        "Year": _year_of(context.get("released_on")),
     }
     for i in range(10):
         c = poster[i] if i < len(poster) else None
@@ -289,16 +290,33 @@ def marks_release_fields(context: dict) -> dict:
 
 
 def certificate_fields(context: dict) -> dict:
-    """Map our context onto the merit certificate's content-control aliases."""
+    """Map our context onto the merit certificate's variables."""
     return {
-        "firstName": context.get("first_name", ""),
-        "lastName": context.get("last_name", ""),
+        "FirstName": context.get("first_name", ""),
+        "LastName": context.get("last_name", ""),
         # No project-title field in the data model yet; the group name is the
         # closest identity we hold for the team's project.
-        "projectTitle": context.get("project_title") or context.get("group_name", ""),
-        "director1Name": context.get("director_1_name", ""),
-        "director2Name": context.get("director_2_name", ""),
+        "ProjectTitle": context.get("project_title") or context.get("group_name", ""),
+        "Director1Name": context.get("director_1_name", ""),
+        "Director2Name": context.get("director_2_name", ""),
+        # The day certificates were released, e.g. "27 September 2026".
+        "Date": _long_date(context.get("issued_on")),
+        # The year of that same day, e.g. "2026".
+        "Year": _year_of(context.get("issued_on")),
     }
+
+
+def _long_date(iso: str | None) -> str:
+    """"2026-09-27" -> "27 September 2026"; blank when there is no date."""
+    if not iso:
+        return ""
+    day = date.fromisoformat(str(iso))
+    return f"{day.day} {day:%B %Y}"
+
+
+def _year_of(iso: str | None) -> str:
+    """"2026-09-27" -> "2026"; blank when there is no date."""
+    return str(date.fromisoformat(str(iso)).year) if iso else ""
 
 
 def _signature_bytes(field) -> bytes | None:
@@ -317,13 +335,9 @@ def _signature_bytes(field) -> bytes | None:
         return None
 
 
-def signature_images(settings, prefix: str) -> dict:
-    """``{token_name: image_bytes}`` for whichever signatures are uploaded.
-
-    ``prefix`` selects the naming convention of the calling dialect —
-    ``Director`` for ``{{Director1Signature}}`` tokens, ``director`` for
-    ``director1Signature`` content controls.
-    """
+def signature_images(settings) -> dict:
+    """``{"Director1Signature": image_bytes, ...}`` for whichever signatures
+    are uploaded."""
     images = {}
     for index, field in (
         (1, settings.director_1_signature),
@@ -331,7 +345,7 @@ def signature_images(settings, prefix: str) -> dict:
     ):
         data = _signature_bytes(field)
         if data:
-            images[f"{prefix}{index}Signature"] = data
+            images[f"Director{index}Signature"] = data
     return images
 
 
@@ -347,7 +361,7 @@ def render_marks_summary_data(data: bytes, context: dict) -> bytes:
         return _render_token_template(
             data,
             marks_release_fields(context),
-            signature_images(settings, "Director"),
+            signature_images(settings),
         )
     # No recognised placeholders: hand back the document as uploaded rather
     # than failing. A static summary with nothing to substitute is valid.
@@ -365,13 +379,11 @@ def render_marks_summary(context: dict) -> bytes:
 def render_certificate_data(data: bytes, context: dict) -> bytes:
     """Render certificate docx bytes — saved template or previewed candidate."""
     settings = GradingSettings.load()
-    xml = _document_xml(data)
-    fields = certificate_fields(context)
-    if _has_text_tokens(xml):
-        return _render_token_template(data, fields, signature_images(settings, "Director"))
-    if "<w:sdt>" in xml or "w:alias" in xml:
-        return _fill_content_controls(data, fields, signature_images(settings, "director"))
-    # As above — a certificate with no placeholders is returned unchanged.
+    if _has_text_tokens(_document_xml(data)):
+        return _render_token_template(
+            data, certificate_fields(context), signature_images(settings)
+        )
+    # As above — a certificate with no variables is returned unchanged.
     return data
 
 
@@ -432,6 +444,9 @@ def sample_marks_summary_context() -> dict:
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "generated_at": date.today().isoformat(),
+        # Like the certificate's test render: today in Sydney stands in for
+        # the release day, even after marks are released.
+        "released_on": timezone.localdate(timezone=RELEASE_TZ).isoformat(),
         "students": "Jane Doe, John Roe",
         "mentors": "Dr. Sample Mentor",
         "supervisors": "Ms. Sample Supervisor",
@@ -449,17 +464,18 @@ def sample_certificate_context() -> dict:
         last_name="Doe",
     )
     context["project_title"] = "Sample Project Title"
+    # The test render always shows today's date in Sydney, even after
+    # certificates are released (real certificates carry the release date).
+    context["issued_on"] = timezone.localdate(timezone=RELEASE_TZ).isoformat()
     return context
 
 
-_ALIAS_RE = re.compile(r'<w:alias[^>]*w:val="([^"]+)"')
 _TAG_RE = re.compile(r"<[^>]+>")
 _TEXT_PART_RE = re.compile(r"word/(document|header\d*|footer\d*)\.xml")
 
 # Signature placeholders are images rather than context keys, so they are not
 # in the field maps and have to be named explicitly when listing what we fill.
 _TOKEN_SIGNATURES = {"Director1Signature", "Director2Signature"}
-_CONTROL_SIGNATURES = {"director1Signature", "director2Signature"}
 
 
 def _visible_text(xml: str) -> str:
@@ -477,11 +493,7 @@ def _known_placeholders(kind: str) -> set[str]:
     if kind == "marks-summary":
         return set(marks_release_fields(sample_marks_summary_context())) | _TOKEN_SIGNATURES
     if kind == "certificate":
-        return (
-            set(certificate_fields(sample_certificate_context()))
-            | _TOKEN_SIGNATURES
-            | _CONTROL_SIGNATURES
-        )
+        return set(certificate_fields(sample_certificate_context())) | _TOKEN_SIGNATURES
     raise ValueError(f"unknown template kind {kind!r}")
 
 
@@ -489,19 +501,15 @@ def scan_template_data(kind: str, data: bytes) -> dict:
     """Placeholder report for docx bytes — shared by the scan endpoint and the
     upload-time check, so both judge a template by exactly the same rules."""
     known = _known_placeholders(kind)
-    tokens: set[str] = set()
-    controls: set[str] = set()
+    found: set[str] = set()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         for name in z.namelist():
             if not _TEXT_PART_RE.fullmatch(name):
                 continue
             xml = z.read(name).decode("utf8", errors="ignore")
-            tokens.update(_token_name(m) for m in _TOKEN_RE.finditer(_visible_text(xml)))
-            controls.update(_ALIAS_RE.findall(xml))
+            found.update(_token_name(m) for m in _TOKEN_RE.finditer(_visible_text(xml)))
 
-    found = tokens | controls
     return {
-        "dialect": "tokens" if tokens else ("controls" if controls else "none"),
         "present": sorted(found & known),
         "unknown": sorted(found - known),
     }
@@ -529,7 +537,7 @@ def scan_template(kind: str) -> dict:
     except TemplateNotConfigured:
         # Nothing uploaded: an empty report, not an error — the settings page
         # simply shows every chip uncoloured.
-        return {"uploaded": False, "dialect": "none", "present": [], "unknown": []}
+        return {"uploaded": False, "present": [], "unknown": []}
     return {"uploaded": bool(field), **scan_template_data(kind, data)}
 
 
@@ -615,13 +623,18 @@ def _team_details(group) -> dict:
 
 def marks_summary_context(group, year: int, components: list[dict]) -> dict:
     settings = GradingSettings.load()
+    # The marker's selections, written the same way the SAQ export writes them.
+    categories = GroupMarkingCategories.objects.filter(group=group).first()
     return {
         "group_name": group.group_name,
         "year": year,
         "components": components,
+        "project_category": _format_product_category(categories),
+        "solution_category": _format_solution_category(categories),
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",
         "generated_at": date.today().isoformat(),
+        "released_on": _released_on(MarksRelease).isoformat(),
         **_team_details(group),
     }
 
@@ -646,5 +659,17 @@ def certificate_context(
         "year": year,
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",
-        "issued_on": date.today().isoformat(),
+        "issued_on": _released_on(CertificatesRelease).isoformat(),
     }
+
+
+def _released_on(release_model) -> date:
+    """The day marks or certificates were released, so every copy carries the
+    same date and year however often or late it is downloaded. Before any
+    release there is no such day, so today stands in."""
+    released_at = release_model.load().released_at
+    if released_at:
+        # The release day as it was in Sydney, where the programme runs; the
+        # stored time is UTC, which is a day behind on Sydney mornings.
+        return timezone.localdate(released_at, RELEASE_TZ)
+    return timezone.localdate()

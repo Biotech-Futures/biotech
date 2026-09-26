@@ -43,7 +43,6 @@ const detail = (over: Record<string, unknown> = {}) => ({
 
 const scan = (present: string[] = [], unknown: string[] = []) => ({
   uploaded: true,
-  dialect: 'tokens' as const,
   present,
   unknown
 })
@@ -138,7 +137,7 @@ describe('saving', () => {
       director_1_name: 'Prof. Alice Adams',
       director_2_name: 'Dr. Bob Brown'
     })
-    expect(wrapper.find('.grading-settings__banner--ok').text()).toBe('Settings updated.')
+    expect(wrapper.find('.grading-settings__banner--ok').text()).toBe('Files updated.')
   })
 
   it('any picked file switches the save to multipart with every field aboard', async () => {
@@ -189,7 +188,7 @@ describe('template picking and testing', () => {
   })
 
   it('Test renders the picked candidate when one is selected, else the saved template', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['firstName']))
+    candidateScanMock.mockResolvedValueOnce(scan(['FirstName']))
     testStoredMock.mockResolvedValueOnce()
     testCandidateMock.mockResolvedValueOnce()
     const wrapper = await mountPage()

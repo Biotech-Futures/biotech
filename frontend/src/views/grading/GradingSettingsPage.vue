@@ -15,11 +15,11 @@
         <h3 class="grading-settings__section-title">Directors</h3>
         <div class="grading-settings__fields">
           <label class="grading-settings__field">
-            <span>Director 1 name</span>
+            <span>Director 1 Name</span>
             <input v-model="d1" type="text" placeholder="e.g. Prof. Alice Adams" />
           </label>
           <div class="grading-settings__field">
-            <span>Director 1 signature</span>
+            <span>Director 1 Signature</span>
             <div class="grading-settings__file-row">
               <button type="button" class="grading-settings__file-btn" @click="sig1Input?.click()">
                 Browse…
@@ -30,11 +30,11 @@
             <input ref="sig1Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig1 = fileOf($event)" />
           </div>
           <label class="grading-settings__field">
-            <span>Director 2 name</span>
+            <span>Director 2 Name</span>
             <input v-model="d2" type="text" placeholder="e.g. Dr. Bob Brown" />
           </label>
           <div class="grading-settings__field">
-            <span>Director 2 signature</span>
+            <span>Director 2 Signature</span>
             <div class="grading-settings__file-row">
               <button type="button" class="grading-settings__file-btn" @click="sig2Input?.click()">
                 Browse…
@@ -50,8 +50,8 @@
       <section class="card">
         <h3 class="grading-settings__section-title">Docx templates</h3>
         <p class="grading-settings__note">
-          Uploaded templates override the built-in fallbacks. Use the placeholders listed
-          under each template; anything else is left untouched.
+          Use the placeholders listed under each template. Type them as text in the template.
+          Anything else is left untouched.
         </p>
         <div class="grading-settings__fields">
           <div class="grading-settings__template">
@@ -66,8 +66,8 @@
               <input ref="summaryInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('marks-summary', $event)" />
             </div>
             <p class="grading-settings__note">
-              Expected variables (typed as text in the document) — green ones were found in
-              the {{ summaryTpl ? 'selected file' : 'saved template' }}:
+              Expected variables:<br />
+              <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
             <ul class="grading-settings__tokens">
               <li v-for="chip in SUMMARY_TOKENS" :key="chip.label">
@@ -75,7 +75,7 @@
               </li>
             </ul>
             <p v-if="unknownIn('marks-summary').length" class="grading-settings__unknown">
-              In the template but not recognised (these render blank):
+              Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('marks-summary')" :key="name">{{ name }}</code>
             </p>
             <button
@@ -103,8 +103,8 @@
               <input ref="certInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('certificate', $event)" />
             </div>
             <p class="grading-settings__note">
-              Expected fields (Word content controls — insert via Developer tab, with the
-              tag/alias set to the name below):
+              Expected variables:<br />
+              <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
             <ul class="grading-settings__tokens">
               <li v-for="chip in CERTIFICATE_FIELDS" :key="chip.label">
@@ -112,7 +112,7 @@
               </li>
             </ul>
             <p v-if="unknownIn('certificate').length" class="grading-settings__unknown">
-              In the template but not recognised (these render blank):
+              Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('certificate')" :key="name">{{ name }}</code>
             </p>
             <button
@@ -243,10 +243,10 @@ onBeforeRouteLeave(() => !hasChanges.value || window.confirm(UNSAVED_MESSAGE))
 // Server-side upload checks reject per field; map the API names onto the
 // labels this page shows so the error banner names the file that failed.
 const FIELD_LABELS: Record<string, string> = {
-  director_1_name: 'Director 1 name',
-  director_2_name: 'Director 2 name',
-  director_1_signature: 'Director 1 signature',
-  director_2_signature: 'Director 2 signature',
+  director_1_name: 'Director 1 Name',
+  director_2_name: 'Director 2 Name',
+  director_1_signature: 'Director 1 Signature',
+  director_2_signature: 'Director 2 Signature',
   marks_summary_template: 'Marks summary template',
   certificate_template: 'Certificate template'
 }
@@ -270,6 +270,7 @@ const series = (prefix: string, count: number, suffix = ''): Placeholder => {
 }
 
 const SUMMARY_TOKENS: Placeholder[] = [
+  token('Year'),
   token('TeamCode'),
   token('ProjectTitle'),
   token('ProjectCategory'),
@@ -286,20 +287,22 @@ const SUMMARY_TOKENS: Placeholder[] = [
   token('PosterTotal'),
   token('SAQTotal'),
   token('CombinedTotal'),
-  token('Director1Name'),
-  token('Director2Name'),
   token('Director1Signature'),
-  token('Director2Signature')
+  token('Director2Signature'),
+  token('Director1Name'),
+  token('Director2Name')
 ]
 const CERTIFICATE_FIELDS: Placeholder[] = [
-  'firstName',
-  'lastName',
-  'projectTitle',
-  'director1Name',
-  'director2Name',
-  'director1Signature',
-  'director2Signature'
-].map((name) => ({ label: name, names: [name] }))
+  'FirstName',
+  'LastName',
+  'ProjectTitle',
+  'Date',
+  'Director1Signature',
+  'Director2Signature',
+  'Director1Name',
+  'Director2Name',
+  'Year'
+].map(token)
 
 const testing = ref<'' | 'marks-summary' | 'certificate'>('')
 
@@ -437,7 +440,7 @@ const save = async () => {
     d1.value = settings.value.director_1_name || ''
     d2.value = settings.value.director_2_name || ''
     clearFilePickers()
-    flashSaved('Settings updated.')
+    flashSaved('Files updated.')
     // A newly uploaded template changes which placeholders are present.
     await loadScans()
   } catch (err) {
@@ -559,6 +562,11 @@ const save = async () => {
 }
 
 /* Found in the saved template — the rest are simply unused. */
+/* The theme's brighter success green, so the hint reads clearly as green. */
+.grading-settings__found-hint {
+  color: var(--success);
+}
+
 .grading-settings__tokens code.is-found {
   background: var(--accent-green-soft);
   border-color: var(--dark-green);

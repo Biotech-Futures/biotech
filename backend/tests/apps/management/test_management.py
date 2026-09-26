@@ -280,7 +280,7 @@ class GradingSettingsViewTests(_GradingFixture):
             self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
             self.assertEqual(
                 r.json(),
-                {"uploaded": False, "dialect": "none", "present": [], "unknown": []},
+                {"uploaded": False, "present": [], "unknown": []},
             )
 
     def test_template_scan_flags_unrecognised_tokens(self):
@@ -434,7 +434,6 @@ class GradingSettingsViewTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         data = r.json()
-        self.assertEqual(data["dialect"], "tokens")
         self.assertIn("TeamCode", data["present"])
         self.assertEqual(data["unknown"], ["Typoed"])
         # Preview only — nothing was stored.
@@ -478,7 +477,6 @@ class GradingSettingsViewTests(_GradingFixture):
             format="multipart",
         )
         self.assertEqual(scan.status_code, status.HTTP_200_OK, scan.content)
-        self.assertEqual(scan.json()["dialect"], "tokens")
         self.assertIn("TeamCode", scan.json()["present"])
         self.assertEqual(scan.json()["unknown"], ["Typoed"])
 

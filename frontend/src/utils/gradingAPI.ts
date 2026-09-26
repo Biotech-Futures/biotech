@@ -532,7 +532,6 @@ export function fetchComponentRows(code: string, year?: number): Promise<Compone
 // Which placeholders the active docx template actually contains.
 export interface TemplateScan {
   uploaded: boolean
-  dialect: 'tokens' | 'controls' | 'none'
   /** Placeholders present that the renderer knows how to fill. */
   present: string[]
   /** Placeholders present that would be left blank — usually typos. */
