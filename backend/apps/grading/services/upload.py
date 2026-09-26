@@ -14,7 +14,8 @@ active-rubric criteria in (order, id) order, the same ordering the export
 writes. The SAQ export's ``qN`` answer columns are informational, accepted
 but never parsed. ``product_category`` / ``category_of_solution`` (written
 by the SAQ export) update the group's marking key selections, parsed back
-from the export's own formatting ("Health, Other: Wearables" / "Other: App").
+from the export's own formatting: known options by name, anything else as
+the Other text ("Health and Medicine, Wearables" / "App").
 
 Rules:
     * Missing required headers fail the file: ``group_id``, ``type`` and
@@ -87,17 +88,16 @@ _SOLUTION_BY_LOWER = {o.lower(): o for o in SOLUTION_CATEGORY_OPTIONS}
 
 
 def _parse_product_category(value: str) -> tuple[list[str], str]:
-    """Inverse of the export's formatting: "Health and Medicine, Other:
-    Wearables" -> (["Health and Medicine", "Other"], "Wearables").
-    Unknown labels become Other detail."""
+    """Inverse of the export's formatting: "Health and Medicine, Wearables"
+    -> (["Health and Medicine", "Other"], "Wearables"). Known options match
+    by name, a bare "Other" ticks Other alone, and anything else becomes the
+    Other text."""
     labels: list[str] = []
     others: list[str] = []
     for part in (p.strip() for p in str(value or "").split(",")):
         if not part:
             continue
-        if part.lower().startswith("other:"):
-            others.append(part[len("other:"):].strip())
-        elif part.lower() == "other":
+        if part.lower() == "other":
             if "Other" not in labels:
                 labels.append("Other")
         elif part.lower() in _PRODUCT_BY_LOWER:
@@ -113,13 +113,12 @@ def _parse_product_category(value: str) -> tuple[list[str], str]:
 
 
 def _parse_solution_category(value: str) -> tuple[str, str]:
-    """Inverse of the export's formatting: "Other: App" -> ("Other", "App").
-    An unknown value becomes Other detail."""
+    """Inverse of the export's formatting: "App" -> ("Other", "App"). A known
+    option matches by name, a bare "Other" picks Other alone, and anything
+    else becomes the Other text."""
     s = str(value or "").strip()
     if not s:
         return "", ""
-    if s.lower().startswith("other:"):
-        return "Other", s[len("other:"):].strip()
     if s.lower() == "other":
         return "Other", ""
     if s.lower() in _SOLUTION_BY_LOWER:
@@ -432,10 +431,26 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
                 new_solution, new_solution_other = _parse_solution_category(
                     row.get("category_of_solution", "")
                 )
-            if (new_products, new_product_other, new_solution, new_solution_other) != old:
+            # Product categories are a set: the same boxes in another order
+            # are no change.
+            columns = []
+            if (sorted(new_products), new_product_other) != (sorted(old[0]), old[1]):
+                columns.append("product_category")
+            if (new_solution, new_solution_other) != (old[2], old[3]):
+                columns.append("category_of_solution")
+            if columns:
+                # A column whose stored value was not blank is overwritten
+                # (replaced or cleared); otherwise it is written for the first time.
+                had_value = {
+                    "product_category": bool(old[0] or old[1]),
+                    "category_of_solution": bool(old[2] or old[3]),
+                }
                 diff.marking_categories.append({
                     "row": row_num,
                     "group_id": group_id,
+                    "group_name": names_by_group.get(group_id),
+                    "columns": columns,
+                    "overwritten_columns": [c for c in columns if had_value[c]],
                     "product_categories": new_products,
                     "product_category_other": new_product_other,
                     "solution_category": new_solution,

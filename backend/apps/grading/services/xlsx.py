@@ -32,10 +32,12 @@ from .upload import TYPE_LABELS
 
 
 def _format_product_category(cats: GroupMarkingCategories | None) -> str:
+    """The ticked options, with Other's text written in its place as plain
+    text ("Health and Medicine, Wearables"); a bare "Other" when it has none."""
     if cats is None:
         return ""
     labels = [
-        f"Other: {cats.product_category_other}"
+        cats.product_category_other
         if label == "Other" and cats.product_category_other
         else label
         for label in (cats.product_categories or [])
@@ -44,11 +46,12 @@ def _format_product_category(cats: GroupMarkingCategories | None) -> str:
 
 
 def _format_solution_category(cats: GroupMarkingCategories | None) -> str:
+    """The picked option, or Other's text as plain text ("App")."""
     if cats is None:
         return ""
     label = cats.solution_category or ""
     if label == "Other" and cats.solution_category_other:
-        return f"Other: {cats.solution_category_other}"
+        return cats.solution_category_other
     return label
 
 
@@ -138,7 +141,11 @@ def build_saq_xlsx(
 
     # Answers and comments wrap in fixed-width columns; ids, group names,
     # type and marks keep the default width.
-    widths = {"product_category": 28, "category_of_solution": 28}
+    # The category columns match the comment columns.
+    widths = {
+        "product_category": COMMENT_COLUMN_WIDTH,
+        "category_of_solution": COMMENT_COLUMN_WIDTH,
+    }
     wrapped: set[int] = set()
     for index, header in enumerate(headers, start=1):
         if header.startswith("q"):

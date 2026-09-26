@@ -218,7 +218,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # product_category / category_of_solution parse back from the
         # export's own formatting and land on the group's marking key.
         upload = self._make_xlsx(
-            [self._row() + ("Health and Medicine, Other: Wearables", "Other: App")],
+            [self._row() + ("Health and Medicine, Wearables", "App")],
             header=self.HEADER + ["product_category", "category_of_solution"],
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
@@ -245,6 +245,61 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(cats.product_category_other, "sadfasd")
         self.assertEqual(cats.solution_category, "Other")
         self.assertEqual(cats.solution_category_other, "asdfasdf")
+
+    def test_bare_other_ticks_other_and_the_other_prefix_is_plain_text(self):
+        # "Other" alone ticks Other with no text; "Other: X" has no special
+        # meaning any more, so it is kept whole as the Other text.
+        upload = self._make_xlsx(
+            [self._row() + ("Other", "Other: App")],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        cats = GroupMarkingCategories.objects.get(group=self.group)
+        self.assertEqual(cats.product_categories, ["Other"])
+        self.assertEqual(cats.product_category_other, "")
+        self.assertEqual(cats.solution_category, "Other")
+        self.assertEqual(cats.solution_category_other, "Other: App")
+
+    def test_reordered_product_categories_are_no_change(self):
+        GroupMarkingCategories.objects.create(
+            group=self.group,
+            product_categories=["Health and Medicine", "Sustainable Environment"],
+            solution_category="Treatment",
+        )
+        upload = self._make_xlsx(
+            [self._row() + ("Sustainable Environment, Health and Medicine", "Treatment")],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["marking_categories"], [])
+
+    def test_category_change_names_the_columns_it_overwrites(self):
+        # Product had a stored value (overwritten); solution was blank (new).
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Emerging Technologies"],
+        )
+        upload = self._make_xlsx(
+            [self._row() + ("Health and Medicine", "Treatment")],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        [entry] = resp.json()["marking_categories"]
+        self.assertEqual(entry["group_name"], "BTF-TEST-1")
+        self.assertEqual(entry["columns"], ["product_category", "category_of_solution"])
+        self.assertEqual(entry["overwritten_columns"], ["product_category"])
+
+    def test_first_categories_overwrite_nothing(self):
+        upload = self._make_xlsx(
+            [self._row() + ("Health and Medicine", "Treatment")],
+            header=self.HEADER + ["product_category", "category_of_solution"],
+        )
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        [entry] = resp.json()["marking_categories"]
+        self.assertEqual(entry["overwritten_columns"], [])
 
     def test_absent_category_column_keeps_its_stored_half(self):
         GroupMarkingCategories.objects.create(

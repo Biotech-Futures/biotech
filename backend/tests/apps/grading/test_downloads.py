@@ -248,9 +248,10 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertIn(r2_comment, (None, ""))
         # No SAQ feedback saved in this fixture -> blank, not an error.
         self.assertIn(overall_comment, (None, ""))
-        # The marking key's header selections, with the Other detail inlined.
-        self.assertEqual(product_category, "Health, Other: Wearables")
-        self.assertEqual(category_of_solution, "Other: App")
+        # The marking key's selections, with Other's text written plainly in
+        # its place (no "Other:" prefix).
+        self.assertEqual(product_category, "Health, Wearables")
+        self.assertEqual(category_of_solution, "App")
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -274,6 +275,32 @@ class SaqXlsxExportTests(_GradingFixture):
             {"creates": 0, "updates": 0, "unchanged": 1,
              "overall_comments": 0, "marking_categories": 0, "errors": 0},
         )
+
+    def test_categories_round_trip_without_the_other_prefix(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Other text with a comma in it, and a bare Other with no text.
+        GroupMarkingCategories.objects.create(
+            group=self.group,
+            product_categories=["Health and Medicine", "Other"],
+            product_category_other="Wearables, apps",
+            solution_category="Other",
+            solution_category_other="",
+        )
+        payload = self._export_xlsx()
+        rows = list(load_workbook(io.BytesIO(payload)).active.iter_rows(values_only=True))
+        self.assertEqual(rows[1][-2:], ("Health and Medicine, Wearables, apps", "Other"))
+
+        upload = SimpleUploadedFile(
+            "saq-export.xlsx", payload,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp = self.client.post(
+            reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}),
+            {"file": upload, "dry_run": "true"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["summary"]["marking_categories"], 0)
 
 
 class SaqXlsxQuestionColumnsTests(SimpleTestCase):
@@ -330,12 +357,12 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         )
         # Question columns are 43 wide.
         self.assertEqual(ws.column_dimensions["D"].width, 43)
-        # Comment columns (rN_comment, overall_comment) are 30 wide; the
-        # group name keeps the default width.
+        # Comment columns (rN_comment, overall_comment) and both category
+        # columns are 30 wide; the group name keeps the default width.
         headers = [cell.value for cell in ws[1]]
         for index, header in enumerate(headers, start=1):
             letter = get_column_letter(index)
-            if header.endswith("comment"):
+            if header.endswith("comment") or header in ("product_category", "category_of_solution"):
                 self.assertEqual(ws.column_dimensions[letter].width, 30)
         self.assertNotIn("B", ws.column_dimensions)
         # No fixed row heights, so Excel fits each row to its tallest cell.

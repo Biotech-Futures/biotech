@@ -35,6 +35,9 @@
         <p class="bulk-upload__desc">
           Column headers must match exactly.<br />
           Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          <template v-if="code === 'SAQ'">
+            Items in <code>product_category</code> are split on commas<br />
+          </template>
           Extra columns and rows are ignored.
         </p>
 
@@ -100,7 +103,9 @@
                         : 'bulk-upload__check--ok'
                     "
                     >{{ overwriteGroupCount }}</strong
-                  >{{ groupsSuffix(preview.updates, overallCommentOverwrites) }}
+                  >{{
+                    groupsSuffix(preview.updates, overallCommentOverwrites, categoryOverwrites)
+                  }}
                 </li>
                 <li>
                   Writing New Records: <strong>{{ newGroupCount }}</strong>
@@ -131,6 +136,7 @@
 import { computed, ref } from 'vue'
 import {
   bulkUploadMarks,
+  type BulkUploadCategoryEntry,
   type BulkUploadOverallCommentEntry,
   type BulkUploadResponse,
   type BulkUploadRowEntry
@@ -203,18 +209,24 @@ const checkMarkText = computed(() => {
 const commentOverwrites = (r: BulkUploadResponse) =>
   (r.overall_comments ?? []).filter((e) => e.old_comment !== '')
 
+// Category changes likewise: replacing or clearing a group's stored
+// categories is an overwrite; setting them for the first time is new.
+const categoryChangeOverwrites = (r: BulkUploadResponse) =>
+  (r.marking_categories ?? []).filter((e) => (e.overwritten_columns ?? []).length > 0)
+
 // Group-level counts, shared by the preview and the applied summary — a
-// "record" is one group's marks: a group touching any existing grade or
-// overall comment is an overwrite, and the rest of the recognized groups
-// are written as new.
+// "record" is one group's marks: a group touching any existing grade,
+// overall comment or category is an overwrite, and the rest of the
+// recognized groups are written as new.
 const overwritingGroupIds = (r: BulkUploadResponse) =>
   new Set([
     ...r.updates.map((e) => e.group_id),
-    ...commentOverwrites(r).map((e) => e.group_id)
+    ...commentOverwrites(r).map((e) => e.group_id),
+    ...categoryChangeOverwrites(r).map((e) => e.group_id)
   ])
 
 // Groups that actually write something new — created grades, new overall
-// comments or changed marking-key categories. Unchanged groups write
+// comments or first-time marking-key categories. Unchanged groups write
 // nothing, so an untouched re-upload reports 0 of both kinds; a group
 // already counted as overwriting is not double counted here.
 const newGroupIds = (r: BulkUploadResponse) => {
@@ -231,20 +243,24 @@ const newGroupIds = (r: BulkUploadResponse) => {
 const overallCommentOverwrites = computed(() =>
   preview.value ? commentOverwrites(preview.value) : []
 )
+const categoryOverwrites = computed(() =>
+  preview.value ? categoryChangeOverwrites(preview.value) : []
+)
 const overwriteGroupCount = computed(() =>
   preview.value ? overwritingGroupIds(preview.value).size : 0
 )
 const newGroupCount = computed(() => (preview.value ? newGroupIds(preview.value).size : 0))
 
-// "(BTF1 [r3_mark, r3_comment, r4_mark, overall_comment], …)" — one listing
-// per overwritten group, in sheet order, naming each overwritten cell by its
-// sheet column, then overall_comment when that is overwritten too.
-// Sits beside the overwrite count.
+// "(BTF1 [r3_mark, r3_comment, r4_mark, overall_comment, product_category], …)"
+// — one listing per overwritten group, in sheet order, naming each
+// overwritten cell by its sheet column, then overall_comment and the category
+// columns when those are overwritten too. Sits beside the overwrite count.
 const groupsSuffix = (
   entries: BulkUploadRowEntry[],
-  comments: BulkUploadOverallCommentEntry[] = []
+  comments: BulkUploadOverallCommentEntry[] = [],
+  categories: BulkUploadCategoryEntry[] = []
 ) => {
-  if (!entries.length && !comments.length) return ''
+  if (!entries.length && !comments.length && !categories.length) return ''
   const byGroup = new Map<number, { row: number; label: string; columns: string[] }>()
   const groupInfo = (groupId: number, row: number, name?: string | null) => {
     const info = byGroup.get(groupId) ?? {
@@ -259,9 +275,12 @@ const groupsSuffix = (
   for (const e of entries) {
     groupInfo(e.group_id, e.row, e.group_name).columns.push(...(e.columns ?? []))
   }
-  // The sheet's last column, so it closes the group's listing.
+  // The sheet's last columns, so they close the group's listing.
   for (const c of comments) {
     groupInfo(c.group_id, c.row, c.group_name).columns.push('overall_comment')
+  }
+  for (const c of categories) {
+    groupInfo(c.group_id, c.row, c.group_name).columns.push(...(c.overwritten_columns ?? []))
   }
   return ` (${[...byGroup.values()]
     .sort((a, b) => a.row - b.row)

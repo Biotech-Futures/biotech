@@ -110,6 +110,10 @@ describe('opening the dialog', () => {
     expect(saqText).toContain('category_of_solution')
     expect(saqText).toContain('SAQs')
     expect(saqText).not.toContain('criteria_no')
+    // The comma rule sits just before the closing "Extra columns" line.
+    expect(saqText).toMatch(
+      /Items in product_category are split on commas\s*Extra columns and rows are ignored\./
+    )
 
     const poster = mountDialog('POSTER')
     await openDialog(poster)
@@ -254,7 +258,7 @@ describe('the preview report', () => {
     expect(text).toContain('Writing New Records: 0')
   })
 
-  it('a category-only change counts as writing a new record', async () => {
+  it('first-time categories count as writing a new record', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
     await pickFile(
@@ -264,7 +268,10 @@ describe('the preview report', () => {
           {
             row: 2,
             group_id: 7,
-            product_categories: ['Health'],
+            group_name: 'BTF-7',
+            columns: ['product_category', 'category_of_solution'],
+            overwritten_columns: [],
+            product_categories: ['Health and Medicine'],
             product_category_other: '',
             solution_category: 'Treatment',
             solution_category_other: ''
@@ -276,6 +283,50 @@ describe('the preview report', () => {
     const text = wrapper.text()
     expect(text).toContain('Overwriting Existing Records: 0')
     expect(text).toContain('Writing New Records: 1')
+  })
+
+  it('replacing stored categories is an overwrite, named in the listing', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites a mark and its stored product category; BTF-8
+        // only replaces its stored category of solution.
+        updates: [rowEntry(2, 7, ['r3_mark'])],
+        marking_categories: [
+          {
+            row: 2,
+            group_id: 7,
+            group_name: 'BTF-7',
+            columns: ['product_category'],
+            overwritten_columns: ['product_category'],
+            product_categories: ['Health and Medicine'],
+            product_category_other: '',
+            solution_category: '',
+            solution_category_other: ''
+          },
+          {
+            row: 3,
+            group_id: 8,
+            group_name: 'BTF-8',
+            columns: ['category_of_solution'],
+            overwritten_columns: ['category_of_solution'],
+            product_categories: [],
+            product_category_other: '',
+            solution_category: 'Treatment',
+            solution_category_other: ''
+          }
+        ],
+        summary: { creates: 0, updates: 1, unchanged: 0, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [r3_mark, product_category], BTF-8 [category_of_solution])'
+    )
+    expect(text).toContain('Writing New Records: 0')
+    expect(wrapper.find('.bulk-upload__count--overwrite').exists()).toBe(true)
   })
 
   it('counts overwritten groups and folds their cells into one listing each', async () => {

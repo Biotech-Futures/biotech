@@ -320,6 +320,11 @@ export interface BulkUploadChecks {
 export interface BulkUploadCategoryEntry {
   row: number
   group_id: number
+  group_name?: string | null
+  // The category columns this change touches, and those of them that had a
+  // stored value (replaced or cleared) rather than being set for the first time.
+  columns?: string[]
+  overwritten_columns?: string[]
   product_categories: string[]
   product_category_other: string
   solution_category: string
