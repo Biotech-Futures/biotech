@@ -183,6 +183,36 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertNotIn("<iframe", row.body_html)
         self.assertIn("<p>Hi</p>", row.body_html)
 
+    # A box and a button as the editor writes them, plus things that must go.
+    BOX_AND_BUTTON = (
+        '<div class="email-box" style="padding: 12px 14px; background-color: rgb(233, 246, 241); '
+        'position: absolute; background: url(https://tracker.example/x.png);"><p>Important</p></div>'
+        '<div class="email-button" style="margin: 20px 0px; text-align: left;">'
+        '<a class="cta-link sneaky" href="{{ reset_link }}" onclick="steal()" '
+        'style="display: inline-block; background-color: rgb(1, 113, 81); color: rgb(255, 255, 255);">'
+        "Reset</a></div>"
+        '<p style="color: red;">Plain text stays plain.</p>'
+    )
+
+    def assertKeepsBoxAndButton(self, html):
+        self.assertIn('class="email-box"', html)
+        self.assertIn("padding:12px 14px", html)
+        self.assertIn("background-color:rgb(233, 246, 241)", html)
+        self.assertIn('class="email-button"', html)
+        self.assertIn('class="cta-link"', html)
+        self.assertIn("background-color:rgb(1, 113, 81)", html)
+        self.assertIn("<p>Plain text stays plain.</p>", html)
+        for gone in ("position", "url(", "tracker", "onclick", "sneaky"):
+            self.assertNotIn(gone, html)
+
+    def test_update_keeps_the_editors_boxes_and_buttons(self):
+        update_email_template(
+            "password_reset", {"body": self.BOX_AND_BUTTON}, requested_by=self.admin
+        )
+        body = SystemEmailTemplate.objects.get(key="password_reset").body_html
+        self.assertKeepsBoxAndButton(body)
+        self.assertIn('href="{{ reset_link }}"', body)
+
     def test_update_rejects_unknown_merge_tag(self):
         result = update_email_template(
             "password_reset",
@@ -347,6 +377,10 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn("<p>ok</p>", result["data"]["html"])
         self.assertNotIn("<script", result["data"]["html"])
 
+    def test_preview_keeps_the_editors_boxes_and_buttons(self):
+        result = preview_email_template("password_reset", body=self.BOX_AND_BUTTON)
+        self.assertKeepsBoxAndButton(result["data"]["html"])
+
     def test_preview_rejects_unknown_tag(self):
         result = preview_email_template("password_reset", subject="{{ not_a_tag }}")
         self.assertIsNone(result["data"])
@@ -468,6 +502,19 @@ class SystemEmailAdminApiTests(TestCase):
         self.assertIn("<p>ok</p>", body["body"])
         self.assertNotIn("<script", body["body"])
         self.assertTrue(body["usingSavedContent"])
+
+    def test_patch_keeps_box_and_button_styles(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/",
+            {"body": SystemEmailAdminServiceTests.BOX_AND_BUTTON},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()["data"]["body"]
+        self.assertIn("background-color:rgb(233, 246, 241)", body)
+        self.assertIn('class="cta-link"', body)
+        self.assertNotIn("position", body)
+        self.assertNotIn("url(", body)
 
     def test_patch_unknown_tag_returns_400(self):
         response = self.client.patch(

@@ -83,8 +83,8 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
     No-op when the flag has already been ``notified`` (avoids re-mailing on
     toggle churn), when an admin has switched the email off, when the email
     details aren't all set, or when the team has nobody to mail. Returns True
-    when at least one member was emailed; the team is only marked notified
-    then, so a send nobody received can simply be retried.
+    only when every member was emailed; the team is only marked notified
+    then, so a send someone missed can simply be retried.
     """
     if flag.notified:
         logger.info("finalist notify skipped: already notified (group=%s)", flag.group_id)
@@ -110,9 +110,12 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
         return False
 
     sent = _send_to_each(rendered, recipients, group_id=flag.group_id)
-    if not sent:
-        # Nobody received it: leave the flag unnotified so the next press retries.
-        logger.error("finalist notify failed: no email delivered (group=%s)", flag.group_id)
+    if sent < len(recipients):
+        # Someone missed it: leave the flag unnotified so the next press retries.
+        logger.error(
+            "finalist notify failed: %s of %s emails delivered (group=%s)",
+            sent, len(recipients), flag.group_id,
+        )
         return False
 
     flag.notified = True

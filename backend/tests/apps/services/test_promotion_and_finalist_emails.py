@@ -173,7 +173,7 @@ class FinalistEmailTests(TestCase):
         self.assertFalse(self.flag.notified)
         self.assertFalse(any("@example.com" in line for line in logs.output))
 
-    def test_partial_delivery_still_marks_notified(self):
+    def test_partial_delivery_leaves_flag_unnotified_for_a_retry(self):
         real_send = mail.EmailMultiAlternatives.send
 
         def fail_for_one(message, *args, **kwargs):
@@ -183,10 +183,10 @@ class FinalistEmailTests(TestCase):
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_one), \
                 self.assertLogs("apps.grading.services.finalist_notify", level="ERROR"):
-            self.assertTrue(notify_finalist(self.flag))
+            self.assertFalse(notify_finalist(self.flag))
         self.assertEqual([m.to for m in mail.outbox], [["two@example.com"]])
         self.flag.refresh_from_db()
-        self.assertTrue(self.flag.notified)
+        self.assertFalse(self.flag.notified)
 
     def test_edited_email_uses_the_saved_wording(self):
         SystemEmailTemplate.objects.create(

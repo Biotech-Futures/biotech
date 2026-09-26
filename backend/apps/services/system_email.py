@@ -12,7 +12,8 @@ call ``build_message`` per recipient inside their existing send loops.
 
 Admin-written text is never passed to Django's template engine: only merge tags
 listed in the email registry are substituted, with their values HTML-escaped.
-Bodies are expected to be sanitised when they are saved (and before previewing).
+Bodies are expected to be sanitised with ``clean_email_body`` when they are
+saved (and before previewing).
 """
 
 import html as html_lib
@@ -21,6 +22,7 @@ import re
 from datetime import date, datetime
 from typing import NamedTuple, Optional
 
+import nh3
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.db import DatabaseError
@@ -82,6 +84,40 @@ def is_email_enabled(key: str) -> bool:
     except DatabaseError:
         logger.exception("system_email.toggle_check_failed key=%s", key)
         return True
+
+
+# --- admin-written bodies --------------------------------------------------
+
+# The editor's box and button blocks carry inline styles, since email clients
+# ignore most stylesheets. Only these properties are kept: enough to draw a
+# box or a button, and nothing that can load a URL or move content around.
+EMAIL_STYLE_PROPERTIES = frozenset({
+    "background-color", "border", "border-radius", "color", "display",
+    "font-family", "font-size", "font-weight", "letter-spacing", "line-height",
+    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "text-align", "text-decoration",
+})
+
+_BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
+_BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
+_BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
+
+
+def clean_email_body(html: str) -> str:
+    """Sanitise an admin-written body before it is saved or previewed.
+
+    Strips scripts, event handlers and javascript: URLs like a plain
+    ``nh3.clean``, but keeps the editor's boxes and buttons: their classes
+    (``cta-link`` also makes a button full width on phones) and their styles,
+    limited to ``EMAIL_STYLE_PROPERTIES``.
+    """
+    return nh3.clean(
+        html or "",
+        attributes=_BODY_ATTRIBUTES,
+        allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+        filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
+    )
 
 
 # --- merge tags ------------------------------------------------------------

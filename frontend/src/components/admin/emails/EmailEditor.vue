@@ -48,7 +48,15 @@
     >
       <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
       These are the current built-in contents. Save to switch to your custom wording.
+      Saving your own wording replaces the built-in design: boxes and buttons are kept, but
+      other styling, such as coloured or smaller text, becomes plain.
     </p>
+
+    <!-- Tags go into whichever of Subject or Body was used last. -->
+    <div class="email-editor__field">
+      <span class="email-editor__label">Placeholders</span>
+      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
+    </div>
 
     <div class="email-editor__field">
       <label class="email-editor__label" for="email-subject">Subject</label>
@@ -68,13 +76,13 @@
 
     <div class="email-editor__field">
       <label class="email-editor__label">Body</label>
-      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
       <div class="email-editor__body" @focusin="activeField = 'body'">
         <RichEditor
           ref="bodyEditor"
           :model-value="body"
           email-mode
           compact
+          :link-placeholders="linkPlaceholders"
           :read-only="busy"
           @update:model-value="emit('update:body', $event)"
           @focus="activeField = 'body'"
@@ -118,8 +126,9 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
+import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import { mergeTagToken, type SystemEmailMergeTag, type SystemEmailTemplate } from '@/utils/systemEmail'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
@@ -134,6 +143,11 @@ const props = defineProps<{
   testing: boolean
   restoring: boolean
 }>()
+
+/** This email's placeholders that hold a link, offered in the link dialog. */
+const linkPlaceholders = computed(() =>
+  props.emailTemplate.mergeTags.filter((tag) => isLinkPlaceholder(tag.name)).map((tag) => mergeTagToken(tag.name))
+)
 
 const lockReason = () => {
   if (!props.emailTemplate.locked) return ''
