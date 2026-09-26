@@ -49,7 +49,7 @@
       <div class="rubric-form__actions">
         <slot name="actions"></slot>
         <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !isDirty">
-          {{ isSaving ? 'Saving…' : criteria.length === 0 ? 'Save Comment' : 'Save marks' }}
+          {{ isSaving ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </form>
@@ -68,6 +68,9 @@ const props = defineProps<{
   isSaving: boolean
   /** Heading for the overall-comment box; omit/null to hide it (e.g. SAQ). */
   overallCommentLabel?: string | null
+  /** Unsaved edits outside this form that its Save button also stores (the
+   *  SAQ category boxes). Enables Save and the leave guards like own edits. */
+  extraDirty?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -127,8 +130,10 @@ watch(
 )
 
 // Unsaved edits: any mark, comment, or overall comment differing from the
-// last server payload. Retyping the exact stored value counts as clean.
+// last server payload, or edits the parent reports via extraDirty.
+// Retyping the exact stored value counts as clean.
 const isDirty = computed(() => {
+  if (props.extraDirty) return true
   const byCriterion = new Map<number, Grade>()
   for (const g of props.grades) byCriterion.set(g.criterion, g)
   const rowsDirty = props.criteria.some((c) => {

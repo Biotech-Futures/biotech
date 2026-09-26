@@ -71,6 +71,9 @@ const payload = (over: Record<string, unknown> = {}) => ({
   ...over
 })
 
+// What the stubbed upload dialog reports on apply; set per test before mounting.
+let appliedCounts = { overwritten: 2, created: 1 }
+
 const mountPage = async () => {
   const wrapper = mount(ComponentTablePage, {
     global: {
@@ -78,7 +81,8 @@ const mountPage = async () => {
         BulkUploadDialog: {
           props: ['code'],
           emits: ['applied'],
-          template: '<button class="bulk-stub" @click="$emit(\'applied\', 3)">Upload marks</button>'
+          setup: () => ({ counts: appliedCounts }),
+          template: '<button class="bulk-stub" @click="$emit(\'applied\', counts)">Upload marks</button>'
         },
         RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
       }
@@ -239,12 +243,27 @@ describe('exports and uploads', () => {
     expect(wrapper.find('.component-table__banner--error').text()).toBe('disk full')
   })
 
-  it('an applied upload reports the rows written and refreshes the table', async () => {
+  it('an applied upload names overwritten and new groups in a sentence and refreshes the table', async () => {
+    appliedCounts = { overwritten: 2, created: 1 }
     const wrapper = await mountPage()
-    // The dialog child announces how much it wrote.
+    // The dialog child announces how many groups it overwrote and wrote new.
     await wrapper.find('.bulk-stub').trigger('click')
     await flushPromises()
-    expect(wrapper.find('.component-table__banner--ok').text()).toBe('Marks applied - wrote 3 rows.')
+    expect(wrapper.find('.component-table__banner--ok').text()).toBe(
+      'Marks applied. Overwrote existing records for 2 groups and wrote new records for 1 group.'
+    )
     expect(rowsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    [{ overwritten: 1, created: 0 }, 'Marks applied. Overwrote existing records for 1 group.'],
+    [{ overwritten: 0, created: 3 }, 'Marks applied. Wrote new records for 3 groups.'],
+    [{ overwritten: 0, created: 0 }, 'Marks applied. No records changed.']
+  ])('an applied upload of %o reads "%s"', async (counts, message) => {
+    appliedCounts = counts
+    const wrapper = await mountPage()
+    await wrapper.find('.bulk-stub').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.component-table__banner--ok').text()).toBe(message)
   })
 })

@@ -162,6 +162,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadCandidateTestRender,
   downloadTemplateTestRender,
@@ -178,7 +179,7 @@ const settings = ref<GradingSettingsDetail | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const savedMessage = ref('')
+const { message: savedMessage, show: flashSaved } = useFlashMessage()
 const isSaving = ref(false)
 
 const d1 = ref('')
@@ -436,7 +437,7 @@ const save = async () => {
     d1.value = settings.value.director_1_name || ''
     d2.value = settings.value.director_2_name || ''
     clearFilePickers()
-    savedMessage.value = 'Settings updated.'
+    flashSaved('Settings updated.')
     // A newly uploaded template changes which placeholders are present.
     await loadScans()
   } catch (err) {

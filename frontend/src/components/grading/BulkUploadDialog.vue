@@ -169,7 +169,8 @@ const TYPE_LABELS: Record<string, string> = {
 const typeLabel = computed(() => TYPE_LABELS[props.code] ?? props.code)
 
 const emit = defineEmits<{
-  applied: [written: number]
+  // Groups overwritten and groups written new, counted like the preview.
+  applied: [counts: { overwritten: number; created: number }]
 }>()
 
 const open = ref(false)
@@ -208,42 +209,44 @@ const checkMarkText = computed(() => {
   return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
 })
 
-// Overall comments the sheet changes. Replacing or clearing a stored comment
+// Overall comments a sheet changes. Replacing or clearing a stored comment
 // is an overwrite (a blank cell in an older export wipes it); writing one
 // where none was stored is a new record.
-const overallCommentOverwrites = computed(() =>
-  (preview.value?.overall_comments ?? []).filter((e) => e.old_comment !== '')
-)
-const overallCommentCreates = computed(() =>
-  (preview.value?.overall_comments ?? []).filter((e) => e.old_comment === '')
-)
+const commentOverwrites = (r: BulkUploadResponse) =>
+  (r.overall_comments ?? []).filter((e) => e.old_comment !== '')
 
-// Group-level counts — a "record" is one group's marks: a group touching
-// any existing grade or overall comment is an overwrite, and the rest of
-// the recognized groups are written as new.
-const overwritingGroupIds = computed(
-  () =>
-    new Set([
-      ...(preview.value?.updates ?? []).map((e) => e.group_id),
-      ...overallCommentOverwrites.value.map((e) => e.group_id)
-    ])
-)
-const overwriteGroupCount = computed(() => overwritingGroupIds.value.size)
-const newGroupCount = computed(() => {
-  if (!preview.value) return 0
-  // Groups that actually write something new — created grades, new overall
-  // comments or changed marking-key categories. Unchanged groups write
-  // nothing, so an untouched re-upload reports 0 of both kinds; a group
-  // already counted as overwriting is not double counted here.
-  const overwriting = overwritingGroupIds.value
+// Group-level counts, shared by the preview and the applied summary — a
+// "record" is one group's marks: a group touching any existing grade or
+// overall comment is an overwrite, and the rest of the recognized groups
+// are written as new.
+const overwritingGroupIds = (r: BulkUploadResponse) =>
+  new Set([
+    ...r.updates.map((e) => e.group_id),
+    ...commentOverwrites(r).map((e) => e.group_id)
+  ])
+
+// Groups that actually write something new — created grades, new overall
+// comments or changed marking-key categories. Unchanged groups write
+// nothing, so an untouched re-upload reports 0 of both kinds; a group
+// already counted as overwriting is not double counted here.
+const newGroupIds = (r: BulkUploadResponse) => {
+  const overwriting = overwritingGroupIds(r)
   return new Set(
     [
-      ...preview.value.creates.map((e) => e.group_id),
-      ...overallCommentCreates.value.map((e) => e.group_id),
-      ...(preview.value.marking_categories ?? []).map((e) => e.group_id)
+      ...r.creates.map((e) => e.group_id),
+      ...(r.overall_comments ?? []).filter((e) => e.old_comment === '').map((e) => e.group_id),
+      ...(r.marking_categories ?? []).map((e) => e.group_id)
     ].filter((id) => !overwriting.has(id))
-  ).size
-})
+  )
+}
+
+const overallCommentOverwrites = computed(() =>
+  preview.value ? commentOverwrites(preview.value) : []
+)
+const overwriteGroupCount = computed(() =>
+  preview.value ? overwritingGroupIds(preview.value).size : 0
+)
+const newGroupCount = computed(() => (preview.value ? newGroupIds(preview.value).size : 0))
 
 // "(BTF1 [3_mark, 3_comment, 4_mark, overall_comment], …)" — one listing per
 // overwritten group, in sheet order, naming each overwritten cell as
@@ -337,7 +340,12 @@ const doApply = async () => {
     const data = await bulkUploadMarks(props.code, file.value, false)
     busy.value = 'idle'
     open.value = false
-    emit('applied', data.written ?? 0)
+    // The apply response carries the diff re-parsed at commit time, so the
+    // counts describe what was actually written.
+    emit('applied', {
+      overwritten: overwritingGroupIds(data).size,
+      created: newGroupIds(data).size
+    })
     reset()
   } catch (err) {
     busy.value = 'idle'

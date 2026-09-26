@@ -155,6 +155,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchGroupExtensions,
   fetchSubmissionDeadline,
@@ -172,7 +173,7 @@ const extensions = ref<GroupExtension[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const savedMessage = ref('')
+const { message: savedMessage, show: flashSaved } = useFlashMessage()
 const isSaving = ref(false)
 
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
@@ -264,7 +265,7 @@ const performSave = async (id: number) => {
   try {
     const iso = new Date(untilLocal.value).toISOString()
     await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
-    savedMessage.value = 'Extension granted.'
+    flashSaved('Extension granted.')
     groupQuery.value = ''
     untilLocal.value = defaultUntilLocal()
     graceHours.value = 24
@@ -284,7 +285,6 @@ const revoke = async (id: number) => {
   isSaving.value = true
   try {
     await removeGroupExtension(id)
-    savedMessage.value = 'Extension revoked.'
     await load()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message

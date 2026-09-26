@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
+import { defineComponent, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import * as vueRouter from 'vue-router'
 import GroupMarkingPage from '@/views/grading/GroupMarkingPage.vue'
@@ -57,7 +57,7 @@ const GroupSearchInputStub = defineComponent({
 const formDirty = { value: false }
 const RubricFormStub = defineComponent({
   name: 'RubricForm',
-  props: ['submission', 'criteria', 'grades', 'overallCommentLabel', 'isSaving'],
+  props: ['submission', 'criteria', 'grades', 'overallCommentLabel', 'isSaving', 'extraDirty'],
   emits: ['save'],
   computed: {
     isDirty(): boolean {
@@ -65,15 +65,31 @@ const RubricFormStub = defineComponent({
     }
   },
   template:
-    '<div class="rubric-stub"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
+    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
 })
 
+// The page reads isDirty and calls save() on the category boxes through a
+// template ref; the stub exposes both, steered per test.
+const categoriesDirty = ref(false)
+const categoriesSaveMock = vi.fn<() => Promise<void>>()
 const MarkingCategoriesStub = defineComponent({
   name: 'MarkingCategories',
   props: ['groupId'],
   emits: ['status'],
+  computed: {
+    isDirty(): boolean {
+      return categoriesDirty.value
+    }
+  },
+  methods: {
+    save(): Promise<void> {
+      return categoriesSaveMock()
+    }
+  },
   template:
-    '<button class="categories-stub" @click="$emit(\'status\', { text: \'Saved.\', error: false })"></button>'
+    '<div class="categories-stub">' +
+    '<button class="categories-error-stub" @click="$emit(\'status\', { text: \'Category load failed: not allowed\', error: true })"></button>' +
+    '</div>'
 })
 
 const stubs = {
@@ -166,6 +182,8 @@ beforeEach(() => {
   pushMock.mockReset()
   resolveIdMock.mockReset()
   formDirty.value = false
+  categoriesDirty.value = false
+  categoriesSaveMock.mockReset().mockResolvedValue(undefined)
   zipMock.mockReset()
   fileMock.mockReset()
   saveMock.mockReset().mockResolvedValue([] as never)
@@ -222,10 +240,31 @@ describe('the combined SAQs & Poster view', () => {
     expect(wrapper.find('.group-marking__stamp-marker').text()).toBe('Ada Grader')
   })
 
-  it('the categories status surfaces on the stamp line', async () => {
+  it('the category boxes sit above the SAQ rubric in the rubric column', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('.categories-stub').trigger('click')
-    expect(wrapper.find('.group-marking__stamp-status').text()).toContain('Saved.')
+    const column = wrapper.find('.group-marking__combined-rubrics').html()
+    const categories = column.indexOf('categories-stub')
+    const saqForm = column.indexOf('rubric-stub')
+    expect(categories).toBeGreaterThanOrEqual(0)
+    expect(categories).toBeLessThan(saqForm)
+    expect(wrapper.findAll('.categories-stub')).toHaveLength(1)
+  })
+
+  it('unsaved categories count as unsaved edits on the SAQ form only', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.findAll('.rubric-stub')[0]!.attributes('data-extra-dirty')).toBe('false')
+    categoriesDirty.value = true
+    await flushPromises()
+    expect(wrapper.findAll('.rubric-stub')[0]!.attributes('data-extra-dirty')).toBe('true')
+    expect(wrapper.findAll('.rubric-stub')[1]!.attributes('data-extra-dirty')).toBe('false')
+  })
+
+  it('a failed category load shows the red banner', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('.categories-error-stub').trigger('click')
+    expect(wrapper.find('.group-marking__banner--error').text()).toBe(
+      'Category load failed: not allowed'
+    )
   })
 
   it('widens the layout for marking, and releases it on unmount', async () => {
@@ -249,11 +288,47 @@ describe('saving marks', () => {
     expect(markingMock).toHaveBeenCalledTimes(2) // refetch after the upsert
   })
 
+  it('the Marks saved message clears itself after 3.5 seconds', async () => {
+    const wrapper = await mountPage()
+    vi.useFakeTimers()
+    try {
+      await wrapper.findAll('.save-stub')[1]!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
+      await vi.advanceTimersByTimeAsync(3500)
+      expect(wrapper.find('.group-marking__banner--ok').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('an SAQ save sends no overall comment — SAQ has no box', async () => {
     const wrapper = await mountPage()
     await wrapper.findAll('.save-stub')[0]!.trigger('click')
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith(expect.any(Array), undefined)
+  })
+
+  it('the SAQ Save also stores the category boxes; the Poster Save does not', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('.save-stub')[1]!.trigger('click') // poster form
+    await flushPromises()
+    expect(categoriesSaveMock).not.toHaveBeenCalled()
+
+    await wrapper.findAll('.save-stub')[0]!.trigger('click') // SAQ form
+    await flushPromises()
+    expect(saveMock).toHaveBeenCalledTimes(2)
+    expect(categoriesSaveMock).toHaveBeenCalledOnce()
+    expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
+  })
+
+  it('a failed category save is reported like a failed marks save', async () => {
+    categoriesSaveMock.mockRejectedValueOnce(new Error('refused'))
+    const wrapper = await mountPage()
+    await wrapper.findAll('.save-stub')[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.group-marking__banner--error').text()).toBe('Save failed: refused')
+    expect(wrapper.find('.group-marking__banner--ok').exists()).toBe(false)
   })
 
   it('a refused save is reported without claiming success', async () => {

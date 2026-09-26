@@ -171,7 +171,7 @@ describe('the pick → auto-preview → apply flow', () => {
     expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
   })
 
-  it('applies with a real write and reports how much was written', async () => {
+  it('applies with a real write and reports overwritten and new groups', async () => {
     const wrapper = mountDialog('SAQ')
     await openDialog(wrapper)
     await pickFile(
@@ -179,12 +179,23 @@ describe('the pick → auto-preview → apply flow', () => {
       response({ summary: { creates: 2, updates: 0, unchanged: 0, errors: 0 } })
     )
 
-    uploadMock.mockResolvedValueOnce(response({ applied: true, written: 3 }))
+    // Counted from the apply response, the diff re-parsed at commit time:
+    // BTF-7 overwrites a grade, BTF-8 only replaces its overall comment,
+    // BTF-9 is new.
+    uploadMock.mockResolvedValueOnce(
+      response({
+        applied: true,
+        written: 4,
+        updates: [rowEntry(2, 7)],
+        creates: [rowEntry(4, 9, ['mark'], 1), rowEntry(5, 9, ['mark'], 2)],
+        overall_comments: [overallComment(3, 8, 'New', 'Old')]
+      })
+    )
     await buttonNamed(wrapper, /Apply/).trigger('click')
     await flushPromises()
 
     expect(uploadMock).toHaveBeenLastCalledWith('SAQ', expect.any(File), false)
-    expect(wrapper.emitted('applied')).toEqual([[3]])
+    expect(wrapper.emitted('applied')).toEqual([[{ overwritten: 2, created: 1 }]])
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 })

@@ -168,6 +168,10 @@ describe('granting', () => {
     expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension granted.')
     expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
     expect(listMock).toHaveBeenCalledTimes(2) // mount + refresh
+
+    // The success message clears itself after 3.5 seconds.
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(wrapper.find('.extensions__banner--ok').exists()).toBe(false)
   })
 
   it('shows the server refusal when a grant bounces', async () => {
@@ -254,7 +258,8 @@ describe('revoking', () => {
     await wrapper.find('tbody button').trigger('click')
     await flushPromises()
     expect(removeMock).toHaveBeenCalledWith(7)
-    expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension revoked.')
+    // The refreshed table is the confirmation; no success banner.
+    expect(wrapper.find('.extensions__banner--ok').exists()).toBe(false)
     expect(listMock).toHaveBeenCalledTimes(2)
   })
 

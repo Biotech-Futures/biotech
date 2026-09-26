@@ -104,10 +104,10 @@ describe('what the form renders', () => {
     ).toContain('Overall comment on the poster')
   })
 
-  it('calls the action Save Comment when the rubric is only the comment box', () => {
+  it('calls the action Save, with criteria or with only the comment box', () => {
     const wrapper = mountForm({ criteria: [], overallCommentLabel: 'Overall comment' })
-    expect(saveButton(wrapper).text()).toBe('Save Comment')
-    expect(mountForm().find('button[type="submit"]').text()).toBe('Save marks')
+    expect(saveButton(wrapper).text()).toBe('Save')
+    expect(mountForm().find('button[type="submit"]').text()).toBe('Save')
   })
 
   it('says Saving and stays disabled while a save is in flight', async () => {
@@ -213,6 +213,17 @@ describe('leaving with unsaved edits', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     expect(guards.leave[0]!()).toBe(false)
     expect(confirm).toHaveBeenCalledOnce()
+  })
+
+  it('unsaved edits outside the form (the SAQ categories) enable Save and the guard', async () => {
+    const wrapper = mountForm({ extraDirty: true })
+    expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(guards.leave[0]!()).toBe(false)
+    expect(confirm).toHaveBeenCalledOnce()
+
+    await wrapper.setProps({ extraDirty: false })
+    expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
   })
 
   it('guards Prev/Next navigation the same way as leaving the page', async () => {
