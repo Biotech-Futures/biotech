@@ -102,7 +102,7 @@
                     type="button"
                     class="btn btn-outline btn-sm"
                     :disabled="isSaving"
-                    @click="revoke(e.group_id)"
+                    @click="pendingRevoke = e"
                   >
                     Revoke
                   </button>
@@ -146,6 +146,30 @@
             @click="performSave(overwriteWarning.id)"
           >
             {{ isSaving ? 'Saving…' : 'Replace extension' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="pendingRevoke" class="extensions__overlay" @click.self="pendingRevoke = null">
+      <div class="extensions__dialog" role="dialog" aria-modal="true" aria-label="Revoke extension">
+        <h4 class="extensions__dialog-title">Revoke this extension?</h4>
+        <p class="extensions__dialog-body">
+          <strong>{{ pendingRevoke.group_name }}</strong> is extended until
+          <strong>{{ untilLabel(pendingRevoke.extended_until) }}</strong>. Revoking it puts the
+          group back on the standard submission deadline.
+        </p>
+        <div class="extensions__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="pendingRevoke = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving"
+            @click="revoke(pendingRevoke.group_id)"
+          >
+            {{ isSaving ? 'Revoking…' : 'Revoke extension' }}
           </button>
         </div>
       </div>
@@ -279,6 +303,15 @@ const performSave = async (id: number) => {
   }
 }
 
+// Revoke asks first: the row's button opens the popup, its confirm revokes.
+const pendingRevoke = ref<GroupExtension | null>(null)
+
+// "05/11/26 13:00", the same format as the table's Extension column.
+const untilLabel = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+}
+
 const revoke = async (id: number) => {
   actionError.value = ''
   savedMessage.value = ''
@@ -290,6 +323,7 @@ const revoke = async (id: number) => {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isSaving.value = false
+    pendingRevoke.value = null
   }
 }
 

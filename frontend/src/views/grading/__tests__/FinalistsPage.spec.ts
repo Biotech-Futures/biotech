@@ -170,14 +170,52 @@ describe('the current finalists', () => {
     expect(table.text()).toContain('Ada Admin')
   })
 
-  it('removing unflags and refreshes', async () => {
+  it('Remove asks first, naming the group', async () => {
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    const dialog = wrapper.find('.finalists__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('Remove this finalist?')
+    expect(dialog.text()).toContain('BTF-2')
+    expect(dialog.text()).not.toContain('already been emailed')
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('confirming unflags and refreshes', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog').findAll('button').at(-1)!.trigger('click')
     await flushPromises()
     expect(removeMock).toHaveBeenCalledWith(2)
     expect(finalistsMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
     // The refreshed tables are the confirmation; no success banner.
     expect(wrapper.text()).not.toContain('Finalist removed.')
+  })
+
+  it('cancelling removes nothing', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('warns when the team was already emailed that they are a finalist', async () => {
+    finalistsMock.mockResolvedValue({
+      finalists: [
+        {
+          group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
+          flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
+          notified_by: 'Ada Admin'
+        }
+      ]
+    })
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    expect(wrapper.find('.finalists__dialog').text()).toContain(
+      'Their team has already been emailed that they are a finalist.'
+    )
   })
 
   it('says so when nobody is flagged yet', async () => {

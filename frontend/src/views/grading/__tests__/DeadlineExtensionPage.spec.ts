@@ -252,22 +252,46 @@ describe('granting', () => {
 })
 
 describe('revoking', () => {
-  it('revokes through the row button and refreshes', async () => {
+  const confirmRevoke = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
+    await wrapper.find('.extensions__dialog').findAll('button').at(-1)!.trigger('click')
+    await flushPromises()
+  }
+
+  it('the row button asks first, naming the group and its extension', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('tbody button').trigger('click')
+    const dialog = wrapper.find('.extensions__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('Revoke this extension?')
+    expect(dialog.text()).toContain('BTF-1')
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('confirming revokes and refreshes', async () => {
     removeMock.mockResolvedValueOnce(undefined as never)
     const wrapper = await mountPage()
     await wrapper.find('tbody button').trigger('click')
-    await flushPromises()
+    await confirmRevoke(wrapper)
     expect(removeMock).toHaveBeenCalledWith(7)
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
     // The refreshed table is the confirmation; no success banner.
     expect(wrapper.find('.extensions__banner--ok').exists()).toBe(false)
     expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancelling revokes nothing', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('tbody button').trigger('click')
+    await wrapper.find('.extensions__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
+    expect(removeMock).not.toHaveBeenCalled()
   })
 
   it('reports a failed revoke', async () => {
     removeMock.mockRejectedValueOnce(new Error('gone already'))
     const wrapper = await mountPage()
     await wrapper.find('tbody button').trigger('click')
-    await flushPromises()
+    await confirmRevoke(wrapper)
     expect(wrapper.find('.extensions__banner--error').text()).toContain('gone already')
   })
 })

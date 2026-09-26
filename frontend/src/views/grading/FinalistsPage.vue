@@ -205,7 +205,7 @@
                   type="button"
                   class="btn btn-outline btn-sm"
                   :disabled="isMutating"
-                  @click="remove(f.group_id)"
+                  @click="pendingRemoval = f"
                 >
                   Remove
                 </button>
@@ -221,6 +221,31 @@
       </div>
       </template>
     </section>
+
+    <div v-if="pendingRemoval" class="finalists__overlay" @click.self="pendingRemoval = null">
+      <div class="finalists__dialog" role="dialog" aria-modal="true" aria-label="Remove finalist">
+        <h4 class="finalists__dialog-title">Remove this finalist?</h4>
+        <p class="finalists__dialog-body">
+          <strong>{{ pendingRemoval.group_name }}</strong> will no longer be a finalist.
+          <template v-if="pendingRemoval.notified">
+            Their team has already been emailed that they are a finalist.
+          </template>
+        </p>
+        <div class="finalists__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="pendingRemoval = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isMutating"
+            @click="remove(pendingRemoval.group_id)"
+          >
+            {{ isMutating ? 'Removing…' : 'Remove finalist' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -233,7 +258,8 @@ import {
   removeFinalist,
   type FinalistCandidateRow,
   type FinalistCandidatesResponse,
-  type FinalistListResponse
+  type FinalistListResponse,
+  type FinalistRow
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
@@ -324,6 +350,9 @@ const addFromRow = async (id: number) => {
   }
 }
 
+// Remove asks first: the row's button opens the popup, its confirm removes.
+const pendingRemoval = ref<FinalistRow | null>(null)
+
 const remove = async (id: number) => {
   actionError.value = ''
   isMutating.value = true
@@ -334,6 +363,7 @@ const remove = async (id: number) => {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isMutating.value = false
+    pendingRemoval.value = null
   }
 }
 </script>
@@ -415,6 +445,44 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* Remove-finalist confirm — same treatment as the Extend Deadline popups. */
+.finalists__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.finalists__dialog {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  padding: 1.25rem 1.5rem;
+  max-width: 26rem;
+  width: 100%;
+}
+
+.finalists__dialog-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.finalists__dialog-body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--charcoal);
+}
+
+.finalists__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .finalists__banner {
