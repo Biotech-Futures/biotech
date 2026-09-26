@@ -24,14 +24,14 @@ class BulkUploadMarksViewTests(_GradingFixture):
 
     # Export shape: one row per group, answers in qN (never parsed).
     HEADER = [
-        "group_id", "group_name", "type", "q1",
+        "year", "group_name", "type", "q1",
         "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment",
     ]
 
     def _row(self, r1_mark="", r1_comment="", r2_mark="", r2_comment="", overall="",
-             group_id=None, group_name="BTF-TEST-1", row_type="SAQs", answer=""):
+             year=None, group_name="BTF-TEST-1", row_type="SAQs", answer=""):
         return (
-            self.group.id if group_id is None else group_id, group_name, row_type, answer,
+            self.group.year if year is None else year, group_name, row_type, answer,
             r1_mark, r1_comment, r2_mark, r2_comment, overall,
         )
 
@@ -107,7 +107,7 @@ class BulkUploadMarksViewTests(_GradingFixture):
     def test_row_errors_reported(self):
         upload = self._make_csv([
             self._row("abc"),                                  # non-numeric mark
-            self._row("5", group_id=999_999, group_name="x"),  # group with no SAQ submission
+            self._row("5", group_name="x"),                    # no team by that name
             self._row("5"),                                    # duplicate row for the group
         ])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
@@ -137,23 +137,86 @@ class BulkUploadMarksViewTests(_GradingFixture):
     def test_missing_mark_columns_rejected(self):
         # Every criterion's mark/comment pair is required, so the old
         # one-row-per-criterion sheet is refused up front.
-        header = ["group_id", "group_name", "type", "r1_mark"]
-        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "SAQs", "5")], header=header)
+        header = ["year", "group_name", "type", "r1_mark"]
+        upload = self._make_csv([(self.group.year, "BTF-TEST-1", "SAQs", "5")], header=header)
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(
             resp.json()["checks"]["missing_headers"], ["r1_comment", "r2_mark", "r2_comment"]
         )
 
-    def test_wrong_group_name_rejected(self):
-        # A row whose id points at a different group than its name says.
+    def test_unknown_group_name_rejected(self):
+        # No team of that name has an SAQ submission this year.
         upload = self._make_csv([self._row("5", group_name="SOME-OTHER-GROUP")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         body = resp.json()
-        self.assertEqual(body["checks"]["bad_group_rows"][0]["row"], 2)
-        self.assertIn("name should be", body["checks"]["bad_group_rows"][0]["reason"])
-        self.assertIn("group_name", body["errors"][0]["message"])
+        self.assertEqual(body["checks"]["bad_group_rows"], [
+            {"row": 2, "reason": "no SAQs submission from 'SOME-OTHER-GROUP'"},
+        ])
+        self.assertEqual(body["summary"]["errors"], 1)
+
+    def test_only_the_current_challenge_year_is_accepted(self):
+        from apps.submissions.services import current_cohort
+
+        this_year = current_cohort()
+        upload = self._make_csv([
+            self._row("5", year=this_year - 1),
+            self._row("5", year="twenty"),
+            self._row("5", year=f"{this_year}.0"),  # how a spreadsheet may write it
+        ])
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        # Reported like the type check: what it should be, the first wrong value.
+        self.assertEqual(body["checks"]["expected_year"], this_year)
+        self.assertFalse(body["checks"]["year_ok"])
+        self.assertEqual(body["checks"]["found_year"], str(this_year - 1))
+        self.assertEqual(body["checks"]["bad_group_rows"], [])
+        self.assertEqual([e["row"] for e in body["errors"]], [2, 3])
+        self.assertEqual(body["summary"]["creates"], 1)  # row 4 matched the team
+
+    def test_a_sheet_of_the_current_year_passes_the_year_check(self):
+        from apps.submissions.services import current_cohort
+
+        resp = self.client.post(
+            self.url, {"file": self._make_csv([self._row("5")]), "dry_run": "true"}
+        )
+        checks = resp.json()["checks"]
+        self.assertTrue(checks["year_ok"])
+        self.assertEqual(checks["found_year"], str(current_cohort()))
+
+    def _second_team(self, name: str, year: int):
+        from apps.groups.models.groups import Groups
+        from apps.submissions.models import Submission
+
+        team = Groups.objects.create(group_name=name, year=year)
+        submission = Submission.objects.create(group=team, answers={"q_answers": "Answers."})
+        submission.snapshot(self.staff)
+        submission.save()
+        return team
+
+    def test_a_name_two_teams_share_this_year_is_refused(self):
+        self._second_team("BTF-TEST-1", self.group.year)
+        resp = self.client.post(
+            self.url, {"file": self._make_csv([self._row("5")]), "dry_run": "true"}
+        )
+        body = resp.json()
+        self.assertEqual(body["checks"]["bad_group_rows"], [
+            {"row": 2, "reason": "2 teams are named 'BTF-TEST-1'"},
+        ])
+        self.assertEqual(body["summary"]["creates"], 0)
+
+    def test_the_same_name_in_another_year_does_not_clash(self):
+        self._second_team("BTF-TEST-1", self.group.year - 1)
+        resp = self.client.post(
+            self.url, {"file": self._make_csv([self._row("5")]), "dry_run": "false"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        # The mark went to this year's team only.
+        self.assertEqual(
+            list(Grade.objects.values_list("submission__group_id", flat=True)), [self.group.id]
+        )
 
     def test_unrecognised_columns_are_ignored(self):
         # Missing means missing: an unknown column is not reported as a
@@ -338,7 +401,7 @@ class BulkUploadWideFormatTests(_GradingFixture):
         self.client.force_authenticate(self.staff)
         self.url = reverse("grading:component-bulk-upload", kwargs={"code": "POSTER"})
 
-    WIDE_HEADER = ["group_id", "group_name", "type", "r1_mark", "r1_comment", "overall_comment"]
+    WIDE_HEADER = ["year", "group_name", "type", "r1_mark", "r1_comment", "overall_comment"]
 
     def _make_csv(self, rows, header=None):
         header_line = ",".join(header or self.WIDE_HEADER) + "\n"
@@ -350,7 +413,7 @@ class BulkUploadWideFormatTests(_GradingFixture):
     def test_dry_run_wide_shape_with_type_check(self):
         resp = self.client.post(
             self.url,
-            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "7.00", "nice", "")]),
+            {"file": self._make_csv([(self.group.year, "BTF-TEST-1", "Poster", "7.00", "nice", "")]),
              "dry_run": "true"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -364,7 +427,7 @@ class BulkUploadWideFormatTests(_GradingFixture):
     def test_wrong_type_rejected(self):
         resp = self.client.post(
             self.url,
-            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "SAQs", "7.00", "", "")]),
+            {"file": self._make_csv([(self.group.year, "BTF-TEST-1", "SAQs", "7.00", "", "")]),
              "dry_run": "true"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -376,15 +439,15 @@ class BulkUploadWideFormatTests(_GradingFixture):
     def test_missing_rn_columns_rejected(self):
         # Every rubric position's mark/comment pair is required — a sheet
         # without them (e.g. an SAQ export on this tab) is refused up front.
-        header = ["group_id", "group_name", "type", "overall_comment"]
-        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "")], header=header)
+        header = ["year", "group_name", "type", "overall_comment"]
+        upload = self._make_csv([(self.group.year, "BTF-TEST-1", "Poster", "")], header=header)
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.json()["checks"]["missing_headers"], ["r1_mark", "r1_comment"])
 
     def test_preview_names_the_group_of_a_replaced_overall_comment(self):
         ComponentFeedback.objects.create(group=self.group, component=self.poster, comment="old note")
-        upload = self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "", "", "new note")])
+        upload = self._make_csv([(self.group.year, "BTF-TEST-1", "Poster", "", "", "new note")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         [entry] = resp.json()["overall_comments"]
@@ -396,7 +459,7 @@ class BulkUploadWideFormatTests(_GradingFixture):
         Grade.objects.create(submission=self.poster_submission, criterion=self.poster_c1, mark=Decimal("5"), comment="old")
         resp = self.client.post(
             self.url,
-            {"file": self._make_csv([(self.group.id, "BTF-TEST-1", "Poster", "9.00", "great", "")]),
+            {"file": self._make_csv([(self.group.year, "BTF-TEST-1", "Poster", "9.00", "great", "")]),
              "dry_run": "false"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)

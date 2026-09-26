@@ -33,6 +33,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
+from apps.groups.models.groups import Groups
 from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import StudentProfile
 
@@ -123,6 +124,12 @@ def _run_job(job_id: int) -> None:
             questions = SubmissionQuestion.objects.order_by("order", "id").values_list(
                 "prompt", flat=True
             )
+            # Each team's challenge year, for the sheet's year column.
+            years_by_group = dict(
+                Groups.objects.filter(id__in=[e.group_id for e in entries]).values_list(
+                    "id", "year"
+                )
+            )
             payload = build_saq_xlsx(
                 entries,
                 criteria,
@@ -130,6 +137,7 @@ def _run_job(job_id: int) -> None:
                 feedback_by_group,
                 categories_by_group,
                 questions=list(questions),
+                years_by_group=years_by_group,
             )
             filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
         elif kind == "all_zip":

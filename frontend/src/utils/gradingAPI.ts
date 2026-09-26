@@ -311,6 +311,11 @@ export interface BulkUploadChecks {
   missing_headers: string[]
   // The sheet's type column check ("SAQs", "Poster", …).
   expected_type?: string
+  /** The only year the sheet's rows may carry: the current challenge year. */
+  expected_year?: number
+  /** The first wrong year a row carried, or the sheet's year when all are right. */
+  found_year?: string | null
+  year_ok?: boolean
   found_type?: string | null
   type_ok?: boolean
   bad_group_rows: { row: number; reason: string }[]
@@ -466,6 +471,11 @@ export interface SubmissionDeadline {
 export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadline | null }> {
   return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/')
 }
+
+/** The current challenge year, as the backend's current_cohort works it out:
+ *  the deadline's year, or the calendar year while no deadline exists. */
+export const challengeYear = (deadline: SubmissionDeadline | null) =>
+  deadline ? new Date(deadline.closes_at).getFullYear() : new Date().getFullYear()
 
 // POST /api/v1/grading/deadline/ — set a new deadline (newest active row wins).
 export function saveSubmissionDeadline(

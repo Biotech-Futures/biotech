@@ -9,7 +9,9 @@ import {
   fetchSubmissionDeadline
 } from '@/utils/gradingAPI'
 
-vi.mock('@/utils/gradingAPI', () => ({
+vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
+  // The real rule the page shares with the upload dialog.
+  challengeYear: (await importOriginal<typeof import('@/utils/gradingAPI')>()).challengeYear,
   fetchCertificatesRelease: vi.fn(),
   fetchFinalists: vi.fn(),
   fetchGroupExtensions: vi.fn(),
