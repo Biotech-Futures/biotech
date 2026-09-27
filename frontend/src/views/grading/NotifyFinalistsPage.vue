@@ -52,12 +52,23 @@
     </section>
 
     <section class="card notify-finalists__email-section">
-      <div class="card-header">
-        <h3 class="card-title">Send Email Notification</h3>
-      </div>
+      <h3 class="notify-finalists__section-title">Send Email Notification</h3>
       <p class="notify-finalists__hint">
         Send a notification email to the finalist teams. Tick Notify on specific teams
         to email only those.
+      </p>
+      <!-- Same status line as Release Marks. A team only counts as notified
+           once every member got the email. -->
+      <p
+        v-if="finalists.length"
+        class="notify-finalists__status"
+        :class="allNotified ? 'notify-finalists__status--ok' : 'notify-finalists__status--warn'"
+      >
+        <i
+          :class="allNotified ? 'fas fa-envelope-circle-check' : 'fas fa-envelope'"
+          aria-hidden="true"
+        ></i>
+        {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
       </p>
       <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
       <div class="notify-finalists__email-actions">
@@ -242,6 +253,7 @@ const { message: actionMessage, show: flashAction } = useFlashMessage()
 const sendingMode = ref<'all' | 'selected' | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
+const allNotified = computed(() => finalists.value.every((f) => f.notified))
 
 // Teams ticked in the Notify column. Empty selection = email all un-notified.
 const selectedIds = ref(new Set<number>())
@@ -454,6 +466,7 @@ const confirmSend = async () => {
 
 .notify-finalists__section-title {
   font-size: 1.05rem;
+  font-weight: 600;
   margin-bottom: 0.75rem;
 }
 
@@ -538,17 +551,25 @@ const confirmSend = async () => {
   border: 0;
 }
 
-/* No divider under the heading — the hint line sits directly beneath it. */
-.notify-finalists__email-section .card-header {
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 0;
-}
-
 .notify-finalists__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As the Release Marks status line. */
+.notify-finalists__status {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.notify-finalists__status--ok {
+  color: var(--dark-green);
+}
+
+.notify-finalists__status--warn {
+  color: #eab308;
 }
 
 .notify-finalists__email-actions {

@@ -552,6 +552,7 @@ const save = async () => {
 
 .grading-settings__section-title {
   font-size: 1.05rem;
+  font-weight: 600;
   margin-bottom: 0.75rem;
 }
 

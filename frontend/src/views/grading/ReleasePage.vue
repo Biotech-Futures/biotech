@@ -20,6 +20,10 @@
         <h3 class="card-title">Release Marks</h3>
       </div>
 
+      <p class="release__hint">
+        Releasing shows marks only to students whose group made a submission.
+      </p>
+
       <p class="release__headline" :class="released ? 'release__state--ok' : 'release__state--warn'">
         <i :class="released ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
         {{ released ? 'Marks are released' : 'Marks are not released' }}
@@ -30,9 +34,6 @@
 
       <p v-if="actionError" class="release__banner release__banner--error">{{ actionError }}</p>
 
-      <p class="release__hint">
-        Releasing shows marks only to students whose group made a submission.
-      </p>
       <p v-if="!released && submissionsOpen" class="release__banner release__banner--warn">
         Submissions are still open (including extensions) — marks can be released once the
         window has closed.

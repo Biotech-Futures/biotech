@@ -100,6 +100,24 @@ describe('the finalist roster', () => {
     listMock.mockResolvedValue({ finalists: [] })
     const wrapper = await mountPage()
     expect(wrapper.find('.notify-finalists__empty').text()).toBe('No finalists yet.')
+    expect(wrapper.find('.notify-finalists__status').exists()).toBe(false)
+  })
+
+  it('warns while a team is still to be emailed', async () => {
+    const wrapper = await mountPage()
+    const status = wrapper.find('.notify-finalists__status')
+    expect(status.text()).toBe('Emails are not sent to every group member')
+    expect(status.classes()).toContain('notify-finalists__status--warn')
+  })
+
+  it('says every member was emailed once all teams are notified', async () => {
+    listMock.mockResolvedValue({
+      finalists: [finalist(1, { notified: true, notified_at: '2026-09-10T00:00:00Z' })]
+    })
+    const wrapper = await mountPage()
+    const status = wrapper.find('.notify-finalists__status')
+    expect(status.text()).toBe('Emails are sent to every group member')
+    expect(status.classes()).toContain('notify-finalists__status--ok')
   })
 
   it('offers a retry when the roster fails to load', async () => {
