@@ -31,6 +31,8 @@ from ..models import (
     GradingSettings,
     GroupMarkingCategories,
     MarksRelease,
+    Rubric,
+    SubmissionComponent,
 )
 from .xlsx import _format_product_category, _format_solution_category
 
@@ -428,25 +430,47 @@ def render_participation_certificate(context: dict) -> bytes:
 # Context builders
 
 
-def sample_marks_summary_context() -> dict:
-    """Synthetic marks-summary data for the Document Setup test render.
+# Made-up marks as a share of each criterion's maximum, cycled.
+_SAMPLE_MARK_SHARES = (Decimal("0.6"), Decimal("0.7"), Decimal("0.8"), Decimal("0.9"))
 
-    Every field the templates can reference is filled with an obviously fake
-    value, so an admin opening the result can spot any placeholder that did
-    NOT get replaced.
+
+def _sample_components(year: int) -> list[dict]:
+    """Every component with its real rubric, as a released summary would show
+    it: this year's active rubric, else the component's latest active one.
+    Marks and comments are made up. A component with no rubric has no
+    criteria, as on a real summary."""
+    out = []
+    for component in SubmissionComponent.objects.order_by("order", "id"):
+        code, name = component.code, component.name
+        rubrics = Rubric.objects.filter(component=component, active=True)
+        rubric = rubrics.filter(year=year).first() or rubrics.order_by("-year").first()
+        criteria = [(c.name, c.max_mark) for c in rubric.criteria.all()] if rubric else []
+        out.append({
+            "code": code,
+            "name": name,
+            "submitted": True,
+            "overall_comment": f"Sample overall {name} comment.",
+            "criteria": [
+                {
+                    "name": criterion_name,
+                    "max_mark": str(max_mark),
+                    "mark": str((max_mark * _SAMPLE_MARK_SHARES[i % 4]).quantize(Decimal("1"))),
+                    "comment": f"Sample comment for {name} criterion {i}.",
+                }
+                for i, (criterion_name, max_mark) in enumerate(criteria, start=1)
+            ],
+        })
+    return out
+
+
+def sample_marks_summary_context() -> dict:
+    """Marks-summary data for the Document Setup test render.
+
+    The rubric is the real one (criterion names and maximums from the
+    database); everything else is an obviously fake value, so an admin
+    opening the result can spot any placeholder that did NOT get replaced.
     """
     settings = GradingSettings.load()
-
-    def _criteria(prefix: str, count: int) -> list[dict]:
-        return [
-            {
-                "name": f"Sample {prefix} criterion {i}",
-                "max_mark": "5",
-                "mark": f"{3 + (i % 3)}.00",
-                "comment": f"Sample comment for {prefix} criterion {i}.",
-            }
-            for i in range(1, count + 1)
-        ]
 
     return {
         "group_name": "SAMPLE-TEAM-01",
@@ -454,22 +478,7 @@ def sample_marks_summary_context() -> dict:
         "project_category": "Sample Project Category",
         "solution_category": "Sample Solution Category",
         "year": date.today().year,
-        "components": [
-            {
-                "code": "POSTER",
-                "name": "Poster",
-                "submitted": True,
-                "overall_comment": "Sample overall poster comment.",
-                "criteria": _criteria("poster", 10),
-            },
-            {
-                "code": "SAQ",
-                "name": "Short Answer Questions",
-                "submitted": True,
-                "overall_comment": "Sample overall SAQ comment.",
-                "criteria": _criteria("SAQ", 4),
-            },
-        ],
+        "components": _sample_components(date.today().year),
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "director_1_position": settings.director_1_position or "Sample Position One",

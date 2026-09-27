@@ -304,6 +304,38 @@ class ClientDocxTemplateTests(_GradingFixture):
         ):
             self.assertIn("Chair 2027", self._document_xml(data))
 
+    def test_the_test_summary_uses_the_real_rubric(self):
+        from apps.grading.services.docx import render_marks_summary_data, sample_marks_summary_context
+
+        context = sample_marks_summary_context()
+        by_code = {c["code"]: c for c in context["components"]}
+        self.assertEqual(
+            [(c["name"], c["max_mark"]) for c in by_code["SAQ"]["criteria"]],
+            [("Content", "10.00"), ("Clarity", "5.00")],
+        )
+        self.assertEqual([c["name"] for c in by_code["POSTER"]["criteria"]], ["Design"])
+        for criterion in by_code["SAQ"]["criteria"] + by_code["POSTER"]["criteria"]:
+            self.assertTrue(0 < Decimal(criterion["mark"]) <= Decimal(criterion["max_mark"]))
+
+        xml = self._document_xml(render_marks_summary_data(_build_docx(
+            "{{ShortAnswerQuestionRubric1}} / {{ShortAnswerQuestionRubric2}} / {{PosterRubric1}}"
+        ), context))
+        self.assertIn("Content / Clarity / Design", xml)
+        self.assertNotIn("Sample", xml)
+
+    def test_the_test_summary_falls_back_when_this_year_has_no_rubric(self):
+        from apps.grading.services.docx import _sample_components
+
+        # No 2030 rubric yet: the latest active one stands in.
+        by_code = {c["code"]: c for c in _sample_components(2030)}
+        self.assertEqual([c["name"] for c in by_code["SAQ"]["criteria"]], ["Content", "Clarity"])
+
+        # No active rubric at all: no criteria, as on a real summary.
+        self.poster_rubric.active = False
+        self.poster_rubric.save(update_fields=["active"])
+        poster = {c["code"]: c for c in _sample_components(2026)}["POSTER"]
+        self.assertEqual(poster["criteria"], [])
+
     def test_the_template_check_knows_the_criterion_names_but_not_the_old_ones(self):
         from apps.grading.services.docx import scan_template_data
 
