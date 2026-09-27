@@ -95,6 +95,20 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminPeoplePage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  {
+    path: '/admin/views',
+    name: 'admin-views',
+    component: () => import('@/views/admin/AdminViewsDirectoryPage.vue'),
+    meta: { requiresAdmin: true }
+  },
+  {
+    path: '/admin/views/:id',
+    name: 'admin-view-detail',
+    // TODO(person 3): swap for the real AdminExecutedViewPage.vue once it exists.
+    component: () => import('@/components/admin/AdminStubSection.vue'),
+    props: { title: 'View Results', description: 'The executed view results screen is coming soon.' },
+    meta: { requiresAdmin: true }
+  },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
   {
