@@ -140,6 +140,15 @@ class ComponentDownloadViewTests(_GradingFixture):
         job = GradingJob.objects.get(pk=job_id)
         self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
         self.assertTrue(job.result_url)
+        # Storage may add a suffix if the name is taken.
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.zip$")
+
+    def test_saq_sheet_is_named_btf(self):
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "xlsx"}, format="json")
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.xlsx$")
 
     def test_xlsx_only_for_saq(self):
         url = reverse("grading:component-download", kwargs={"code": "POSTER"})
