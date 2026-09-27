@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from apps.groups.models import Groups
 
+from .utils import detect_provider
 from .models import MeetingNote, MeetingSummary
 from .permissions import can_manage_meeting
 
@@ -67,6 +68,7 @@ class GroupMeetingSerializer(serializers.Serializer):
         source="event.event_timezone", read_only=True
     )
     join_link = serializers.CharField(source="event.location_link", read_only=True)
+    provider = serializers.SerializerMethodField()
     cancelled_at = serializers.DateTimeField(source="event.deleted_at", read_only=True)
 
     note = serializers.SerializerMethodField()
@@ -104,6 +106,9 @@ class GroupMeetingSerializer(serializers.Serializer):
         # through to a membership query for co-mentors and admins.
         return can_manage_meeting(self._user(), obj)
 
+    def get_provider(self, obj):
+        return detect_provider(obj.join_link)
+
 
 class GroupMeetingCreateSerializer(serializers.Serializer):
     group = serializers.PrimaryKeyRelatedField(
@@ -114,21 +119,29 @@ class GroupMeetingCreateSerializer(serializers.Serializer):
     agenda = serializers.CharField(required=False, allow_blank=True, default="")
     start_datetime = serializers.DateTimeField()
     ends_datetime = serializers.DateTimeField()
+    duration_minutes = serializers.IntegerField(required=False,min_value=5,max_value=480)
     timezone_name = serializers.CharField(required=False, default="UTC", max_length=50)
     join_link = serializers.URLField(max_length=255)
 
     def validate(self, attrs):
-        start, end = attrs["start_datetime"], attrs["ends_datetime"]
-        # Mirrors check_event_end_after_start so a bad payload is a 400,
-        # not an IntegrityError surfacing as a 500.
-        if end <= start:
-            raise serializers.ValidationError(
-                {"ends_datetime": "Must be after start_datetime."}
-            )
-        if start < timezone.now():
-            raise serializers.ValidationError(
-                {"start_datetime": "Cannot schedule a meeting in the past."}
-            )
+        duration = attrs.pop("duration_minutes", None)
+        if "ends_datetime" not in attrs:
+            if duration is None:
+                raise serializers.ValidationError(
+                    {"duration_minutes": "Must be provided if ends_datetime is not."}
+                )
+            attrs["ends_datetime"] = attrs["start_datetime"] + timedelta(minutes=duration)
+            start, end = attrs["start_datetime"], attrs["ends_datetime"]
+            # Mirrors check_event_end_after_start so a bad payload is a 400,
+            # not an IntegrityError surfacing as a 500.
+            if end <= start:
+                raise serializers.ValidationError(
+                    {"ends_datetime": "Must be after start_datetime."}
+                )
+            if start < timezone.now():
+                raise serializers.ValidationError(
+                    {"start_datetime": "Cannot schedule a meeting in the past."}
+                )
         return attrs
 
 

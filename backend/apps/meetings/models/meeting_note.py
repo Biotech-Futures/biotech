@@ -5,7 +5,7 @@ from django.db import models
 class MeetingNote(models.Model):
     """Shared live note -- any active group participant may edit it.
 
-    ``revision`` is an optimistic-concurrency counter, not a history. Every
+    ``revision`` is an optimistic-concurrency counter. Every
     accepted write bumps it by one; a client PATCHing with a stale revision
     is rejected with 409 instead of silently overwriting whatever landed in
     between. Without it, two people typing at once lose each other's work.

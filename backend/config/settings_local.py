@@ -16,7 +16,12 @@ DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
 # Database configuration is safely inherited from settings.py mapping to .env
-
+DATABASES["default"]["NAME"] = "biotech_dev"
+DATABASES["default"]["USER"] = "biotech"
+DATABASES["default"]["PASSWORD"] = "biotech"
+DATABASES["default"]["HOST"] = "127.0.0.1"
+DATABASES["default"]["PORT"] = "5432"
+DATABASES["default"]["OPTIONS"]["sslmode"] = "disable"
 # Use local file storage instead of Azure Blob
 USE_AZURE_BLOB_STORAGE = False
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
@@ -24,7 +29,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 # Use proper email backend, falling back to what's mapped in settings.py (which uses SMTP)
-# EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # conftest.py pins pytest to this module, and the backend above is real SMTP —
 # send inline so a test can never leave a pool thread dialling the relay.
