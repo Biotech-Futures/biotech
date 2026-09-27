@@ -168,23 +168,25 @@ class GroupCreateApiTests(TestCase):
         self.assertEqual(self.group.group_name, "Group One")
 
     # --- bulk create (FIX 7) ------------------------------------------------
-    def test_bulk_create_allows_duplicate_name(self):
+    def test_bulk_create_refuses_a_name_taken_this_year(self):
         url = reverse("groups-bulk-create")
         resp = self.client.post(
-            url, {"groups": [{"group_name": "Group One"}]}, format="json",
+            url, {"groups": [{"group_name": "group one"}]}, format="json",
         )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Groups.objects.filter(group_name="Group One").count(), 2)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A group named group one already exists in", str(resp.json()))
+        self.assertEqual(Groups.objects.filter(group_name__iexact="Group One").count(), 1)
 
-    def test_bulk_create_allows_duplicate_within_payload(self):
+    def test_bulk_create_refuses_the_same_name_twice_and_creates_none(self):
         url = reverse("groups-bulk-create")
         resp = self.client.post(
             url,
             {"groups": [{"group_name": "Twice"}, {"group_name": "Twice"}]},
             format="json",
         )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Groups.objects.filter(group_name="Twice").count(), 2)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A group named Twice already exists in", str(resp.json()))
+        self.assertEqual(Groups.objects.filter(group_name="Twice").count(), 0)
 
     def test_bulk_create_reuses_a_soft_deleted_name(self):
         dead = Groups.objects.create(group_name="Recycled")

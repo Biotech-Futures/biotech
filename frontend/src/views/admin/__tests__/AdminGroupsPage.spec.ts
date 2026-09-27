@@ -228,7 +228,7 @@ describe('AdminGroupsPage', () => {
       }
       if (method === 'POST' && u.includes('/group/')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ msg: 'A group with this name already exists', data: null }), { status: 400 })
+          new Response(JSON.stringify({ msg: 'A group named BTF1 already exists in 2026.', data: null }), { status: 400 })
         )
       }
       if (method === 'GET' && u.includes('/group/')) {
@@ -259,7 +259,7 @@ describe('AdminGroupsPage', () => {
     await flushPromises()
 
     expect(dialogs().find((d) => d.textContent!.includes('Add group'))).toBeDefined()
-    expect(dialog.textContent).toContain('A group with this name already exists')
+    expect(dialog.textContent).toContain('A group named BTF1 already exists in 2026.')
   })
 
   it('renames a group', async () => {

@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Countries, GroupMembership, Groups
+from .models import Countries, GroupMembership, Groups, duplicate_group_name_error
+from .models.groups import default_group_year
 from apps.users.models import User
 
 
@@ -104,6 +105,17 @@ class GroupSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError({'group_name': ['This field is required.']})
       if 'group_name' in attrs and not attrs['group_name'].strip():
         raise serializers.ValidationError({'group_name': ['This field may not be blank.']})
+
+    # A blank name on create gets an auto name instead; anything typed must be
+    # free in the group's year (a new group's year is this year).
+    name = (attrs.get('group_name') or '').strip()
+    if name:
+      if self.instance is not None:
+        taken = duplicate_group_name_error(name, self.instance.year, exclude_id=self.instance.pk)
+      else:
+        taken = duplicate_group_name_error(name, default_group_year())
+      if taken:
+        raise serializers.ValidationError({'group_name': [taken]})
 
     return attrs
 
