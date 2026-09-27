@@ -9,9 +9,8 @@ import logging
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.utils import timezone
 
+from apps.services.system_email import FAILED, send_system_email
 from apps.users.models import User
 
 from .models import Events
@@ -46,13 +45,22 @@ def notify_waitlist_promoted(*, event_id, user_id):
         f"%A, %d %B %Y at %I:%M %p {local_start.tzname() or user_tz_name}"
     )
 
-    from_email = settings.DEFAULT_FROM_EMAIL
-    subject = f"You're in: {event.event_name}"
+    # Hybrid: show both join URL and physical location. Virtual/in-person: one or the other.
+    join_link = ""
+    where = ""
+    fmt = event.event_format
+    if fmt == Events.EventFormat.HYBRID:
+        join_link = event.location_link or ""
+        where = event.location or ""
+    elif fmt == Events.EventFormat.VIRTUAL and event.location_link:
+        join_link = event.location_link
+    elif event.location:
+        where = event.location
+
     intro = (
         "A spot just opened up and you've been moved from the waitlist "
         f"to confirmed for {event.event_name}."
     )
-
     lines = [
         f"Hi {first_name},",
         "",
@@ -61,30 +69,38 @@ def notify_waitlist_promoted(*, event_id, user_id):
         f"Event:  {event.event_name}",
         f"When:   {when_full}",
     ]
-    # Hybrid: show both join URL and physical location. Virtual/in-person: one or the other.
-    fmt = event.event_format
-    if fmt == Events.EventFormat.HYBRID:
-        if event.location_link:
-            lines.append(f"Join:   {event.location_link}")
-        if event.location:
-            lines.append(f"Where:  {event.location}")
-    elif fmt == Events.EventFormat.VIRTUAL and event.location_link:
-        lines.append(f"Join:   {event.location_link}")
-    elif event.location:
-        lines.append(f"Where:  {event.location}")
+    if join_link:
+        lines.append(f"Join:   {join_link}")
+    if where:
+        lines.append(f"Where:  {where}")
     lines += ["", "See you there!", "", f"The {settings.BRAND_NAME} Team"]
     plain_body = "\n".join(lines)
 
     try:
-        msg = EmailMultiAlternatives(
-            subject=subject,
-            body=plain_body,
-            from_email=from_email,
-            to=[email],
+        # Sent inline (this already runs after the RSVP transaction commits).
+        # Skipped when an admin has switched this email off.
+        result = send_system_email(
+            "event_promotion",
+            email,
+            {
+                "First_Name": first_name,
+                "EVENT_NAME": event.event_name,
+                "EVENT_WHEN_TEXT": when_full,
+                "EVENT_JOIN_LINK": join_link,
+                "EVENT_LOCATION_TEXT": where,
+            },
+            default_text=plain_body,
         )
-        msg.send(fail_silently=False)
     except Exception:
         logger.exception(
+            "Failed to send waitlist-promotion email for event %s user %s",
+            event_id,
+            user_id,
+        )
+        return
+
+    if result == FAILED:
+        logger.error(
             "Failed to send waitlist-promotion email for event %s user %s",
             event_id,
             user_id,

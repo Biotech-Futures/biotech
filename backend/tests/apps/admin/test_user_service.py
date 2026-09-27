@@ -819,7 +819,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         self.assertEqual(len(co["groupsCreated"]), 1)
         self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
         group = Groups.objects.get()
-        self.assertEqual(group.group_name, "BTF1")
+        self.assertEqual(group.group_name, "BTF01")
         self.assertEqual(group.group_name, co["groupsCreated"][0]["name"])
         self.assertEqual(
             GroupMembership.objects.filter(
@@ -895,10 +895,10 @@ class AdminUserServiceCoRegistrationTests(TestCase):
             "",
         )
         names = [g["name"] for g in result["data"]["coRegistration"]["groupsCreated"]]
-        self.assertEqual(names, ["BTF1", "BTF2"])  # no "C" marker, same single series
+        self.assertEqual(names, ["BTF01", "BTF02"])  # no "C" marker, same single series
         self.assertEqual(
             sorted(Groups.objects.values_list("group_name", flat=True)),
-            ["BTF1", "BTF2"],
+            ["BTF01", "BTF02"],
         )
 
     def test_co_registration_steps_over_a_hand_named_squatter(self):
@@ -911,7 +911,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
 
         co = result["data"]["coRegistration"]
         self.assertEqual(co["warnings"], [])
-        self.assertEqual(co["groupsCreated"][0]["name"], "BTF6")
+        self.assertEqual(co["groupsCreated"][0]["name"], "BTF06")
 
     def test_co_registration_name_failure_degrades_to_a_warning(self):
         # Only reachable now by losing every retry, so drive it directly.
@@ -961,7 +961,7 @@ class AdminUserServiceCoRegistrationTests(TestCase):
         self.assertEqual(len(co["warnings"]), 1)
         self.assertIn("left ungrouped", co["warnings"][0])
         group = Groups.objects.get()
-        self.assertEqual(group.group_name, "BTF1")
+        self.assertEqual(group.group_name, "BTF01")
         self.assertEqual(
             GroupMembership.objects.filter(group=group, left_at__isnull=True).count(), 2
         )

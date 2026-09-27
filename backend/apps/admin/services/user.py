@@ -209,6 +209,13 @@ def upsert_student_profile(
     if guardian_email is not None:
         profile_data["pg_email"] = (guardian_email or "").strip() or None
 
+    existing_profile = StudentProfile.objects.filter(user_id=user_id).first()
+    existing_granted_at = (
+        existing_profile.joinperm_granted_at
+        if existing_profile and existing_profile.has_join_permission
+        else None
+    )
+
     if joinperm_response_id is not _UNSET:
         response_id = (joinperm_response_id or "").strip() or None
         profile_data["joinperm_responseID"] = response_id
@@ -216,6 +223,11 @@ def upsert_student_profile(
     else:
         profile_data["has_join_permission"] = True
         profile_data["joinperm_responseID"] = None
+
+    if profile_data["has_join_permission"]:
+        profile_data["joinperm_granted_at"] = existing_granted_at or timezone.now()
+    else:
+        profile_data["joinperm_granted_at"] = None
 
     if supervisor_email is not _UNSET:
         profile_data["supervisor_id"] = _resolve_supervisor_id(

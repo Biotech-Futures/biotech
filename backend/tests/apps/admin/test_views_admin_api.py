@@ -24,6 +24,50 @@ class AdminViewApiTests(TestCase):
         AdminScope.objects.create(user=self.admin)
         self.client.force_authenticate(user=self.admin)
 
+        for item in [
+            {
+                'name': 'All Users',
+                'description': 'Complete directory of all registered accounts',
+                'is_default': True,
+                'target_roles': ['all'],
+                'account_status': 'all',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+            },
+            {
+                'name': 'All Mentors',
+                'description': 'Active certified mentors across all domains',
+                'is_default': True,
+                'target_roles': ['mentor'],
+                'account_status': 'active',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'status'],
+            },
+            {
+                'name': 'All Supervisors',
+                'description': 'Institution and academic supervisors',
+                'is_default': True,
+                'target_roles': ['supervisor'],
+                'account_status': 'active',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+            },
+            {
+                'name': 'All Admins',
+                'description': 'Platform administrators with elevated management permissions',
+                'is_default': True,
+                'target_roles': ['admin'],
+                'account_status': 'active',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'last_login', 'status'],
+            },
+        ]:
+            AdminView.objects.get_or_create(name=item['name'], defaults=item)
+
         # Geographies
         self.country = Countries.objects.create(country_name="Australia")
         self.state_nsw = CountryStates.objects.create(country=self.country, state_name="NSW")

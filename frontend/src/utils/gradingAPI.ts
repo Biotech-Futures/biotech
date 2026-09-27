@@ -122,6 +122,15 @@ async function requestBlob(
   return { blob: await response.blob(), filename: match?.[1] ?? null }
 }
 
+// Fetch a submitted file and save it through a blob link. A plain <a download>
+// can't force this: the file URL is cross-origin, where browsers ignore the
+// download attribute, and local /media/ serves PDFs inline (the storage layer
+// only bakes an attachment disposition into Azure SAS URLs).
+export async function downloadSubmissionFile(url: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob(url)
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // Fetch bytes for the summary/certificate docx and trigger a browser download.
 // Rendered server-side via docxtpl (see backend/apps/grading/services/docx.py).
 async function downloadDocx(path: string, filename: string) {
@@ -275,6 +284,9 @@ export interface BulkUploadRowEntry {
   mark: string | null
   comment: string
   grade_id?: number
+  // Updates only: the group's name and the sheet columns whose values differ.
+  group_name?: string | null
+  columns?: string[]
   old_mark?: string | null
   old_comment?: string
 }
@@ -288,14 +300,62 @@ export interface BulkUploadSummary {
   creates: number
   updates: number
   unchanged: number
+  overall_comments?: number
+  // SAQ sheets only: marking key selections parsed from the sheet.
+  marking_categories?: number
   errors: number
+}
+
+/** Categorised validation report shown on preview. */
+export interface BulkUploadChecks {
+  missing_headers: string[]
+  // The sheet's type column check ("SAQs", "Poster", …).
+  expected_type?: string
+  /** The only year the sheet's rows may carry: the current challenge year. */
+  expected_year?: number
+  /** The first wrong year a row carried, or the sheet's year when all are right. */
+  found_year?: string | null
+  year_ok?: boolean
+  found_type?: string | null
+  type_ok?: boolean
+  bad_group_rows: { row: number; reason: string }[]
+  bad_marks: { row: number; column: string; hint: string }[]
+}
+
+export interface BulkUploadCategoryEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  // The category columns this change touches, and those of them that had a
+  // stored value (replaced or cleared) rather than being set for the first time.
+  columns?: string[]
+  overwritten_columns?: string[]
+  product_categories: string[]
+  product_category_other: string
+  solution_category: string
+  solution_category_other: string
+}
+
+/** A group's overall comment the sheet changes. An empty old_comment means
+ *  none was stored (a new record); otherwise it's replaced or cleared. */
+export interface BulkUploadOverallCommentEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  component_id: number
+  comment: string
+  old_comment: string
 }
 
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  overall_comments?: BulkUploadOverallCommentEntry[]
+  // SAQ shape only: marking key changes parsed from the sheet.
+  marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]
+  checks?: BulkUploadChecks
   summary: BulkUploadSummary
   applied?: boolean
   written?: number
@@ -317,8 +377,10 @@ export interface FinalistListResponse {
 
 export interface GradingSettingsDetail {
   director_1_name: string
+  director_1_position: string
   director_1_signature: string | null
   director_2_name: string
+  director_2_position: string
   director_2_signature: string | null
   marks_summary_template: string | null
   certificate_template: string | null
@@ -349,6 +411,8 @@ export function setCertificatesFinalistExclusion(exclude: boolean): Promise<Rele
 
 // Per-team extra time on top of the global deadline.
 export interface GroupExtension {
+  /** Row id — group_id is no longer unique since revoked rows are kept. */
+  id: number
   group_id: number
   group_name: string
   extended_until: string
@@ -357,6 +421,9 @@ export interface GroupExtension {
   reason: string
   granted_at: string
   granted_by: string | null
+  /** Soft revoke: set when an admin revoked this extension; row stays listed. */
+  revoked_at: string | null
+  revoked_by: string | null
 }
 
 // GET /api/v1/grading/deadline/extensions/ — every granted extension.
@@ -405,6 +472,11 @@ export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadlin
   return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/')
 }
 
+/** The current challenge year, as the backend's current_cohort works it out:
+ *  the deadline's year, or the calendar year while no deadline exists. */
+export const challengeYear = (deadline: SubmissionDeadline | null) =>
+  deadline ? new Date(deadline.closes_at).getFullYear() : new Date().getFullYear()
+
 // POST /api/v1/grading/deadline/ — set a new deadline (newest active row wins).
 export function saveSubmissionDeadline(
   closesAt: string,
@@ -423,9 +495,9 @@ export function fetchGroupMarking(groupId: number, year?: number): Promise<Group
 }
 
 // POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
-// Which components carry an overall-comment box, and its heading. SAQ has
-// none (its overall comment never appears in the released document).
+// Which components carry an overall-comment box, and its heading.
 const OVERALL_COMMENT_LABELS: Record<string, string> = {
+  SAQ: 'Overall SAQs Comment',
   POSTER: 'Overall Poster Comment',
   REPORT: 'Overall Scientific Report Comment',
   PROTOTYPE: 'Overall Prototype Comment'
@@ -472,7 +544,6 @@ export function fetchComponentRows(code: string, year?: number): Promise<Compone
 // Which placeholders the active docx template actually contains.
 export interface TemplateScan {
   uploaded: boolean
-  dialect: 'tokens' | 'controls' | 'none'
   /** Placeholders present that the renderer knows how to fill. */
   present: string[]
   /** Placeholders present that would be left blank — usually typos. */
@@ -544,6 +615,16 @@ export async function startComponentDownload(
   return data.job_id
 }
 
+// POST /api/v1/grading/download-all/ — async zip of every group's entry
+// across all components. Same 202 + job-polling contract as above.
+export async function startAllSubmissionsDownload(): Promise<number> {
+  const data = await requestJson<{ job_id: number }>('/api/v1/grading/download-all/', {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+  return data.job_id
+}
+
 // GET /api/v1/grading/jobs/{id}/ — poll target for async downloads.
 export function fetchJobStatus(jobId: number): Promise<GradingJobDetail> {
   return requestJson<GradingJobDetail>(`/api/v1/grading/jobs/${jobId}/`)
@@ -586,15 +667,26 @@ export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
   })
 }
 
-// GET /api/v1/grading/settings/ — director names + template metadata.
+// GET /api/v1/grading/settings/ — director names and positions + template metadata.
 export function fetchGradingSettings(): Promise<GradingSettingsDetail> {
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/')
 }
 
-// PATCH /api/v1/grading/settings/ — JSON for name-only edits, FormData when
+// PATCH /api/v1/grading/settings/ — JSON for text-only edits, FormData when
 // any file (signature / docx template) is being uploaded.
 export function updateGradingSettings(
-  patch: Partial<Pick<GradingSettingsDetail, 'director_1_name' | 'director_2_name' | 'component_weights'>> | FormData
+  patch:
+    | Partial<
+        Pick<
+          GradingSettingsDetail,
+          | 'director_1_name'
+          | 'director_1_position'
+          | 'director_2_name'
+          | 'director_2_position'
+          | 'component_weights'
+        >
+      >
+    | FormData
 ): Promise<GradingSettingsDetail> {
   const isForm = patch instanceof FormData
   return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/', {
@@ -642,6 +734,8 @@ export interface FinalistCandidateRow {
   criterion_markers: { label: string; marker: string }[]
   is_finalist: boolean
   has_submission: boolean
+  /** Components the team submitted that still have unmarked criteria. */
+  incomplete: string[]
 }
 
 export interface FinalistCandidatesResponse {
@@ -664,13 +758,63 @@ export function notifyFinalists(groupIds?: number[]): Promise<{ sent: number; pe
   })
 }
 
+/** What the finalist email tells teams about the Symposium (dates as YYYY-MM-DD). */
+export interface FinalistEmailFields {
+  symposium_date: string | null
+  confirm_by: string | null
+  slides_due: string | null
+  registration_url: string
+}
+
+export interface FinalistEmailDetails extends FinalistEmailFields {
+  /** Every detail is set, so the email can go out. */
+  complete: boolean
+  /** Sydney's today (YYYY-MM-DD): the earliest any of the dates may be. */
+  today: string
+  /** Saved date fields already before today, which block sending. */
+  dates_in_past: string[]
+}
+
+// GET /api/v1/grading/finalists/email/ — the finalist email's dates and link.
+export function fetchFinalistEmailDetails(): Promise<FinalistEmailDetails> {
+  return requestJson<FinalistEmailDetails>('/api/v1/grading/finalists/email/')
+}
+
+// PATCH /api/v1/grading/finalists/email/ — save them.
+export function updateFinalistEmailDetails(
+  fields: Partial<FinalistEmailFields>
+): Promise<FinalistEmailDetails> {
+  return requestJson<FinalistEmailDetails>('/api/v1/grading/finalists/email/', {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+export interface FinalistEmailPreview {
+  subject: string
+  /** The team the preview is addressed to. */
+  group_name: string
+  html: string
+}
+
+// POST /api/v1/grading/finalists/email/preview/ — the email as a finalist
+// would get it, for the given (possibly unsaved) details. Sends nothing.
+export function previewFinalistEmail(
+  fields: Partial<FinalistEmailFields>
+): Promise<FinalistEmailPreview> {
+  return requestJson<FinalistEmailPreview>('/api/v1/grading/finalists/email/preview/', {
+    method: 'POST',
+    body: JSON.stringify(fields)
+  })
+}
+
 // GET /api/v1/grading/finalists/ — the current finalist set.
 export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
 // POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
-// fires the notification email (server-gated by GRADING_FINALIST_EMAIL_ENABLED).
+// fires the notification email (once the email details are set).
 export function addFinalist(groupId: number, notify = false): Promise<void> {
   return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, {
     method: 'POST',

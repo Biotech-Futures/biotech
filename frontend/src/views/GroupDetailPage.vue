@@ -1,3 +1,5 @@
+
+
 <template>
   <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
@@ -293,16 +295,17 @@
                           </option>
                         </select>
                       </label>
-                      <div class="task-filter-row-pair">
-                        <label class="task-filter-row">
-                          <span>Due after</span>
-                          <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
-                        </label>
-                        <label class="task-filter-row">
-                          <span>Due before</span>
-                          <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
-                        </label>
-                      </div>
+
+
+
+                      <label class="task-filter-row">
+                        <span>Due after</span>
+                        <AppDatePicker v-model="taskFilters.dueDateAfter" placeholder="Due after date" />
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Due before</span>
+                        <AppDatePicker v-model="taskFilters.dueDateBefore" placeholder="Due before date" />
+                      </label>
                       <label class="task-filter-row task-filter-row--checkbox">
                         <input
                           v-model="taskFilters.showDeleted"
@@ -804,7 +807,7 @@
                         <i class="fas fa-calendar" aria-hidden="true"></i>
                         <span>Due date</span>
                       </label>
-                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="datetime-local" class="task-dialog-input" />
+                      <AppDatePicker v-model="taskForm.dueDate" placeholder="Select due date" />
                     </div>
 
                     <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
@@ -963,11 +966,11 @@
                 </label>
                 <label>
                   <span>From</span>
-                  <input type="date" v-model="messageSearchFilters.from" />
+                  <AppDatePicker v-model="messageSearchFilters.from" placeholder="From date" />
                 </label>
                 <label>
                   <span>To</span>
-                  <input type="date" v-model="messageSearchFilters.to" />
+                  <AppDatePicker v-model="messageSearchFilters.to" placeholder="To date" />
                 </label>
               </div>
               <div v-if="messageSearchError" class="chat-panel-status">{{ messageSearchError }}</div>
@@ -1756,6 +1759,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppDatePicker from '../components/AppDatePicker.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
@@ -2591,6 +2595,22 @@ const studentMemberUserIds = computed(
     ),
 )
 
+const supervisorMemberUserIds = computed(
+  () =>
+    new Set(
+      groupMemberships.value
+        .filter(
+          (item) =>
+            !item.leftAt &&
+            String(item.role || '')
+              .toLowerCase()
+              .includes('supervisor'),
+        )
+        .map((item) => Number(item.userId))
+        .filter(Number.isFinite),
+    ),
+)
+
 const supervisedStudentIds = computed(
   () =>
     new Set(
@@ -2626,8 +2646,10 @@ const individualTaskAssigneeOptions = computed(() => {
   }
 
   if (auth.isMentor) {
-    return activeGroupMemberOptions.value.filter((item) =>
-      groupMemberUserIds.value.has(Number(item.userId)),
+    return activeGroupMemberOptions.value.filter(
+      (item) =>
+        groupMemberUserIds.value.has(Number(item.userId)) &&
+        !supervisorMemberUserIds.value.has(Number(item.userId)),
     )
   }
 
@@ -2968,7 +2990,13 @@ const canCreateTaskType = (taskType, parentTask = null) => {
   const assigneeId = Number(parentTask.assignedUser)
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
+  if (auth.isMentor) {
+    return (
+      isCurrentGroupMentor.value &&
+      groupMemberUserIds.value.has(assigneeId) &&
+      !supervisorMemberUserIds.value.has(assigneeId)
+    )
+  }
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -2981,7 +3009,13 @@ const canCreateTaskFromForm = () => {
   if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
+  if (auth.isMentor) {
+    return (
+      isCurrentGroupMentor.value &&
+      groupMemberUserIds.value.has(assigneeId) &&
+      !supervisorMemberUserIds.value.has(assigneeId)
+    )
+  }
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -6469,13 +6503,9 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
-.task-filter-row input[type='datetime-local'] {
+.task-filter-row input[type='date'],
+.task-filter-row .app-date-picker-wrapper {
   width: 100%;
-  height: 34px;
-  padding: 0 0.55rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: #fff;
   color: var(--charcoal);
   font: inherit;
 }
@@ -7753,6 +7783,7 @@ onBeforeUnmount(() => {
 .message-search-filters input[type="date"] {
   border: 1px solid var(--border-default);
   border-radius: 8px;
+  min-height: 38px;
   padding: 0.36rem 0.55rem;
   background: var(--surface, #fff);
   font: inherit;

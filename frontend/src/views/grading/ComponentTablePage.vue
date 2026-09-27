@@ -22,46 +22,55 @@
       <p class="component-table__error-detail">{{ loadError }}</p>
       <div class="component-table__error-actions">
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
       </div>
     </div>
 
     <div v-else-if="payload" class="component-table">
-      <div class="component-table__header">
-        <h2 class="component-table__title">{{ payload.component.name }}</h2>
-        <div class="component-table__actions">
-          <p class="component-table__stats">
-            {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-            {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
-          </p>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('zip')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> Zip
-          </button>
-          <button
-            v-if="payload.component.code === 'SAQ'"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('xlsx')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> XLSX
-          </button>
-          <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+      <div class="card component-table__search-card">
+        <div class="component-table__search-field">
+          <label class="component-table__search-label" for="component-group-search">Search</label>
+          <div class="component-table__search">
+            <i class="fas fa-magnifying-glass component-table__search-icon" aria-hidden="true"></i>
+            <input
+              id="component-group-search"
+              v-model="searchQuery"
+              type="search"
+              class="component-table__search-input"
+              placeholder="Group name"
+              aria-label="Search groups"
+            />
+          </div>
         </div>
+        <p class="component-table__stats">
+          {{ submittedCount }}/{{ payload.rows.length }} Submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+        </p>
+        <div class="component-table__actions">
+            <button
+              v-if="payload.component.code === 'SAQ'"
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="job.isBusy.value"
+              @click="startJob('xlsx')"
+            >
+              <i class="fas fa-download" aria-hidden="true"></i> XLSX
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="job.isBusy.value"
+              @click="startJob('zip')"
+            >
+              <i class="fas fa-download" aria-hidden="true"></i> Download
+            </button>
+            <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+          </div>
       </div>
 
-      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--info">
-        {{ jobBusyLabel }}
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--ok">
+        Processing files for Download
       </p>
-      <p v-else-if="job.phase.value === 'done'" class="component-table__banner component-table__banner--ok">
-        Download ready — check your browser downloads.
-      </p>
-      <p v-else-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
+      <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
       <p v-if="uploadMessage" class="component-table__banner component-table__banner--ok">
@@ -73,15 +82,13 @@
           <thead>
             <tr>
               <th>
-                <button type="button" class="component-table__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                <button type="button" class="component-table__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th>Group</th>
-              <th>Submitted</th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
-                  Time <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -104,26 +111,28 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="9" class="component-table__empty">No groups.</td>
+              <td colspan="7" class="component-table__empty">
+                {{ searchQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td>{{ r.group_id }}</td>
               <td class="component-table__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString() }}
-                </template>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleTimeString() }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
+                  {{
+                    new Date(r.submitted_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hourCycle: 'h23'
+                    })
+                  }}
                 </template>
                 <span v-else class="component-table__muted">—</span>
               </td>
               <td>
                 <span v-if="r.is_late" class="component-table__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="component-table__muted">—</span>
               </td>
@@ -164,15 +173,11 @@
                 >
                   Open
                 </RouterLink>
-                <span v-else class="component-table__muted">No submission</span>
+                <span v-else class="component-table__muted">No sub.</span>
               </td>
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <div>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
       </div>
     </div>
   </div>
@@ -194,7 +199,7 @@ const route = useRoute()
 const router = useRouter()
 const code = computed(() => String(route.params.code || ''))
 
-// Same hard-coded list as the By-component landing (matches the seed migration).
+// Component codes are hard-coded to match the backend seed migration.
 const COMPONENTS: { code: string; name: string }[] = [
   { code: 'SAQ', name: 'Short Answer Questions' },
   { code: 'POSTER', name: 'A2 Poster' },
@@ -210,26 +215,38 @@ const switchComponent = (target: string) => {
 const payload = ref<ComponentListPayload | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
+const searchQuery = ref('')
 
 const job = useJobPolling()
 const uploadMessage = ref('')
-
-const jobBusyLabel = computed(() => {
-  if (job.phase.value === 'downloading') return 'Downloading…'
-  return 'Preparing export… this can take a moment for large cohorts.'
-})
 
 const startJob = (format: 'zip' | 'xlsx') => {
   uploadMessage.value = ''
   void job.start(code.value, format)
 }
 
-const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied — wrote ${written} row${written === 1 ? '' : 's'}.`
+const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
+
+// "Marks applied. Overwrote existing records for 2 groups and wrote new
+// records for 1 group." Counted in groups, like the upload preview.
+const appliedMessage = ({ overwritten, created }: { overwritten: number; created: number }) => {
+  const parts: string[] = []
+  if (overwritten) parts.push(`overwrote existing records for ${groupCount(overwritten)}`)
+  if (created) parts.push(`wrote new records for ${groupCount(created)}`)
+  if (!parts.length) return 'Marks applied. No records changed.'
+  const detail = parts.join(' and ')
+  return `Marks applied. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+}
+
+const onUploadApplied = async (counts: { overwritten: number; created: number }) => {
+  uploadMessage.value = appliedMessage(counts)
   await load()
 }
 
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -251,6 +268,7 @@ watch(
   code,
   () => {
     uploadMessage.value = ''
+    searchQuery.value = ''
     void load()
   },
   { immediate: true }
@@ -299,15 +317,19 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: ComponentRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.criteria_graded : null
 }
 
 const displayRows = computed(() => {
-  const rows = [...(payload.value?.rows ?? [])]
+  const query = searchQuery.value.trim().toLowerCase()
+  let rows = [...(payload.value?.rows ?? [])]
+  if (query) {
+    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
+  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -395,23 +417,84 @@ const displayRows = computed(() => {
   gap: 1rem;
 }
 
-.component-table__header {
+/* Search card — same treatment as the Admin Groups page's group search.
+   The negative margin cancels both the global .card margin-bottom and the
+   column gap (1rem) so the card sits flush against the table. */
+.component-table__search-card,
+.component-table__search-card:hover {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
   flex-wrap: wrap;
+  padding: 1rem;
+  margin-bottom: -1rem;
+  /* Flush against the table below — square off the shared edge and use the
+     table's outline instead of the card shadow. The table's own top border
+     draws the divider, so no border-bottom here. */
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
 }
 
-.component-table__title {
-  margin: 0;
-  font-size: 1.35rem;
+.component-table__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1 1 140px;
+  /* Explicit floor — otherwise the input's intrinsic minimum (~170px)
+     wins and crowds the stats out of the row. */
+  min-width: 155px;
+  max-width: 252px;
+}
+
+.component-table__search-field .component-table__search-input {
+  min-width: 0;
+}
+
+.component-table__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.component-table__search {
+  position: relative;
+  width: 100%;
+}
+
+.component-table__search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.component-table__search-input {
+  width: 100%;
+  height: 40px;
+  /* Slim right padding — text clips at the content edge, so a wide pad
+     cuts the placeholder well short of the visible border. */
+  padding: 0.5rem 0 0.5rem 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  color: var(--charcoal);
 }
 
 .component-table__stats {
-  color: var(--text-muted);
+  color: var(--charcoal);
   font-size: 0.9rem;
-  margin: 0;
+  /* Auto inline margins center the stats between the search box and the
+     export buttons. */
+  margin: 0 auto;
 }
 
 .component-table__actions {
@@ -419,34 +502,42 @@ const displayRows = computed(() => {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  /* Stays right-aligned even when the card wraps it onto its own line. */
+  margin-left: auto;
 }
 
+/* Styled like the boxes it sits between: same background and outline as the
+   search card and table, no radius, side borders only — the card above and
+   the table below draw the horizontal edges. */
 .component-table__banner {
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   font-size: 0.9rem;
-  margin: 0;
+  /* Negative bottom margin cancels the column gap so the banner sits flush
+     against the table below, like the search card does. */
+  margin: 0 0 -1rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-light);
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0;
 }
 
 .component-table__banner--info {
-  background: color-mix(in srgb, var(--info) 12%, transparent);
   color: var(--info);
 }
 
 .component-table__banner--ok {
-  background: var(--accent-green-soft);
   color: var(--dark-green);
 }
 
 .component-table__banner--error {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 
 .component-table__scroll {
   overflow-x: auto;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
   background: var(--surface-elevated);
 }
 
@@ -523,8 +614,9 @@ const displayRows = computed(() => {
   color: var(--text-muted);
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .component-table__late {
-  color: var(--danger);
+  color: #ff8c00;
   font-weight: 600;
 }
 

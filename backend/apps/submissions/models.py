@@ -100,12 +100,16 @@ class Deadline(models.Model):
 
 
 class GroupExtension(models.Model):
-    """Extra time granted to one team."""
+    """Extra time granted to one team.
 
-    group = models.OneToOneField(
+    Revoked rows are kept as history; only one ACTIVE (un-revoked) extension
+    may exist per group — enforced by a partial unique constraint.
+    """
+
+    group = models.ForeignKey(
         "groups.Groups",
         on_delete=models.CASCADE,
-        related_name="submission_extension",
+        related_name="submission_extensions",
     )
     extended_until = models.DateTimeField()
     # Same quiet buffer as the global deadline: students see extended_until,
@@ -120,10 +124,27 @@ class GroupExtension(models.Model):
         blank=True,
         related_name="granted_submission_extensions",
     )
+    # Soft revoke: the row is kept as the audit trail (who revoked, when);
+    # readers that decide whether a team can still submit ignore revoked rows.
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="revoked_submission_extensions",
+    )
 
     class Meta:
         db_table = "submission_group_extension"
         verbose_name = "Group extension"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_extension_per_group",
+            )
+        ]
 
     def __str__(self):
         return f"{self.group} until {self.extended_until:%Y-%m-%d %H:%M} UTC"

@@ -47,7 +47,9 @@ def current_cohort() -> int:
 
 def deadline_for_group(group_id: int) -> DeadlineInfo:
     """The closing time for one team; an extension replaces the standard deadline outright."""
-    extension = GroupExtension.objects.filter(group_id=group_id).first()
+    extension = GroupExtension.objects.filter(
+        group_id=group_id, revoked_at__isnull=True
+    ).first()
     if extension is not None:
         # An extension carries its own quiet grace hours rather than
         # inheriting the global deadline's — the admin granting it decides

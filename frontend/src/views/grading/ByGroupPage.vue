@@ -1,36 +1,56 @@
 <template>
   <div class="by-group">
-    <div class="card by-group__search-card">
-      <div class="card-header">
-        <h3 class="card-title">Mark by Group</h3>
-      </div>
-      <p class="by-group__hint">
-        Every component for a single group. Search by group name or ID.
-      </p>
-      <form class="by-group__form" @submit.prevent="open">
-        <GroupSearchInput ref="picker" v-model="query" class="by-group__picker" @select="goTo" />
-        <button type="submit" class="btn btn-primary btn-sm">Open</button>
-      </form>
-      <p v-if="error" class="by-group__error">{{ error }}</p>
-    </div>
-
     <section>
-      <h3 class="card-title by-group__list-title">Groups</h3>
+      <div class="card by-group__search-card">
+        <div class="by-group__search-field">
+          <span class="by-group__search-label">Search</span>
+          <form class="by-group__form" @submit.prevent="open">
+            <GroupSearchInput
+              ref="picker"
+              v-model="query"
+              class="by-group__picker"
+              :show-suggestions="false"
+              @select="goTo"
+            />
+          </form>
+          <p v-if="error" class="by-group__error">{{ error }}</p>
+        </div>
+        <p class="by-group__stats">
+          {{ submittedCount }}/{{ rows.length }} Submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+        </p>
+        <div class="by-group__actions">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="job.startAll()"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          </button>
+        </div>
+      </div>
+
+      <p v-if="job.isBusy.value" class="by-group__banner by-group__banner--ok">
+        Processing files for Download
+      </p>
+      <p v-if="job.phase.value === 'failed'" class="by-group__banner by-group__banner--error">
+        {{ job.error.value }}
+      </p>
+
       <p v-if="isLoading" class="by-group__hint">Loading…</p>
       <div v-else class="by-group__scroll">
         <table class="by-group__table">
           <thead>
             <tr>
               <th>
-                <button type="button" class="by-group__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                <button type="button" class="by-group__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th>Group</th>
-              <th>Submitted</th>
               <th>
                 <button type="button" class="by-group__sort" @click="setSort('time')">
-                  Time <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -52,26 +72,28 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="by-group__empty">No groups.</td>
+              <td colspan="6" class="by-group__empty">
+                {{ query.trim() ? 'No groups match your search.' : 'No groups.' }}
+              </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td class="by-group__muted">#{{ r.group_id }}</td>
               <td class="by-group__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString() }}
-                </template>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleTimeString() }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
+                  {{
+                    new Date(r.submitted_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hourCycle: 'h23'
+                    })
+                  }}
                 </template>
                 <span v-else class="by-group__muted">—</span>
               </td>
               <td>
                 <span v-if="r.is_late" class="by-group__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
+                  {{ r.late_by || 'Late' }}
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
@@ -91,7 +113,12 @@
               </td>
               <td>
                 <span v-if="r.markers.length" class="by-group__marker" :title="r.markerTooltip">
-                  {{ r.markers.join(', ') }}
+                  {{ r.markers[0] }}
+                  <i
+                    v-if="r.markers.length > 1"
+                    class="fas fa-users by-group__marker-icon"
+                    aria-hidden="true"
+                  ></i>
                 </span>
                 <span v-else class="by-group__muted">—</span>
               </td>
@@ -103,7 +130,7 @@
                 >
                   Open
                 </RouterLink>
-                <span v-else class="by-group__muted">No submission</span>
+                <span v-else class="by-group__muted">No sub.</span>
               </td>
             </tr>
           </tbody>
@@ -117,6 +144,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import { useJobPolling } from '@/composables/useJobPolling'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -133,14 +161,16 @@ const open = () => {
   error.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    error.value = 'No group matches that name or ID.'
+    error.value = 'No group matches that name.'
     return
   }
   void router.push(`/grading/groups/${id}`)
 }
 
 // One row per group, aggregated across all four components: progress is
-// criteria graded / criteria defined over the whole entry, markers deduped.
+// criteria graded / criteria defined over the components the team actually
+// submitted (a team without a report is not marked down for its criteria),
+// markers deduped.
 const CODES = ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE']
 
 interface GroupRow {
@@ -159,8 +189,20 @@ interface GroupRow {
 const rows = ref<GroupRow[]>([])
 const isLoading = ref(false)
 
+// The everything-zip (all groups, all components) plus cohort stats — the
+// same affordances the per-component table offers.
+const job = useJobPolling()
+
+const submittedCount = computed(() => rows.value.filter((r) => r.submission_id != null).length)
+const fullyMarkedCount = computed(
+  () => rows.value.filter((r) => r.submission_id != null && r.total > 0 && r.graded >= r.total).length
+)
+
 // Same sorting behaviour as the per-component tables.
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -181,15 +223,23 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: GroupRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.graded : null
 }
 
 const displayRows = computed(() => {
-  const sorted = [...rows.value]
+  // Live-filter the table by the search text (group name), matching the
+  // By Component page; the dropdown picker still handles jump-to-group.
+  const q = query.value.trim().toLowerCase()
+  let sorted = [...rows.value]
+  if (q) {
+    sorted = sorted.filter(
+      (r) => r.group_name.toLowerCase().includes(q)
+    )
+  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   sorted.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -221,7 +271,6 @@ onMounted(async () => {
     ).filter((p) => p != null)
     if (!payloads.length) throw new Error('Could not load the group list.')
 
-    const totalCriteria = payloads.reduce((sum, p) => sum + p.criteria_total, 0)
     const byGroup = new Map<number, GroupRow>()
     const tooltipLines = new Map<number, string[]>()
 
@@ -232,17 +281,29 @@ onMounted(async () => {
           g = {
             group_id: r.group_id,
             group_name: r.group_name,
-            submission_id: r.submission_id,
-            submitted_at: r.submitted_at,
-            is_late: r.is_late,
-            late_by: r.late_by,
+            submission_id: null,
+            submitted_at: null,
+            is_late: false,
+            late_by: null,
             graded: 0,
-            total: totalCriteria,
+            total: 0,
             markers: [],
             markerTooltip: ''
           }
           byGroup.set(r.group_id, g)
           tooltipLines.set(r.group_id, [])
+        }
+        // A row has a submission only when the team submitted this component:
+        // only those count towards the total, and any of them shows the entry
+        // (one submission covers every component, so they all agree).
+        if (r.submission_id != null) {
+          if (g.submission_id == null) {
+            g.submission_id = r.submission_id
+            g.submitted_at = r.submitted_at
+            g.is_late = r.is_late
+            g.late_by = r.late_by
+          }
+          g.total += payload.criteria_total
         }
         g.graded += r.criteria_graded
         const names = r.grader_names?.length
@@ -277,9 +338,84 @@ onMounted(async () => {
   gap: 1.25rem;
 }
 
-/* Only the table runs full width; the search card stays compact. */
-.by-group__search-card {
-  max-width: 36rem;
+/* Search card sits flush on the table — same outline treatment as the
+   component table page: table border instead of the card shadow, square
+   shared edge, and the table's own top border draws the divider. */
+.by-group__search-card,
+.by-group__search-card:hover {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem;
+  margin-bottom: 0;
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+}
+
+.by-group__stats {
+  color: var(--charcoal);
+  font-size: 0.9rem;
+  /* Centered between the search box and the Download All button. */
+  margin: 0 auto;
+}
+
+.by-group__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Stays right-aligned even when the card wraps it onto its own line. */
+  margin-left: auto;
+}
+
+/* Styled like the boxes it sits between — see ComponentTablePage. */
+.by-group__banner {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  margin: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-light);
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0;
+}
+
+.by-group__banner--info {
+  color: var(--info);
+}
+
+.by-group__banner--ok {
+  color: var(--dark-green);
+}
+
+.by-group__banner--error {
+  color: var(--danger);
+}
+
+.by-group__search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* Same width as the By Component page's search box; explicit floor so
+     the input's intrinsic minimum can't crowd the row. */
+  flex: 1 1 140px;
+  min-width: 155px;
+  max-width: 252px;
+}
+
+.by-group__search-field :deep(.group-search__input) {
+  min-width: 0;
+}
+
+.by-group__search-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .by-group__hint {
@@ -303,15 +439,11 @@ onMounted(async () => {
   margin: 0.5rem 0 0;
 }
 
-.by-group__list-title {
-  margin-bottom: 0.75rem;
-}
-
 .by-group__scroll {
   overflow-x: auto;
   background: var(--surface-elevated);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
 }
 
 .by-group__table {
@@ -354,8 +486,9 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .by-group__late {
-  color: #b45309;
+  color: #ff8c00;
   font-weight: 600;
 }
 
@@ -398,6 +531,18 @@ onMounted(async () => {
 
 .by-group__sort-icon--idle {
   color: var(--border-light);
+}
+
+/* One name shows; the icon hints there are more markers in the tooltip. */
+.by-group__marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.by-group__marker-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .by-group__marker-info {

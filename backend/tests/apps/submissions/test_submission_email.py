@@ -164,3 +164,58 @@ class SubmissionEmailTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(Submission.objects.get(group=self.group).submitted_at)
+
+    # --- admin editing and on/off switches --------------------------------
+
+    def test_unedited_email_keeps_its_subject_and_plain_text(self):
+        self._complete_and_submit()
+        message = mail.outbox[0]
+
+        self.assertEqual(message.subject, "BIOTech Futures: Submission received for BTF-EMAIL")
+        # The hand-written .txt template, not text derived from the HTML.
+        self.assertTrue(message.body.startswith("Hi Group BTF-EMAIL,"))
+        self.assertIn("THANK YOU FOR SUBMITTING YOUR WORK", message.body)
+        self.assertIn("REQUIRED COMPONENTS", message.body)
+        self.assertEqual(message.mixed_subtype, "related")  # logo attached
+
+    def test_switched_off_sends_nothing_and_the_submission_still_succeeds(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="submission_confirmation", is_enabled=False)
+        response = self._complete_and_submit()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(Submission.objects.get(group=self.group).submitted_at)
+        self.assertEqual(mail.outbox, [])
+
+    def test_edited_email_uses_saved_wording_and_component_lists(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(
+            key="submission_confirmation",
+            subject="Got it, {{ group_name }}",
+            body_html="<p>Thanks {{ group_name }}.</p>{{ required_components_list }}",
+        )
+        self._complete_and_submit()
+
+        message = mail.outbox[0]
+        html = message.alternatives[0][0]
+        self.assertEqual(message.subject, "Got it, BTF-EMAIL")
+        self.assertIn("<p>Thanks BTF-EMAIL.</p>", html)
+        self.assertIn("<li><strong>Poster</strong>: Submitted (poster.pdf)</li>", html)
+        self.assertIn("<li><strong>Short Answer Questions (SAQs)</strong>: Submitted</li>", html)
+        # Every member still gets the same email.
+        self.assertEqual(len({m.alternatives[0][0] for m in mail.outbox}), 1)
+
+    def test_component_list_escapes_values(self):
+        from apps.submissions.emails import components_list_html
+
+        html = components_list_html([
+            {"label": "<b>Poster</b>", "status": "Submitted", "detail": "<script>x</script>.pdf"},
+        ])
+        self.assertEqual(
+            html,
+            "<ul><li><strong>&lt;b&gt;Poster&lt;/b&gt;</strong>: Submitted "
+            "(&lt;script&gt;x&lt;/script&gt;.pdf)</li></ul>",
+        )
+        self.assertEqual(components_list_html([]), "")

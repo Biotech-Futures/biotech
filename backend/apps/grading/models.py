@@ -297,8 +297,11 @@ class CertificatesRelease(SingletonModel):
 
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
+    # The title printed under the name, e.g. "Chair" or "Co-Chair".
+    director_1_position = models.CharField(max_length=255, blank=True)
     director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
     director_2_name = models.CharField(max_length=255, blank=True)
+    director_2_position = models.CharField(max_length=255, blank=True)
     director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
     marks_summary_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
     certificate_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
@@ -310,6 +313,39 @@ class GradingSettings(SingletonModel):
 
     def __str__(self):
         return "GradingSettings"
+
+
+class FinalistEmailSettings(SingletonModel):
+    """The details the finalist email gives teams about the Symposium, set on
+    the Notify Finalists page each year. Nothing is sent until all are set."""
+
+    symposium_date = models.DateField(null=True, blank=True)
+    confirm_by = models.DateField(null=True, blank=True)
+    slides_due = models.DateField(null=True, blank=True)
+    registration_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://events.humanitix.com/biotech-futures-symposium",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "finalist_email_settings"
+
+    def __str__(self):
+        return "FinalistEmailSettings"
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(
+            self.symposium_date and self.confirm_by and self.slides_due and self.registration_url
+        )
+
+    DATE_FIELDS = ("symposium_date", "confirm_by", "slides_due")
+
+    def dates_before(self, today) -> list[str]:
+        """The date fields set to a day before ``today`` (last year's, say)."""
+        return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
 
 
 class GradingJob(models.Model):

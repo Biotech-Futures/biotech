@@ -14,9 +14,10 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.groups.models import Groups
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
-from .emails import recipients_for, send_individually
+from .emails import components_list_html, recipients_for, send_individually
 from .models import Submission, SubmissionReminder
 from .serializers import missing_required_answers
 from .services import deadline_for_group
@@ -97,6 +98,9 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
         "YEAR": timezone.now().year,
         "REQUIRED_COMPONENTS": required,
         "OPTIONAL_COMPONENTS": optional,
+        # The same lists as HTML, for an admin's edited wording.
+        "REQUIRED_COMPONENTS_LIST": components_list_html(required),
+        "OPTIONAL_COMPONENTS_LIST": components_list_html(optional),
         "DEADLINE": _format_deadline(closes_at),
         "SUBMISSION_URL": (
             f"{settings.FRONTEND_BASE_URL}/#/submission/{group.id}"
@@ -104,22 +108,9 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
             else ""
         ),
     }
-    subject = f"{settings.BRAND_NAME}: Submission reminder for {group.group_name}"
     text = render_to_string("emails/submission_reminder.txt", context)
-    html = render_to_string("emails/submission_reminder.html", context)
-
-    messages = []
-    for address in recipients_for(group):
-        message = EmailMultiAlternatives(
-            subject=subject,
-            body=text,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[address],
-        )
-        message.attach_alternative(html, "text/html")
-        attach_inline_logo(message)
-        messages.append(message)
-    return messages
+    rendered = render_system_email("submission_reminder", context, default_text=text)
+    return [build_message(rendered, address) for address in recipients_for(group)]
 
 
 def teams_due(now=None) -> list[tuple]:
@@ -152,7 +143,14 @@ def teams_due(now=None) -> list[tuple]:
 
 
 def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
-    """Send today's reminders synchronously and return counts of sent, skipped and failed."""
+    """Send today's reminders synchronously and return counts of sent, skipped and failed.
+
+    When an admin has switched these emails off, nothing is sent or recorded,
+    so reminders resume normally once they're switched back on.
+    """
+    if not is_email_enabled("submission_reminder"):
+        return {"sent": 0, "skipped": 0, "failed": 0, "disabled": True}
+
     now = now or timezone.now()
     today = timezone.localdate(now)
     sent = skipped = failed = 0

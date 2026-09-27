@@ -33,10 +33,18 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
+from apps.groups.models.groups import Groups
+from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import StudentProfile
 
-from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
-from .content import submission_entries
+from ..models import (
+    Grade,
+    GradingJob,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
+)
+from .content import feedback_map, submission_entries
 from .docx import (
     certificate_context,
     marks_summary_context,
@@ -44,7 +52,7 @@ from .docx import (
     render_participation_certificate,
 )
 from .xlsx import build_saq_xlsx
-from .zip import _safe, build_submissions_zip
+from .zip import _COMPONENT_LABELS, _safe, build_submissions_zip
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +88,11 @@ def _run_job(job_id: int) -> None:
             )
 
         if kind == "component_zip":
-            payload = build_submissions_zip(entries)
-            filename = f"{component.code}-bundle.zip"
+            # Flat — one component per bundle, so group file names can't
+            # collide and folders would just be an extra layer.
+            payload = build_submissions_zip(entries, group_folder=False)
+            label = _COMPONENT_LABELS.get(component.code, component.code)
+            filename = f"{timezone.now().year}_BIOTech_{label}.zip"
         elif kind == "component_xlsx":
             criteria = list(
                 RubricCriterion.objects
@@ -95,8 +106,44 @@ def _run_job(job_id: int) -> None:
                     criterion__rubric__component__code=component_code,
                 )
             }
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair)
-            filename = f"{component.code}-saq.xlsx"
+            feedback_by_group = {
+                gid: comment
+                for (gid, component_id), comment in feedback_map(
+                    [e.group_id for e in entries]
+                ).items()
+                if component_id == component.id
+            }
+            categories_by_group = {
+                c.group_id: c
+                for c in GroupMarkingCategories.objects.filter(
+                    group_id__in=[e.group_id for e in entries]
+                )
+            }
+            # Every prompt in form order fixes the qN column order; the export
+            # keeps only the questions some group actually answered.
+            questions = SubmissionQuestion.objects.order_by("order", "id").values_list(
+                "prompt", flat=True
+            )
+            # Each team's challenge year, for the sheet's year column.
+            years_by_group = dict(
+                Groups.objects.filter(id__in=[e.group_id for e in entries]).values_list(
+                    "id", "year"
+                )
+            )
+            payload = build_saq_xlsx(
+                entries,
+                criteria,
+                grades_by_pair,
+                feedback_by_group,
+                categories_by_group,
+                questions=list(questions),
+                years_by_group=years_by_group,
+            )
+            filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
+        elif kind == "all_zip":
+            # Everything: every group, every component, full folder structure.
+            payload = build_submissions_zip(submission_entries())
+            filename = f"{timezone.now().year}_BIOTech_All.zip"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))
             supervisor_user_id = int(job.params.get("supervisor_user_id"))
@@ -176,6 +223,15 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
         ):
             student_groups.setdefault(m.user_id, m.group)
 
+    # Mirrors the student endpoints: a team that never submitted has no marks
+    # summary or certificate, so its students get nothing in the bundle.
+    submitted_group_ids = set(
+        Submission.objects.filter(
+            group__in=[g.id for g in student_groups.values()],
+            submitted_at__isnull=False,
+        ).values_list("group_id", flat=True)
+    )
+
     # Mirrors the student endpoint: excluded finalists get no participation
     # certificate in the bundle either, so the two downloads never disagree.
     excluded_group_ids: set[int] = set()
@@ -192,7 +248,7 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for sp in students:
             group = student_groups.get(sp.user_id)
-            if group is None:
+            if group is None or group.id not in submitted_group_ids:
                 continue
             folder = _safe(sp.user.get_full_name() or sp.user.email)
             if include_summaries:

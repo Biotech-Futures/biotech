@@ -1,7 +1,7 @@
 """Poster format checks.
 
-Structural checks (page count, orientation, A-series size) refuse the upload.
-Content checks (team code, supervisor email, school logo) only record warnings.
+Structural checks (page count, orientation) refuse the upload. Content checks
+(A-series size, team code, supervisor email, school logo) only record warnings.
 """
 from __future__ import annotations
 
@@ -132,22 +132,19 @@ def _structural_checks(reader) -> list[PosterCheck]:
         )
     )
 
-    size = _a_series_size(width, height)
-    checks.append(
-        PosterCheck(
-            A_SERIES_SIZE,
-            size is not None,
-            "" if size else (
-                # A2 is still what is expected; other A sizes are only tolerated.
-                "The poster should be A2 size. "
-                f"This file is {round(width / POINTS_PER_MM)} × "
-                f"{round(height / POINTS_PER_MM)} mm."
-            ),
-            explicit=True,
-        )
-    )
-
     return checks
+
+
+def _size_check(width: float, height: float) -> PosterCheck:
+    size = _a_series_size(width, height)
+    return PosterCheck(
+        A_SERIES_SIZE,
+        size is not None,
+        "" if size else (
+            f"The page is {round(width / POINTS_PER_MM)} × {round(height / POINTS_PER_MM)} mm, "
+            "not an A-series size (A2 expected)."
+        ),
+    )
 
 
 def _a_series_size(width: float, height: float) -> str | None:
@@ -305,7 +302,8 @@ def _text_by_position(page) -> tuple[str, str]:
     except Exception:
         logger.warning("poster_checks.text_extraction_failed", exc_info=True)
         return "", ""
-    return "".join(whole), "".join(bottom)
+    # Joined with spaces so adjacent runs like "2026" and "BTF1" stay separate words.
+    return " ".join(whole), " ".join(bottom)
 
 
 def _content_checks(text: str, bottom_text: str, *, team_code: str) -> list[PosterCheck]:
@@ -369,6 +367,7 @@ def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
     if page is not None:
         try:
             width, height = _page_size(page)
+            content.append(_size_check(width, height))
             logo = _logo_check(page, width, height)
         except Exception:
             logger.warning("poster_checks.logo_failed", exc_info=True)

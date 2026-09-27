@@ -39,7 +39,7 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import current_cohort, deadline_for_group
+from .services import active_deadline, current_cohort, deadline_for_group
 from .storage import submission_file_service
 from .uploads import (
     PDF_SLOTS,
@@ -314,7 +314,13 @@ class GroupSubmissionSubmitView(APIView):
 
             submission.snapshot(request.user)
             submission.cohort = current_cohort()
-            submission.is_late = False
+            # Late = past the GLOBAL announced deadline, even inside the
+            # quiet grace window or a per-team extension — an extension only
+            # keeps the portal accepting, it does not make the entry on time.
+            baseline = active_deadline()
+            submission.is_late = (
+                baseline is not None and submission.submitted_at > baseline.closes_at
+            )
             submission.save()
 
         # Outside the transaction, since a blob delete cannot be rolled back.

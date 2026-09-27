@@ -49,7 +49,6 @@ INSTALLED_APPS = [
     'apps.submissions',
     'apps.grading',
     'apps.services',
-    'matching',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
@@ -451,6 +450,12 @@ CORS_ALLOWED_ORIGINS = config(
 
 CORS_ALLOW_CREDENTIALS = True
 
+# Response headers the SPA is allowed to read on cross-origin fetches.
+# Browsers hide everything but a small safelist otherwise: without this the
+# download filename in Content-Disposition (job exports) and the X-Request-ID
+# that apiError.ts attaches to error reports both read as null in JS.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
+
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's
 # X-Forwarded-Proto. Without this, DRF's reverse(request=request) builds http:// URLs
@@ -620,12 +625,6 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
-# Fires the "you're a finalist" email to every group member. Off by default
-# so local dev / staging don't accidentally spam real students; flip on per
-# environment via env var once the announcement copy is signed off.
-GRADING_FINALIST_EMAIL_ENABLED = config(
-    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
-)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -669,10 +668,10 @@ RSVP_REMINDER_24H_WINDOW_HOURS = config(
     "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
 )
 RSVP_REMINDER_1H_HOURS_AHEAD = config(
-    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=0.5, cast=float
 )
 RSVP_REMINDER_1H_WINDOW_HOURS = config(
-    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=float
 )
 
 # --- Link previews -----------------------------------------------------------

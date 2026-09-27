@@ -277,6 +277,7 @@ export function GroupDetailModal({
                     <PencilIcon className="size-3.5" />
                   </Button>
                 </div>
+                <p className="text-sm text-muted-foreground">Group ID {group.id}</p>
               </div>
             </div>
 

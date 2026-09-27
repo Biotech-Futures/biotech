@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AllSubmissionsDownloadView,
     BulkUploadMarksView,
     CertificatesReleaseView,
     GroupExtensionDetailView,
@@ -10,6 +11,8 @@ from .views import (
     ComponentDownloadView,
     ComponentMarkingListView,
     FinalistCandidatesView,
+    FinalistEmailPreviewView,
+    FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
     FinalistToggleView,
@@ -44,6 +47,8 @@ urlpatterns = [
     path("components/<str:code>/", ComponentMarkingListView.as_view(), name="component-list"),
     # Async bulk export for a single component — returns 202 + job id.
     path("components/<str:code>/download/", ComponentDownloadView.as_view(), name="component-download"),
+    # Async export of everything — every group, every component.
+    path("download-all/", AllSubmissionsDownloadView.as_view(), name="download-all"),
     # Bulk mark upload (xlsx/csv). dry_run=true previews the diff.
     path("components/<str:code>/bulk-upload/", BulkUploadMarksView.as_view(), name="component-bulk-upload"),
     # Job polling endpoint for the async download dialog.
@@ -92,6 +97,12 @@ urlpatterns = [
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
     path("finalists/notify/", FinalistNotifyAllView.as_view(), name="finalist-notify"),
     path("finalists/candidates/", FinalistCandidatesView.as_view(), name="finalist-candidates"),
+    path("finalists/email/", FinalistEmailSettingsView.as_view(), name="finalist-email"),
+    path(
+        "finalists/email/preview/",
+        FinalistEmailPreviewView.as_view(),
+        name="finalist-email-preview",
+    ),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
 
     # M9 — read-only analytics for Team 4's dashboards.

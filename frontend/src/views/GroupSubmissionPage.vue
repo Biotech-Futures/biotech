@@ -170,7 +170,7 @@
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
 
-            <div v-if="posterWarnings.length" class="poster-notice">
+            <div v-if="isPosterNoticeShown" class="poster-notice">
               <p class="poster-notice__body">
                 Uploaded. Please re-check your poster against the submission
                 requirements before you submit.
@@ -590,6 +590,23 @@ const posterWarnings = computed(() => {
     : submission.poster_checks
   return checks?.warnings ?? []
 })
+
+const isPosterNoticeShown = ref(false)
+let posterNoticeTimer: ReturnType<typeof setTimeout> | null = null
+// Keyed on the file and its findings, so an auto-save does not bring the notice back.
+watch(
+  () => `${shownFile('poster')?.storage_key ?? ''}|${posterWarnings.value.map((w) => w.code).join(',')}`,
+  () => {
+    if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
+    isPosterNoticeShown.value = posterWarnings.value.length > 0
+    if (isPosterNoticeShown.value) {
+      posterNoticeTimer = setTimeout(() => {
+        isPosterNoticeShown.value = false
+      }, MESSAGE_TIMEOUT_MS)
+    }
+  },
+  { immediate: true }
+)
 
 function shownFile(slot: SubmissionSlot): StoredFile | null {
   const submission = detail.value?.submission
@@ -1141,6 +1158,7 @@ watch(groupId, () => {
 
 onBeforeUnmount(() => {
   if (autosaveTimer) clearTimeout(autosaveTimer)
+  if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
   clearInterval(clockTimer)
   clearPreview()
 })

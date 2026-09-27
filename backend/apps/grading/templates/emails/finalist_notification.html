@@ -1,0 +1,58 @@
+{% extends "emails/base.html" %}
+{# The client's finalist email (sent from Power Automate in 2025), in the      #}
+{# shared layout. The dates and link come from the Notify Finalists page.     #}
+{# Keep the wording in step with finalist_notification.txt.                   #}
+
+{% block title %}Congratulations &ndash; You&rsquo;re a {{ BRAND_NAME }} Finalist!{% endblock %}
+
+{% block preheader %}Congratulations! Your team has been selected as a finalist in the {{ BRAND_NAME }} Challenge.{% endblock %}
+
+{% block content %}
+              <h1 class="headline" style="margin:0 0 8px 0; color:#017151; font-size:22px; line-height:1.3; font-weight:700;">
+                Congratulations &ndash; You&rsquo;re a {{ BRAND_NAME }} Finalist!
+              </h1>
+
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                Dear members of <strong>{{ GROUP_NAME }}</strong>,
+              </p>
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                Congratulations! Your team has been selected as a <strong>finalist</strong> in the {{ BRAND_NAME }} Challenge.
+              </p>
+
+              <div style="margin:16px 0; padding:12px 14px; border:1px dashed #017151; border-radius:10px; background:#e9f6f1; color:#153226; font-size:16px; line-height:1.6;">
+                <strong style="color:#017151;">Important:</strong> The <strong>Symposium is in-person only</strong> at the University of Sydney on
+                <strong>{{ SYMPOSIUM_DATE }}</strong>.
+              </div>
+
+              <h2 style="margin:18px 0 8px 0; color:#0f3a2e; font-size:18px; line-height:1.3;">Please confirm attendance</h2>
+              <ul style="margin:0 0 14px 22px; padding:0; color:#153226; font-size:16px; line-height:1.6;">
+                <li style="margin:6px 0;">Have <strong>one team member</strong> reply to this email to confirm if your team can attend the Symposium.</li>
+                <li style="margin:6px 0;">Please confirm by <strong>{{ CONFIRM_BY }}</strong>. If your team cannot attend, your spot may be passed to the next team.</li>
+              </ul>
+
+              <div style="margin:16px 0;">
+                <a class="cta-link" href="{{ REGISTER_URL }}" style="display:inline-block; background:#017151; color:#ffffff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:700; font-size:16px; text-align:center;">
+                  Register for the Symposium
+                </a>
+              </div>
+
+              <h2 style="margin:18px 0 8px 0; color:#0f3a2e; font-size:18px; line-height:1.3;">Presentation requirements</h2>
+              <ul style="margin:0 0 14px 22px; padding:0; color:#153226; font-size:16px; line-height:1.6;">
+                <li style="margin:6px 0;">Prepare a <strong>3-minute presentation</strong> with a slide deck of <strong>no more than 3 content slides</strong> (a title slide and a references slide are allowed in addition).</li>
+                <li style="margin:6px 0;">Slides may include videos, but <strong>no sound</strong> will be supported.</li>
+                <li style="margin:6px 0;">An upload link will be provided. Slides are due by <strong>{{ SLIDES_DUE }}</strong>.</li>
+              </ul>
+
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                A full copy of your marks and certificates will be provided <strong>after the Symposium</strong>.
+              </p>
+
+              <p style="margin:8px 0 0 0; color:#153226; font-size:16px; line-height:1.6;">
+                Warm regards,<br><strong>The {{ BRAND_NAME }} Team</strong>
+              </p>
+{% endblock %}
+
+{% block footer_note %}
+                You&rsquo;re receiving this email because your team participated in the {{ BRAND_NAME }} Challenge.
+                <a href="https://www.biotechfutures.org/" style="color:#307054; text-decoration:underline;">biotechfutures.org</a>
+{% endblock %}

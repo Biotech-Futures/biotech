@@ -91,15 +91,15 @@ class GroupsTests(TestCase):
         obj = Groups.objects.get(group_name='team_beta')
         self.assertIsNone(obj.deleted_at)
 
-    def test_duplicate_group_name_returns_400(self):
-        # Group names are now globally unique among active groups.
+    def test_duplicate_group_name_is_allowed(self):
         url = reverse('groups-list')
         self.client.force_authenticate(user=self.admin_user)
         resp1 = self.client.post(url, {'group_name': 'dup'}, format='json')
         self.assertEqual(resp1.status_code, status.HTTP_201_CREATED)
         resp2 = self.client.post(url, {'group_name': 'dup'}, format='json')
-        self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('non_field_errors', resp2.json().get('fields', {}))
+        self.assertEqual(resp2.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(resp1.json()['id'], resp2.json()['id'])
+        self.assertEqual(Groups.objects.filter(group_name='dup').count(), 2)
 
     def test_update_requires_admin(self):
         url = reverse('groups-detail', args=[self.group1.id])
@@ -175,8 +175,7 @@ class GroupsTests(TestCase):
         self.assertIsNone(deleted.deleted_at)
         self.assertIsNone(response.data["deleted_at"])
 
-    def test_restore_group_rejects_active_name_conflict(self):
-        # A deleted duplicate stays tombstoned if it would violate active uniqueness.
+    def test_restore_group_allows_overlapping_name(self):
         deleted = self.make_deleted_group(name="Conflicting Group")
         Groups.objects.create(group_name="Conflicting Group")
         url = reverse("groups-restore", args=[deleted.id])
@@ -184,9 +183,10 @@ class GroupsTests(TestCase):
 
         response = self.client.post(url)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         deleted.refresh_from_db()
-        self.assertIsNotNone(deleted.deleted_at)
+        self.assertIsNone(deleted.deleted_at)
+        self.assertEqual(Groups.objects.filter(group_name="Conflicting Group").count(), 2)
 
     def test_non_staff_cannot_include_deleted_even_with_flag(self):
         deleted = self.make_deleted_group()

@@ -114,7 +114,9 @@ const released = computed(() => status.value?.released_at != null)
 const submissionsOpen = computed(() => status.value?.submissions_open === true)
 
 const releasedAtLabel = computed(() =>
-  status.value?.released_at ? new Date(status.value.released_at).toLocaleString() : ''
+  status.value?.released_at
+    ? `${new Date(status.value.released_at).toLocaleDateString('en-GB')} ${new Date(status.value.released_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    : ''
 )
 
 const load = async () => {
