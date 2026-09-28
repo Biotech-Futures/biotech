@@ -81,7 +81,7 @@ class UserListCreateView(APIView):
         return Response(result)
 
     def post(self, request):
-        result = create_user(request.data)
+        result = create_user(request.data, initiated_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -183,9 +183,11 @@ class UserBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        # force=True also purges records that PROTECT the user (chat messages,
-        # uploaded resources, workshops, match runs) — permanently. The admin
-        # portal gates this behind an explicit opt-in + typed confirmation.
+        # force=True also purges the records that PROTECT the user, permanently.
+        # Which records is written in services/user._purge_protecting_records and
+        # nowhere else — the copy that used to sit here went stale when tickets
+        # joined the purge. The admin portal gates this behind an explicit
+        # opt-in + typed confirmation.
         force = bool(request.data.get("force"))
         # "Select all matching" resolves the target set server-side from the
         # same filters the list uses, instead of shipping every id from the browser.
@@ -232,7 +234,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", initiated_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -250,7 +252,11 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "")
+        # No serializer on this path, unlike the JSON twin above. The role
+        # whitelist lives in add_users_by_role instead, which both endpoints
+        # reach; putting a second copy here is what let the two drift far
+        # enough for one to refuse "support" and the other to grant it.
+        result = bulk_create_users(users, "", initiated_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 

@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.groups',
     'apps.chat',
+    'apps.tickets',
     'apps.resources',
     'apps.announcements',
     'apps.audit',
@@ -223,6 +224,11 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # Ticket submission only; the GET on the same view is exempt via
+        # WriteOnlyScopedThrottle. Each submission puts an email on the same
+        # four-worker pool as login codes, so the cap is really about keeping
+        # one looping account from delaying everyone else's sign-in.
+        'ticket_create': '30/hour',
     },
 }
 
@@ -554,10 +560,11 @@ if not _BACKEND_URL_RAW:
         )
 BACKEND_URL = _BACKEND_URL_RAW.rstrip("/")
 
-# --- Chat sanitiser ----------------------------------------------------------
-# Sanitisation policy is sourced from environment variables so moderation
-# changes do not require a code deploy. See apps/chat/utils.py for the full
-# stem / whole-word grammar.
+# --- Chat blocklist ----------------------------------------------------------
+# The blocklist policy is sourced from environment variables so moderation
+# changes do not require a code deploy. Chat messages that match are rejected;
+# the replacement token remains in use for unsafe attachment filenames. See
+# apps/chat/utils.py for the full stem / whole-word grammar.
 #
 #   CHAT_SANITIZER_BLACKLIST    comma-separated entries. Each entry is one of:
 #                                 - a stem (trailing ``*``), e.g. ``fuck*`` —
@@ -582,6 +589,31 @@ CHAT_SANITIZER_BLACKLIST = config(
 )
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
+
+# Messages that pass the deterministic blocklist are queued for OpenAI's
+# standalone Moderations endpoint. The in-process worker provides low latency;
+# the authenticated scheduler endpoint is the durable retry/backfill path.
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+AI_SCREENING_OPENAI_MODEL = config(
+    "AI_SCREENING_OPENAI_MODEL", default="omni-moderation-latest"
+)
+AI_SCREENING_OPENAI_URL = config(
+    "AI_SCREENING_OPENAI_URL",
+    default="https://api.openai.com/v1/moderations",
+)
+AI_SCREENING_OPENAI_TIMEOUT_SECONDS = config(
+    "AI_SCREENING_OPENAI_TIMEOUT_SECONDS", default=15, cast=float
+)
+AI_SCREENING_MAX_INPUT_CHARS = config(
+    "AI_SCREENING_MAX_INPUT_CHARS", default=4000, cast=int
+)
+AI_SCREENING_BATCH_LIMIT = config(
+    "AI_SCREENING_BATCH_LIMIT", default=100, cast=int
+)
+AI_SCREENING_TRIGGER_TOKEN = config("AI_SCREENING_TRIGGER_TOKEN", default="")
+AI_SCREENING_DISPATCH_SYNC = config(
+    "AI_SCREENING_DISPATCH_SYNC", default="false", cast=env_bool
+)
 
 # Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
 # /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
@@ -700,3 +732,29 @@ LINK_PREVIEW_USER_AGENT = config(
 LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
+
+# --- Support tickets ---------------------------------------------------------
+# How long a ticket may sit WITH SUPPORT before the queue flags it as overdue.
+#
+# Not "without a first response", which is what this used to mean. The client
+# was asked on 2026-09-04 whether a first-reply test was right and answered:
+# "instead of making it just the first response, include follow up responses".
+# So the clock restarts every time the requester answers and stops every time
+# support does. It is measured from Ticket.awaiting_support_since; the rule
+# itself is written once, in apps/tickets/services/queue.overdue_condition.
+#
+# Plain wall-clock hours, confirmed by the client as the right reading. A
+# high-priority ticket raised at 22:00 on a Friday is therefore flagged at
+# 02:00 on the Saturday. That is intended, not a bug to fix: the platform has
+# no business-day helper, and building one — a calendar, a timezone per agent,
+# public holidays — is work the client has not asked for.
+#
+# The submission email deliberately does NOT quote these numbers. It says
+# "one business day" (apps/tickets/services/emails.EXPECTED_REPLY), which is
+# softer than the internal target and is not derived from it. That is a
+# decision, not drift: these hours are a triage target for the queue, and
+# putting "four hours" in front of a fourteen-year-old would turn it into a
+# promise we have just said we do not keep at weekends.
+TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
+TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
+TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)

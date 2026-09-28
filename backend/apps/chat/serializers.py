@@ -20,7 +20,18 @@ from .models import (
 )
 from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
-from .utils import sanitize_text
+from .utils import contains_blacklisted
+
+
+BLOCKED_MESSAGE_ERROR = "This message contains blocked content and was not sent."
+
+
+def validate_chat_message_text(value: str, *, strip: bool = False) -> str:
+    """Reject configured sensitive words before anything is persisted."""
+    text = (value or "").strip() if strip else (value or "")
+    if contains_blacklisted(text):
+        raise serializers.ValidationError(BLOCKED_MESSAGE_ERROR)
+    return text
 
 
 def is_admin_actor(user) -> bool:
@@ -401,11 +412,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
-        # Sanitise BEFORE serializer.save() so the moderated text is what
-        # gets persisted. Doing this here keeps the rule decoupled from
-        # the view and ensures every write path goes through the same filter.
         if "message_text" in attrs:
-            attrs["message_text"] = sanitize_text(attrs["message_text"])
+            attrs["message_text"] = validate_chat_message_text(attrs["message_text"])
         return attrs
 
 
@@ -532,7 +540,7 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
     )
 
     def validate_message_text(self, value):
-        return sanitize_text((value or "").strip())
+        return validate_chat_message_text(value, strip=True)
 
     def validate_uploaded_file(self, value):
         return validate_uploaded_file(
@@ -615,7 +623,7 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         fields = ["message_text"]
 
     def validate_message_text(self, value):
-        return sanitize_text(value)
+        return validate_chat_message_text(value)
 
     def update(self, instance, validated_data):
         from django.utils import timezone

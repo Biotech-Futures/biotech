@@ -42,6 +42,7 @@ from .serializers import (
     aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
+from .services.screening import schedule_message_screening
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
@@ -706,6 +707,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         apply_mentions(msg)
         _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
         self._dispatch_link_previews(msg)
+        schedule_message_screening(msg)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -747,6 +749,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 # uniform with the plain-text POST path. Dispatch is on_commit,
                 # so a failed transaction still cleans up cleanly.
                 self._dispatch_link_previews(message)
+                schedule_message_screening(message)
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
@@ -777,6 +780,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         _broadcast(
             instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
+        schedule_message_screening(instance)
         return Response(self._serialize_public_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
@@ -1213,3 +1217,32 @@ class UnreadDigestTriggerView(APIView):
             status=status.HTTP_202_ACCEPTED,
         )
 
+
+class AiScreeningTriggerView(APIView):
+    """HMAC-protected fallback trigger for queued moderation work."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        from .services.screening import dispatch_suspicious_message_screening
+
+        expected = getattr(settings, "AI_SCREENING_TRIGGER_TOKEN", "") or ""
+        api_key = getattr(settings, "OPENAI_API_KEY", "") or ""
+        if not expected or not api_key:
+            return Response(
+                {"detail": "AI screening trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-AI-Screening-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response(
+                {"detail": "Invalid token."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        return Response(
+            {"status": dispatch_suspicious_message_screening()},
+            status=status.HTTP_202_ACCEPTED,
+        )

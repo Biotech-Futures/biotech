@@ -79,8 +79,14 @@ class LocalContainerStorage(FileSystemStorage):
 
 
 class ManagedContainerStorage:
-    def __init__(self, namespace: str, azure_storage_cls):
+    def __init__(self, namespace: str, azure_storage_cls, *, azure_prefix: str = ""):
         self.namespace = namespace
+        # Local storage already keeps callers apart by giving each namespace its
+        # own directory. The Azure backend does not: several callers can share
+        # one container, and without a prefix their keys land side by side.
+        # Empty by default so existing callers keep the exact key shapes they
+        # have today.
+        self.azure_prefix = azure_prefix.strip("/")
         self._azure_storage_cls = azure_storage_cls
         self._storage = self._build_storage()
 
@@ -101,8 +107,17 @@ class ManagedContainerStorage:
             _REAL_AZURE_STORAGE is not None and isinstance(self._storage, _REAL_AZURE_STORAGE)
         )
 
+    def _prefixed(self, name: str) -> str:
+        if not self.azure_prefix or not self.is_remote:
+            return name
+        return f"{self.azure_prefix}/{name}"
+
     def save(self, name, content):
-        return self._storage.save(name, content)
+        # Only the write side prefixes. What save() returns is the real blob
+        # name and is what callers persist, so reads, deletes and signed URLs
+        # go on passing the key straight through -- prefixing there as well
+        # would apply it twice.
+        return self._storage.save(self._prefixed(name), content)
 
     def exists(self, name: str) -> bool:
         return self._storage.exists(name)
@@ -320,6 +335,17 @@ def get_prototype_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("prototypes", PrototypeAzureStorage)
 
 
+@lru_cache(maxsize=2)
+def get_ticket_storage() -> ManagedContainerStorage:
+    # Ticket attachments live in the chat container rather than one of their
+    # own, behind a "tickets/" prefix. A container per feature means a
+    # container name per feature to configure, and a mismatch between the one
+    # written to and the one read from is exactly the bug that makes resource
+    # downloads fail with BlobNotFound today. Retention rules can be scoped by
+    # prefix if they are ever wanted.
+    return ManagedContainerStorage("tickets", ChatAzureStorage, azure_prefix="tickets")
+
+
 def reset_managed_storage_caches() -> None:
     # Developer note: prod never flips USE_AZURE_BLOB_STORAGE at runtime, but tests
     # do. Exposing an explicit cache reset keeps override_settings-based storage
@@ -329,3 +355,4 @@ def reset_managed_storage_caches() -> None:
     get_poster_storage.cache_clear()
     get_report_storage.cache_clear()
     get_prototype_storage.cache_clear()
+    get_ticket_storage.cache_clear()

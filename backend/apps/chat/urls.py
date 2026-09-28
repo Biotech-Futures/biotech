@@ -1,6 +1,11 @@
 from django.urls import path
 from rest_framework_nested import routers
-from .views import MentionViewSet, MessageViewSet, UnreadDigestTriggerView
+from .views import (
+    AiScreeningTriggerView,
+    MentionViewSet,
+    MessageViewSet,
+    UnreadDigestTriggerView,
+)
 
 router = routers.SimpleRouter()
 router.register(
@@ -17,5 +22,10 @@ urlpatterns = [
         "admin/send-unread-digest/",
         UnreadDigestTriggerView.as_view(),
         name="send-unread-digest",
+    ),
+    path(
+        "admin/run-ai-screening/",
+        AiScreeningTriggerView.as_view(),
+        name="run-ai-screening",
     ),
 ]

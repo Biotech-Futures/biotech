@@ -250,7 +250,7 @@ class PatchMessageContractTests(_ChatFixture):
         CHAT_SANITIZER_BLACKLIST=["shit*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )
-    def test_patch_response_carries_moderated_text(self):
+    def test_patch_with_blocked_content_is_rejected(self):
         from apps.chat.utils import reset_pattern_cache
         reset_pattern_cache()
         try:
@@ -258,8 +258,9 @@ class PatchMessageContractTests(_ChatFixture):
             resp = self.client_student.patch(
                 self._detail_url(msg.id), {"message_text": "ugh shithole"}, format="json"
             )
-            self.assertEqual(resp.status_code, 200, resp.content)
-            self.assertEqual(resp.data["message_text"], "ugh ***")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            msg.refresh_from_db()
+            self.assertEqual(msg.message_text, "clean")
         finally:
             reset_pattern_cache()
 
@@ -267,7 +268,7 @@ class PatchMessageContractTests(_ChatFixture):
 class PostMessageValidationTests(_ChatFixture):
     """Contract: POST must include text OR ≥1 resource; ``resource_id``
     references are validated; sender/text-only and resources-only both
-    work; the moderated text round-trips back in the 201."""
+    work; blocked text is rejected before persistence."""
 
     def test_post_with_neither_text_nor_resources_is_400(self):
         resp = self.client_student.post(
@@ -309,7 +310,7 @@ class PostMessageValidationTests(_ChatFixture):
         CHAT_SANITIZER_BLACKLIST=["shit*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )
-    def test_post_response_returns_moderated_text(self):
+    def test_post_with_blocked_content_is_rejected(self):
         from apps.chat.utils import reset_pattern_cache
         reset_pattern_cache()
         try:
@@ -318,8 +319,8 @@ class PostMessageValidationTests(_ChatFixture):
                 {"message_text": "this is bullshit", "resources": []},
                 format="json",
             )
-            self.assertEqual(resp.status_code, 201, resp.content)
-            self.assertEqual(resp.data["message_text"], "this is ***")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertEqual(Messages.objects.count(), 0)
         finally:
             reset_pattern_cache()
 
