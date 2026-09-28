@@ -5,8 +5,8 @@ Same path as the finalist email: the shared system email path, so admins can
 switch them off or reword them on System Emails; one copy per recipient; and
 replies go to the support mailbox. They carry the documents they speak of:
 the group's certificates (its students' and its mentors') and marks summary,
-and each supervisor's students' certificates and a spreadsheet of their
-marks. Groups and supervisors are emailed from separate buttons, in small
+and for each supervisor their students' and those groups' mentors'
+certificates and a spreadsheet of those groups' marks. Groups and supervisors are emailed from separate buttons, in small
 batches, so each request stays short and the page can show progress. A group
 or a supervisor is recorded as emailed only once every copy went out, so a
 retry reaches whoever missed it, and is skipped after that.
@@ -59,6 +59,7 @@ from .docx import (
     _open_template,
     _ordinal_suffix,
     certificate_context,
+    marks_release_fields,
     marks_summary_context,
     render_certificate_data,
     render_marks_summary_data,
@@ -66,7 +67,7 @@ from .docx import (
     signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
-from .xlsx import build_marks_xlsx
+from .xlsx import build_team_marks_xlsx
 from .zip import _safe
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,10 @@ TEMPLATES_MISSING = {
         "Upload the marks summary, student certificate and mentor certificate templates "
         "in Document Setup before emailing groups."
     ),
-    SUPERVISORS: "Upload the student certificate template in Document Setup before emailing supervisors.",
+    SUPERVISORS: (
+        "Upload the student certificate and mentor certificate templates "
+        "in Document Setup before emailing supervisors."
+    ),
 }
 MISSING_DETAILS = "Set the feedback survey link and close date before emailing groups."
 PAST_DATE = "The survey close date can't be before today. Update it before emailing groups."
@@ -96,8 +100,24 @@ PAST_DATE = "The survey close date can't be before today. Update it before email
 _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 _MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
-# The components the emails speak of, as on the marks summary.
-MARKED_COMPONENTS = ("SAQ", "POSTER")
+# The supervisor's marks spreadsheet: one row per group, in the marks
+# summary's own field names, so the two always agree.
+MARKS_SHEET_MARKS = [
+    *(f"PM{i}" for i in range(1, 11)),
+    *(f"SM{i}" for i in range(1, 5)),
+    "PMTotal",
+    "SMTotal",
+    "CombinedTotal",
+]
+MARKS_SHEET_COLUMNS = [
+    "TeamCode",
+    "Students",
+    "Mentor",
+    "ProjectTitle",
+    "ProjectCategory",
+    "SolutionCategory",
+    *MARKS_SHEET_MARKS,
+]
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -216,18 +236,14 @@ def results_audience(year: int | None = None) -> ResultsAudience:
 
 def templates_ready() -> dict[str, bool]:
     """Whether the documents each audience's email carries can be made:
-    groups get their students' and mentors' certificates and a marks summary,
-    supervisors their students' certificates and a spreadsheet, which needs
-    no template."""
+    groups and supervisors both get students' and mentors' certificates;
+    groups a marks summary too, supervisors a spreadsheet, which needs no
+    template."""
     grading = GradingSettings.load()
-    certificate = bool(grading.certificate_template)
+    certificates = bool(grading.certificate_template) and bool(grading.mentor_certificate_template)
     return {
-        GROUPS: (
-            certificate
-            and bool(grading.mentor_certificate_template)
-            and bool(grading.marks_summary_template)
-        ),
-        SUPERVISORS: certificate,
+        GROUPS: certificates and bool(grading.marks_summary_template),
+        SUPERVISORS: certificates,
     }
 
 
@@ -288,7 +304,7 @@ class ResultsFile:
 
 
 def _file_name(year: int, kind: str, name: str, extension: str) -> str:
-    """As the downloads name them: "2026_BTF_Certificate_Amy_Chen.docx"."""
+    """As the downloads name them: "2026_BTF_Student_Certificate_Amy_Chen.docx"."""
     return f"{year}_BTF_{kind}_{_safe(name)}.{extension}"
 
 
@@ -347,27 +363,40 @@ class Documents:
         context = marks_summary_context(team, self.year, _grades_payload(team, self.year))
         return render_marks_summary_data(self._template("marks_summary_template"), context, self._signatures())
 
-    def marks_sheet(self, students) -> bytes:
+    def marks_sheet(self, teams) -> bytes:
+        """One row per group, filled exactly as its marks summary is."""
         from ..views.student import _grades_payload
 
-        return build_marks_xlsx(
+        return build_team_marks_xlsx(
             (
-                _person_name(student),
-                team.group_name,
-                [c for c in _grades_payload(team, self.year) if c["code"] in MARKED_COMPONENTS],
-            )
-            for student, team in students
+                marks_release_fields(marks_summary_context(team, self.year, _grades_payload(team, self.year)))
+                for team in teams
+            ),
+            MARKS_SHEET_COLUMNS,
+            set(MARKS_SHEET_MARKS),
         )
 
 
 def _certificates(docs: Documents, students) -> list[ResultsFile]:
     return [
         ResultsFile(
-            _file_name(docs.year, "Certificate", _person_name(student), "docx"),
+            _file_name(docs.year, "Student_Certificate", _person_name(student), "docx"),
             DOCX,
             lambda student=student, team=team: docs.certificate(student, team),
         )
         for student, team in students
+    ]
+
+
+def _mentor_certificates(docs: Documents, audience: ResultsAudience, teams) -> list[ResultsFile]:
+    return [
+        ResultsFile(
+            _file_name(docs.year, "Mentor_Certificate", _person_name(mentor), "docx"),
+            DOCX,
+            lambda mentor=mentor, team=team: docs.mentor_certificate(mentor, team),
+        )
+        for team in teams
+        for mentor in audience.team_mentors.get(team.id, [])
     ]
 
 
@@ -376,17 +405,9 @@ def team_files(docs: Documents, audience: ResultsAudience, team) -> list[Results
     mentor's certificate, then the group's marks summary. Everyone it goes to
     gets the lot, so they see each other's."""
     students = [(student, team) for student in audience.team_students.get(team.id, [])]
-    mentors = [
-        ResultsFile(
-            _file_name(docs.year, "Mentor_Certificate", _person_name(mentor), "docx"),
-            DOCX,
-            lambda mentor=mentor: docs.mentor_certificate(mentor, team),
-        )
-        for mentor in audience.team_mentors.get(team.id, [])
-    ]
     return _numbered([
         *_certificates(docs, students),
-        *mentors,
+        *_mentor_certificates(docs, audience, [team]),
         ResultsFile(
             _file_name(docs.year, "Marks", team.group_name, "docx"),
             DOCX,
@@ -397,26 +418,26 @@ def team_files(docs: Documents, audience: ResultsAudience, team) -> list[Results
 
 def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> list[ResultsFile]:
     """What a supervisor's email carries: each of their students'
-    certificates, then one spreadsheet of those students' Poster and SAQ
-    marks."""
+    certificates, the certificates of those groups' mentors, then one
+    spreadsheet of those groups' marks, a row per group."""
     students = audience.supervisor_students.get(supervisor.id, [])
     by_name = sorted(students, key=lambda pair: _person_name(pair[0]).lower())
+    # Their students' groups, once each, by name.
+    teams = sorted({team.id: team for _, team in students}.values(), key=lambda t: t.group_name.lower())
     return _numbered([
         *_certificates(docs, by_name),
-        ResultsFile(f"{docs.year}_BTF_Student_Marks.xlsx", XLSX, lambda: docs.marks_sheet(students)),
+        *_mentor_certificates(docs, audience, teams),
+        ResultsFile(f"{docs.year}_BTF_Student_Marks.xlsx", XLSX, lambda: docs.marks_sheet(teams)),
     ])
 
 
 def example_file_names(audience: str, year: int) -> list[str]:
     """The attachments' names for a preview while nobody is due the email."""
-    certificate = _file_name(year, "Certificate", "Student name", "docx")
+    student = _file_name(year, "Student_Certificate", "Name", "docx")
+    mentor = _file_name(year, "Mentor_Certificate", "Name", "docx")
     if audience == GROUPS:
-        return [
-            certificate,
-            _file_name(year, "Mentor_Certificate", "Mentor name", "docx"),
-            _file_name(year, "Marks", "Team name", "docx"),
-        ]
-    return [certificate, f"{year}_BTF_Student_Marks.xlsx"]
+        return [student, mentor, _file_name(year, "Marks", "Team name", "docx")]
+    return [student, mentor, f"{year}_BTF_Student_Marks.xlsx"]
 
 
 def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> int:

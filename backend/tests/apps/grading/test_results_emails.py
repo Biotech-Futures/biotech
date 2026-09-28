@@ -191,12 +191,12 @@ class ResultsEmailTests(_GradingFixture):
             # Students and mentor alike: each sees the others' certificates.
             files = _files(message)
             self.assertEqual(list(files), [
-                f"{year}_BTF_Certificate_Stu_amy.docx",
-                f"{year}_BTF_Certificate_Stu_ben.docx",
+                f"{year}_BTF_Student_Certificate_Stu_amy.docx",
+                f"{year}_BTF_Student_Certificate_Stu_ben.docx",
                 f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
                 f"{year}_BTF_Marks_BTF-TEST-1.docx",
             ])
-            self.assertIn("Stu amy — BTF-TEST-1", _docx_text(files[f"{year}_BTF_Certificate_Stu_amy.docx"]))
+            self.assertIn("Stu amy — BTF-TEST-1", _docx_text(files[f"{year}_BTF_Student_Certificate_Stu_amy.docx"]))
             self.assertIn(
                 "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
             )
@@ -214,8 +214,8 @@ class ResultsEmailTests(_GradingFixture):
         )
         self.assertEqual([f.get_content_disposition() for f in files], ["attachment"] * 4)
 
-    def test_supervisors_get_their_students_certificates_and_a_marks_sheet(self):
-        # Only Poster and SAQ, as the email says: another marked component stays out.
+    def test_supervisors_get_their_students_and_mentors_certificates_and_a_marks_sheet(self):
+        # Only Poster and SAQ, as on the marks summary: another marked component stays out.
         report = SubmissionComponent.objects.exclude(code__in=("SAQ", "POSTER")).first()
         RubricCriterion.objects.create(
             rubric=Rubric.objects.create(component=report, year=2026, active=True),
@@ -226,23 +226,33 @@ class ResultsEmailTests(_GradingFixture):
         files = _files(mail.outbox[0])
         # Their finalist student is left out while certificates exclude finalists.
         self.assertEqual(list(files), [
-            f"{year}_BTF_Certificate_Stu_amy.docx",
-            f"{year}_BTF_Certificate_Stu_ben.docx",
+            f"{year}_BTF_Student_Certificate_Stu_amy.docx",
+            f"{year}_BTF_Student_Certificate_Stu_ben.docx",
+            f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
             f"{year}_BTF_Student_Marks.xlsx",
         ])
+        self.assertIn(
+            "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
+        )
+
+        # One row per group, in the marks summary's own field names.
         sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
         self.assertEqual(rows[0], [
-            "Student", "Team",
-            "Short Answer Questions: Content (/10)", "Short Answer Questions: Clarity (/5)",
-            "Short Answer Questions Total (/15)",
-            "A2 Poster: Design (/10)", "A2 Poster Total (/10)",
-            "Total (/25)",
+            "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
+            "PM1", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "PM10",
+            "SM1", "SM2", "SM3", "SM4",
+            "PMTotal", "SMTotal", "CombinedTotal",
         ])
-        self.assertEqual(rows[1:], [
-            ["Stu amy", "BTF-TEST-1", 8, None, 8, 6.5, 6.5, 14.5],
-            ["Stu ben", "BTF-TEST-1", 8, None, 8, 6.5, 6.5, 14.5],
-        ])
+        self.assertEqual(len(rows), 2)
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(
+            (row["TeamCode"], row["Students"], row["Mentor"]),
+            ("BTF-TEST-1", "Stu amy, Stu ben", "Mo Mentor"),
+        )
+        # The design mark is poster criterion 1; content is SAQ 1, clarity (SAQ 2) unmarked.
+        self.assertEqual((row["PM1"], row["PM2"], row["SM1"], row["SM2"]), (6.5, None, 8, None))
+        self.assertEqual((row["PMTotal"], row["SMTotal"], row["CombinedTotal"]), (6.5, 8, 14.5))
 
     def test_a_team_whose_files_cant_be_made_stays_pending(self):
         with mock.patch(
@@ -254,7 +264,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     def test_sending_waits_for_the_templates_its_files_need(self):
-        GradingSettings.objects.update(mentor_certificate_template="")
+        GradingSettings.objects.update(marks_summary_template="")
         r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
         self.assertEqual(
             r.json()["detail"],
@@ -265,10 +275,12 @@ class ResultsEmailTests(_GradingFixture):
         self._send_all("supervisors")
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
 
-        GradingSettings.objects.update(certificate_template="")
+        GradingSettings.objects.update(mentor_certificate_template="")
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
         self.assertEqual(
-            r.json()["detail"], "Upload the student certificate template in Document Setup before emailing supervisors.",
+            r.json()["detail"],
+            "Upload the student certificate and mentor certificate templates "
+            "in Document Setup before emailing supervisors.",
         )
         r = self.client.get(reverse("grading:results-email"))
         self.assertEqual(r.json()["templates_ready"], {"groups": False, "supervisors": False})
@@ -379,8 +391,8 @@ class ResultsEmailTests(_GradingFixture):
 
         year = self.group.year
         self.assertEqual(r.json()["attachments"], [
-            f"{year}_BTF_Certificate_Stu_amy.docx",
-            f"{year}_BTF_Certificate_Stu_ben.docx",
+            f"{year}_BTF_Student_Certificate_Stu_amy.docx",
+            f"{year}_BTF_Student_Certificate_Stu_ben.docx",
             f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
             f"{year}_BTF_Marks_BTF-TEST-1.docx",
         ])
@@ -396,7 +408,7 @@ class ResultsEmailTests(_GradingFixture):
         r = self.client.post(reverse("grading:results-email-preview"), {"audience": "groups"}, format="json")
         year = self.group.year
         self.assertEqual(r.json()["attachments"], [
-            f"{year}_BTF_Certificate_Student_name.docx",
-            f"{year}_BTF_Mentor_Certificate_Mentor_name.docx",
+            f"{year}_BTF_Student_Certificate_Name.docx",
+            f"{year}_BTF_Mentor_Certificate_Name.docx",
             f"{year}_BTF_Marks_Team_name.docx",
         ])

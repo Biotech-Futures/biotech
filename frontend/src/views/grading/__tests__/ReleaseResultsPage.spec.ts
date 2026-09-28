@@ -145,7 +145,7 @@ describe('email details', () => {
 describe('preview', () => {
   it('has a button for the group email and one for the supervisor email', async () => {
     const groupFiles = [
-      '2026_BTF_Certificate_Amy_Chen.docx',
+      '2026_BTF_Student_Certificate_Amy_Chen.docx',
       '2026_BTF_Mentor_Certificate_Mo_Mentor.docx',
       '2026_BTF_Marks_BTF01.docx'
     ]
@@ -156,7 +156,7 @@ describe('preview', () => {
       attachments:
         audience === 'groups'
           ? groupFiles
-          : ['2026_BTF_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx']
+          : ['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx']
     }))
     const wrapper = await mountPage()
     await wrapper.find('input[type="url"]').setValue('https://survey.example.com/draft')
@@ -176,7 +176,7 @@ describe('preview', () => {
     await flushPromises()
     expect(previewMock).toHaveBeenLastCalledWith('supervisors', expect.any(Object))
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As Sam Lee would get it.')
-    expect(attachments()).toEqual(['2026_BTF_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx'])
+    expect(attachments()).toEqual(['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx'])
   })
 })
 
@@ -212,6 +212,15 @@ describe('sending', () => {
     )
     expect(emailButton(wrapper, 'Groups').attributes('disabled')).toBeDefined()
     expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeUndefined()
+  })
+
+  it('supervisors wait for the student and mentor certificate templates', async () => {
+    detailsMock.mockResolvedValue(details({ templates_ready: { groups: true, supervisors: false } }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.release-results__blocked').text()).toBe(
+      'Upload the student certificate and mentor certificate templates in Document Setup before emailing supervisors.'
+    )
+    expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeDefined()
   })
 
   it('emails groups batch after batch until done, then supervisors on their own button', async () => {

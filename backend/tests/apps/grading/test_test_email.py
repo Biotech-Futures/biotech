@@ -153,11 +153,15 @@ class TestEmailTests(_GradingFixture):
         ]
         self.assertEqual(files, [
             [
-                f"{year}_BTF_Certificate_Mem_amy.docx",
+                f"{year}_BTF_Student_Certificate_Mem_amy.docx",
                 f"{year}_BTF_Mentor_Certificate_Mem_mo.docx",
                 f"{year}_BTF_Marks_BTF-TEST-1.docx",
             ],
-            [f"{year}_BTF_Certificate_Mem_amy.docx", f"{year}_BTF_Student_Marks.xlsx"],
+            [
+                f"{year}_BTF_Student_Certificate_Mem_amy.docx",
+                f"{year}_BTF_Mentor_Certificate_Mem_mo.docx",
+                f"{year}_BTF_Student_Marks.xlsx",
+            ],
         ])
         self.assertEqual([m.to for m in mail.outbox], [["tester@example.com"]] * 2)
         self.assertFalse(ResultsTeamEmail.objects.exists())

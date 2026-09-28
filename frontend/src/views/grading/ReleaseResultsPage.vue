@@ -347,7 +347,7 @@ const audienceReason = (audience: ResultsAudience) => {
   if (!d.templates_ready[audience]) {
     return audience === 'groups'
       ? 'Upload the marks summary, student certificate and mentor certificate templates in Document Setup before emailing groups.'
-      : 'Upload the student certificate template in Document Setup before emailing supervisors.'
+      : 'Upload the student certificate and mentor certificate templates in Document Setup before emailing supervisors.'
   }
   if (audience === 'groups') {
     if (detailsChanged.value) return 'Save the email details before emailing groups.'
