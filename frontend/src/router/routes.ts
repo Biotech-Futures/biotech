@@ -135,6 +135,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'notify-finalists', redirect: '/grading/management/notify-finalists' }
     ]
   },
+  { path: '/support', name: 'support', component: () => import('@/views/SupportCentrePage.vue') },
+  { path: '/support/tickets/:id(\\d+)', name: 'support-ticket', component: () => import('@/views/TicketDetailPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

@@ -152,7 +152,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   fetchResources,
   fetchResourceLabels,
@@ -167,6 +167,7 @@ import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const isAdmin = computed(() => auth.isAdmin)
 
 const resources = ref<Resource[]>([])
@@ -178,7 +179,13 @@ const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
 const selectedType = ref('')
-const selectedLabelId = ref('')
+// Seeded from ?label= so another page can link straight to one shelf of the
+// library. The Support Centre uses this to send someone to the help articles
+// for the topic they clicked, instead of dropping them in the full list to
+// find it themselves.
+const selectedLabelId = ref(
+  typeof route.query.label === 'string' ? route.query.label : ''
+)
 const sinceDate = ref('')
 const untilDate = ref('')
 const sortOrder = ref<'newest' | 'oldest' | 'name'>('newest')
