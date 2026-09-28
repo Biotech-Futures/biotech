@@ -75,6 +75,14 @@
           <div class="grading-settings__template">
             <div class="grading-settings__field">
               <span>Marks summary template (.docx)</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm grading-settings__download"
+                :disabled="downloading !== '' || !settings.marks_summary_template"
+                @click="downloadCurrent('marks-summary')"
+              >
+                {{ downloading === 'marks-summary' ? 'Downloading…' : 'Download Current Template' }}
+              </button>
               <div class="grading-settings__file-row">
                 <button type="button" class="grading-settings__file-btn" @click="summaryInput?.click()">
                   Browse…
@@ -116,6 +124,14 @@
           <div class="grading-settings__template">
             <div class="grading-settings__field">
               <span>Certificate template (.docx)</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm grading-settings__download"
+                :disabled="downloading !== '' || !settings.certificate_template"
+                @click="downloadCurrent('certificate')"
+              >
+                {{ downloading === 'certificate' ? 'Downloading…' : 'Download Current Template' }}
+              </button>
               <div class="grading-settings__file-row">
                 <button type="button" class="grading-settings__file-btn" @click="certInput?.click()">
                   Browse…
@@ -187,6 +203,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadCandidateTestRender,
+  downloadSavedTemplate,
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
@@ -436,6 +453,22 @@ const pickTemplate = async (kind: 'marks-summary' | 'certificate', event: Event)
   }
 }
 
+// The saved template as uploaded, to edit and upload back. A file picked but
+// not yet saved isn't it, so the button always fetches the saved one.
+const downloading = ref<'' | 'marks-summary' | 'certificate'>('')
+
+const downloadCurrent = async (kind: 'marks-summary' | 'certificate') => {
+  actionError.value = ''
+  downloading.value = kind
+  try {
+    await downloadSavedTemplate(kind)
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    downloading.value = ''
+  }
+}
+
 const testRender = async (kind: 'marks-summary' | 'certificate') => {
   actionError.value = ''
   testing.value = kind
@@ -608,6 +641,12 @@ const save = async () => {
   padding: 0.3rem 0.7rem;
   font-size: 0.84rem;
   font-weight: 500;
+}
+
+/* Above the Browse row, sized to its label rather than the field. */
+.grading-settings__template .grading-settings__download {
+  justify-self: start;
+  margin-bottom: 0.5rem;
 }
 
 .grading-settings__template .btn:hover:not(:disabled) {

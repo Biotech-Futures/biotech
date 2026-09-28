@@ -579,6 +579,14 @@ export async function downloadTemplateTestRender(
   triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
 }
 
+// GET /api/v1/grading/settings/template/{kind}/ — the saved template file.
+export async function downloadSavedTemplate(
+  kind: 'marks-summary' | 'certificate'
+): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/template/${kind}/`)
+  triggerBlobDownload(blob, filename ?? `${kind}-template.docx`)
+}
+
 // POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
 // with synthetic data while the saved template stays active.
 export async function downloadCandidateTestRender(

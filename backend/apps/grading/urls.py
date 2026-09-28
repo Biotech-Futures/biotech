@@ -30,6 +30,7 @@ from .views import (
     MySummaryView,
     SupervisorDownloadView,
     SupervisorGradesView,
+    TemplateDownloadView,
     TemplateScanView,
     TemplateTestRenderView,
 )
@@ -76,6 +77,12 @@ urlpatterns = [
         "settings/template-scan/<str:kind>/",
         TemplateScanView.as_view(),
         name="settings-template-scan",
+    ),
+    # The saved template file itself.
+    path(
+        "settings/template/<str:kind>/",
+        TemplateDownloadView.as_view(),
+        name="settings-template-download",
     ),
     # Render the active template with synthetic data to check placeholders.
     path(

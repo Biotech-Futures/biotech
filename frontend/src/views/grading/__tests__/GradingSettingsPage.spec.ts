@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import GradingSettingsPage from '@/views/grading/GradingSettingsPage.vue'
 import {
   downloadCandidateTestRender,
+  downloadSavedTemplate,
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
@@ -17,6 +18,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/utils/gradingAPI', () => ({
   downloadCandidateTestRender: vi.fn(),
+  downloadSavedTemplate: vi.fn(),
   downloadTemplateTestRender: vi.fn(),
   fetchGradingSettings: vi.fn(),
   fetchTemplateScan: vi.fn(),
@@ -29,6 +31,7 @@ const candidateScanMock = vi.mocked(scanTemplateCandidate)
 const updateMock = vi.mocked(updateGradingSettings)
 const testStoredMock = vi.mocked(downloadTemplateTestRender)
 const testCandidateMock = vi.mocked(downloadCandidateTestRender)
+const savedTemplateMock = vi.mocked(downloadSavedTemplate)
 
 const detail = (over: Record<string, unknown> = {}) => ({
   director_1_name: 'Prof. Alice Adams',
@@ -88,6 +91,7 @@ beforeEach(() => {
   updateMock.mockReset()
   testStoredMock.mockReset()
   testCandidateMock.mockReset()
+  savedTemplateMock.mockReset()
 })
 
 describe('loading', () => {
@@ -261,6 +265,36 @@ describe('template picking and testing', () => {
     await testButtons[1]!.trigger('click')
     await flushPromises()
     expect(testCandidateMock).toHaveBeenCalledWith('certificate', expect.any(File))
+  })
+
+  it('Download Current Template sits above Browse and fetches the saved file', async () => {
+    savedTemplateMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const field = wrapper.findAll('.grading-settings__template .grading-settings__field')[0]!
+    const order = field.findAll('button').map((b) => b.text().trim())
+    expect(order).toEqual(['Download Current Template', 'Browse…'])
+
+    // Even with a new file picked, it's the saved one that downloads.
+    candidateScanMock.mockResolvedValueOnce(scan([]))
+    await pickFile(wrapper, '.docx', 'draft.docx', 0)
+    await field.find('.grading-settings__download').trigger('click')
+    await flushPromises()
+    expect(savedTemplateMock).toHaveBeenCalledWith('marks-summary')
+  })
+
+  it('Download Current Template stays off while nothing is saved', async () => {
+    const wrapper = await mountPage()
+    const buttons = wrapper.findAll('.grading-settings__download')
+    expect(buttons[0]!.attributes('disabled')).toBeUndefined() // summary saved
+    expect(buttons[1]!.attributes('disabled')).toBeDefined() // no certificate
+  })
+
+  it('a failed download is reported', async () => {
+    savedTemplateMock.mockRejectedValueOnce(new Error('No template uploaded yet.'))
+    const wrapper = await mountPage()
+    await wrapper.findAll('.grading-settings__download')[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.grading-settings__banner--error').text()).toContain('No template uploaded yet.')
   })
 
   it('the certificate Test stays off while no template exists at all', async () => {

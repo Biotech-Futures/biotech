@@ -278,6 +278,28 @@ class GradingSettingsViewTests(_GradingFixture):
             xml = zipfile.ZipFile(io.BytesIO(r.content)).read("word/document.xml")
             self.assertIn(b"SAMPLE-TEAM-01" if kind == "marks-summary" else b"Jane", xml)
 
+    def test_download_current_template_returns_the_saved_file(self):
+        row = _seed_doc_templates()
+        for kind, field in (("marks-summary", "marks_summary_template"), ("certificate", "certificate_template")):
+            r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": kind}))
+            self.assertEqual(r.status_code, status.HTTP_200_OK, kind)
+            self.assertIn("wordprocessingml", r["Content-Type"])
+            stored = getattr(row, field)
+            with stored.open("rb") as fh:
+                self.assertEqual(r.content, fh.read(), kind)
+            self.assertIn(f'attachment; filename="{stored.name.rsplit("/", 1)[-1]}"', r["Content-Disposition"])
+
+    def test_download_current_template_404s_when_none_or_unknown(self):
+        for kind in ("marks-summary", "poster"):
+            r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": kind}))
+            self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, kind)
+
+    def test_download_current_template_requires_grader(self):
+        _seed_doc_templates()
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": "certificate"}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_template_test_render_404s_when_nothing_uploaded(self):
         r = self.client.get(
             reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"})

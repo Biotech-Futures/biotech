@@ -1,6 +1,8 @@
 import logging
+import os
 
 from django.http import HttpResponse
+from django.utils.http import content_disposition_header
 from rest_framework import permissions, serializers
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -190,6 +192,44 @@ class TemplateScanView(APIView):
         if error:
             return error
         return Response({"uploaded": True, **scan})
+
+
+class TemplateDownloadView(APIView):
+    """GET /api/v1/grading/settings/template/<kind>/ — the saved template file
+    itself, so an admin can take the current one, edit it and upload it back.
+
+    Served through Django rather than linked: in production the file sits in
+    private blob storage the browser can't open directly.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def get(self, request, kind: str):
+        field = {
+            "marks-summary": "marks_summary_template",
+            "certificate": "certificate_template",
+        }.get(kind)
+        if field is None:
+            return Response({"detail": "unknown template kind"}, status=404)
+        stored = getattr(GradingSettings.load(), field)
+        if not stored:
+            return Response({"detail": "No template uploaded yet."}, status=404)
+        try:
+            with stored.open("rb") as fh:
+                payload = fh.read()
+        except FileNotFoundError:
+            return Response({"detail": "The saved template file is missing."}, status=404)
+        resp = HttpResponse(
+            payload,
+            content_type=(
+                "application/vnd.openxmlformats-officedocument"
+                ".wordprocessingml.document"
+            ),
+        )
+        resp["Content-Disposition"] = content_disposition_header(
+            as_attachment=True, filename=os.path.basename(stored.name)
+        )
+        return resp
 
 
 class TemplateTestRenderView(APIView):
