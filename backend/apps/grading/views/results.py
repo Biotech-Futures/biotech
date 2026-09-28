@@ -85,6 +85,30 @@ class ResultsSampleSheetView(APIView):
         return response
 
 
+class ResultsSupervisorSheetView(APIView):
+    """GET /api/v1/grading/results-email/supervisor-sheet/<supervisor_id>/ —
+    the real marks spreadsheet that supervisor's email would carry, to check
+    before sending. Only for a supervisor due the email."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def get(self, request, supervisor_id: int):
+        audience = results_notify.results_audience()
+        supervisor = next((s for s in audience.supervisors if s.id == supervisor_id), None)
+        if supervisor is None:
+            return Response(
+                {"detail": "That supervisor isn't due the results email."}, status=status.HTTP_404_NOT_FOUND,
+            )
+        response = HttpResponse(
+            results_notify.supervisor_marks_sheet(audience, supervisor), content_type=results_notify.XLSX,
+        )
+        # Named as the email attaches it.
+        response["Content-Disposition"] = content_disposition_header(
+            as_attachment=True, filename=f"{audience.year}_BTF_Student_Marks.xlsx"
+        )
+        return response
+
+
 class ResultsEmailPreviewView(APIView):
     """POST /api/v1/grading/results-email/preview/ — one email exactly as it
     would go out, for the details in the body (unsaved edits) or the saved

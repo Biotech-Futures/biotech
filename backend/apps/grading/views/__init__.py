@@ -17,6 +17,7 @@ from .results import (
     ResultsEmailSendView,
     ResultsEmailSettingsView,
     ResultsSampleSheetView,
+    ResultsSupervisorSheetView,
 )
 from .finalist import (
     FinalistCandidatesView,
@@ -61,6 +62,7 @@ __all__ = [
     "ResultsEmailSendView",
     "ResultsEmailSettingsView",
     "ResultsSampleSheetView",
+    "ResultsSupervisorSheetView",
     "FinalistEmailSettingsView",
     "FinalistListView",
     "FinalistNotifyAllView",

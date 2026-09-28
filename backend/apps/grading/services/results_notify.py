@@ -457,14 +457,25 @@ def team_files(docs: Documents, audience: ResultsAudience, team) -> list[Results
     ])
 
 
+def _supervisor_teams(audience: ResultsAudience, supervisor) -> list:
+    """The groups a supervisor's students are in, once each, by name."""
+    students = audience.supervisor_students.get(supervisor.id, [])
+    return sorted({team.id: team for _, team in students}.values(), key=lambda t: t.group_name.lower())
+
+
+def supervisor_marks_sheet(audience: ResultsAudience, supervisor) -> bytes:
+    """The marks spreadsheet a supervisor's email carries, on its own: for
+    checking it before the emails go."""
+    return Documents(audience.year).marks_sheet(_supervisor_teams(audience, supervisor))
+
+
 def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> list[ResultsFile]:
     """What a supervisor's email carries: each of their students'
     certificates, the certificates of those groups' mentors, then one
     spreadsheet of those groups' marks, a row per group."""
     students = audience.supervisor_students.get(supervisor.id, [])
     by_name = sorted(students, key=lambda pair: _person_name(pair[0]).lower())
-    # Their students' groups, once each, by name.
-    teams = sorted({team.id: team for _, team in students}.values(), key=lambda t: t.group_name.lower())
+    teams = _supervisor_teams(audience, supervisor)
     return _numbered([
         *_certificates(docs, by_name),
         *_mentor_certificates(docs, audience, teams),

@@ -453,6 +453,28 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(codes, ["BTF-TEST-1", "A Lower Team", "An Unmarked Team"])
         self.assertEqual(totals[:2], [14.5, 2])
 
+    def test_a_supervisors_real_spreadsheet_can_be_checked_before_sending(self):
+        r = self.client.get(reverse("grading:results-email-supervisor-sheet", args=[self.supervisor.id]))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks.xlsx"')
+        rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual((row["TeamCode"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
+        # The same as the one the email attaches, and nothing was sent.
+        self.assertEqual(mail.outbox, [])
+        self._send_all("supervisors")
+        attached = _files(mail.outbox[0])[f"{self.group.year}_BTF_Student_Marks.xlsx"]
+        attached_rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(attached)).active.iter_rows()]
+        self.assertEqual(attached_rows, rows)
+
+    def test_only_a_supervisor_due_the_email_has_a_spreadsheet(self):
+        r = self.client.get(reverse("grading:results-email-supervisor-sheet", args=[self.staff.id]))
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(r.json()["detail"], "That supervisor isn't due the results email.")
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("grading:results-email-supervisor-sheet", args=[self.supervisor.id]))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_the_sample_spreadsheet_is_for_graders_only(self):
         self.client.force_authenticate(self.non_staff)
         r = self.client.get(reverse("grading:results-email-sample-sheet"))

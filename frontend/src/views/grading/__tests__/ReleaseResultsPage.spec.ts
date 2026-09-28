@@ -4,7 +4,9 @@ import ReleaseResultsPage from '@/views/grading/ReleaseResultsPage.vue'
 import ReleasePage from '@/views/grading/ReleasePage.vue'
 import {
   downloadResultsSampleSheet,
+  downloadSupervisorMarksSheet,
   fetchCertificatesRelease,
+  fetchTestEmailRecipients,
   fetchRelease,
   fetchResultsEmailDetails,
   previewResultsEmail,
@@ -14,6 +16,7 @@ import {
 
 vi.mock('@/utils/gradingAPI', () => ({
   downloadResultsSampleSheet: vi.fn(),
+  downloadSupervisorMarksSheet: vi.fn(),
   fetchTestEmailRecipients: vi.fn(async () => ({ recipients: [] })),
   sendTestEmail: vi.fn(),
   fetchRelease: vi.fn(),
@@ -187,11 +190,35 @@ describe('sample spreadsheet', () => {
     const sampleMock = vi.mocked(downloadResultsSampleSheet)
     sampleMock.mockReset().mockResolvedValueOnce()
     const wrapper = await mountPage()
-    const buttons = wrapper.findAll('.card')[0]!.findAll('button')
-    expect(buttons[buttons.length - 1]!.text()).toBe('Download Sample Marks Spreadsheet')
-    await buttons[buttons.length - 1]!.trigger('click')
+    const buttons = wrapper.findAll('.card')[0]!.findAll('button').map((b) => b.text())
+    expect(buttons.slice(-2)).toEqual(['Download Sample Marks Spreadsheet', 'Download Supervisor Marks'])
+    await buttonNamed(wrapper, /^Download Sample Marks Spreadsheet$/).trigger('click')
     await flushPromises()
     expect(sampleMock).toHaveBeenCalledOnce()
+  })
+
+  it("Download Supervisor Marks downloads the chosen supervisor's real spreadsheet", async () => {
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async (kind) => ({
+      recipients: kind === 'results-supervisors'
+        ? [{ value: '7', label: 'Sam Lee' }, { value: '9', label: 'Ann Wu' }]
+        : []
+    }))
+    const sheetMock = vi.mocked(downloadSupervisorMarksSheet)
+    sheetMock.mockReset().mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const select = wrapper.find('.release-results__supervisor-select')
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['Sam Lee', 'Ann Wu'])
+    await select.setValue('9')
+    await buttonNamed(wrapper, /^Download Supervisor Marks$/).trigger('click')
+    await flushPromises()
+    expect(sheetMock).toHaveBeenCalledWith('9')
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
+  })
+
+  it('Download Supervisor Marks is off while no supervisor is due the email', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.find('.release-results__supervisor-select option').text()).toBe('Nobody yet')
+    expect(buttonNamed(wrapper, /^Download Supervisor Marks$/).attributes('disabled')).toBeDefined()
   })
 
   it('says why a download failed', async () => {

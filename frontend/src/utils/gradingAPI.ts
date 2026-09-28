@@ -920,6 +920,13 @@ export async function downloadResultsSampleSheet(): Promise<void> {
   triggerBlobDownload(blob, filename ?? 'BTF_Student_Marks_Sample.xlsx')
 }
 
+// GET /api/v1/grading/results-email/supervisor-sheet/{id}/ — the real marks
+// spreadsheet that supervisor's email would carry, to check before sending.
+export async function downloadSupervisorMarksSheet(supervisorId: string): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/results-email/supervisor-sheet/${supervisorId}/`)
+  triggerBlobDownload(blob, filename ?? 'BTF_Student_Marks.xlsx')
+}
+
 // POST /api/v1/grading/results-email/send/ — email the next few groups, or
 // supervisors; call again with the returned cursor until done.
 export function sendResultsEmailBatch(

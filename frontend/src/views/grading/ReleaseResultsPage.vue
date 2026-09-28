@@ -36,18 +36,18 @@
         <p v-if="saveTried && closesPast" class="release-results__field-error" role="alert">
           Survey Closes can't be before today.
         </p>
-        <!-- Save and the group preview, then the supervisor preview on the
-             next line; each preview with its test send beside it. -->
+        <!-- Save, then the group preview and the supervisor preview each on
+             a line of its own, with its test send beside it. -->
         <div class="release-results__details-actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="savingDetails"
+            @click="saveDetails"
+          >
+            {{ savingDetails ? 'Saving…' : 'Save' }}
+          </button>
           <div class="release-results__actions">
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="savingDetails"
-              @click="saveDetails"
-            >
-              {{ savingDetails ? 'Saving…' : 'Save' }}
-            </button>
             <button
               type="button"
               class="btn btn-outline btn-sm"
@@ -69,16 +69,39 @@
             </button>
             <TestEmailSender kind="results-supervisors" />
           </div>
-          <!-- What the supervisor email's marks spreadsheet looks like, with
-               made-up groups. -->
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="downloadingSample"
-            @click="downloadSample"
-          >
-            {{ downloadingSample ? 'Downloading…' : 'Download Sample Marks Spreadsheet' }}
-          </button>
+          <!-- What the supervisor email's marks spreadsheet looks like: with
+               made-up groups, or a chosen supervisor's real one. -->
+          <div class="release-results__actions">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="downloadingSample"
+              @click="downloadSample"
+            >
+              {{ downloadingSample ? 'Downloading…' : 'Download Sample Marks Spreadsheet' }}
+            </button>
+            <div class="release-results__supervisor-sheet">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="downloadingSheet || !sheetSupervisor"
+                @click="downloadSheet"
+              >
+                {{ downloadingSheet ? 'Downloading…' : 'Download Supervisor Marks' }}
+              </button>
+              <select
+                v-model="sheetSupervisor"
+                class="release-results__supervisor-select"
+                aria-label="Supervisor"
+                :disabled="!sheetSupervisors.length"
+              >
+                <option v-if="!sheetSupervisors.length" value="">Nobody yet</option>
+                <option v-for="option in sheetSupervisors" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+          </div>
         </div>
       </template>
     </section>
@@ -213,14 +236,17 @@ import { computed, onMounted, ref } from 'vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadResultsSampleSheet,
+  downloadSupervisorMarksSheet,
   fetchResultsEmailDetails,
+  fetchTestEmailRecipients,
   previewResultsEmail,
   sendResultsEmailBatch,
   updateResultsEmailDetails,
   type ResultsAudience,
   type ResultsEmailDetails,
   type ResultsEmailFields,
-  type ResultsEmailPreview
+  type ResultsEmailPreview,
+  type TestEmailRecipient
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import ReleaseCertificatesPage from '@/views/grading/ReleaseCertificatesPage.vue'
@@ -340,6 +366,32 @@ const downloadSample = async () => {
   }
 }
 
+// A supervisor's real marks spreadsheet, from the supervisors due the email.
+const sheetSupervisors = ref<TestEmailRecipient[]>([])
+const sheetSupervisor = ref('')
+const downloadingSheet = ref(false)
+
+const loadSheetSupervisors = async () => {
+  try {
+    sheetSupervisors.value = (await fetchTestEmailRecipients('results-supervisors')).recipients
+    sheetSupervisor.value = sheetSupervisors.value[0]?.value ?? ''
+  } catch {
+    sheetSupervisors.value = []
+  }
+}
+
+const downloadSheet = async () => {
+  actionError.value = ''
+  downloadingSheet.value = true
+  try {
+    await downloadSupervisorMarksSheet(sheetSupervisor.value)
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    downloadingSheet.value = false
+  }
+}
+
 // -- Sending ----------------------------------------------------------------
 
 const pending = (audience: ResultsAudience) => {
@@ -449,7 +501,7 @@ const sendAll = async (audience: ResultsAudience) => {
   }
 }
 
-onMounted(loadDetails)
+onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 </script>
 
 <style scoped>
@@ -535,6 +587,24 @@ onMounted(loadDetails)
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+/* The button and its dropdown stay together when the line wraps. */
+.release-results__supervisor-sheet {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.release-results__supervisor-select {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  max-width: 14rem;
 }
 
 /* Each button as wide as its label. */
