@@ -1,4 +1,3 @@
-from datetime import date
 
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions
@@ -6,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
+from apps.submissions.services import current_cohort
 
 from ..models import Grade, GroupMarkingCategories, Rubric, SubmissionComponent
 from ..permissions import IsGrader
@@ -45,7 +45,7 @@ class GroupMarkingView(APIView):
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
 
         components = list(SubmissionComponent.objects.all().order_by("order", "id"))
         entries_by_component = {

@@ -28,7 +28,7 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Iterable
 
-from django.utils import timezone
+from apps.submissions.services import current_cohort
 
 from .content import ComponentEntry, open_file
 
@@ -93,7 +93,7 @@ def build_submissions_zip(
     limits; if that grows, swap for a temp-file / true streaming
     implementation.
     """
-    year = timezone.now().year
+    year = current_cohort()
     buffer = io.BytesIO()
     entry_iter = iter(entries)
     # (entry, future-or-None) in output order; a future only where the entry

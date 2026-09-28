@@ -19,6 +19,9 @@ const row = (group_id: number, group_name: string) => ({
   total: null,
   markers: [],
   criterion_markers: [],
+  project_title: '',
+  project_category: '',
+  solution_category: '',
   is_finalist: false,
   has_submission: true,
   incomplete: []

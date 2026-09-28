@@ -369,6 +369,8 @@ export interface FinalistRow {
   notified: boolean
   notified_at: string | null
   notified_by: string | null
+  /** Students on the team with an address to be emailed at. */
+  students: number
 }
 
 export interface FinalistListResponse {
@@ -384,7 +386,18 @@ export interface GradingSettingsDetail {
   director_2_signature: string | null
   marks_summary_template: string | null
   certificate_template: string | null
+  mentor_certificate_template: string | null
   component_weights: Record<string, number>
+}
+
+/** The docx templates set up on Document Setup. */
+export type TemplateKind = 'marks-summary' | 'certificate' | 'mentor-certificate'
+
+/** The name Download Current Template saves each template under. */
+export const TEMPLATE_DOWNLOAD_NAMES: Record<TemplateKind, string> = {
+  'marks-summary': 'BTF_Marks_Summary_Template.docx',
+  certificate: 'BTF_Student_Certificate_Template.docx',
+  'mentor-certificate': 'BTF_Mentor_Certificate_Template.docx'
 }
 
 // GET /api/v1/grading/certificates-release/ — the certificates gate, separate
@@ -551,7 +564,7 @@ export interface TemplateScan {
 }
 
 // GET /api/v1/grading/settings/template-scan/{kind}/
-export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promise<TemplateScan> {
+export function fetchTemplateScan(kind: TemplateKind): Promise<TemplateScan> {
   return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`)
 }
 
@@ -559,7 +572,7 @@ export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promis
 // WITHOUT saving it, so the page can preview a selection before Save
 // replaces the stored template. A file the renderer can't open 400s.
 export function scanTemplateCandidate(
-  kind: 'marks-summary' | 'certificate',
+  kind: TemplateKind,
   file: File
 ): Promise<TemplateScan> {
   const fd = new FormData()
@@ -570,23 +583,48 @@ export function scanTemplateCandidate(
   })
 }
 
+// GET /api/v1/grading/settings/test-people/{kind}/ — who a template can be
+// tested with: this year's students, or mentors for the mentor certificate.
+export function fetchTemplateTestPeople(
+  kind: TemplateKind
+): Promise<{ options: TestEmailRecipient[] }> {
+  return requestJson<{ options: TestEmailRecipient[] }>(
+    `/api/v1/grading/settings/test-people/${kind}/`
+  )
+}
+
 // GET /api/v1/grading/settings/test-render/{kind}/ — render the active docx
 // template with synthetic data and save it, so admins can check placeholders.
+// With `person` (from fetchTemplateTestPeople), that person's real document.
 export async function downloadTemplateTestRender(
-  kind: 'marks-summary' | 'certificate'
+  kind: TemplateKind,
+  person?: string
 ): Promise<void> {
-  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/`)
+  const qs = person ? `?person=${encodeURIComponent(person)}` : ''
+  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/${qs}`)
   triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
 }
 
+// GET /api/v1/grading/settings/template/{kind}/ — the saved template file,
+// always under the same name.
+export async function downloadSavedTemplate(
+  kind: TemplateKind
+): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/template/${kind}/`)
+  triggerBlobDownload(blob, filename ?? TEMPLATE_DOWNLOAD_NAMES[kind])
+}
+
 // POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
-// with synthetic data while the saved template stays active.
+// with synthetic data while the saved template stays active. With `person`,
+// that person's real details.
 export async function downloadCandidateTestRender(
-  kind: 'marks-summary' | 'certificate',
-  file: File
+  kind: TemplateKind,
+  file: File,
+  person?: string
 ): Promise<void> {
   const fd = new FormData()
   fd.append('file', file)
+  if (person) fd.append('person', person)
   const { blob, filename } = await requestBlob(
     `/api/v1/grading/settings/test-render/${kind}/`,
     { method: 'POST', body: fd }
@@ -732,6 +770,11 @@ export interface FinalistCandidateRow {
   markers: string[]
   /** Latest marker per rubric criterion, e.g. {label: "SAQ 1", marker: "Ada"}. */
   criterion_markers: { label: string; marker: string }[]
+  /** No project title is kept yet, so this is always "". */
+  project_title: string
+  /** The categories picked on the marking key; "" when none. */
+  project_category: string
+  solution_category: string
   is_finalist: boolean
   has_submission: boolean
   /** Components the team submitted that still have unmarked criteria. */
@@ -808,9 +851,205 @@ export function previewFinalistEmail(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Results emails (Release Results tab)
+
+export interface ResultsEmailFields {
+  survey_url: string
+  survey_closes: string | null
+}
+
+export interface EmailedCount {
+  total: number
+  emailed: number
+}
+
+export interface ResultsEmailDetails extends ResultsEmailFields {
+  /** Both survey details are set. */
+  complete: boolean
+  /** Sydney's today (YYYY-MM-DD): the earliest the close date may be. */
+  today: string
+  /** The saved close date is already before today, which blocks sending. */
+  closes_in_past: boolean
+  year: number
+  marks_released: boolean
+  certificates_released: boolean
+  /** Whether each email is switched on in System Emails. */
+  emails_on: Record<ResultsAudience, boolean>
+  /** Whether the Document Setup templates each email's files need are uploaded. */
+  templates_ready: Record<ResultsAudience, boolean>
+  /** Groups due the group email, which goes to their students and mentors. */
+  groups: EmailedCount
+  supervisors: EmailedCount
+}
+
+export type ResultsAudience = 'groups' | 'supervisors'
+
+export interface ResultsEmailBatch {
+  /** People emailed in this batch. */
+  emailed: number
+  /** Groups or supervisors not emailed in full. */
+  failed: number
+  /** The last group or supervisor tried; pass it back for the next batch. */
+  cursor: number
+  /** Everyone due has been tried in this run. */
+  done: boolean
+  groups: EmailedCount
+  supervisors: EmailedCount
+}
+
+export interface ResultsEmailPreview {
+  subject: string
+  /** The team or supervisor the preview is addressed to. */
+  to: string
+  html: string
+  /** The names of the files the email carries. */
+  attachments: string[]
+}
+
+// GET /api/v1/grading/results-email/ — survey details, releases and counts.
+export function fetchResultsEmailDetails(): Promise<ResultsEmailDetails> {
+  return requestJson<ResultsEmailDetails>('/api/v1/grading/results-email/')
+}
+
+// PATCH /api/v1/grading/results-email/ — save the survey details.
+export function updateResultsEmailDetails(
+  fields: Partial<ResultsEmailFields>
+): Promise<ResultsEmailDetails> {
+  return requestJson<ResultsEmailDetails>('/api/v1/grading/results-email/', {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+// POST /api/v1/grading/results-email/preview/ — one email as it would go out,
+// for the given (possibly unsaved) details. Sends nothing.
+export function previewResultsEmail(
+  audience: ResultsAudience,
+  fields: Partial<ResultsEmailFields>
+): Promise<ResultsEmailPreview> {
+  return requestJson<ResultsEmailPreview>('/api/v1/grading/results-email/preview/', {
+    method: 'POST',
+    body: JSON.stringify({ audience, ...fields })
+  })
+}
+
+// GET /api/v1/grading/results-email/sample-sheet/ — the marks spreadsheet the
+// supervisor email carries, filled with made-up groups.
+export async function downloadResultsSampleSheet(): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/grading/results-email/sample-sheet/')
+  triggerBlobDownload(blob, filename ?? 'BTF_Student_Marks_Sample.xlsx')
+}
+
+// GET /api/v1/grading/results-email/supervisor-sheet/{id}/ — the real marks
+// spreadsheet that supervisor's email would carry, to check before sending.
+export async function downloadSupervisorMarksSheet(supervisorId: string): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/results-email/supervisor-sheet/${supervisorId}/`)
+  triggerBlobDownload(blob, filename ?? 'BTF_Student_Marks.xlsx')
+}
+
+// POST /api/v1/grading/results-email/send/ — email the next few groups, or
+// supervisors; call again with the returned cursor until done.
+export function sendResultsEmailBatch(
+  audience: ResultsAudience,
+  cursor: number | null
+): Promise<ResultsEmailBatch> {
+  return requestJson<ResultsEmailBatch>('/api/v1/grading/results-email/send/', {
+    method: 'POST',
+    body: JSON.stringify({ audience, cursor })
+  })
+}
+
 // GET /api/v1/grading/finalists/ — the current finalist set.
 export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
+}
+
+/** The Symposium emails on the Email Nonfinalist tab: to teams that submitted
+ *  but weren't picked, and to teams that didn't submit. */
+export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
+
+/** This year's teams due the email, and how many have it. */
+export interface SymposiumEmailStatus {
+  teams: EmailedCount
+  /** Their students with an address; mentors and supervisors get it too. */
+  students: EmailedCount
+  /** Why sending is refused (details missing on Notify Finalists, switched
+   *  off), or "" when it may go ahead. */
+  blocked: string
+}
+
+export interface SymposiumEmailPreview {
+  subject: string
+  /** The team the preview is addressed to. */
+  to: string
+  html: string
+}
+
+export interface SymposiumEmailBatch {
+  /** People emailed in this batch. */
+  emailed: number
+  /** Teams in this batch not emailed in full; left for the next press. */
+  failed: number
+  cursor: number
+  done: boolean
+  teams: EmailedCount
+  students: EmailedCount
+}
+
+// GET /api/v1/grading/{nonfinalists|nonsubmissions}/ — who the email is for.
+export function fetchSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailStatus> {
+  return requestJson<SymposiumEmailStatus>(`/api/v1/grading/${email}/`)
+}
+
+// POST /api/v1/grading/{email}/preview/ — the email as the first team due
+// would get it. Nothing is sent.
+export function previewSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailPreview> {
+  return requestJson<SymposiumEmailPreview>(`/api/v1/grading/${email}/preview/`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+}
+
+// POST /api/v1/grading/{email}/send/ — email the next few teams; call again
+// with the returned cursor until done.
+export function sendSymposiumEmailBatch(
+  email: SymposiumEmail,
+  cursor: number | null
+): Promise<SymposiumEmailBatch> {
+  return requestJson<SymposiumEmailBatch>(`/api/v1/grading/${email}/send/`, {
+    method: 'POST',
+    body: JSON.stringify({ cursor })
+  })
+}
+
+/** The emails that have Send Test Email beside their preview. */
+export type TestEmailKind = SymposiumEmail | 'finalist' | 'results-groups' | 'results-supervisors'
+
+/** Someone the email can be tested as, e.g. "(BTF07) Amy Chen". */
+export interface TestEmailRecipient {
+  value: string
+  label: string
+}
+
+// GET /api/v1/grading/test-email/{kind}/ — everyone the email can go to.
+export function fetchTestEmailRecipients(kind: TestEmailKind): Promise<{ recipients: TestEmailRecipient[] }> {
+  return requestJson<{ recipients: TestEmailRecipient[] }>(`/api/v1/grading/test-email/${kind}/`)
+}
+
+// POST /api/v1/grading/test-email/{kind}/ — send the email, exactly as
+// `recipient` would get it, to `to`. `fields` are the page's unsaved details,
+// as its preview uses them. Nothing is recorded as sent.
+export function sendTestEmail(
+  kind: TestEmailKind,
+  recipient: string,
+  to: string,
+  fields: object = {}
+): Promise<{ sent_to: string }> {
+  return requestJson<{ sent_to: string }>(`/api/v1/grading/test-email/${kind}/`, {
+    method: 'POST',
+    body: JSON.stringify({ ...fields, recipient, to })
+  })
 }
 
 // POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally

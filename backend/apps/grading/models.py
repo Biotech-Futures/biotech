@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -295,6 +297,14 @@ class CertificatesRelease(SingletonModel):
         return f"CertificatesRelease(released_at={self.released_at})"
 
 
+def template_upload_to(instance, filename):
+    """Each uploaded template in a folder of its own, so the file keeps the
+    name it was uploaded with. In one shared folder a re-upload of the same
+    name collides with the file it replaces (deleted only after the save),
+    and storage renames it, e.g. to "BTF_Marks_Release_Template_FSXLa9F.docx"."""
+    return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
@@ -303,8 +313,9 @@ class GradingSettings(SingletonModel):
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
     director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
-    marks_summary_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
-    certificate_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
+    marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
+    certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
+    mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     # Component code (e.g. "POSTER") -> weight (0..1). Sum should be 1.0 when set.
     component_weights = models.JSONField(default=dict, blank=True)
 
@@ -346,6 +357,138 @@ class FinalistEmailSettings(SingletonModel):
     def dates_before(self, today) -> list[str]:
         """The date fields set to a day before ``today`` (last year's, say)."""
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
+
+
+class ResultsEmailSettings(SingletonModel):
+    """What the results emails tell teams about the feedback survey, set on
+    the Release Results tab each year. Nothing is sent until both are set."""
+
+    survey_url = models.URLField(
+        max_length=500,
+        blank=True,
+        # The survey in the client's 2025 email; replace it each year.
+        default="https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
+    )
+    survey_closes = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "results_email_settings"
+
+    def __str__(self):
+        return "ResultsEmailSettings"
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.survey_url and self.survey_closes)
+
+
+class ResultsTeamEmail(models.Model):
+    """A team emailed about its results; sending skips it after that. Only
+    recorded once every member got the email, so a retry reaches the rest."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="results_email",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "results_team_email"
+
+    def __str__(self):
+        return f"Results emailed: {self.group}"
+
+
+class ResultsSupervisorEmail(models.Model):
+    """A supervisor emailed about their students' results for a year."""
+
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    year = models.PositiveSmallIntegerField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "results_supervisor_email"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supervisor", "year"],
+                name="unique_results_email_per_supervisor_year",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Results emailed: supervisor {self.supervisor_id} ({self.year})"
+
+
+class NonFinalistEmail(models.Model):
+    """A team that wasn't picked, emailed the invitation to the Symposium from
+    Email Nonfinalist; sending skips it after that. Only recorded once every
+    member got the email, so a retry reaches the rest."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="nonfinalist_email",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "nonfinalist_email"
+
+    def __str__(self):
+        return f"Non-finalist emailed: {self.group}"
+
+
+class NonSubmissionEmail(models.Model):
+    """A team that didn't submit, emailed the notice (and invitation to the
+    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    recorded once every member got the email, so a retry reaches the rest."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="nonsubmission_email",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "nonsubmission_email"
+
+    def __str__(self):
+        return f"Non-submission emailed: {self.group}"
 
 
 class GradingJob(models.Model):

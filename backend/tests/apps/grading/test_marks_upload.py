@@ -197,10 +197,20 @@ class BulkUploadMarksViewTests(_GradingFixture):
         return team
 
     def test_a_name_two_teams_share_this_year_is_refused(self):
-        self._second_team("BTF-TEST-1", self.group.year)
-        resp = self.client.post(
-            self.url, {"file": self._make_csv([self._row("5")]), "dry_run": "true"}
-        )
+        from unittest import mock
+
+        from apps.groups.models.groups import UNIQUE_NAMES_FROM_YEAR, Groups
+
+        # From 2026 the database stops two teams in a year sharing a name, so
+        # only an earlier year's data can have them; the upload still won't guess.
+        old_year = UNIQUE_NAMES_FROM_YEAR - 1
+        Groups.objects.filter(pk=self.group.pk).update(year=old_year)
+        self.group.refresh_from_db()
+        self._second_team("BTF-TEST-1", old_year)
+        with mock.patch("apps.grading.services.upload.current_cohort", return_value=old_year):
+            resp = self.client.post(
+                self.url, {"file": self._make_csv([self._row("5")]), "dry_run": "true"}
+            )
         body = resp.json()
         self.assertEqual(body["checks"]["bad_group_rows"], [
             {"row": 2, "reason": "2 teams are named 'BTF-TEST-1'"},

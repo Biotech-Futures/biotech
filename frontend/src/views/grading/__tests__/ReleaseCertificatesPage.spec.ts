@@ -92,6 +92,20 @@ describe('the finalist exclusion', () => {
     await flushPromises()
     expect(exclusionMock).toHaveBeenCalledWith(false)
     expect(toggleMock).not.toHaveBeenCalled()
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+  })
+
+  it('the finalist exclusion is fixed once certificates are released', async () => {
+    fetchMock.mockResolvedValueOnce(status())
+    const open = await mountPage()
+    expect(open.find('input[type="checkbox"]').attributes('disabled')).toBeUndefined()
+
+    fetchMock.mockResolvedValueOnce(status({ released_at: '2026-09-20T10:00:00Z' }))
+    const released = await mountPage()
+    expect(released.find('input[type="checkbox"]').attributes('disabled')).toBeDefined()
+    expect(released.find('.release__finalists-toggle').attributes('title')).toBe(
+      'Unrelease certificates to change this.'
+    )
   })
 
   it('a refused exclusion change is reported', async () => {
@@ -115,6 +129,7 @@ describe('the release flow', () => {
     await flushPromises()
     expect(toggleMock).toHaveBeenCalledWith(true)
     expect(wrapper.text()).toContain('Certificates are released')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
   })
 
   it('unreleases directly and reports a refusal in place', async () => {

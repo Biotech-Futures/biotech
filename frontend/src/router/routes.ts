@@ -127,7 +127,7 @@ const routes: RouteRecordRaw[] = [
         }
       },
       { path: 'deadline', redirect: '/management/submission-deadline' },
-      { path: 'release', redirect: '/management/release-marks' },
+      { path: 'release', redirect: '/management/release-results' },
       { path: 'settings', redirect: '/management/document-setup' },
       { path: 'notify-finalists', redirect: '/management/notify-finalists' }
     ]
@@ -145,10 +145,13 @@ const routes: RouteRecordRaw[] = [
       { path: 'new-season', redirect: '/management/new-year' },
       { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
       { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
-      { path: 'release-marks', name: 'management-release', component: () => import('@/views/grading/ReleasePage.vue') },
-      { path: 'release-certificates', name: 'management-release-certificates', component: () => import('@/views/grading/ReleaseCertificatesPage.vue') },
+      { path: 'release-results', name: 'management-release-results', component: () => import('@/views/grading/ReleaseResultsPage.vue') },
+      // Marks and certificates used to be released from tabs of their own.
+      { path: 'release-marks', redirect: '/management/release-results' },
+      { path: 'release-certificates', redirect: '/management/release-results' },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
-      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') }
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') },
+      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/grading/NonFinalistPage.vue') }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

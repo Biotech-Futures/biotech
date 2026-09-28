@@ -17,6 +17,7 @@ teams by a ``group_id`` column, which this sheet no longer carries.
 from __future__ import annotations
 
 import io
+from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 from openpyxl import Workbook
@@ -160,6 +161,60 @@ def build_saq_xlsx(
     # purpose: Excel then sizes each row to its tallest wrapped cell (the
     # longest answer, comment or category list) when the file opens.
     for row in ws.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=cell.column in wrapped, vertical="top")
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _number(value):
+    """A mark as a number for the sheet; blank when not marked."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(Decimal(str(value)))
+    except InvalidOperation:
+        return None
+
+
+# Text columns wide enough to read; TeamCode and the marks keep the default width.
+_TEAM_SHEET_WIDTHS = {
+    "Students": 20,
+    "Mentor": 20,
+    "ProjectTitle": 30,
+    "ProjectCategory": 20,
+    "SolutionCategory": 20,
+}
+
+
+def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set[str]) -> bytes:
+    """The marks spreadsheet a supervisor's results email carries: one row
+    per team, one column per name in ``columns`` (the marks summary's own
+    field names, e.g. TeamCode, PM1, SM4), filled from ``rows``: each
+    team's marks summary fields. The ``numeric`` columns hold marks and are
+    written as numbers; a mark not given stays blank.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Marks"
+    ws.append(columns)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for fields in rows:
+        ws.append([
+            _number(fields.get(column)) if column in numeric else (fields.get(column) or None)
+            for column in columns
+        ])
+
+    ws.freeze_panes = "B2"
+    wrapped = set()
+    for index, column in enumerate(columns, start=1):
+        if column in _TEAM_SHEET_WIDTHS:
+            ws.column_dimensions[get_column_letter(index)].width = _TEAM_SHEET_WIDTHS[column]
+            wrapped.add(index)
+    for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=cell.column in wrapped, vertical="top")
 

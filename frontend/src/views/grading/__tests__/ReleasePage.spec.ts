@@ -93,6 +93,8 @@ describe('the release flow', () => {
     expect(toggleMock).toHaveBeenCalledWith(true)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Marks are released')
+    // Release Results rechecks whether its emails may go out.
+    expect(wrapper.emitted('changed')).toHaveLength(1)
   })
 
   it('a refused release closes the dialog and reports the reason', async () => {

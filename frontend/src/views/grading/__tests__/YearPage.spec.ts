@@ -31,7 +31,8 @@ const finalist = (notified: boolean) => ({
   flagged_by: 'Ada Admin',
   notified,
   notified_at: notified ? '2026-09-02T00:00:00Z' : null,
-  notified_by: notified ? 'Ada Admin' : null
+  notified_by: notified ? 'Ada Admin' : null,
+  students: 3
 })
 
 const extension = (until: string) => ({

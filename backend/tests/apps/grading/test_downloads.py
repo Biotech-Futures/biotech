@@ -53,11 +53,12 @@ class BuildSubmissionsZipTests(SimpleTestCase):
                 raise FileNotFoundError(key)
             return io.BytesIO(blobs[key])
 
-        with mock.patch.object(zip_service, "open_file", side_effect=fake_open):
+        # Names carry the challenge year (current_cohort), not the calendar year.
+        year = 2031
+        with mock.patch.object(zip_service, "open_file", side_effect=fake_open),                 mock.patch.object(zip_service, "current_cohort", return_value=year):
             payload = zip_service.build_submissions_zip(entries, group_folder=False)
 
         zf = zipfile.ZipFile(io.BytesIO(payload))
-        year = timezone.now().year
         expected = []
         for entry in entries:
             stem = f"{year}_{entry.group_name}_Poster"
@@ -117,6 +118,23 @@ class GroupDownloadViewTests(_GradingFixture):
         year = timezone.now().year
         self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.txt"])
 
+    def test_names_carry_the_challenge_year_while_its_deadline_is_current(self):
+        # January after a challenge: the calendar year has moved on, but last
+        # year's deadline is still the current one, so files keep its year.
+        from datetime import datetime
+
+        from apps.submissions.models import Deadline
+
+        last_year = timezone.now().year - 1
+        Deadline.objects.create(
+            closes_at=timezone.make_aware(datetime(last_year, 9, 25, 23, 59)), is_active=True,
+        )
+        url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
+        resp = self.client.get(url)
+        names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
+        self.assertEqual(names, [f"{last_year}_BTF-TEST-1_SAQs.txt"])
+        self.assertIn(f"{last_year}_BTF-TEST-1", resp["Content-Disposition"])
+
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
         resp = self.client.get(reverse("grading:group-download", kwargs={"group_id": self.group.id}))
@@ -140,6 +158,15 @@ class ComponentDownloadViewTests(_GradingFixture):
         job = GradingJob.objects.get(pk=job_id)
         self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
         self.assertTrue(job.result_url)
+        # Storage may add a suffix if the name is taken.
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.zip$")
+
+    def test_saq_sheet_is_named_btf(self):
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "xlsx"}, format="json")
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.xlsx$")
 
     def test_xlsx_only_for_saq(self):
         url = reverse("grading:component-download", kwargs={"code": "POSTER"})

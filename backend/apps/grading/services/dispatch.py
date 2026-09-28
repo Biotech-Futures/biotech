@@ -35,6 +35,7 @@ from django.contrib.auth import get_user_model
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.submissions.models import Submission, SubmissionQuestion
+from apps.submissions.services import current_cohort
 from apps.users.models import StudentProfile
 
 from ..models import (
@@ -92,7 +93,7 @@ def _run_job(job_id: int) -> None:
             # collide and folders would just be an extra layer.
             payload = build_submissions_zip(entries, group_folder=False)
             label = _COMPONENT_LABELS.get(component.code, component.code)
-            filename = f"{timezone.now().year}_BIOTech_{label}.zip"
+            filename = f"{current_cohort()}_BTF_{label}.zip"
         elif kind == "component_xlsx":
             criteria = list(
                 RubricCriterion.objects
@@ -139,11 +140,11 @@ def _run_job(job_id: int) -> None:
                 questions=list(questions),
                 years_by_group=years_by_group,
             )
-            filename = f"{timezone.now().year}_BIOTech_SAQs.xlsx"
+            filename = f"{current_cohort()}_BTF_SAQs.xlsx"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.
             payload = build_submissions_zip(submission_entries())
-            filename = f"{timezone.now().year}_BIOTech_All.zip"
+            filename = f"{current_cohort()}_BTF_All.zip"
         elif kind == "supervisor_bundle":
             year = int(job.params.get("year"))
             supervisor_user_id = int(job.params.get("supervisor_user_id"))

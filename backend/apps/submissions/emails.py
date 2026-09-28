@@ -15,7 +15,7 @@ from apps.services.mailer import send_async
 from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
 from .models import Submission, SubmissionQuestion
-from .services import deadline_for_group
+from .services import current_cohort, deadline_for_group
 
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ def send_submission_confirmation(submission: Submission) -> int:
         context = {
             **brand_context(),
             "GROUP_NAME": group.group_name,
-            "YEAR": timezone.now().year,
+            "YEAR": current_cohort(),
             "REQUIRED_COMPONENTS": required,
             "OPTIONAL_COMPONENTS": optional,
             "REQUIRED_COMPONENTS_LIST": components_list_html(required),

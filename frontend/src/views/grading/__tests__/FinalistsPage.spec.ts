@@ -37,6 +37,9 @@ const candidate = (over: Record<string, unknown> = {}) => ({
   total: '19.50',
   markers: ['Ada Grader', 'Bob Marker'],
   criterion_markers: [{ label: 'SAQ 1', marker: 'Ada Grader' }],
+  project_title: '',
+  project_category: 'Health and Medicine, Wearables',
+  solution_category: 'App',
   is_finalist: false,
   has_submission: true,
   incomplete: [],
@@ -90,7 +93,8 @@ beforeEach(() => {
         flagged_by: 'Ada Admin',
         notified: false,
         notified_at: null,
-        notified_by: null
+        notified_by: null,
+        students: 3
       }
     ]
   })
@@ -169,6 +173,27 @@ describe('the group marks ranking', () => {
     const ungraded = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-2'))!
     expect(ungraded.find('.finalists__late').text()).toBe('3h 12m')
     expect(ungraded.text()).toContain('No sub.')
+  })
+
+  it('shows the title and categories on a row of their own under each group', async () => {
+    const wrapper = await mountPage()
+    // Hidden until Show Details is pressed, which then reads Hide Details.
+    expect(wrapper.find('.finalists__details-row').exists()).toBe(false)
+    const toggle = wrapper.find('.finalists__search-side button')
+    expect(toggle.text()).toBe('Show Details')
+    await toggle.trigger('click')
+    expect(toggle.text()).toBe('Hide Details')
+    const details = wrapper.findAll('.finalists__details-row')
+    expect(details).toHaveLength(2)
+    // Title on its line; the categories on the next.
+    expect(details[0]!.find('div').text()).toBe('Title: —')
+    const text = details[0]!.text().replace(/\s+/g, ' ')
+    expect(text).toContain('Category: Health and Medicine, Wearables Solution Category: App')
+    // Spans the whole table, like the extensions' reason row.
+    expect(details[0]!.find('td').attributes('colspan')).toBe('8')
+
+    await toggle.trigger('click')
+    expect(wrapper.find('.finalists__details-row').exists()).toBe(false)
   })
 
   it('tooltips the markers per criterion, first name shown with a group icon', async () => {
@@ -268,7 +293,7 @@ describe('the current finalists', () => {
         {
           group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
           flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
-          notified_by: 'Ada Admin'
+          notified_by: 'Ada Admin', students: 3
         }
       ]
     })

@@ -65,9 +65,7 @@
     </section>
 
     <section class="card deadline__form-card">
-      <div class="card-header">
-        <h3 class="card-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
-      </div>
+      <h3 class="deadline__section-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
       <p class="deadline__hint">
         Times are in your local timezone ({{ localTimeZone }}). Students see the closing
         time; the server quietly keeps accepting for the grace hours after it.
@@ -209,6 +207,13 @@ onMounted(() => void load())
 </script>
 
 <style scoped>
+/* A section heading, as "Email Details" on Notify Finalists. */
+.deadline__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
 .deadline {
   display: flex;
   flex-direction: column;
