@@ -1,0 +1,85 @@
+name: Backend on PostgreSQL
+
+# The deploy job's test step runs on SQLite, and there is a class of defect
+# that only exists on the real database:
+#
+#   * Migrations. settings_test disables them entirely, so a green suite says
+#     nothing about whether they apply. This has already cost the project a
+#     production outage — commit 07bf433, where a migration was refused by
+#     PostgreSQL on pending trigger events, the deploy stopped half way and
+#     login was down.
+#   * Row locks. SELECT ... FOR UPDATE is a no-op on SQLite, so every
+#     concurrency guard in the ticket lifecycle is unexercised there. Those
+#     tests skip themselves rather than pass falsely, which is honest and also
+#     means nothing runs them anywhere.
+#   * Ordering. SQLite happens to return tied rows in a stable sequence and
+#     PostgreSQL does not. Paging a queue of 60 tickets sharing one timestamp
+#     returned 40 of them and lost the rest, and only the real database showed
+#     it.
+#
+# A separate file, and deliberately not wired into deploy: the deploy workflow
+# belongs to another team and gating their pipeline on a job they did not ask
+# for is not ours to do. This reports; it does not block.
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-postgres.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-postgres.yml"
+
+jobs:
+  migrate-and-test:
+    name: Migrations and locking tests on PostgreSQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biotech
+          POSTGRES_PASSWORD: biotech
+          POSTGRES_DB: biotech_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DJANGO_SETTINGS_MODULE: config.settings_ci
+      DB_NAME: biotech_ci
+      DB_USER: biotech
+      DB_PASSWORD: biotech
+      DB_HOST: localhost
+      DB_PORT: "5432"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+
+      # The check the outage would have failed. Runs the migrations for real,
+      # against a real PostgreSQL, before anything else has a chance to pass.
+      - name: Apply every migration
+        run: python manage.py migrate --noinput
+
+      - name: Nothing was left ungenerated
+        run: python manage.py makemigrations --check --dry-run
+
+      # Runs the ticket suite where the lock and ordering tests actually
+      # execute instead of skipping.
+      - name: Ticket suite, locks and all
+        run: python manage.py test tests.apps.tickets --noinput

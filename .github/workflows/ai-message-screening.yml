@@ -1,0 +1,37 @@
+name: AI message screening
+
+# Every message that passes the local blocklist is queued immediately. The
+# application starts a best-effort low-latency worker; this schedule is the
+# durable retry/backfill path if a process restarts or OpenAI is unavailable.
+on:
+  schedule:
+    - cron: "12,42 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ai-message-screening
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger AI message screening
+        env:
+          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          SCREENING_TOKEN: ${{ secrets.AI_SCREENING_TRIGGER_TOKEN }}
+        run: |
+          if [ -z "${BACKEND_URL}" ]; then
+            echo "RSVP_REMINDER_BACKEND_URL is not set." >&2
+            exit 1
+          fi
+          if [ -z "${SCREENING_TOKEN}" ]; then
+            echo "AI_SCREENING_TRIGGER_TOKEN is not set." >&2
+            exit 1
+          fi
+          curl -fsS --max-time 60 -X POST \
+            -H "X-AI-Screening-Token: ${SCREENING_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/chat/admin/run-ai-screening/"
