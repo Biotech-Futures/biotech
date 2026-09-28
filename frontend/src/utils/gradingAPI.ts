@@ -917,6 +917,58 @@ export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
+/** This year's teams that submitted but weren't picked as finalists, and
+ *  how many have the non-finalist email. */
+export interface NonFinalistEmailStatus {
+  teams: EmailedCount
+  /** Their students with an address; mentors and supervisors get it too. */
+  students: EmailedCount
+  /** Why sending is refused (details missing on Notify Finalists, switched
+   *  off), or "" when it may go ahead. */
+  blocked: string
+}
+
+export interface NonFinalistEmailPreview {
+  subject: string
+  /** The team the preview is addressed to. */
+  to: string
+  html: string
+}
+
+export interface NonFinalistEmailBatch {
+  /** People emailed in this batch. */
+  emailed: number
+  /** Teams in this batch not emailed in full; left for the next press. */
+  failed: number
+  cursor: number
+  done: boolean
+  teams: EmailedCount
+  students: EmailedCount
+}
+
+// GET /api/v1/grading/nonfinalists/ — for the Email Nonfinalist tab.
+export function fetchNonFinalistEmail(): Promise<NonFinalistEmailStatus> {
+  return requestJson<NonFinalistEmailStatus>('/api/v1/grading/nonfinalists/')
+}
+
+// POST /api/v1/grading/nonfinalists/preview/ — the email as the first team
+// due would get it. Nothing is sent.
+export function previewNonFinalistEmail(): Promise<NonFinalistEmailPreview> {
+  return requestJson<NonFinalistEmailPreview>('/api/v1/grading/nonfinalists/preview/', {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+}
+
+// POST /api/v1/grading/nonfinalists/send/ — email the next few teams; call
+// again with the returned cursor until done.
+export function sendNonFinalistEmailBatch(cursor: number | null): Promise<NonFinalistEmailBatch> {
+  return requestJson<NonFinalistEmailBatch>('/api/v1/grading/nonfinalists/send/', {
+    method: 'POST',
+    body: JSON.stringify({ cursor })
+  })
+}
+
 // POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
 // fires the notification email (once the email details are set).
 export function addFinalist(groupId: number, notify = false): Promise<void> {

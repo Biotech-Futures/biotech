@@ -1,0 +1,32 @@
+{% autoescape off %}{# Keep the wording in step with nonfinalist_invitation.html. #}Thank you for your submission – Invitation to the Symposium
+
+Dear members of {{ GROUP_NAME }},
+
+Thank you for your submission to the {{ BRAND_NAME }} Challenge.
+Unfortunately, based on the judging criteria and the high quality (and
+unprecedented number) of entries this year, your team was not selected as a
+finalist.
+
+GOOD NEWS: You’re warmly invited to join us in person at the University of
+Sydney for the Symposium on {{ SYMPOSIUM_DATE }} (in-person only).
+
+WHY ATTEND?
+  - View finalist presentations.
+  - Show off your own project at the Science Fair (additional prizes
+    available).
+  - Meet mentors and partner organisations in person.
+  - Hear from guest speakers and take part in a hands-on workshop.
+
+Register to Attend (In-Person):
+{{ REGISTER_URL }}
+
+A full copy of your marks and certificates will be provided after the
+Symposium.
+
+Warm regards,
+The {{ BRAND_NAME }} Team
+
+--
+You’re receiving this email because your team participated in the
+{{ BRAND_NAME }} Challenge.
+{% endautoescape %}

@@ -233,6 +233,28 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="nonfinalist_invitation",
+        name="Non-finalist invitation",
+        description=(
+            "Sent to the members of teams that submitted but weren't picked as "
+            "finalists, from Email Nonfinalist, with the Symposium date and "
+            "registration link set on Notify Finalists."
+        ),
+        default_subject="Thank you for your submission – Invitation to the Symposium",
+        default_template="emails/nonfinalist_invitation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="results_team",
         name="Results: students",
         description=(

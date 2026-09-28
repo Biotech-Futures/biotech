@@ -507,7 +507,7 @@ onMounted(loadDetails)
 .release-results__status {
   font-weight: 600;
   font-size: 0.9rem;
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.75rem;
 }
 
 .release-results__status--ok {
@@ -518,9 +518,10 @@ onMounted(loadDetails)
   color: #eab308;
 }
 
+/* The size of the hint lines. */
 .release-results__counts {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   margin: 0 0 0.75rem;
 }
 

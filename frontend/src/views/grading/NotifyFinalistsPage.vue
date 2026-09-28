@@ -591,14 +591,10 @@ const confirmSend = async () => {
   color: #eab308;
 }
 
-/* The status line sits right above this count, as on Release Results. */
-.notify-finalists__status:has(+ .notify-finalists__counts) {
-  margin-bottom: 0.4rem;
-}
-
+/* The size of the hint lines. */
 .notify-finalists__counts {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   margin: 0 0 0.75rem;
 }
 

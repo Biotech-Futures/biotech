@@ -31,6 +31,9 @@ from .views import (
     MyCertificateView,
     MyGradesView,
     MySummaryView,
+    NonFinalistEmailPreviewView,
+    NonFinalistEmailSendView,
+    NonFinalistEmailView,
     SupervisorDownloadView,
     SupervisorGradesView,
     TemplateDownloadView,
@@ -114,6 +117,11 @@ urlpatterns = [
         name="finalist-email-preview",
     ),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
+    # The invitation to teams that submitted but weren't picked, from the
+    # Email Nonfinalist tab.
+    path("nonfinalists/", NonFinalistEmailView.as_view(), name="nonfinalist-email"),
+    path("nonfinalists/preview/", NonFinalistEmailPreviewView.as_view(), name="nonfinalist-email-preview"),
+    path("nonfinalists/send/", NonFinalistEmailSendView.as_view(), name="nonfinalist-email-send"),
 
     # Results emails to teams and supervisors, from the Release Results tab.
     path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),
