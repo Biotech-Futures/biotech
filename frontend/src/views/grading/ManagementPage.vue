@@ -36,10 +36,9 @@ const tabs = [
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
   { label: 'Extend Deadline', to: '/management/extend-deadline' },
   { label: 'Notify Finalists', to: '/management/notify-finalists' },
-  { label: 'Release Marks', to: '/management/release-marks' },
+  { label: 'Release Results', to: '/management/release-results' },
   { label: 'Document Setup', to: '/management/document-setup' }
-  // Hidden for now — pages still exist at their URLs; restore by uncommenting.
-  // { label: 'Release Certificates', to: '/management/release-certificates' },
+  // Hidden for now — the page still exists at its URL; restore by uncommenting.
   // { label: 'New Year', to: '/management/new-year' }
 ]
 </script>

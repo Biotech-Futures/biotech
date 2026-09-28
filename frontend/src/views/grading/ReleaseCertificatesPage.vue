@@ -1,24 +1,17 @@
 <template>
-  <p
-    v-if="UNDER_CONSTRUCTION"
-    style="background: #fff8e1; border: 1px solid #f5d97e; border-radius: 8px; color: #8a6d1a; font-size: 0.85rem; padding: 0.6rem 0.85rem; margin: 0 0 0.75rem"
-  >
-    <i class="fas fa-hammer" aria-hidden="true"></i>
-    The backend for this page is still being built.
-  </p>
-  <div class="release">
+  <!-- One of the cards on the Release Results tab, which adds the title
+       card and the under-construction note above. -->
+  <section class="card release">
     <p v-if="isLoading" class="release__hint">Loading…</p>
 
-    <div v-else-if="loadError" class="card release__load-error">
+    <div v-else-if="loadError" class="release__load-error">
       <p>Failed to load release status.</p>
       <p class="release__error-detail">{{ loadError }}</p>
       <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
     </div>
 
-    <div v-else-if="status" class="card release__panel">
-      <div class="card-header">
-        <h3 class="card-title">Release Certificates</h3>
-      </div>
+    <div v-else-if="status" class="release__panel">
+      <h3 class="release__section-title">Release Certificates</h3>
 
       <p class="release__headline" :class="released ? 'release__state--ok' : 'release__state--warn'">
         <i :class="released ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
@@ -101,7 +94,7 @@
         </div>
       </div>
     </Teleport>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -113,9 +106,6 @@ import {
   type ReleaseStatus
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-
-// Flip to false once the backend flow is signed off.
-const UNDER_CONSTRUCTION = true
 
 const status = ref<ReleaseStatus | null>(null)
 const isLoading = ref(false)
@@ -197,7 +187,6 @@ const confirmRelease = async () => {
 
 <style scoped>
 .release {
-  max-width: 36rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -214,10 +203,11 @@ const confirmRelease = async () => {
   gap: 1rem;
 }
 
-/* The panel's flex gap already spaces the content below the heading — the
-   header's own margin would double it. */
-.release__panel .card-header {
-  margin-bottom: 0;
+/* As "Change Deadline"; the panel's flex gap spaces what follows. */
+.release__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
 }
 
 .release__load-error p {

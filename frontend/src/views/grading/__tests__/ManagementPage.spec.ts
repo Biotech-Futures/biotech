@@ -32,14 +32,14 @@ describe('the management shell', () => {
       'Submission Deadline',
       'Extend Deadline',
       'Notify Finalists',
-      'Release Marks',
+      'Release Results',
       'Document Setup'
     ])
     expect(tabs[2]!.attributes('href')).toBe('/management/notify-finalists')
-    expect(tabs[3]!.attributes('href')).toBe('/management/release-marks')
+    expect(tabs[3]!.attributes('href')).toBe('/management/release-results')
     expect(tabs[4]!.attributes('href')).toBe('/management/document-setup')
-    // The parked sections stay routed but must not be offered.
-    expect(wrapper.text()).not.toContain('Release Certificates')
+    // The parked section stays routed but must not be offered.
+    expect(wrapper.text()).not.toContain('New Year')
   })
 
   it('marks the tab for the current route as selected', () => {
