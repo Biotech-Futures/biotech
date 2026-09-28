@@ -39,6 +39,7 @@ from .settings import (
     TemplateTestRenderView,
 )
 from .student import MyCertificateView, MyGradesView, MySummaryView
+from .test_email import TestEmailView
 from .supervisor import SupervisorDownloadView, SupervisorGradesView
 from .upload import BulkUploadMarksView
 
@@ -84,4 +85,5 @@ __all__ = [
     "NonSubmissionEmailView",
     "SupervisorDownloadView",
     "SupervisorGradesView",
+    "TestEmailView",
 ]

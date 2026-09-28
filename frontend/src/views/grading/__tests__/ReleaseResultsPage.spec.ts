@@ -12,6 +12,8 @@ import {
 } from '@/utils/gradingAPI'
 
 vi.mock('@/utils/gradingAPI', () => ({
+  fetchTestEmailRecipients: vi.fn(async () => ({ recipients: [] })),
+  sendTestEmail: vi.fn(),
   fetchRelease: vi.fn(),
   toggleRelease: vi.fn(),
   fetchCertificatesRelease: vi.fn(),

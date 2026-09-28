@@ -47,6 +47,7 @@
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
+          <TestEmailSender kind="finalist" :fields="formFields" />
         </div>
       </template>
     </section>
@@ -248,6 +249,7 @@ import {
   type FinalistListResponse
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import TestEmailSender from '@/views/grading/TestEmailSender.vue'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -600,7 +602,9 @@ const confirmSend = async () => {
 
 .notify-finalists__email-actions {
   display: flex;
-  gap: 1.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
 }
 
 .notify-finalists__last-emailed {

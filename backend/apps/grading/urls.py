@@ -39,6 +39,7 @@ from .views import (
     NonSubmissionEmailView,
     SupervisorDownloadView,
     SupervisorGradesView,
+    TestEmailView,
     TemplateDownloadView,
     TemplateScanView,
     TemplateTestRenderView,
@@ -129,6 +130,9 @@ urlpatterns = [
     path("nonsubmissions/", NonSubmissionEmailView.as_view(), name="nonsubmission-email"),
     path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
     path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
+
+    # Send Test Email beside each email tab's preview.
+    path("test-email/<str:kind>/", TestEmailView.as_view(), name="test-email"),
 
     # Results emails to teams and supervisors, from the Release Results tab.
     path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),

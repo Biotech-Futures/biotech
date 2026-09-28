@@ -37,7 +37,7 @@
           Survey Closes can't be before today.
         </p>
         <!-- Save and the student preview, then the supervisor preview on the
-             next line. -->
+             next line; each preview with its test send beside it. -->
         <div class="release-results__details-actions">
           <div class="release-results__actions">
             <button
@@ -56,15 +56,19 @@
             >
               {{ loadingPreview === 'students' ? 'Loading…' : 'Preview Student Email' }}
             </button>
+            <TestEmailSender kind="results-students" :fields="formFields" />
           </div>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="loadingPreview !== null"
-            @click="openPreview('supervisors')"
-          >
-            {{ loadingPreview === 'supervisors' ? 'Loading…' : 'Preview Supervisor Email' }}
-          </button>
+          <div class="release-results__actions">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="loadingPreview !== null"
+              @click="openPreview('supervisors')"
+            >
+              {{ loadingPreview === 'supervisors' ? 'Loading…' : 'Preview Supervisor Email' }}
+            </button>
+            <TestEmailSender kind="results-supervisors" />
+          </div>
         </div>
       </template>
     </section>
@@ -204,6 +208,7 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import ReleaseCertificatesPage from '@/views/grading/ReleaseCertificatesPage.vue'
 import ReleasePage from '@/views/grading/ReleasePage.vue'
+import TestEmailSender from '@/views/grading/TestEmailSender.vue'
 
 // Students (the team email) and supervisors are emailed apart.
 const AUDIENCES: { value: ResultsAudience; noun: string }[] = [
@@ -491,8 +496,9 @@ onMounted(loadDetails)
 
 .release-results__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1.25rem;
+  gap: 0.75rem 1.25rem;
 }
 
 /* Each button as wide as its label. */

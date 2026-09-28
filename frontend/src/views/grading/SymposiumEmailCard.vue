@@ -40,6 +40,7 @@
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
+          <TestEmailSender :kind="email" />
           <span v-if="sending" class="symposium-email__progress" role="status">
             Emailed {{ plural(progress.emailed, 'person', 'people') }} so far…
           </span>
@@ -120,6 +121,7 @@ import {
   type SymposiumEmailStatus
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import TestEmailSender from '@/views/grading/TestEmailSender.vue'
 
 const props = defineProps<{
   email: SymposiumEmail
@@ -260,8 +262,9 @@ onMounted(load)
 
 .symposium-email__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1.25rem;
+  gap: 0.75rem 1.25rem;
 }
 
 .symposium-email__progress {

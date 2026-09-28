@@ -975,6 +975,35 @@ export function sendSymposiumEmailBatch(
   })
 }
 
+/** The emails that have Send Test Email beside their preview. */
+export type TestEmailKind = SymposiumEmail | 'finalist' | 'results-students' | 'results-supervisors'
+
+/** Someone the email can be tested as, e.g. "(BTF07) Amy Chen". */
+export interface TestEmailRecipient {
+  value: string
+  label: string
+}
+
+// GET /api/v1/grading/test-email/{kind}/ — everyone the email can go to.
+export function fetchTestEmailRecipients(kind: TestEmailKind): Promise<{ recipients: TestEmailRecipient[] }> {
+  return requestJson<{ recipients: TestEmailRecipient[] }>(`/api/v1/grading/test-email/${kind}/`)
+}
+
+// POST /api/v1/grading/test-email/{kind}/ — send the email, exactly as
+// `recipient` would get it, to `to`. `fields` are the page's unsaved details,
+// as its preview uses them. Nothing is recorded as sent.
+export function sendTestEmail(
+  kind: TestEmailKind,
+  recipient: string,
+  to: string,
+  fields: object = {}
+): Promise<{ sent_to: string }> {
+  return requestJson<{ sent_to: string }>(`/api/v1/grading/test-email/${kind}/`, {
+    method: 'POST',
+    body: JSON.stringify({ ...fields, recipient, to })
+  })
+}
+
 // POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
 // fires the notification email (once the email details are set).
 export function addFinalist(groupId: number, notify = false): Promise<void> {
