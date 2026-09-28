@@ -138,7 +138,14 @@ const loadError = ref('')
 const actionError = ref('')
 const isSaving = ref(false)
 
-const closesAtLocal = ref('')
+// Defaults to today at 23:59 (deadlines are almost always end-of-day);
+// replaced by the saved deadline's value on load when one exists.
+const defaultClosesAtLocal = () => {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
+}
+const closesAtLocal = ref(defaultClosesAtLocal())
 // 24h quiet grace by default; replaced by the saved deadline's value on load.
 const graceHours = ref(24)
 const confirmOpen = ref(false)

@@ -106,4 +106,15 @@ urlpatterns = [
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/replace-suggestions/', views.MentorMatchReplaceSuggestionsView.as_view(), name='mentor-match-replace-suggestions'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
+
+    # ========================================================================
+    # SYSTEM EMAIL ROUTES
+    # ========================================================================
+    path('email-template/', views.SystemEmailTemplateListView.as_view(), name='email-template-list'),
+    # Literal sub-paths precede <str:key> so they are never swallowed as a key.
+    path('email-template/<str:key>/preview/', views.SystemEmailTemplatePreviewView.as_view(), name='email-template-preview'),
+    path('email-template/<str:key>/test-send/', views.SystemEmailTemplateTestSendView.as_view(), name='email-template-test-send'),
+    path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
+    path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
+    path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
 ]

@@ -149,31 +149,16 @@ class AdminGroupServiceTests(TestCase):
         self.group.refresh_from_db()
         self.assertEqual(self.group.group_name, "Group One")
 
-    def test_update_group_rejects_duplicate_name(self):
+    def test_update_group_allows_duplicate_name(self):
         Groups.objects.create(group_name="Group Two")
 
         result = update_group(str(self.group.id), name="Group Two")
 
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
+        self.assertEqual(result["msg"], "Group updated successfully")
+        self.assertEqual(result["data"]["name"], "Group Two")
         self.group.refresh_from_db()
-        self.assertEqual(self.group.group_name, "Group One")
-
-    def test_update_group_rejects_duplicate_that_races_past_the_precheck(self):
-        # Drives the IntegrityError fallback: the pre-check is what normally catches
-        # a duplicate, so only a forced miss exercises the DB constraint behind it.
-        Groups.objects.create(group_name="Group Two")
-
-        with mock.patch("apps.admin.services.group._active_name_taken", return_value=False):
-            result = update_group(
-                str(self.group.id), name="Group Two", initiated_by=self.admin_user,
-            )
-
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
-        self.group.refresh_from_db()
-        self.assertEqual(self.group.group_name, "Group One")
-        self.assertFalse(AuditLog.objects.filter(entity_type="group").exists())
+        self.assertEqual(self.group.group_name, "Group Two")
+        self.assertEqual(Groups.objects.filter(group_name="Group Two").count(), 2)
 
     def test_update_group_rejects_non_string_name(self):
         result = update_group(str(self.group.id), name=123)
@@ -235,17 +220,18 @@ class AdminGroupServiceTests(TestCase):
         result = create_group("  Fresh Group  ")
         self.assertEqual(result["data"]["name"], "Fresh Group")
 
-    def test_create_group_rejects_duplicate_name(self):
+    def test_create_group_allows_duplicate_name(self):
         result = create_group("Group One")
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
+        self.assertEqual(result["msg"], "Group created successfully")
+        self.assertIsNotNone(result["data"])
+        self.assertEqual(Groups.objects.filter(group_name="Group One").count(), 2)
 
     def test_create_group_auto_names_when_name_blank(self):
         for number, blank in enumerate((None, "", "   "), start=1):
             with self.subTest(name=blank):
                 result = create_group(blank)
                 self.assertEqual(result["msg"], "Group created successfully")
-                self.assertEqual(result["data"]["name"], f"BTF{number}")
+                self.assertEqual(result["data"]["name"], f"BTF{number:02d}")
 
     def test_create_group_explicit_name_wins_over_auto(self):
         result = create_group("Human Chosen")
@@ -257,7 +243,7 @@ class AdminGroupServiceTests(TestCase):
         result = create_group(None)
 
         self.assertEqual(result["msg"], "Group created successfully")
-        self.assertEqual(result["data"]["name"], "BTF6")
+        self.assertEqual(result["data"]["name"], "BTF06")
 
     def test_create_group_never_reuses_a_soft_deleted_number(self):
         create_group(None)
@@ -267,7 +253,16 @@ class AdminGroupServiceTests(TestCase):
             created_at=now - timedelta(days=1), deleted_at=now,
         )
 
-        self.assertEqual(create_group(None)["data"]["name"], "BTF3")
+        self.assertEqual(create_group(None)["data"]["name"], "BTF02")
+
+    def test_create_group_keeps_counting_after_all_are_deleted(self):
+        ids = [create_group(None)["data"]["id"] for _ in range(3)]
+        now = timezone.now()
+        Groups.objects.filter(id__in=ids).update(
+            created_at=now - timedelta(days=1), deleted_at=now,
+        )
+
+        self.assertEqual(create_group(None)["data"]["name"], "BTF01")
 
     def test_create_group_reports_an_exhausted_auto_name(self):
         # Only reachable now by losing every retry, so drive it directly.

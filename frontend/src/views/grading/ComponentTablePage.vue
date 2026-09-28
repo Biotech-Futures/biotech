@@ -36,7 +36,7 @@
               v-model="searchQuery"
               type="search"
               class="component-table__search-input"
-              placeholder="Group name or ID"
+              placeholder="Group name"
               aria-label="Search groups"
             />
           </div>
@@ -67,6 +67,9 @@
           </div>
       </div>
 
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--ok">
+        Processing files for Download
+      </p>
       <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
@@ -79,14 +82,13 @@
           <thead>
             <tr>
               <th>
-                <button type="button" class="component-table__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                <button type="button" class="component-table__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th>Group</th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
-                  Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -109,16 +111,15 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="component-table__empty">
+              <td colspan="7" class="component-table__empty">
                 {{ searchQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td>{{ r.group_id }}</td>
               <td class="component-table__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB') }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
                   {{
                     new Date(r.submitted_at).toLocaleTimeString([], {
                       hour: '2-digit',
@@ -224,12 +225,28 @@ const startJob = (format: 'zip' | 'xlsx') => {
   void job.start(code.value, format)
 }
 
-const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied - wrote ${written} row${written === 1 ? '' : 's'}.`
+const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
+
+// "Marks applied. Overwrote existing records for 2 groups and wrote new
+// records for 1 group." Counted in groups, like the upload preview.
+const appliedMessage = ({ overwritten, created }: { overwritten: number; created: number }) => {
+  const parts: string[] = []
+  if (overwritten) parts.push(`overwrote existing records for ${groupCount(overwritten)}`)
+  if (created) parts.push(`wrote new records for ${groupCount(created)}`)
+  if (!parts.length) return 'Marks applied. No records changed.'
+  const detail = parts.join(' and ')
+  return `Marks applied. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+}
+
+const onUploadApplied = async (counts: { overwritten: number; created: number }) => {
+  uploadMessage.value = appliedMessage(counts)
   await load()
 }
 
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -300,7 +317,6 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: ComponentRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.criteria_graded : null
 }
@@ -309,12 +325,11 @@ const displayRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   let rows = [...(payload.value?.rows ?? [])]
   if (query) {
-    rows = rows.filter(
-      (r) => r.group_name.toLowerCase().includes(query) || String(r.group_id).includes(query)
-    )
+    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
   }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -428,8 +443,15 @@ const displayRows = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex: 1 1 180px;
+  flex: 1 1 140px;
+  /* Explicit floor — otherwise the input's intrinsic minimum (~170px)
+     wins and crowds the stats out of the row. */
+  min-width: 155px;
   max-width: 252px;
+}
+
+.component-table__search-field .component-table__search-input {
+  min-width: 0;
 }
 
 .component-table__search-label {
@@ -458,7 +480,9 @@ const displayRows = computed(() => {
 .component-table__search-input {
   width: 100%;
   height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  /* Slim right padding — text clips at the content edge, so a wide pad
+     cuts the placeholder well short of the visible border. */
+  padding: 0.5rem 0 0.5rem 2rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);

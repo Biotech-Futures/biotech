@@ -20,16 +20,10 @@ const candidatesMock = vi.mocked(fetchFinalistCandidates)
 const finalistsMock = vi.mocked(fetchFinalists)
 const removeMock = vi.mocked(removeFinalist)
 
-const resolveIdMock = vi.fn<() => number | null>()
 const GroupSearchInputStub = defineComponent({
   name: 'GroupSearchInput',
   props: { modelValue: { type: String, default: '' }, showSuggestions: { type: Boolean, default: true } },
   emits: ['update:modelValue'],
-  methods: {
-    resolveId(): number | null {
-      return resolveIdMock()
-    }
-  },
   template:
     '<input class="picker" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
 })
@@ -45,6 +39,7 @@ const candidate = (over: Record<string, unknown> = {}) => ({
   criterion_markers: [{ label: 'SAQ 1', marker: 'Ada Grader' }],
   is_finalist: false,
   has_submission: true,
+  incomplete: [],
   ...over
 })
 
@@ -64,7 +59,6 @@ const mountPage = async () => {
 beforeEach(() => {
   addMock.mockReset().mockResolvedValue(undefined as never)
   removeMock.mockReset().mockResolvedValue(undefined as never)
-  resolveIdMock.mockReset()
   candidatesMock.mockReset().mockResolvedValue({
     components: [
       { code: 'SAQ', name: 'Short Answer Questions' },
@@ -82,7 +76,8 @@ beforeEach(() => {
         markers: [],
         criterion_markers: [],
         is_finalist: true,
-        has_submission: false
+        has_submission: false,
+        incomplete: []
       })
     ]
   })
@@ -102,6 +97,65 @@ beforeEach(() => {
 })
 
 describe('the group marks ranking', () => {
+  it('stars a report or prototype not marked completely, with the reason on hover', async () => {
+    candidatesMock.mockResolvedValue({
+      components: ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE'].map((code) => ({ code, name: code })),
+      rows: [
+        // Report half marked, prototype never sent.
+        candidate({
+          marks: { SAQ: '12.50', POSTER: '7.00', REPORT: '2.92', PROTOTYPE: null },
+          incomplete: ['REPORT']
+        }),
+        // Report fully marked, prototype sent but not marked at all.
+        candidate({
+          group_id: 3,
+          group_name: 'BTF-3',
+          marks: { SAQ: '10.00', POSTER: '6.00', REPORT: '3.00', PROTOTYPE: null },
+          incomplete: ['PROTOTYPE']
+        }),
+        // Only SAQ/poster incomplete: those columns are left as they are.
+        candidate({
+          group_id: 4,
+          group_name: 'BTF-4',
+          marks: { SAQ: '4.00', POSTER: null, REPORT: null, PROTOTYPE: null },
+          incomplete: ['SAQ', 'POSTER']
+        })
+      ]
+    })
+    const wrapper = await mountPage()
+    const cells = (name: string) =>
+      wrapper
+        .findAll('tbody tr')
+        .find((r) => r.text().includes(name))!
+        .findAll('td')
+        .slice(2, 6) // SAQ, POSTER, REPORT, PROT.
+    const hover = (cell: ReturnType<typeof cells>[number]) =>
+      cell.find('[title]').exists() ? cell.find('[title]').attributes('title') : null
+
+    const [, , report1, prototype1] = cells('BTF-1')
+    expect(report1!.text()).toBe('2.92*')
+    expect(hover(report1!)).toBe('Not Marked Completely')
+    expect(prototype1!.text()).toBe('—')
+    expect(hover(prototype1!)).toBeNull()
+
+    const [, , report3, prototype3] = cells('BTF-3')
+    expect(report3!.text()).toBe('3.00')
+    expect(prototype3!.text()).toBe('*')
+    expect(hover(prototype3!)).toBe('Not Marked Completely')
+
+    const [saq4, poster4] = cells('BTF-4')
+    expect(saq4!.text()).toBe('4.00')
+    expect(poster4!.text()).toBe('—')
+
+    // The key above the table explains the asterisk.
+    expect(wrapper.find('.finalists__legend').text()).toBe('* Not Marked Completely')
+  })
+
+  it('leaves out the asterisk key when there is no report or prototype column', async () => {
+    const wrapper = await mountPage() // SAQ and POSTER columns only
+    expect(wrapper.find('.finalists__legend').exists()).toBe(false)
+  })
+
   it('shows per-component columns with marks, dashes and the total', async () => {
     const wrapper = await mountPage()
     const headers = wrapper.findAll('thead th').map((h) => h.text())
@@ -150,22 +204,14 @@ describe('the group marks ranking', () => {
     expect(candidatesMock).toHaveBeenCalledTimes(2)
   })
 
-  it('adding by search refuses an unresolvable group', async () => {
-    resolveIdMock.mockReturnValue(null)
-    const wrapper = await mountPage()
-    await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.finalists__banner--error').text()).toBe('No group matches that name or ID.')
-    expect(addMock).not.toHaveBeenCalled()
-  })
-
-  it('adding by search flags the resolved group and clears the query', async () => {
-    resolveIdMock.mockReturnValue(1)
+  it('pressing Enter in the search only filters, never flags', async () => {
     const wrapper = await mountPage()
     await wrapper.find('.picker').setValue('BTF-1')
-    await wrapper.find('form').trigger('submit')
+    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(addMock).toHaveBeenCalledWith(1)
-    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(addMock).not.toHaveBeenCalled()
+    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('BTF-1')
   })
 
   it('a refused add is reported', async () => {
@@ -185,12 +231,52 @@ describe('the current finalists', () => {
     expect(table.text()).toContain('Ada Admin')
   })
 
-  it('removing unflags and refreshes', async () => {
+  it('Remove asks first, naming the group', async () => {
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    const dialog = wrapper.find('.finalists__dialog')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('Remove this finalist?')
+    expect(dialog.text()).toContain('BTF-2')
+    expect(dialog.text()).not.toContain('already been emailed')
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('confirming unflags and refreshes', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog').findAll('button').at(-1)!.trigger('click')
     await flushPromises()
     expect(removeMock).toHaveBeenCalledWith(2)
     expect(finalistsMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
+    // The refreshed tables are the confirmation; no success banner.
+    expect(wrapper.text()).not.toContain('Finalist removed.')
+  })
+
+  it('cancelling removes nothing', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    await wrapper.find('.finalists__dialog button').trigger('click') // Cancel
+    expect(wrapper.find('.finalists__dialog').exists()).toBe(false)
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('warns when the team was already emailed that they are a finalist', async () => {
+    finalistsMock.mockResolvedValue({
+      finalists: [
+        {
+          group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
+          flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
+          notified_by: 'Ada Admin'
+        }
+      ]
+    })
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
+    expect(wrapper.find('.finalists__dialog').text()).toContain(
+      'Their team has already been emailed that they are a finalist.'
+    )
   })
 
   it('says so when nobody is flagged yet', async () => {

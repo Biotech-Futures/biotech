@@ -32,8 +32,10 @@ const testCandidateMock = vi.mocked(downloadCandidateTestRender)
 
 const detail = (over: Record<string, unknown> = {}) => ({
   director_1_name: 'Prof. Alice Adams',
+  director_1_position: 'Chair',
   director_1_signature: '/media/grading/sig1.png',
   director_2_name: '',
+  director_2_position: '',
   director_2_signature: null,
   marks_summary_template: '/media/grading/marks%20summary.docx',
   certificate_template: null,
@@ -43,7 +45,6 @@ const detail = (over: Record<string, unknown> = {}) => ({
 
 const scan = (present: string[] = [], unknown: string[] = []) => ({
   uploaded: true,
-  dialect: 'tokens' as const,
   present,
   unknown
 })
@@ -56,6 +57,13 @@ const mountPage = async () => {
 
 const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: RegExp) =>
   wrapper.findAll('button').find((b) => label.test(b.text().trim()))!
+
+// The text box under a field label such as "Director 2 Name".
+const fieldNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+  wrapper
+    .findAll('label.grading-settings__field')
+    .find((l) => l.find('span').text() === label)!
+    .find('input')
 
 const pickFile = async (
   wrapper: Awaited<ReturnType<typeof mountPage>>,
@@ -83,10 +91,13 @@ beforeEach(() => {
 })
 
 describe('loading', () => {
-  it('shows the stored names and file basenames, decoded', async () => {
+  it('shows the stored names, positions and file basenames, decoded', async () => {
     const wrapper = await mountPage()
-    expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe(
+    expect((fieldNamed(wrapper, 'Director 1 Name').element as HTMLInputElement).value).toBe(
       'Prof. Alice Adams'
+    )
+    expect((fieldNamed(wrapper, 'Director 1 Position').element as HTMLInputElement).value).toBe(
+      'Chair'
     )
     expect(wrapper.text()).toContain('sig1.png')
     expect(wrapper.text()).toContain('marks summary.docx') // %20 decoded
@@ -97,7 +108,7 @@ describe('loading', () => {
     const wrapper = await mountPage()
     const found = wrapper.findAll('code.is-found').map((c) => c.text())
     expect(found).toContain('{{TeamCode}}')
-    expect(found).not.toContain('{{SAQTotal}}')
+    expect(found).not.toContain('{{SMTotal}}')
   })
 
   it('lists stray placeholders that would render blank', async () => {
@@ -131,14 +142,60 @@ describe('saving', () => {
   it('name-only edits go as plain JSON', async () => {
     updateMock.mockResolvedValueOnce(detail({ director_2_name: 'Dr. Bob Brown' }))
     const wrapper = await mountPage()
-    await wrapper.findAll('input[type="text"]')[1]!.setValue('Dr. Bob Brown')
+    await fieldNamed(wrapper, 'Director 2 Name').setValue('Dr. Bob Brown')
     await buttonNamed(wrapper, /^Update$/).trigger('click')
     await flushPromises()
     expect(updateMock).toHaveBeenCalledWith({
       director_1_name: 'Prof. Alice Adams',
-      director_2_name: 'Dr. Bob Brown'
+      director_1_position: 'Chair',
+      director_2_name: 'Dr. Bob Brown',
+      director_2_position: ''
     })
-    expect(wrapper.find('.grading-settings__banner--ok').text()).toBe('Settings updated.')
+    expect(wrapper.find('.grading-settings__banner--ok').text()).toBe('Files updated.')
+  })
+
+  it("a changed detail shows that director's save hint, and only theirs", async () => {
+    const wrapper = await mountPage()
+    // The hint sits under the director's signature row, at the end of their fields.
+    const hintUnder = (director: 1 | 2) =>
+      wrapper
+        .findAll('div.grading-settings__field')
+        .find((f) => f.find('span').text() === `Director ${director} Signature`)!
+        .find('.grading-settings__save-hint')
+    const detailsHint = 'Click Update to save details'
+    expect(hintUnder(1).exists()).toBe(false)
+    expect(hintUnder(2).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 2 Name').setValue('Dr. Bob Brown')
+    expect(hintUnder(2).text()).toBe(detailsHint)
+    expect(hintUnder(1).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 2 Name').setValue('') // back to the saved value
+    expect(hintUnder(2).exists()).toBe(false)
+
+    await fieldNamed(wrapper, 'Director 1 Position').setValue('Co-Chair')
+    expect(hintUnder(1).text()).toBe(detailsHint)
+    await fieldNamed(wrapper, 'Director 1 Position').setValue('Chair')
+    expect(hintUnder(1).exists()).toBe(false)
+
+    await pickFile(wrapper, 'image/*', 'new-sig.png', 1)
+    expect(hintUnder(2).text()).toBe(detailsHint)
+    expect(hintUnder(1).exists()).toBe(false)
+  })
+
+  it('a position edit enables Update and is saved', async () => {
+    updateMock.mockResolvedValueOnce(detail({ director_2_position: 'Co-Chair' }))
+    const wrapper = await mountPage()
+    expect(buttonNamed(wrapper, /^Update$/).attributes('disabled')).toBeDefined()
+    await fieldNamed(wrapper, 'Director 2 Position').setValue('Co-Chair')
+    expect(buttonNamed(wrapper, /^Update$/).attributes('disabled')).toBeUndefined()
+    await buttonNamed(wrapper, /^Update$/).trigger('click')
+    await flushPromises()
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ director_2_position: 'Co-Chair' })
+    )
+    // Saved and shown back: nothing left to update.
+    expect(buttonNamed(wrapper, /^Update$/).attributes('disabled')).toBeDefined()
   })
 
   it('any picked file switches the save to multipart with every field aboard', async () => {
@@ -152,6 +209,7 @@ describe('saving', () => {
     expect(body).toBeInstanceOf(FormData)
     expect((body.get('marks_summary_template') as File).name).toBe('new-summary.docx')
     expect(body.get('director_1_name')).toBe('Prof. Alice Adams')
+    expect(body.get('director_1_position')).toBe('Chair')
     // Save clears the picker and re-describes the saved template.
     expect(wrapper.text()).not.toContain('new-summary.docx')
   })
@@ -168,12 +226,12 @@ describe('saving', () => {
 
 describe('template picking and testing', () => {
   it('scanning a picked file recolours the chips without saving anything', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['TeamCode', 'SAQTotal']))
+    candidateScanMock.mockResolvedValueOnce(scan(['TeamCode', 'SMTotal']))
     const wrapper = await mountPage()
     await pickFile(wrapper, '.docx', 'draft.docx', 0)
     expect(candidateScanMock).toHaveBeenCalledWith('marks-summary', expect.any(File))
     const found = wrapper.findAll('code.is-found').map((c) => c.text())
-    expect(found).toContain('{{SAQTotal}}')
+    expect(found).toContain('{{SMTotal}}')
     expect(wrapper.text()).toContain('selected file')
     expect(updateMock).not.toHaveBeenCalled()
   })
@@ -189,7 +247,7 @@ describe('template picking and testing', () => {
   })
 
   it('Test renders the picked candidate when one is selected, else the saved template', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['firstName']))
+    candidateScanMock.mockResolvedValueOnce(scan(['FirstName']))
     testStoredMock.mockResolvedValueOnce()
     testCandidateMock.mockResolvedValueOnce()
     const wrapper = await mountPage()
@@ -213,7 +271,7 @@ describe('template picking and testing', () => {
   })
 
   it('Reset drops picked files and re-describes the saved templates', async () => {
-    candidateScanMock.mockResolvedValueOnce(scan(['SAQTotal']))
+    candidateScanMock.mockResolvedValueOnce(scan(['SMTotal']))
     const wrapper = await mountPage()
     await pickFile(wrapper, '.docx', 'draft.docx', 0)
     expect(wrapper.text()).toContain('draft.docx')

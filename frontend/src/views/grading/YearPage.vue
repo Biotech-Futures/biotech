@@ -91,6 +91,7 @@ import {
   fetchCertificatesRelease,
   fetchFinalists,
   fetchGroupExtensions,
+  challengeYear,
   fetchRelease,
   fetchSubmissionDeadline,
   type FinalistRow,
@@ -127,9 +128,7 @@ const lastExtension = computed(() => {
 
 // Mirrors the backend's current_cohort: the deadline's year, or the calendar
 // year while no deadline exists.
-const currentYear = computed(() =>
-  deadline.value ? new Date(deadline.value.closes_at).getFullYear() : new Date().getFullYear()
-)
+const currentYear = computed(() => challengeYear(deadline.value))
 
 onMounted(async () => {
   // Best-effort: each block independent so one failure doesn't blank the page.

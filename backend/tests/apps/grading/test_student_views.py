@@ -86,6 +86,18 @@ class StudentReadViewsTests(_GradingFixture):
         # docx = zip file; magic bytes PK\x03\x04
         self.assertTrue(r.content[:4] == b"PK\x03\x04")
 
+    def test_summary_downloads_when_a_comment_holds_a_character_pasted_from_word(self):
+        _seed_doc_templates()
+        self._release_now()
+        Grade.objects.filter(submission=self.saq_submission, criterion=self.saq_c1).update(
+            comment="Line one\x0bline two",
+        )
+        self.client.force_authenticate(self.student_user)
+        r = self.client.get(reverse("grading:me-summary"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            self.assertIn("Line one line two", z.read("word/document.xml").decode("utf8"))
+
     def test_certificate_docx_streams(self):
         # Certificates have their own gate — marks being released is neither
         # necessary nor sufficient.
@@ -166,6 +178,48 @@ class StudentReadViewsTests(_GradingFixture):
         names = bundle_names()
         self.assertTrue(any(n.endswith("marks-summary.docx") for n in names), names)
         self.assertTrue(any(n.endswith("certificate.docx") for n in names), names)
+
+    @override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+    def test_supervisor_bundle_leaves_out_teams_that_never_submitted(self):
+        from django.core.files.storage import default_storage
+
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        _seed_doc_templates()
+        self._release_now()
+        self._release_certificates_now()
+
+        supervisor = User.objects.create_user(
+            email="bundle-super@example.com", first_name="Sue", last_name="Pervisor",
+            password="pw12345!",
+        )
+        profile = SupervisorProfile.objects.create(user=supervisor, school_name="Test School")
+        lurker = User.objects.create_user(
+            email="bundle-lurker@example.com", first_name="Lu", last_name="Rker",
+            password="pw12345!",
+        )
+        empty_group = Groups.objects.create(group_name="BTF-EMPTY-2")
+        GroupMembership.objects.create(
+            group=empty_group, user=lurker,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        for user in (self.student_user, lurker):
+            StudentProfile.objects.create(
+                user=user, pg_first_name="P", pg_last_name="G",
+                supervisor=profile, school_name="Test School", year_lvl="11",
+            )
+
+        self.client.force_authenticate(supervisor)
+        resp = self.client.post(reverse("grading:supervisor-download"), {}, format="json")
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        with default_storage.open(job.result_url, "rb") as fh:
+            names = set(zipfile.ZipFile(io.BytesIO(fh.read())).namelist())
+
+        self.assertEqual(names, {
+            "Sam_Student/marks-summary.docx",
+            "Sam_Student/certificate.docx",
+        })
 
     def test_certificates_release_toggle(self):
         self.client.force_authenticate(self.staff)

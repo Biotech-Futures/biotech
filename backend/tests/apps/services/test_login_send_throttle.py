@@ -35,7 +35,7 @@ def _make_user(email="login_throttle@example.com"):
     )
 
 
-@patch("apps.services.auth_service.EmailMultiAlternatives")
+@patch("apps.services.system_email.EmailMultiAlternatives")
 class SendLoginCodeThrottleTest(TestCase):
     """Closes the email-bombing surface flagged at services/views.py:71-94 —
     password reset throttles, login send must too."""
@@ -187,7 +187,7 @@ class SendLoginCodeThrottleTest(TestCase):
         self.assertEqual(r.json().get("code"), "email_required")
 
 
-@patch("apps.services.auth_service.EmailMultiAlternatives")
+@patch("apps.services.system_email.EmailMultiAlternatives")
 class ClientIpForwardedForTrustTest(TestCase):
     """`_client_ip` must only honor X-Forwarded-For when explicitly opted in
     via TRUST_FORWARDED_FOR. Otherwise an attacker can rotate the header to

@@ -1,30 +1,46 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
-import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
+import {
+  bulkUploadMarks,
+  fetchSubmissionDeadline,
+  type BulkUploadResponse
+} from '@/utils/gradingAPI'
 
-vi.mock('@/utils/gradingAPI', () => ({
-  bulkUploadMarks: vi.fn()
+// The real challengeYear, so the dialog's year follows the same rule as the app.
+vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/gradingAPI')>()),
+  bulkUploadMarks: vi.fn(),
+  fetchSubmissionDeadline: vi.fn()
 }))
 const uploadMock = vi.mocked(bulkUploadMarks)
+const deadlineMock = vi.mocked(fetchSubmissionDeadline)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
-  expected_type: 'SAQs',
-  found_type: 'SAQs',
-  type_ok: true,
   bad_group_rows: [],
   bad_marks: [],
   ...over
 })
 
-const rowEntry = (row: number, groupId: number) => ({
+const rowEntry = (row: number, groupId: number, columns = ['r1_mark']) => ({
   row,
   group_id: groupId,
   criterion_id: 1,
   submission_id: 1,
   mark: '5.00',
-  comment: ''
+  comment: '',
+  group_name: `BTF-${groupId}`,
+  columns
+})
+
+const overallComment = (row: number, groupId: number, comment: string, oldComment: string) => ({
+  row,
+  group_id: groupId,
+  group_name: `BTF-${groupId}`,
+  component_id: 1,
+  comment,
+  old_comment: oldComment
 })
 
 const response = (over: Partial<BulkUploadResponse> = {}): BulkUploadResponse => ({
@@ -52,23 +68,22 @@ const openDialog = async (wrapper: Wrapper) => {
   await buttonNamed(wrapper, /^Upload marks$/).trigger('click')
 }
 
-const pickFile = async (wrapper: Wrapper, name = 'marks.csv') => {
+// Picking a file previews it automatically, so the preview response (when
+// given) is queued before the change event fires.
+const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'marks.csv') => {
+  if (body) uploadMock.mockResolvedValueOnce(body)
   const input = wrapper.find('input[type="file"]')
   Object.defineProperty(input.element, 'files', {
-    value: [new File(['group_id,type\n'], name, { type: 'text/csv' })],
+    value: [new File(['year,group_name,type\n'], name, { type: 'text/csv' })],
     configurable: true
   })
   await input.trigger('change')
-}
-
-const runPreview = async (wrapper: Wrapper, body: BulkUploadResponse) => {
-  uploadMock.mockResolvedValueOnce(body)
-  await buttonNamed(wrapper, /Preview/).trigger('click')
   await flushPromises()
 }
 
 beforeEach(() => {
   uploadMock.mockReset()
+  deadlineMock.mockReset().mockResolvedValue({ deadline: null })
 })
 
 describe('opening the dialog', () => {
@@ -93,10 +108,81 @@ describe('opening the dialog', () => {
     expect(poster.text()).toContain('overall_comment')
   })
 
+  it('describes the one-row-per-group sheet, with answers and categories for SAQ only', async () => {
+    const saq = mountDialog('SAQ')
+    await openDialog(saq)
+    const saqText = saq.text()
+    expect(saqText).toContain('one row per group')
+    expect(saqText).toContain('q1')
+    expect(saqText).toContain('r1_mark')
+    expect(saqText).toContain('product_category')
+    expect(saqText).toContain('category_of_solution')
+    expect(saqText).toContain('SAQs')
+    expect(saqText).not.toContain('criteria_no')
+    // The comma rule sits just before the closing "Extra columns" line.
+    expect(saqText).toMatch(
+      /Items in product_category are split on commas\s*Extra columns and rows are ignored\./
+    )
+
+    const poster = mountDialog('POSTER')
+    await openDialog(poster)
+    expect(poster.text()).not.toContain('q1')
+    expect(poster.text()).not.toContain('product_category')
+  })
+
+  it('asks for year and group_name, not group_id, and gives the year every row carries', async () => {
+    // The challenge year follows the deadline, like the backend's current_cohort.
+    deadlineMock.mockResolvedValue({
+      deadline: {
+        closes_at: '2027-09-18T03:59:00Z',
+        grace_hours: 0,
+        is_open: true,
+        set_by: null,
+        created_at: '2027-01-01T00:00:00Z'
+      }
+    })
+    const wrapper = mountDialog('POSTER')
+    await openDialog(wrapper)
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).toContain('year, group_name, type')
+    expect(text).not.toContain('group_id')
+    // The year line sits just before the type line.
+    expect(text).toMatch(/Value of year is 2027 for all rows\s*Value of type is Poster for all rows/)
+  })
+
+  it('without a deadline, the year shown is this calendar year', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await flushPromises()
+    expect(wrapper.text()).toContain(`Value of year is ${new Date().getFullYear()} for all rows`)
+  })
+
+  it("once a file is previewed, the server's year is the one shown", async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(wrapper, {
+      creates: [],
+      updates: [],
+      unchanged: [],
+      errors: [],
+      summary: {
+        creates: 0,
+        updates: 0,
+        unchanged: 0,
+        overall_comments: 0,
+        marking_categories: 0,
+        errors: 0
+      },
+      checks: cleanChecks({ expected_year: 2031 })
+    } as never)
+    expect(wrapper.text()).toContain('Value of year is 2031 for all rows')
+  })
+
   it('reopens clean after closing, with the previous file forgotten', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
+    await pickFile(wrapper, response())
     expect(wrapper.text()).toContain('marks.csv')
 
     await buttonNamed(wrapper, /^×$/).trigger('click')
@@ -105,130 +191,360 @@ describe('opening the dialog', () => {
   })
 })
 
-describe('the two-step flow', () => {
-  it('offers Preview only once a file is chosen, and Apply only after a preview', async () => {
+describe('the pick → auto-preview → apply flow', () => {
+  it('disables Apply until a file has been previewed', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    expect(buttonNamed(wrapper, /Preview/).attributes('disabled')).toBeDefined()
-    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
-
-    await pickFile(wrapper)
-    expect(buttonNamed(wrapper, /Preview/).attributes('disabled')).toBeUndefined()
     expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
   })
 
-  it('previews as a dry run, never a write', async () => {
+  it('shows a Previewing… hint while the dry run is in flight', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    let resolvePreview!: (body: BulkUploadResponse) => void
+    uploadMock.mockImplementationOnce(() => new Promise((resolve) => (resolvePreview = resolve)))
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['group_id,type\n'], 'marks.csv', { type: 'text/csv' })],
+      configurable: true
+    })
+    await input.trigger('change')
+    expect(wrapper.text()).toContain('Previewing…')
+
+    resolvePreview(response())
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Previewing…')
+  })
+
+  it('previews automatically on pick — one dry run, never a write', async () => {
     const wrapper = mountDialog('SAQ')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response())
+    await pickFile(wrapper, response())
+    expect(uploadMock).toHaveBeenCalledTimes(1)
     expect(uploadMock).toHaveBeenCalledWith('SAQ', expect.any(File), true)
+    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeUndefined()
   })
 
-  it('choosing a different file discards the stale preview', async () => {
+  it('choosing a different file re-previews it, replacing the stale report', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 3, updates: 0, unchanged: 0, errors: 0 } }))
-    expect(wrapper.text()).toContain('Writing New Records')
+    await pickFile(
+      wrapper,
+      response({
+        creates: [rowEntry(4, 9), rowEntry(5, 10), rowEntry(6, 11)],
+        summary: { creates: 3, updates: 0, unchanged: 0, errors: 0 }
+      })
+    )
+    expect(wrapper.text()).toContain('Writing New Records: 3')
 
-    await pickFile(wrapper, 'other.csv')
-    expect(wrapper.text()).not.toContain('Writing New Records')
+    await pickFile(
+      wrapper,
+      response({
+        errors: [{ row: 2, message: 'non-numeric mark' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      }),
+      'other.csv'
+    )
+    expect(wrapper.text()).toContain('other.csv')
+    expect(wrapper.text()).not.toContain('Writing New Records: 3')
     expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeDefined()
   })
 
-  it('applies with a real write and reports how much was written', async () => {
+  it('applies with a real write and reports overwritten and new groups', async () => {
     const wrapper = mountDialog('SAQ')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 2, updates: 0, unchanged: 0, errors: 0 } }))
+    await pickFile(
+      wrapper,
+      response({ summary: { creates: 2, updates: 0, unchanged: 0, errors: 0 } })
+    )
 
-    uploadMock.mockResolvedValueOnce(response({ applied: true, written: 3 }))
+    // Counted from the apply response, the diff re-parsed at commit time:
+    // BTF-7 overwrites a grade, BTF-8 only replaces its overall comment,
+    // BTF-9 is new.
+    uploadMock.mockResolvedValueOnce(
+      response({
+        applied: true,
+        written: 4,
+        updates: [rowEntry(2, 7)],
+        creates: [rowEntry(4, 9, ['r1_mark']), rowEntry(5, 9, ['r2_mark'])],
+        overall_comments: [overallComment(3, 8, 'New', 'Old')]
+      })
+    )
     await buttonNamed(wrapper, /Apply/).trigger('click')
     await flushPromises()
 
     expect(uploadMock).toHaveBeenLastCalledWith('SAQ', expect.any(File), false)
-    expect(wrapper.emitted('applied')).toEqual([[3]])
+    expect(wrapper.emitted('applied')).toEqual([[{ overwritten: 2, created: 1 }]])
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 })
 
 describe('the preview report', () => {
-  it('shows None for every check on a clean sheet, plus both record counts', async () => {
+  it('shows None for every check on a clean sheet, plus group-based record counts', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
+        // Group 7 overwrites; groups 9 and 10 are new (group 9 spans two
+        // criteria rows yet still counts once — groups, not rows).
+        creates: [rowEntry(4, 9, ['r1_mark']), rowEntry(5, 9, ['r2_mark']), rowEntry(6, 10)],
         updates: [rowEntry(2, 7)],
-        summary: { creates: 4, updates: 1, unchanged: 0, errors: 0 }
+        summary: { creates: 3, updates: 1, unchanged: 0, errors: 0 }
       })
     )
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): None')
-    expect(text).toContain('Type: SAQs')
-    expect(text).toContain('Incorrect group details: None')
+    // Nothing wrong with the teams, so no group details line at all.
+    expect(text).not.toContain('Incorrect group details')
     expect(text).toContain('Incorrect mark format: None')
     expect(text).toContain('Overwriting Existing Records: 1')
-    expect(text).toContain('Writing New Records: 4')
+    expect(text).toContain('Writing New Records: 2')
   })
 
-  it('names each overwritten sheet row with its group, once, in order', async () => {
+  it('an untouched re-upload reports zero records of both kinds', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        // Two criteria on row 2 → one listing; rows arrive unsorted.
-        updates: [rowEntry(3, 4), rowEntry(2, 7), rowEntry(2, 7)],
+        unchanged: [rowEntry(2, 7), rowEntry(3, 8)],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 0')
+  })
+
+  it('first-time categories count as writing a new record', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        marking_categories: [
+          {
+            row: 2,
+            group_id: 7,
+            group_name: 'BTF-7',
+            columns: ['product_category', 'category_of_solution'],
+            overwritten_columns: [],
+            product_categories: ['Health and Medicine'],
+            product_category_other: '',
+            solution_category: 'Treatment',
+            solution_category_other: ''
+          }
+        ],
+        summary: { creates: 0, updates: 0, unchanged: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 1')
+  })
+
+  it('replacing stored categories is an overwrite, named in the listing', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites a mark and its stored product category; BTF-8
+        // only replaces its stored category of solution.
+        updates: [rowEntry(2, 7, ['r3_mark'])],
+        marking_categories: [
+          {
+            row: 2,
+            group_id: 7,
+            group_name: 'BTF-7',
+            columns: ['product_category'],
+            overwritten_columns: ['product_category'],
+            product_categories: ['Health and Medicine'],
+            product_category_other: '',
+            solution_category: '',
+            solution_category_other: ''
+          },
+          {
+            row: 3,
+            group_id: 8,
+            group_name: 'BTF-8',
+            columns: ['category_of_solution'],
+            overwritten_columns: ['category_of_solution'],
+            product_categories: [],
+            product_category_other: '',
+            solution_category: 'Treatment',
+            solution_category_other: ''
+          }
+        ],
+        summary: { creates: 0, updates: 1, unchanged: 0, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [r3_mark, product_category], BTF-8 [category_of_solution])'
+    )
+    expect(text).toContain('Writing New Records: 0')
+    expect(wrapper.find('.bulk-upload__count--overwrite').exists()).toBe(true)
+  })
+
+  it('counts overwritten groups and folds their cells into one listing each', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites cells on two criteria -> one listing; the
+        // count says 2 because two groups are touched.
+        updates: [
+          rowEntry(4, 7, ['r3_mark']),
+          rowEntry(5, 7, ['r4_mark', 'r4_comment']),
+          rowEntry(8, 9, ['r1_mark'])
+        ],
         summary: { creates: 0, updates: 3, unchanged: 0, errors: 0 }
       })
     )
-    expect(wrapper.text()).toContain('(row 2 [group_id 7], row 3 [group_id 4])')
+    expect(wrapper.text()).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [r3_mark, r4_mark, r4_comment], BTF-9 [r1_mark])'
+    )
+  })
+
+  it('a replaced or cleared overall comment is an overwrite, named in the listing', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        // BTF-7 overwrites a mark and replaces its comment; BTF-8 touches no
+        // grade, but its blank cell clears the stored comment.
+        updates: [rowEntry(2, 7, ['r3_mark'])],
+        overall_comments: [
+          overallComment(2, 7, 'Better now', 'Good work'),
+          overallComment(6, 8, '', 'Strong poster')
+        ],
+        summary: { creates: 0, updates: 1, unchanged: 0, overall_comments: 2, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain(
+      'Overwriting Existing Records: 2 (BTF-7 [r3_mark, overall_comment], BTF-8 [overall_comment])'
+    )
+    expect(text).toContain('Writing New Records: 0')
+    expect(wrapper.find('.bulk-upload__count--overwrite').exists()).toBe(true)
+  })
+
+  it('an overall comment where none was stored counts as a new record', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        overall_comments: [overallComment(2, 7, 'First comment', '')],
+        summary: { creates: 0, updates: 0, unchanged: 1, overall_comments: 1, errors: 0 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Overwriting Existing Records: 0')
+    expect(text).toContain('Writing New Records: 1')
   })
 
   it('a missing header stops the report there, hiding checks that never ran', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ missing_headers: ['r1_comment'], type_ok: false, found_type: null }),
-        errors: [{ row: 1, message: 'missing header r1_comment' }],
+        checks: cleanChecks({ missing_headers: ['r2_comment'] }),
+        errors: [{ row: 1, message: 'missing column header(s): r2_comment' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('Missing Column Header(s): r1_comment')
-    expect(text).not.toContain('Type:')
+    expect(text).toContain('Missing Column Header(s): r2_comment')
     expect(text).not.toContain('Incorrect group details')
   })
 
-  it('a wrong type names both what it found and what it expected', async () => {
-    const wrapper = mountDialog()
+  it('wide-shape sheets (non SAQ) keep the Type check line', async () => {
+    const wrapper = mountDialog('POSTER')
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
-        checks: cleanChecks({ type_ok: false, found_type: 'SAQ' }),
+        checks: cleanChecks({ expected_type: 'Poster', found_type: 'SAQs', type_ok: false }),
         errors: [{ row: 2, message: 'wrong type' }],
         summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
       })
     )
     const text = wrapper.text()
-    expect(text).toContain('SAQ (should be SAQs)')
+    expect(text).toContain('SAQs (should be Poster)')
     expect(text).not.toContain('Incorrect group details')
+  })
+
+  it('shows the Year check just before Type, green with the year when right', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2026', year_ok: true,
+          expected_type: 'SAQs', found_type: 'SAQs', type_ok: true
+        })
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toMatch(/Year:\s*2026\s*Type:\s*SAQs/)
+    const year = wrapper.findAll('.bulk-upload__checks li').find((li) => li.text().startsWith('Year:'))!
+    expect(year.find('.bulk-upload__check--ok').exists()).toBe(true)
+  })
+
+  it('a wrong year is shown on the Year line and hides the later checks', async () => {
+    const wrapper = mountDialog('POSTER')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2025', year_ok: false,
+          expected_type: 'Poster', found_type: 'Poster', type_ok: true
+        }),
+        errors: [{ row: 2, message: 'wrong year' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const text = wrapper.text()
+    expect(text).toContain('Year: 2025 (should be 2026)')
+    expect(text).not.toContain('Incorrect mark format')
+    expect(buttonNamed(wrapper, /^Apply$/).attributes('disabled')).toBeDefined()
+  })
+
+  it('lists unmatched teams right after the Year line, before Type', async () => {
+    const wrapper = mountDialog('SAQ')
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({
+          expected_year: 2026, found_year: '2026', year_ok: true,
+          expected_type: 'SAQs', found_type: 'SAQs', type_ok: true,
+          bad_group_rows: [{ row: 3, reason: "no SAQs submission from 'BTF99'" }]
+        }),
+        errors: [{ row: 3, message: 'no team' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const lines = wrapper.findAll('.bulk-upload__checks li').map((li) => li.text())
+    expect(lines.slice(1, 4)).toEqual([
+      'Year: 2026',
+      "Incorrect group details: row 3 (no SAQs submission from 'BTF99')",
+      'Type: SAQs'
+    ])
   })
 
   it('bad group rows are named with their reason and hide the mark check', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
         checks: cleanChecks({ bad_group_rows: [{ row: 2, reason: 'name should be BTF-1' }] }),
@@ -244,8 +560,7 @@ describe('the preview report', () => {
   it('any error keeps Apply disabled, so a broken sheet cannot be committed', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(
+    await pickFile(
       wrapper,
       response({
         errors: [{ row: 2, message: 'non-numeric mark' }],
@@ -257,22 +572,34 @@ describe('the preview report', () => {
 })
 
 describe('request failures', () => {
-  it('a failed preview is reported in the dialog, which stays open', async () => {
+  it('a failed auto-preview is reported in the dialog, which stays open', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
     uploadMock.mockRejectedValueOnce(new Error('server unavailable'))
-    await buttonNamed(wrapper, /Preview/).trigger('click')
-    await flushPromises()
+    await pickFile(wrapper)
     expect(wrapper.text()).toContain('Preview failed:')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+  })
+
+  it('re-picking a file after a failure previews again', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    uploadMock.mockRejectedValueOnce(new Error('server unavailable'))
+    await pickFile(wrapper)
+    expect(wrapper.text()).toContain('Preview failed:')
+
+    await pickFile(wrapper, response())
+    expect(wrapper.text()).not.toContain('Preview failed:')
+    expect(buttonNamed(wrapper, /Apply/).attributes('disabled')).toBeUndefined()
   })
 
   it('a failed apply keeps the dialog open with the preview intact', async () => {
     const wrapper = mountDialog()
     await openDialog(wrapper)
-    await pickFile(wrapper)
-    await runPreview(wrapper, response({ summary: { creates: 1, updates: 0, unchanged: 0, errors: 0 } }))
+    await pickFile(
+      wrapper,
+      response({ summary: { creates: 1, updates: 0, unchanged: 0, errors: 0 } })
+    )
 
     uploadMock.mockRejectedValueOnce(new Error('write refused'))
     await buttonNamed(wrapper, /Apply/).trigger('click')

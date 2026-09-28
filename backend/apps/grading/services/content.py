@@ -242,12 +242,14 @@ def entry_payload(
 
 
 def late_by_label(delta) -> str:
-    """'1d 3h 12m' / '3h 12m' / '45m' — how far past the deadline a submit landed."""
+    """'5d 1h' / '22h 54m' / '45m' — how far past the deadline a submit
+    landed. Minutes are dropped once a full day has passed; at that scale
+    they are noise in the tables."""
     total_minutes = max(0, int(delta.total_seconds() // 60))
     days, rest = divmod(total_minutes, 60 * 24)
     hours, minutes = divmod(rest, 60)
     if days:
-        return f"{days}d {hours}h {minutes}m"
+        return f"{days}d {hours}h"
     if hours:
         return f"{hours}h {minutes}m"
     if minutes:

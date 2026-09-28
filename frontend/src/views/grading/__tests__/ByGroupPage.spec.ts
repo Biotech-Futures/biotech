@@ -135,6 +135,37 @@ describe('the aggregated group table', () => {
     expect(row.find('.by-group__done').exists()).toBe(true)
   })
 
+  it("counts only the components a team submitted towards its progress total", async () => {
+    // Every component has criteria (4 SAQ, 10 poster, 13 report, 5 prototype
+    // = 32); BTF-1 submitted SAQ and poster only, Alpha Team a poster only.
+    const totals: Record<string, number> = { SAQ: 4, POSTER: 10, REPORT: 13, PROTOTYPE: 5 }
+    rowsMock.mockImplementation(async (code: string) =>
+      payload(code, totals[code]!, [
+        componentRow({
+          submission_id: code === 'SAQ' || code === 'POSTER' ? 11 : null,
+          criteria_graded: code === 'SAQ' ? 4 : code === 'POSTER' ? 3 : 0
+        }),
+        componentRow({
+          group_id: 3,
+          group_name: 'Alpha Team',
+          submission_id: code === 'POSTER' ? 13 : null,
+          submitted_at: code === 'POSTER' ? '2026-09-02T09:00:00Z' : null,
+          criteria_graded: code === 'POSTER' ? 10 : 0
+        })
+      ]) as never
+    )
+    const wrapper = await mountPage()
+    const rowNamed = (name: string) =>
+      wrapper.findAll('tbody tr').find((r) => r.text().includes(name))!
+
+    expect(rowNamed('BTF-1').text()).toContain('7/14') // not 7/32
+    // No SAQ answers, but the poster is in: submitted, fully marked, openable.
+    const alpha = rowNamed('Alpha Team')
+    expect(alpha.text()).toContain('10/10')
+    expect(alpha.find('.by-group__done').exists()).toBe(true)
+    expect(alpha.find('a').attributes('href')).toBe('/grading/groups/3')
+  })
+
   it('keeps rendering when some components have no rubric yet', async () => {
     const wrapper = await mountPage()
     // REPORT and PROTOTYPE threw — the table still shows all three groups.
@@ -180,7 +211,7 @@ describe('the aggregated group table', () => {
 })
 
 describe('search and sorting', () => {
-  it('live-filters by name or id, and says when nothing matches', async () => {
+  it('live-filters by name, and says when nothing matches', async () => {
     const wrapper = await mountPage()
     await wrapper.find('.picker').setValue('alpha')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
@@ -190,29 +221,35 @@ describe('search and sorting', () => {
 
   it('defaults to newest submission first, with unsubmitted rows last', async () => {
     const wrapper = await mountPage()
-    const names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    const names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
   })
 
-  it('sorting by id starts ascending and toggles', async () => {
+  it('sorting by group name starts ascending and toggles', async () => {
     const wrapper = await mountPage()
-    const idSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('ID'))!
-    await idSort.trigger('click')
-    let ids = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
-    expect(ids).toEqual(['#1', '#2', '#3'])
-    await idSort.trigger('click')
-    ids = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
-    expect(ids).toEqual(['#3', '#2', '#1'])
+    const groupSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('Group'))!
+    await groupSort.trigger('click')
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
+    await groupSort.trigger('click')
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['BTF-2', 'BTF-1', 'Alpha Team'])
+  })
+
+  it('exposes no group ids anywhere in the table', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.find('thead').text()).not.toContain('ID')
+    expect(wrapper.find('tbody').text()).not.toMatch(/#\d/)
   })
 
   it('sorting by progress pins unsubmitted rows to the bottom either way', async () => {
     const wrapper = await mountPage()
     const progressSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
     await progressSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
   })
 })
@@ -229,7 +266,7 @@ describe('jumping to a group', () => {
     resolveIdMock.mockReturnValue(null)
     const wrapper = await mountPage()
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.by-group__error').text()).toBe('No group matches that name or ID.')
+    expect(wrapper.find('.by-group__error').text()).toBe('No group matches that name.')
     expect(pushMock).not.toHaveBeenCalled()
   })
 

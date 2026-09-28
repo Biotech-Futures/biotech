@@ -6,9 +6,8 @@ import re
 from django.db.models import Q, Exists, OuterRef, F
 from django.utils import timezone
 from django.db import transaction
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.conf import settings
-from django.template.loader import render_to_string
 
 from apps.announcements.models import (
     Announcement,
@@ -19,7 +18,12 @@ from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.system_email import (
+    RenderedEmail,
+    build_message,
+    is_email_enabled,
+    render_system_email,
+)
 
 if TYPE_CHECKING:
     # Imported only for typing — avoids a circular import at runtime and lets
@@ -106,20 +110,6 @@ def _build_excerpt(html: str, max_chars: int = 200) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + "…"
     return text
-
-
-def _render_announcement_email_html(
-    title: str,
-    excerpt: str,
-    detail_url: str,
-) -> str:
-    """Render announcement email HTML template."""
-    return render_to_string("emails/announcement.html", {
-        **brand_context(),
-        "title": title,
-        "excerpt": excerpt,
-        "detail_url": detail_url,
-    })
 
 
 def _resolve_recipient_emails(
@@ -569,9 +559,7 @@ def _skipped_send_result(msg: str) -> Dict[str, Any]:
 def _deliver_announcement_to_recipients(
     announcement_id: int,
     emails: List[str],
-    subject: str,
-    text_body: str,
-    html_body: str,
+    rendered: RenderedEmail,
 ) -> Tuple[int, List[Dict[str, str]], Optional[str]]:
     """Run the SMTP loop for a single send attempt.
 
@@ -618,15 +606,7 @@ def _deliver_announcement_to_recipients(
 
     try:
         for addr in emails:
-            message = EmailMultiAlternatives(
-                subject=subject,
-                body=text_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[addr],
-                connection=connection,
-            )
-            message.attach_alternative(html_body, "text/html")
-            attach_inline_logo(message)
+            message = build_message(rendered, addr, connection=connection)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
@@ -728,6 +708,11 @@ def send_announcement_email(
     if not row:
         return _skipped_send_result("Announcement not found")
 
+    # Checked before the delivery row exists, so a switched-off email leaves
+    # no FAILED row behind.
+    if not is_email_enabled("announcement"):
+        return _skipped_send_result("Announcement emails are turned off")
+
     emails = _resolve_recipient_emails(
         announcement_id, row.get("visibilityScope", "global"),
     )
@@ -737,13 +722,15 @@ def send_announcement_email(
     excerpt = _build_excerpt(row.get("body", ""))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
-    subject = f"[{settings.BRAND_NAME}] {row.get('title')}"
     text_body = (
         f"{row.get('title')}\n\n{excerpt}\n\n"
         f"View on the platform: {detail_url}"
     )
-    html_body = _render_announcement_email_html(
-        row.get("title", ""), excerpt, detail_url,
+    # Rendered once and reused for every recipient: nothing in it is personal.
+    rendered = render_system_email(
+        "announcement",
+        {"title": row.get("title", ""), "excerpt": excerpt, "detail_url": detail_url},
+        default_text=text_body,
     )
 
     # Pessimistic delivery row: created up front as FAILED so a mid-send
@@ -759,7 +746,7 @@ def send_announcement_email(
 
     try:
         succeeded, failed, connection_error = _deliver_announcement_to_recipients(
-            announcement_id, emails, subject, text_body, html_body,
+            announcement_id, emails, rendered,
         )
     except Exception as exc:  # belt-and-braces — anything truly unexpected
         connection_error = _sanitize_error(exc)

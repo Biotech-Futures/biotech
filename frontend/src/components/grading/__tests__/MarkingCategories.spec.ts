@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import { fetchGroupCategories, saveGroupCategories } from '@/utils/gradingAPI'
@@ -24,23 +24,23 @@ const mountCategories = async (groupId = 7) => {
   return wrapper
 }
 
-const lastStatus = (wrapper: Awaited<ReturnType<typeof mountCategories>>) =>
-  wrapper.emitted('status')?.at(-1)?.[0] ?? null
+type Wrapper = Awaited<ReturnType<typeof mountCategories>>
+
+const lastStatus = (wrapper: Wrapper) => wrapper.emitted('status')?.at(-1)?.[0] ?? null
+
+// The page reads isDirty and calls save() through a template ref.
+const exposed = (wrapper: Wrapper) =>
+  wrapper.vm as unknown as { isDirty: boolean; save: () => Promise<void> }
 
 beforeEach(() => {
-  vi.useFakeTimers()
   fetchMock.mockReset()
   saveMock.mockReset()
   fetchMock.mockResolvedValue(stored())
   saveMock.mockImplementation(async (_id, data) => ({ ...data }))
 })
 
-afterEach(() => {
-  vi.useRealTimers()
-})
-
 describe('loading', () => {
-  it('shows the stored selections for the group', async () => {
+  it('shows the stored selections for the group, with nothing unsaved', async () => {
     const wrapper = await mountCategories()
     expect(fetchMock).toHaveBeenCalledWith(7)
     const checked = wrapper
@@ -50,61 +50,60 @@ describe('loading', () => {
     const radios = wrapper.findAll('input[type="radio"]')
     const picked = radios.filter((r) => (r.element as HTMLInputElement).checked)
     expect(picked).toHaveLength(1)
+    expect(exposed(wrapper).isDirty).toBe(false)
   })
 
-  it('reports a failed load on the status line', async () => {
+  it('reports a failed load', async () => {
     fetchMock.mockRejectedValueOnce(new Error('not allowed'))
     const wrapper = await mountCategories()
-    expect(lastStatus(wrapper)).toMatchObject({ error: true })
+    expect(lastStatus(wrapper)).toEqual({ text: 'Category load failed: not allowed', error: true })
   })
 
-  it('does not try to save changes made before the load finished', async () => {
+  it('changes made after a failed load never count as unsaved', async () => {
     fetchMock.mockRejectedValueOnce(new Error('not allowed'))
     const wrapper = await mountCategories()
     await wrapper.find('input[type="checkbox"]').trigger('change')
-    await vi.advanceTimersByTimeAsync(2000)
+    expect(exposed(wrapper).isDirty).toBe(false)
+    await exposed(wrapper).save()
     expect(saveMock).not.toHaveBeenCalled()
   })
 })
 
-describe('autosave', () => {
-  it('saves shortly after a checkbox change and says so briefly', async () => {
+describe('saving with the Save button', () => {
+  it('a change is held as unsaved, never saved on its own', async () => {
     const wrapper = await mountCategories()
     await wrapper.find('input[type="checkbox"]').trigger('change') // untick Health
-    expect(saveMock).not.toHaveBeenCalled() // debounced, not instant
-
-    await vi.advanceTimersByTimeAsync(600)
     await flushPromises()
-    expect(saveMock).toHaveBeenCalledWith(7, expect.objectContaining({ product_categories: [] }))
-    expect(lastStatus(wrapper)).toEqual({ text: 'Saved.', error: false })
-
-    await vi.advanceTimersByTimeAsync(1500)
-    expect(lastStatus(wrapper)).toBeNull() // the notice clears itself
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(exposed(wrapper).isDirty).toBe(true)
   })
 
-  it('collapses rapid changes into one save', async () => {
-    const wrapper = await mountCategories()
-    const boxes = wrapper.findAll('input[type="checkbox"]')
-    await boxes[1]!.trigger('change')
-    await vi.advanceTimersByTimeAsync(300)
-    await boxes[2]!.trigger('change')
-    await vi.advanceTimersByTimeAsync(600)
-    await flushPromises()
-    expect(saveMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('picking a solution saves it', async () => {
+  it('save() stores the selections and clears the unsaved state', async () => {
     const wrapper = await mountCategories()
     await wrapper.find('input[type="radio"]').trigger('change') // Product/Device
-    await vi.advanceTimersByTimeAsync(600)
-    await flushPromises()
+    await exposed(wrapper).save()
     expect(saveMock).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ solution_category: 'Product/Device' })
     )
+    expect(exposed(wrapper).isDirty).toBe(false)
   })
 
-  it('the Other text boxes stay disabled until Other is selected', async () => {
+  it('save() does nothing when nothing changed', async () => {
+    const wrapper = await mountCategories()
+    await exposed(wrapper).save()
+    expect(saveMock).not.toHaveBeenCalled()
+  })
+
+  it('undoing a change counts as clean again', async () => {
+    const wrapper = await mountCategories()
+    const box = wrapper.find('input[type="checkbox"]')
+    await box.trigger('change') // untick Health
+    await box.trigger('change') // tick it back
+    expect(exposed(wrapper).isDirty).toBe(false)
+  })
+
+  it('the Other text boxes stay disabled until Other is selected, and save their text', async () => {
     const wrapper = await mountCategories()
     const otherProduct = wrapper.find('input[aria-label="Other product category"]')
     expect(otherProduct.attributes('disabled')).toBeDefined()
@@ -116,34 +115,31 @@ describe('autosave', () => {
     ).toBeUndefined()
 
     await wrapper.find('input[aria-label="Other product category"]').setValue('Bioinformatics')
-    await vi.advanceTimersByTimeAsync(600)
-    await flushPromises()
+    expect(saveMock).not.toHaveBeenCalled()
+    await exposed(wrapper).save()
     expect(saveMock).toHaveBeenLastCalledWith(
       7,
       expect.objectContaining({ product_category_other: 'Bioinformatics' })
     )
   })
 
-  it('a failed save is reported and stays visible', async () => {
+  it('a failed save throws for the page and keeps the edits unsaved', async () => {
     saveMock.mockRejectedValueOnce(new Error('refused'))
     const wrapper = await mountCategories()
     await wrapper.find('input[type="checkbox"]').trigger('change')
-    await vi.advanceTimersByTimeAsync(600)
-    await flushPromises()
-    expect(lastStatus(wrapper)).toMatchObject({ error: true })
-    expect((lastStatus(wrapper) as { text: string }).text).toContain('Save failed:')
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(lastStatus(wrapper)).toMatchObject({ error: true }) // no auto-clear on errors
+    await expect(exposed(wrapper).save()).rejects.toThrow('refused')
+    expect(exposed(wrapper).isDirty).toBe(true)
   })
 })
 
 describe('switching groups', () => {
-  it('reloads for the new group and clears the status line', async () => {
+  it('reloads for the new group and clears any load error', async () => {
     const wrapper = await mountCategories()
     fetchMock.mockResolvedValueOnce(stored({ solution_category: 'Product/Device' }))
     await wrapper.setProps({ groupId: 8 })
     await flushPromises()
     expect(fetchMock).toHaveBeenLastCalledWith(8)
     expect(wrapper.emitted('status')!.some(([v]) => v === null)).toBe(true)
+    expect(exposed(wrapper).isDirty).toBe(false)
   })
 })

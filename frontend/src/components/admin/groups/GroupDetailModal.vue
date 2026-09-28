@@ -18,7 +18,18 @@
         </section>
 
         <section class="group-detail__section">
-          <h3>Members ({{ members.length }})</h3>
+          <div class="group-detail__members-head">
+            <h3>Members ({{ members.length }})</h3>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="remainingSeats === 0"
+              :title="remainingSeats === 0 ? 'This group is full' : undefined"
+              @click="showAddStudents"
+            >
+              Add students
+            </button>
+          </div>
           <p v-if="!members.length" class="group-detail__muted">No students in this group yet.</p>
           <ul v-else class="group-detail__members">
             <li v-for="member in members" :key="member.id" class="group-detail__member">
@@ -41,6 +52,20 @@
           <i class="fas fa-comments" aria-hidden="true"></i>
           View Messages<span v-if="messagesTotal !== null"> ({{ messagesTotal }})</span>
         </button>
+      </template>
+
+      <!-- Add-students view: picker for ungrouped students, capped by free seats. -->
+      <template v-else-if="view === 'add'">
+        <button type="button" class="group-detail__back" @click="backToInfo">
+          <i class="fas fa-arrow-left" aria-hidden="true"></i>
+          Back to group information
+        </button>
+        <GroupAddStudents
+          :group="group"
+          :remaining="remainingSeats"
+          @added="onStudentsAdded"
+          @cancel="backToInfo"
+        />
       </template>
 
       <!-- Messages view -->
@@ -144,14 +169,17 @@
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import GroupAddStudents from '@/components/admin/groups/GroupAddStudents.vue'
 import {
   fetchGroupMessages,
   removeGroupMember,
   removeGroupMessage,
   type AdminGroupDetail,
   type AdminGroupMember,
-  type AdminGroupMessage
+  type AdminGroupMessage,
+  type AdminUser
 } from '@/utils/adminAPI'
+import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
 
 const props = defineProps<{
   modelValue: boolean
@@ -167,7 +195,8 @@ const onDismiss = () => emit('update:modelValue', false)
 
 // The panel opens on the group-information view (mentor + members); messages are
 // a separate view reached via "View Messages" (see below) and loaded only then.
-const view = ref<'info' | 'messages'>('info')
+// "Add students" swaps in the ungrouped-student picker the same way.
+const view = ref<'info' | 'messages' | 'add'>('info')
 
 // --- Members -------------------------------------------------------------
 
@@ -224,6 +253,34 @@ const confirmRemoveMember = async () => {
   } finally {
     removingMember.value = false
   }
+}
+
+// --- Add students ----------------------------------------------------------
+
+// Seats are derived from the local list so they stay correct after an add or
+// remove in this session, before the parent's table has refreshed.
+const remainingSeats = computed(() =>
+  Math.max(0, DEFAULT_GROUP_MAX_SIZE - members.value.filter((m) => m.role === 'student').length)
+)
+
+const showAddStudents = () => {
+  view.value = 'add'
+}
+
+const onStudentsAdded = (added: AdminUser[]) => {
+  if (!props.group) return
+  members.value = [
+    ...members.value,
+    ...added.map((student) => ({
+      id: String(student.id),
+      name: [student.firstName, student.lastName].filter(Boolean).join(' '),
+      email: student.email ?? '',
+      role: 'student',
+      membershipId: null
+    }))
+  ]
+  emit('changed', props.group.id)
+  view.value = 'info'
 }
 
 // --- Messages --------------------------------------------------------------
@@ -462,6 +519,18 @@ const formatMessageTime = (value: string): string => {
   word-break: break-word;
   font-size: 0.9rem;
   color: var(--charcoal);
+}
+
+.group-detail__members-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.group-detail__members-head h3 {
+  margin: 0;
 }
 
 .group-detail__messages-head {

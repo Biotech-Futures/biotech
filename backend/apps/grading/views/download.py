@@ -18,6 +18,7 @@ from django.core.files.storage import default_storage
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,7 +29,7 @@ from ..models import GradingJob, SubmissionComponent
 from ..permissions import IsGrader
 from ..services import content
 from ..services.dispatch import dispatch_job
-from ..services.zip import build_submissions_zip, zip_filename
+from ..services.zip import _COMPONENT_LABELS, _safe, build_submissions_zip
 
 
 class GroupDownloadView(APIView):
@@ -45,11 +46,14 @@ class GroupDownloadView(APIView):
             component_code=None if component_code == "all" else component_code,
         )
 
-        # The component layer only earns its place when mixing components.
-        payload = build_submissions_zip(entries, component_folder=(component_code == "all"))
-        prefix = f"group-{group.id}" + ("" if component_code == "all" else f"-{component_code}")
+        payload = build_submissions_zip(entries, group_folder=False)
+        # Named year + group name, with
+        # the component label appended for single-component downloads.
+        name = f"{timezone.now().year}_{_safe(group.group_name)}"
+        if component_code != "all":
+            name += f"_{_COMPONENT_LABELS.get(component_code, component_code)}"
         response = HttpResponse(payload, content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{zip_filename(prefix)}"'
+        response["Content-Disposition"] = f'attachment; filename="{name}.zip"'
         return response
 
 

@@ -6,23 +6,44 @@ import Image from '@tiptap/extension-image'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
+import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import LinkDialog from './LinkDialog.vue'
 
 interface Props {
   modelValue?: string
   placeholder?: string
   readOnly?: boolean
+  /**
+   * Email bodies are sanitised server-side with nh3, which strips base64
+   * images, `data:` URLs and uploaded-file links. Hiding those insert tools
+   * (and the table context bar) keeps the editor honest about what will
+   * actually survive a save.
+   */
+  emailMode?: boolean
+  /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
+  compact?: boolean
+  /** Email mode: the email's link placeholders, offered in the link dialog. */
+  linkPlaceholders?: string[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
-  placeholder: 'Write your announcement…',
-  readOnly: false
+  placeholder: undefined,
+  readOnly: false,
+  emailMode: false,
+  compact: false,
+  linkPlaceholders: () => []
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'change', value: string): void
+  (e: 'focus'): void
 }>()
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? (props.emailMode ? 'Write your email…' : 'Write your announcement…')
+)
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
@@ -49,8 +70,10 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     Placeholder.configure({
-      placeholder: props.placeholder
-    })
+      placeholder: resolvedPlaceholder.value
+    }),
+    // Emails keep the boxes and buttons of their built-in design.
+    ...(props.emailMode ? [EmailBox, EmailButton] : [])
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -139,16 +162,97 @@ function selectHeading(level: number | 0) {
   showHeadingDropdown.value = false
 }
 
-function promptLink() {
+// -- Link dialog: text links, and email buttons -------------------------------
+
+const linkDialog = ref({ open: false, kind: 'link' as 'link' | 'button', adding: true, link: '', style: '' })
+
+/** Link the selected text, or change or remove the link the cursor is in. */
+function editLink() {
   if (!editor.value) return
-  const prev = (editor.value.getAttributes('link').href as string) || ''
-  const url = window.prompt('Link URL', prev)
-  if (url === null) return
-  if (url.trim() === '') {
-    editor.value.chain().focus().unsetLink().run()
+  const link = (editor.value.getAttributes('link').href as string) || ''
+  linkDialog.value = { open: true, kind: 'link', adding: !link, link, style: '' }
+}
+
+function onLinkChosen(href: string) {
+  if (!editor.value) return
+  const { kind, adding, style } = linkDialog.value
+  const chain = editor.value.chain().focus()
+  if (kind === 'button') {
+    chain.setEmailButton(adding ? { href, style } : { href }).run()
+  } else if (editor.value.state.selection.empty && !editor.value.isActive('link')) {
+    // Nothing selected: the link itself becomes the text.
+    chain.insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] }).run()
   } else {
-    editor.value.chain().focus().setLink({ href: url.trim() }).run()
+    chain.extendMarkRange('link').setLink({ href }).run()
   }
+}
+
+function removeLink() {
+  editor.value?.chain().focus().extendMarkRange('link').unsetLink().run()
+}
+
+// -- Email boxes and buttons (email mode) ------------------------------------
+
+const emailMenu = ref<'box' | 'button' | null>(null)
+const emailMenuOnRight = ref(false)
+
+/** The look of the box or button the cursor is in, if it's one of the offered looks. */
+const boxLook = computed(() => {
+  void updateTick.value
+  if (!editor.value?.isActive('emailBox')) return null
+  return lookOf(BOX_LOOKS, editor.value.getAttributes('emailBox').style ?? '')?.id ?? null
+})
+
+const buttonLook = computed(() => {
+  void updateTick.value
+  if (!editor.value?.isActive('emailButton')) return null
+  return lookOf(BUTTON_LOOKS, editor.value.getAttributes('emailButton').style ?? '')?.id ?? null
+})
+
+function toggleEmailMenu(menu: 'box' | 'button', event: MouseEvent) {
+  if (emailMenu.value === menu) {
+    emailMenu.value = null
+    return
+  }
+  // Open towards the side with room, so the editor's edge doesn't cut the menu off.
+  const target = event.currentTarget as HTMLElement
+  const button = target.getBoundingClientRect()
+  const toolbar = target.closest('.rich-editor-toolbar')?.getBoundingClientRect()
+  emailMenuOnRight.value = !!toolbar && button.left + button.width / 2 > toolbar.left + toolbar.width / 2
+  showHeadingDropdown.value = false
+  emailMenu.value = menu
+}
+
+/** Put the selected lines in a box of this look, restyle their box, or (null) unbox them. */
+function chooseBoxLook(style: string | null) {
+  emailMenu.value = null
+  const chain = editor.value?.chain().focus()
+  if (!chain) return
+  if (style === null) chain.unsetEmailBox().run()
+  else chain.setEmailBox(style).run()
+}
+
+/** Restyle the button the cursor is in, or ask for a link to make the current line a button. */
+function chooseButtonLook(style: string) {
+  emailMenu.value = null
+  if (!editor.value) return
+  if (editor.value.isActive('emailButton')) {
+    editor.value.chain().focus().setEmailButton({ style }).run()
+    return
+  }
+  linkDialog.value = { open: true, kind: 'button', adding: true, link: '', style }
+}
+
+function changeButtonLink() {
+  emailMenu.value = null
+  if (!editor.value) return
+  const link = (editor.value.getAttributes('emailButton').href as string) || ''
+  linkDialog.value = { open: true, kind: 'button', adding: false, link, style: '' }
+}
+
+function removeButton() {
+  emailMenu.value = null
+  editor.value?.chain().focus().setParagraph().run()
 }
 
 function handleImageFile(file: File) {
@@ -229,10 +333,33 @@ function handleRawInput(e: Event) {
   emit('update:modelValue', target.value)
   emit('change', target.value)
 }
+
+/**
+ * Insert a merge tag (or any text) at the cursor. Exposed so the email page's
+ * merge-tag palette can drop `{{ first_name }}` exactly where the admin is
+ * typing instead of appending it to the end of the body.
+ */
+function insertText(text: string) {
+  if (props.readOnly || !text) return
+  if (rawMode.value) {
+    const next = rawHtml.value ? `${rawHtml.value} ${text}` : text
+    rawHtml.value = next
+    emit('update:modelValue', next)
+    emit('change', next)
+    return
+  }
+  editor.value?.chain().focus().insertContent(text).run()
+}
+
+defineExpose({ insertText })
 </script>
 
 <template>
-  <div class="rich-editor-wrapper">
+  <div
+    class="rich-editor-wrapper"
+    :class="{ 'rich-editor-wrapper--compact': compact }"
+    @focusin="emit('focus')"
+  >
     <!-- Attachment Error Banner -->
     <div v-if="attachmentError" class="rich-editor-alert">
       <i class="fas fa-circle-exclamation mr-1.5"></i>
@@ -250,7 +377,7 @@ function handleRawInput(e: Event) {
               type="button"
               class="toolbar-btn heading-btn"
               :title="`Current style: ${currentHeadingLabel}`"
-              @click="showHeadingDropdown = !showHeadingDropdown"
+              @click="showHeadingDropdown = !showHeadingDropdown; emailMenu = null"
             >
               <span>{{ currentHeadingLabel }}</span>
               <i class="fas fa-chevron-down heading-chevron"></i>
@@ -352,7 +479,7 @@ function handleRawInput(e: Event) {
             class="toolbar-btn icon-btn"
             :class="{ active: isActive('link') }"
             title="Insert / edit link"
-            @mousedown.prevent="promptLink"
+            @mousedown.prevent="editLink"
           >
             <i class="fas fa-link"></i>
           </button>
@@ -405,39 +532,120 @@ function handleRawInput(e: Event) {
             <i class="fas fa-minus"></i>
           </button>
 
+          <!-- Email design blocks, kept on save -->
+          <template v-if="emailMode">
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: isActive('emailBox') }"
+                title="Put the selected lines in a box, change the box, or take them out"
+                @mousedown.prevent="toggleEmailMenu('box', $event)"
+              >
+                <i class="far fa-square"></i>
+                <span>Box</span>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'box'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <button
+                  v-for="look in BOX_LOOKS"
+                  :key="look.id"
+                  type="button"
+                  class="dropdown-item email-look-item"
+                  :class="{ active: boxLook === look.id }"
+                  @mousedown.prevent="chooseBoxLook(look.style)"
+                >
+                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                  {{ look.label }}
+                </button>
+                <template v-if="isActive('emailBox')">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseBoxLook(null)">
+                    No box
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: isActive('emailButton') }"
+                title="Turn this line into a button, or change the button"
+                @mousedown.prevent="toggleEmailMenu('button', $event)"
+              >
+                <i class="fas fa-hand-pointer"></i>
+                <span>Button</span>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'button'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <button
+                  v-for="look in BUTTON_LOOKS"
+                  :key="look.id"
+                  type="button"
+                  class="dropdown-item email-look-item"
+                  :class="{ active: buttonLook === look.id }"
+                  @mousedown.prevent="chooseButtonLook(look.style)"
+                >
+                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                  {{ look.label }}
+                </button>
+                <template v-if="isActive('emailButton')">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
+                    Change link…
+                  </button>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="removeButton">
+                    No button
+                  </button>
+                </template>
+              </div>
+            </div>
+          </template>
+
           <div class="toolbar-sep"></div>
 
-          <!-- Insert Actions -->
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Insert image"
-            @mousedown.prevent="fileInputRef?.click()"
-          >
-            <i class="fas fa-image"></i>
-            <span>Image</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Attach file to selected text"
-            :disabled="uploadingAttachment"
-            @mousedown.prevent="openAttachmentPicker"
-          >
-            <i class="fas fa-paperclip"></i>
-            <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn text-icon-btn"
-            title="Insert table (3x3)"
-            @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
-          >
-            <i class="fas fa-table"></i>
-            <span>Table</span>
-          </button>
+          <!-- Insert Actions (hidden in email mode: nh3 strips images/files) -->
+          <template v-if="!emailMode">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Insert image"
+              @mousedown.prevent="fileInputRef?.click()"
+            >
+              <i class="fas fa-image"></i>
+              <span>Image</span>
+            </button>
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Attach file to selected text"
+              :disabled="uploadingAttachment"
+              @mousedown.prevent="openAttachmentPicker"
+            >
+              <i class="fas fa-paperclip"></i>
+              <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
+            </button>
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Insert table (3x3)"
+              @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
+            >
+              <i class="fas fa-table"></i>
+              <span>Table</span>
+            </button>
 
-          <div class="toolbar-sep"></div>
+            <div class="toolbar-sep"></div>
+          </template>
 
           <!-- History -->
           <button
@@ -476,7 +684,7 @@ function handleRawInput(e: Event) {
       </div>
 
       <!-- Table Context Toolbar -->
-      <div v-if="isInTable && !rawMode && !readOnly" class="table-context-bar">
+      <div v-if="isInTable && !rawMode && !readOnly && !emailMode" class="table-context-bar">
         <div class="table-context-heading">
           <i class="fas fa-table text-blue-500"></i>
           <span class="table-context-title">Table:</span>
@@ -575,10 +783,22 @@ function handleRawInput(e: Event) {
           @input="handleRawInput"
         ></textarea>
       </div>
-      <div v-else class="rich-editor-content-area">
+      <div v-else class="rich-editor-content-area" @mousedown="emailMenu = null">
         <EditorContent :editor="editor" />
       </div>
     </div>
+
+    <LinkDialog
+      v-model="linkDialog.open"
+      :kind="linkDialog.kind"
+      :adding="linkDialog.adding"
+      :initial-link="linkDialog.link"
+      :placeholders="linkPlaceholders"
+      :allow-relative="!emailMode"
+      @confirm="onLinkChosen"
+      @remove="removeLink"
+      @cancel="editor?.commands.focus()"
+    />
 
     <!-- Hidden file inputs -->
     <input
@@ -766,6 +986,34 @@ function handleRawInput(e: Event) {
   font-weight: 600;
 }
 
+.email-look-menu {
+  min-width: 10.5rem;
+}
+
+.email-look-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.email-look-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.email-look-swatch {
+  flex: none;
+  width: 1.25rem;
+  height: 0.875rem;
+  border-radius: 0.1875rem;
+}
+
+.email-look-sep {
+  height: 1px;
+  margin: 0.25rem 0.125rem;
+  background-color: #e5e7eb;
+}
+
 .h1-item {
   font-size: 1.125rem;
   font-weight: 700;
@@ -882,6 +1130,16 @@ function handleRawInput(e: Event) {
 
 .hidden-input {
   display: none;
+}
+
+.rich-editor-wrapper--compact .rich-editor-content-area {
+  min-height: 12rem;
+  padding: 0.75rem 1rem;
+}
+
+.rich-editor-wrapper--compact .rich-editor-raw-area .raw-html-textarea {
+  min-height: 12rem;
+  padding: 0.75rem 1rem;
 }
 </style>
 
@@ -1004,6 +1262,15 @@ function handleRawInput(e: Event) {
   text-underline-offset: 2px;
 }
 
+/* Email boxes and buttons carry their own inline styles; match the email's spacing. */
+.rich-editor-content-area .tiptap.ProseMirror .email-box p {
+  margin: 0 0 10px 0;
+}
+
+.rich-editor-content-area .tiptap.ProseMirror .email-box p:last-child {
+  margin-bottom: 0;
+}
+
 .rich-editor-content-area .tiptap.ProseMirror .tableWrapper {
   overflow-x: auto;
   margin: 0.75rem 0;
@@ -1031,5 +1298,9 @@ function handleRawInput(e: Event) {
 
 .rich-editor-content-area .tiptap.ProseMirror .selectedCell {
   background-color: #dbeafe !important;
+}
+
+.rich-editor-wrapper--compact .rich-editor-content-area .tiptap.ProseMirror {
+  min-height: 10rem;
 }
 </style>

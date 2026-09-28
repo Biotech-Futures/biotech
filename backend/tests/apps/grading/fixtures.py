@@ -40,12 +40,12 @@ def _seed_doc_templates():
     row.marks_summary_template = SimpleUploadedFile(
         "marks.docx",
         _build_docx(
-            "Team {{TeamCode}} S1 {{S1}} ({{S1Comment}}) total {{CombinedTotal}} "
-            "poster: {{PosterComment}}"
+            "Team {{TeamCode}} S1 {{SM1}} ({{ShortAnswerQuestionComment1}}) total {{CombinedTotal}} "
+            "poster: {{PosterOverallComment}}"
         ),
     )
     row.certificate_template = SimpleUploadedFile(
-        "cert.docx", _build_docx("{{firstName}} {{lastName}} — {{projectTitle}}")
+        "cert.docx", _build_docx("{{FirstName}} {{LastName}} — {{ProjectTitle}}")
     )
     row.save()
     return row

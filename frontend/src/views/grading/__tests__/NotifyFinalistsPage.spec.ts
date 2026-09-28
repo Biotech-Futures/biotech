@@ -1,14 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import NotifyFinalistsPage from '@/views/grading/NotifyFinalistsPage.vue'
-import { fetchFinalists, notifyFinalists } from '@/utils/gradingAPI'
+import {
+  fetchFinalistEmailDetails,
+  fetchFinalists,
+  notifyFinalists,
+  previewFinalistEmail,
+  updateFinalistEmailDetails
+} from '@/utils/gradingAPI'
 
 vi.mock('@/utils/gradingAPI', () => ({
   fetchFinalists: vi.fn(),
-  notifyFinalists: vi.fn()
+  notifyFinalists: vi.fn(),
+  fetchFinalistEmailDetails: vi.fn(),
+  updateFinalistEmailDetails: vi.fn(),
+  previewFinalistEmail: vi.fn()
 }))
 const listMock = vi.mocked(fetchFinalists)
 const notifyMock = vi.mocked(notifyFinalists)
+const detailsMock = vi.mocked(fetchFinalistEmailDetails)
+const saveMock = vi.mocked(updateFinalistEmailDetails)
+const previewMock = vi.mocked(previewFinalistEmail)
+
+// Every detail set: the email can go out.
+const details = (over: Record<string, unknown> = {}) => ({
+  symposium_date: '2026-10-23',
+  confirm_by: '2026-10-04',
+  slides_due: '2026-10-16',
+  registration_url: 'https://events.example.com/s',
+  complete: true,
+  today: '2026-09-27',
+  dates_in_past: [] as string[],
+  ...over
+})
 
 const finalist = (group_id: number, over: Record<string, unknown> = {}) => ({
   group_id,
@@ -33,6 +57,9 @@ const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: RegE
 beforeEach(() => {
   listMock.mockReset()
   notifyMock.mockReset()
+  detailsMock.mockReset().mockResolvedValue(details())
+  saveMock.mockReset()
+  previewMock.mockReset()
   listMock.mockResolvedValue({
     finalists: [
       finalist(1),
@@ -146,5 +173,113 @@ describe('sending', () => {
     await flushPromises()
     expect(wrapper.find('.notify-finalists__banner--error').text()).toContain('email disabled')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+})
+
+describe('the email details', () => {
+  it("the date pickers start at the server's today", async () => {
+    const wrapper = await mountPage()
+    for (const input of wrapper.findAll('input[type="date"]')) {
+      expect(input.attributes('min')).toBe('2026-09-27')
+    }
+  })
+
+  it('a date typed before today is flagged and cannot be saved', async () => {
+    const wrapper = await mountPage()
+    const [symposium] = wrapper.findAll('input[type="date"]')
+    await symposium!.setValue('2026-09-26')
+    expect(symposium!.classes()).toContain('is-invalid')
+    expect(wrapper.find('.notify-finalists__field-error').text()).toBe("Can't be before today.")
+    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeDefined()
+
+    await symposium!.setValue('2026-09-27') // today is fine
+    expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
+    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('a saved date that has since passed is flagged and blocks sending', async () => {
+    detailsMock.mockResolvedValue(
+      details({ confirm_by: '2025-10-05', dates_in_past: ['confirm_by'] })
+    )
+    const wrapper = await mountPage()
+    expect(wrapper.findAll('.notify-finalists__field-error')).toHaveLength(1)
+    expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
+      'Some email dates are before today. Update and save them before sending.'
+    )
+    expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
+
+    // Editing only the link may still be saved: the passed date isn't new.
+    await wrapper.find('input[type="url"]').setValue('https://events.example.com/new')
+    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('shows the saved details, and no leftover under-construction banner', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.text()).not.toContain('still being built')
+    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe(
+      '2026-10-23'
+    )
+    expect((wrapper.find('input[type="url"]').element as HTMLInputElement).value).toBe(
+      'https://events.example.com/s'
+    )
+  })
+
+  it('Save stays off until a detail changes, then saves it with blanks as none', async () => {
+    saveMock.mockResolvedValueOnce(details({ slides_due: null, complete: false }))
+    const wrapper = await mountPage()
+    const save = buttonNamed(wrapper, /^Save$/)
+    expect(save.attributes('disabled')).toBeDefined()
+
+    await wrapper.findAll('input[type="date"]')[2]!.setValue('')
+    expect(save.attributes('disabled')).toBeUndefined()
+    await save.trigger('click')
+    await flushPromises()
+    expect(saveMock).toHaveBeenCalledWith({
+      symposium_date: '2026-10-23',
+      confirm_by: '2026-10-04',
+      slides_due: null,
+      registration_url: 'https://events.example.com/s'
+    })
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Email details saved.')
+  })
+
+  it('Send stays off, saying why, while a detail is missing', async () => {
+    detailsMock.mockResolvedValue(details({ slides_due: null, complete: false }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
+      'Fill in and save every email detail above before sending.'
+    )
+    expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
+  })
+
+  it('Send stays off until an edit is saved', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('input[type="date"]').setValue('2026-10-30')
+    expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
+      'Save the email details before sending.'
+    )
+    expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
+  })
+
+  it('Preview shows the email for the details as typed, sending nothing', async () => {
+    previewMock.mockResolvedValueOnce({
+      subject: 'Congratulations',
+      group_name: 'BTF-1',
+      html: '<p>Dear members of BTF-1</p>'
+    })
+    const wrapper = await mountPage()
+    await wrapper.find('input[type="date"]').setValue('2026-10-30')
+    await buttonNamed(wrapper, /Preview Email/).trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenCalledWith(
+      expect.objectContaining({ symposium_date: '2026-10-30' })
+    )
+    const dialog = wrapper.find('[aria-label="Email preview"]')
+    expect(dialog.text()).toContain('As the members of BTF-1 would get it')
+    expect(dialog.find('iframe').attributes('srcdoc')).toContain('Dear members of BTF-1')
+    expect(notifyMock).not.toHaveBeenCalled()
+
+    await buttonNamed(wrapper, /^Close$/).trigger('click')
+    expect(wrapper.find('[aria-label="Email preview"]').exists()).toBe(false)
   })
 })
