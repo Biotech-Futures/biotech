@@ -92,6 +92,9 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchRelease, toggleRelease, type ReleaseStatus } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
+// Release Results rechecks whether the results emails may be sent.
+const emit = defineEmits<{ (e: 'changed'): void }>()
+
 const status = ref<ReleaseStatus | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
@@ -132,6 +135,7 @@ const unrelease = async () => {
   actionError.value = ''
   try {
     status.value = await toggleRelease(false)
+    emit('changed')
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -144,6 +148,7 @@ const confirmRelease = async () => {
   actionError.value = ''
   try {
     status.value = await toggleRelease(true)
+    emit('changed')
     showConfirm.value = false
   } catch (err) {
     showConfirm.value = false

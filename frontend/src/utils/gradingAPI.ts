@@ -369,6 +369,8 @@ export interface FinalistRow {
   notified: boolean
   notified_at: string | null
   notified_by: string | null
+  /** Students on the team with an address to be emailed at. */
+  students: number
 }
 
 export interface FinalistListResponse {
@@ -813,6 +815,100 @@ export function previewFinalistEmail(
   return requestJson<FinalistEmailPreview>('/api/v1/grading/finalists/email/preview/', {
     method: 'POST',
     body: JSON.stringify(fields)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Results emails (Release Results tab)
+
+export interface ResultsEmailFields {
+  survey_url: string
+  survey_closes: string | null
+}
+
+export interface EmailedCount {
+  total: number
+  emailed: number
+}
+
+export interface ResultsEmailDetails extends ResultsEmailFields {
+  /** Both survey details are set. */
+  complete: boolean
+  /** Sydney's today (YYYY-MM-DD): the earliest the close date may be. */
+  today: string
+  /** The saved close date is already before today, which blocks sending. */
+  closes_in_past: boolean
+  year: number
+  marks_released: boolean
+  certificates_released: boolean
+  /** Whether each email is switched on in System Emails. */
+  emails_on: Record<ResultsAudience, boolean>
+  /** Whether the Document Setup templates each email's files need are uploaded. */
+  templates_ready: Record<ResultsAudience, boolean>
+  students: EmailedCount
+  supervisors: EmailedCount
+}
+
+export type ResultsAudience = 'students' | 'supervisors'
+
+export interface ResultsEmailBatch {
+  /** People emailed in this batch. */
+  emailed: number
+  /** Teams (for students) or supervisors not emailed in full. */
+  failed: number
+  /** The last team or supervisor tried; pass it back for the next batch. */
+  cursor: number
+  /** Everyone due has been tried in this run. */
+  done: boolean
+  students: EmailedCount
+  supervisors: EmailedCount
+}
+
+export interface ResultsEmailPreview {
+  subject: string
+  /** The team or supervisor the preview is addressed to. */
+  to: string
+  html: string
+  /** The names of the files the email carries. */
+  attachments: string[]
+}
+
+// GET /api/v1/grading/results-email/ — survey details, releases and counts.
+export function fetchResultsEmailDetails(): Promise<ResultsEmailDetails> {
+  return requestJson<ResultsEmailDetails>('/api/v1/grading/results-email/')
+}
+
+// PATCH /api/v1/grading/results-email/ — save the survey details.
+export function updateResultsEmailDetails(
+  fields: Partial<ResultsEmailFields>
+): Promise<ResultsEmailDetails> {
+  return requestJson<ResultsEmailDetails>('/api/v1/grading/results-email/', {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+// POST /api/v1/grading/results-email/preview/ — one email as it would go out,
+// for the given (possibly unsaved) details. Sends nothing.
+export function previewResultsEmail(
+  audience: ResultsAudience,
+  fields: Partial<ResultsEmailFields>
+): Promise<ResultsEmailPreview> {
+  return requestJson<ResultsEmailPreview>('/api/v1/grading/results-email/preview/', {
+    method: 'POST',
+    body: JSON.stringify({ audience, ...fields })
+  })
+}
+
+// POST /api/v1/grading/results-email/send/ — email the next few teams'
+// students, or supervisors; call again with the returned cursor until done.
+export function sendResultsEmailBatch(
+  audience: ResultsAudience,
+  cursor: number | null
+): Promise<ResultsEmailBatch> {
+  return requestJson<ResultsEmailBatch>('/api/v1/grading/results-email/send/', {
+    method: 'POST',
+    body: JSON.stringify({ audience, cursor })
   })
 }
 

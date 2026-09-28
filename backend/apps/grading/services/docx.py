@@ -452,15 +452,15 @@ def signature_images(settings) -> dict:
 # Public renderers
 
 
-def render_marks_summary_data(data: bytes, context: dict) -> bytes:
+def render_marks_summary_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
     """Render marks-summary docx bytes — the saved template or a candidate
-    upload being previewed before it replaces anything."""
-    settings = GradingSettings.load()
+    upload being previewed before it replaces anything. ``images`` are the
+    signatures, when the caller already read them (see ``signature_images``)."""
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
             data,
             marks_release_fields(context),
-            signature_images(settings),
+            signature_images(GradingSettings.load()) if images is None else images,
         )
     # No recognised placeholders: hand back the document as uploaded rather
     # than failing. A static summary with nothing to substitute is valid.
@@ -475,12 +475,14 @@ def render_marks_summary(context: dict) -> bytes:
     return render_marks_summary_data(data, context)
 
 
-def render_certificate_data(data: bytes, context: dict) -> bytes:
-    """Render certificate docx bytes — saved template or previewed candidate."""
-    settings = GradingSettings.load()
+def render_certificate_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
+    """Render certificate docx bytes — saved template or previewed candidate.
+    ``images`` as for ``render_marks_summary_data``."""
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
-            data, certificate_fields(context), signature_images(settings)
+            data,
+            certificate_fields(context),
+            signature_images(GradingSettings.load()) if images is None else images,
         )
     # As above — a certificate with no variables is returned unchanged.
     return data

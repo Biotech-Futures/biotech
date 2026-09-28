@@ -34,7 +34,7 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="!detailsChanged || savingDetails"
+            :disabled="savingDetails"
             @click="saveDetails"
           >
             {{ savingDetails ? 'Saving…' : 'Save' }}
@@ -69,6 +69,10 @@
           aria-hidden="true"
         ></i>
         {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
+      </p>
+      <!-- A notified team is one where every member got the email. -->
+      <p v-if="finalists.length" class="notify-finalists__counts">
+        Students: {{ studentsEmailed }} of {{ studentsTotal }} emailed
       </p>
       <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
       <div class="notify-finalists__email-actions">
@@ -254,6 +258,10 @@ const sendingMode = ref<'all' | 'selected' | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
 const allNotified = computed(() => finalists.value.every((f) => f.notified))
+const studentsTotal = computed(() => finalists.value.reduce((n, f) => n + f.students, 0))
+const studentsEmailed = computed(() =>
+  finalists.value.reduce((n, f) => n + (f.notified ? f.students : 0), 0)
+)
 
 // Teams ticked in the Notify column. Empty selection = email all un-notified.
 const selectedIds = ref(new Set<number>())
@@ -581,6 +589,17 @@ const confirmSend = async () => {
 
 .notify-finalists__status--warn {
   color: #eab308;
+}
+
+/* The status line sits right above this count, as on Release Results. */
+.notify-finalists__status:has(+ .notify-finalists__counts) {
+  margin-bottom: 0.4rem;
+}
+
+.notify-finalists__counts {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 .notify-finalists__email-actions {

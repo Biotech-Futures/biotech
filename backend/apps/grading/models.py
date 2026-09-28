@@ -348,6 +348,86 @@ class FinalistEmailSettings(SingletonModel):
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
 
 
+class ResultsEmailSettings(SingletonModel):
+    """What the results emails tell teams about the feedback survey, set on
+    the Release Results tab each year. Nothing is sent until both are set."""
+
+    survey_url = models.URLField(
+        max_length=500,
+        blank=True,
+        # The survey in the client's 2025 email; replace it each year.
+        default="https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
+    )
+    survey_closes = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "results_email_settings"
+
+    def __str__(self):
+        return "ResultsEmailSettings"
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.survey_url and self.survey_closes)
+
+
+class ResultsTeamEmail(models.Model):
+    """A team emailed about its results; sending skips it after that. Only
+    recorded once every member got the email, so a retry reaches the rest."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="results_email",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "results_team_email"
+
+    def __str__(self):
+        return f"Results emailed: {self.group}"
+
+
+class ResultsSupervisorEmail(models.Model):
+    """A supervisor emailed about their students' results for a year."""
+
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    year = models.PositiveSmallIntegerField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "results_supervisor_email"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supervisor", "year"],
+                name="unique_results_email_per_supervisor_year",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Results emailed: supervisor {self.supervisor_id} ({self.year})"
+
+
 class GradingJob(models.Model):
     KIND_BULK_ZIP = "bulk_zip"
     KIND_MARKS_RELEASE = "marks_release"

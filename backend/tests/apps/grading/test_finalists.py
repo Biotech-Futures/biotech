@@ -253,6 +253,23 @@ class FinalistToggleTests(_GradingFixture):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["group_id"], self.group.id)
 
+    def test_list_counts_each_teams_students(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        User = get_user_model()
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        for n, (role, left) in enumerate((("student", None), ("student", None), ("student", timezone.now()), ("mentor", None))):
+            member = User.objects.create_user(email=f"m{n}@example.com", password="pw12345!")
+            GroupMembership.objects.create(
+                group=self.group, user=member, membership_role=role,
+                joined_at=timezone.now() - timezone.timedelta(days=30), left_at=left,
+            )
+        self.client.force_authenticate(self.staff)
+        rows = self.client.get(reverse("grading:finalist-list")).json()["finalists"]
+        # Two current students; the one who left and the mentor don't count.
+        self.assertEqual(rows[0]["students"], 2)
+
     def test_notify_flag_marks_notified_when_recipients_exist(self):
         from django.core import mail
 

@@ -232,6 +232,43 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    EmailType(
+        key="results_team",
+        name="Results: students",
+        description=(
+            "Sent to each team's students from Release Results once marks and "
+            "certificates are released, with the feedback survey set there."
+        ),
+        default_subject="Your {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_team.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "survey_url",
+                "Feedback survey link",
+                "https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
+                "SURVEY_URL",
+            ),
+            MergeTag("survey_closes", "Survey closes", "30th of November", "SURVEY_CLOSES"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="results_supervisor",
+        name="Results: supervisors",
+        description=(
+            "Sent to the supervisors of those students from Release Results once "
+            "marks and certificates are released."
+        ),
+        default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_supervisor.html",
+        merge_tags=(
+            MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
 )
 
 EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}

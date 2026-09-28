@@ -90,7 +90,8 @@ beforeEach(() => {
         flagged_by: 'Ada Admin',
         notified: false,
         notified_at: null,
-        notified_by: null
+        notified_by: null,
+        students: 3
       }
     ]
   })
@@ -268,7 +269,7 @@ describe('the current finalists', () => {
         {
           group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
           flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
-          notified_by: 'Ada Admin'
+          notified_by: 'Ada Admin', students: 3
         }
       ]
     })

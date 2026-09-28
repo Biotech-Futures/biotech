@@ -1,13 +1,7 @@
 <template>
-  <p
-    v-if="UNDER_CONSTRUCTION"
-    style="background: #fff8e1; border: 1px solid #f5d97e; border-radius: 8px; color: #8a6d1a; font-size: 0.85rem; padding: 0.6rem 0.85rem; margin: 0 0 0.75rem"
-  >
-    <i class="fas fa-hammer" aria-hidden="true"></i>
-    The backend for this page is still being built.
-  </p>
-  <!-- Separate cards, as on the other Management tabs: the title card, then
-       one each for marks and certificates. -->
+  <!-- Separate cards, as on the other Management tabs: the title card with
+       the results emails' details, one each for marks and certificates, then
+       sending the results emails once both are released. -->
   <div class="release-results">
     <section class="card release-results__intro">
       <div class="card-header">
@@ -16,31 +10,178 @@
       <p class="release-results__hint">
         Releasing shows results only to students whose group made a submission.
       </p>
-      <div>
-        <button type="button" class="btn btn-outline btn-sm" @click="showPreview = true">
-          Preview Email
-        </button>
-      </div>
+      <h3 class="release-results__section-title">Email Details</h3>
+      <p class="release-results__hint">
+        The results email to teams links to the feedback survey. Set these before sending.
+      </p>
+      <p v-if="detailsError" class="release-results__load-error">
+        Failed to load the email details. {{ detailsError }}
+      </p>
+      <template v-else-if="details">
+        <div class="release-results__fields">
+          <label class="release-results__field release-results__field--wide">
+            <span>Feedback Survey Link</span>
+            <input v-model="form.survey_url" type="url" placeholder="https://…" />
+          </label>
+          <label class="release-results__field">
+            <span>Survey Closes</span>
+            <input
+              v-model="form.survey_closes"
+              type="date"
+              :min="details.today"
+              :class="{ 'is-invalid': saveTried && closesPast }"
+            />
+          </label>
+        </div>
+        <p v-if="saveTried && closesPast" class="release-results__field-error" role="alert">
+          Survey Closes can't be before today.
+        </p>
+        <!-- Save and the student preview, then the supervisor preview on the
+             next line. -->
+        <div class="release-results__details-actions">
+          <div class="release-results__actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="savingDetails"
+              @click="saveDetails"
+            >
+              {{ savingDetails ? 'Saving…' : 'Save' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="loadingPreview !== null"
+              @click="openPreview('students')"
+            >
+              {{ loadingPreview === 'students' ? 'Loading…' : 'Preview Student Email' }}
+            </button>
+          </div>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="loadingPreview !== null"
+            @click="openPreview('supervisors')"
+          >
+            {{ loadingPreview === 'supervisors' ? 'Loading…' : 'Preview Supervisor Email' }}
+          </button>
+        </div>
+      </template>
     </section>
-    <ReleasePage />
-    <ReleaseCertificatesPage />
+
+    <ReleasePage @changed="loadDetails" />
+    <ReleaseCertificatesPage @changed="loadDetails" />
+
+    <section class="card release-results__send">
+      <h3 class="release-results__section-title">Send Results Emails</h3>
+      <p class="release-results__hint">
+        Emails the students of every team that submitted, and their supervisors, that their
+        results are out. Each is emailed once.
+      </p>
+      <template v-if="details">
+        <p
+          v-if="totalDue"
+          class="release-results__status"
+          :class="allEmailed ? 'release-results__status--ok' : 'release-results__status--warn'"
+        >
+          <i
+            :class="allEmailed ? 'fas fa-envelope-circle-check' : 'fas fa-envelope'"
+            aria-hidden="true"
+          ></i>
+          {{
+            allEmailed
+              ? 'Emails are sent to every student and supervisor'
+              : 'Emails are not sent to every student and supervisor'
+          }}
+        </p>
+        <p class="release-results__counts">
+          Students: {{ details.students.emailed }} of {{ details.students.total }} emailed ·
+          Supervisors: {{ details.supervisors.emailed }} of {{ details.supervisors.total }} emailed
+        </p>
+        <p v-for="reason in blockedReasons" :key="reason" class="release-results__blocked">
+          {{ reason }}
+        </p>
+        <div class="release-results__actions">
+          <button
+            v-for="audience in AUDIENCES"
+            :key="audience.value"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="sending !== null || !canSend[audience.value]"
+            @click="confirming = audience.value"
+          >
+            {{ sending === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
+          </button>
+          <span v-if="sending" class="release-results__progress" role="status">
+            Emailed {{ plural(progress.emailed, sending === 'students' ? 'student' : 'supervisor') }}
+            so far…
+          </span>
+        </div>
+      </template>
+    </section>
+
+    <p v-if="actionError" class="release-results__banner release-results__banner--error">
+      {{ actionError }}
+    </p>
+    <p v-if="actionMessage" class="release-results__banner release-results__banner--ok">
+      {{ actionMessage }}
+    </p>
   </div>
 
-  <!-- No results email is sent yet, so there is nothing real to preview. -->
   <Teleport to="body">
-    <div v-if="showPreview" class="release-results__overlay" @click.self="showPreview = false">
-      <div class="release-results__dialog" role="dialog" aria-modal="true" aria-label="Preview email">
+    <div v-if="confirming" class="release-results__overlay" @click.self="confirming = null">
+      <div class="release-results__dialog" role="dialog" aria-modal="true" aria-label="Send results emails">
         <h3 class="release-results__dialog-title">
-          <i class="fas fa-envelope" aria-hidden="true"></i> Preview Email
+          <i class="fas fa-envelope" aria-hidden="true"></i> Email {{ confirming }}?
+        </h3>
+        <p class="release-results__dialog-text">{{ confirmText }}</p>
+        <div class="release-results__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" @click="sendAll(confirming)">Send</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <Teleport to="body">
+    <div v-if="preview" class="release-results__overlay" @click.self="preview = null">
+      <div
+        class="release-results__dialog release-results__dialog--preview"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Email preview"
+      >
+        <h3 class="release-results__dialog-title">
+          <i class="fas fa-envelope-open-text" aria-hidden="true"></i> {{ preview.subject }}
         </h3>
         <p class="release-results__dialog-text">
-          The email sent when results are released hasn't been set up yet. Its preview will
-          show here.
+          As {{ preview.to }} would get it. Nothing has been sent.
         </p>
+        <div v-if="preview.attachments.length" class="release-results__attachments">
+          <span class="release-results__attachments-label">
+            <i class="fas fa-paperclip" aria-hidden="true"></i> Attachments
+          </span>
+          <ul>
+            <li v-for="name in preview.attachments" :key="name">{{ name }}</li>
+          </ul>
+        </div>
+        <!-- As on Notify Finalists: the frame is as tall as the email and this
+             box scrolls; sandbox without allow-scripts shows the email, never
+             runs it; allow-same-origin only lets fitPreview measure it. -->
+        <div class="release-results__preview-body">
+          <iframe
+            class="release-results__preview-frame"
+            :srcdoc="preview.html"
+            title="Email preview"
+            sandbox="allow-same-origin"
+            scrolling="no"
+            @load="fitPreview"
+          ></iframe>
+        </div>
         <div class="release-results__dialog-actions">
-          <button type="button" class="btn btn-primary btn-sm" @click="showPreview = false">
-            Close
-          </button>
+          <button type="button" class="btn btn-outline btn-sm" @click="preview = null">Close</button>
         </div>
       </div>
     </div>
@@ -48,14 +189,226 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useFlashMessage } from '@/composables/useFlashMessage'
+import {
+  fetchResultsEmailDetails,
+  previewResultsEmail,
+  sendResultsEmailBatch,
+  updateResultsEmailDetails,
+  type ResultsAudience,
+  type ResultsEmailDetails,
+  type ResultsEmailFields,
+  type ResultsEmailPreview
+} from '@/utils/gradingAPI'
+import { apiErrorFromUnknown } from '@/utils/apiError'
 import ReleaseCertificatesPage from '@/views/grading/ReleaseCertificatesPage.vue'
 import ReleasePage from '@/views/grading/ReleasePage.vue'
 
-// Flip to false once the backend flow is signed off.
-const UNDER_CONSTRUCTION = true
+// Students (the team email) and supervisors are emailed apart.
+const AUDIENCES: { value: ResultsAudience; noun: string }[] = [
+  { value: 'students', noun: 'Students' },
+  { value: 'supervisors', noun: 'Supervisors' }
+]
 
-const showPreview = ref(false)
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+const actionError = ref('')
+const { message: actionMessage, show: flashAction } = useFlashMessage()
+
+// -- Email details ----------------------------------------------------------
+
+const details = ref<ResultsEmailDetails | null>(null)
+const detailsError = ref('')
+const form = ref<ResultsEmailFields>({ survey_url: '', survey_closes: null })
+const savingDetails = ref(false)
+// A past close date is only pointed out once Save is pressed, as on Notify Finalists.
+const saveTried = ref(false)
+
+const fromDetails = (d: ResultsEmailDetails): ResultsEmailFields => ({
+  survey_url: d.survey_url ?? '',
+  survey_closes: d.survey_closes
+})
+
+const formFields = (): ResultsEmailFields => ({
+  survey_url: form.value.survey_url.trim(),
+  survey_closes: form.value.survey_closes || null
+})
+
+const detailsChanged = computed(() => {
+  const d = details.value
+  if (!d) return false
+  const f = formFields()
+  return f.survey_url !== (d.survey_url ?? '') || f.survey_closes !== d.survey_closes
+})
+
+const closesPast = computed(() =>
+  Boolean(form.value.survey_closes && details.value && form.value.survey_closes < details.value.today)
+)
+
+// Also called when marks or certificates are (un)released below; edits in
+// progress are kept.
+const loadDetails = async () => {
+  detailsError.value = ''
+  try {
+    const editing = detailsChanged.value
+    const fresh = await fetchResultsEmailDetails()
+    details.value = fresh
+    if (!editing) form.value = fromDetails(fresh)
+  } catch (err) {
+    detailsError.value = apiErrorFromUnknown(err).message
+  }
+}
+
+const saveDetails = async () => {
+  actionError.value = ''
+  saveTried.value = true
+  if (closesPast.value) return
+  savingDetails.value = true
+  try {
+    const saved = await updateResultsEmailDetails(formFields())
+    details.value = saved
+    form.value = fromDetails(saved)
+    saveTried.value = false
+    flashAction('Email details saved.')
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    savingDetails.value = false
+  }
+}
+
+// -- Preview ----------------------------------------------------------------
+
+const preview = ref<ResultsEmailPreview | null>(null)
+const loadingPreview = ref<ResultsAudience | null>(null)
+
+const openPreview = async (audience: ResultsAudience) => {
+  actionError.value = ''
+  loadingPreview.value = audience
+  try {
+    preview.value = await previewResultsEmail(audience, formFields())
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    loadingPreview.value = null
+  }
+}
+
+// Grow the frame to the whole email, so only the dialog's box scrolls.
+const fitPreview = (event: Event) => {
+  const frame = event.target as HTMLIFrameElement
+  const page = frame.contentDocument?.documentElement
+  if (page) frame.style.height = `${page.scrollHeight}px`
+}
+
+// -- Sending ----------------------------------------------------------------
+
+const pending = (audience: ResultsAudience) => {
+  const count = details.value?.[audience]
+  return count ? count.total - count.emailed : 0
+}
+
+const totalDue = computed(() =>
+  details.value ? details.value.students.total + details.value.supervisors.total : 0
+)
+const allEmailed = computed(
+  () => totalDue.value > 0 && pending('students') === 0 && pending('supervisors') === 0
+)
+
+// Why each button is off, if it is. Releasing is shared; only the students'
+// email carries the survey, so only it waits for those details.
+const releaseReason = computed(() => {
+  if (detailsError.value) return 'The email details could not be loaded.'
+  const d = details.value
+  if (d && (!d.marks_released || !d.certificates_released)) {
+    return 'Release both marks and certificates before sending the results emails.'
+  }
+  return ''
+})
+
+const audienceReason = (audience: ResultsAudience) => {
+  const d = details.value
+  if (!d || releaseReason.value) return ''
+  if (!d.emails_on[audience]) {
+    return `Results: ${audience} is switched off on System Emails.`
+  }
+  if (!d.templates_ready[audience]) {
+    return audience === 'students'
+      ? 'Upload the certificate and marks summary templates in Document Setup before emailing students.'
+      : 'Upload the certificate template in Document Setup before emailing supervisors.'
+  }
+  if (audience === 'students') {
+    if (detailsChanged.value) return 'Save the email details before emailing students.'
+    if (!d.complete) return 'Set the feedback survey link and close date above before emailing students.'
+    if (d.closes_in_past) {
+      return 'The survey close date is before today. Update and save it before emailing students.'
+    }
+  }
+  return ''
+}
+
+const blockedReasons = computed(() =>
+  [releaseReason.value, audienceReason('students'), audienceReason('supervisors')].filter(Boolean)
+)
+
+const canSend = computed(() => {
+  const can = (audience: ResultsAudience) =>
+    details.value !== null && !releaseReason.value && !audienceReason(audience) && pending(audience) > 0
+  return { students: can('students'), supervisors: can('supervisors') }
+})
+
+const confirming = ref<ResultsAudience | null>(null)
+const confirmText = computed(() => {
+  const audience = confirming.value
+  if (!audience) return ''
+  const noun = audience === 'students' ? 'student' : 'supervisor'
+  return `This emails the ${plural(pending(audience), noun)} who haven't had their results email yet.`
+})
+
+const sending = ref<ResultsAudience | null>(null)
+const progress = ref({ emailed: 0, failed: 0 })
+
+// A few at a time, so no single request runs long; progress shows between.
+const sendAll = async (audience: ResultsAudience) => {
+  confirming.value = null
+  actionError.value = ''
+  sending.value = audience
+  progress.value = { emailed: 0, failed: 0 }
+  let cursor: number | null = null
+  try {
+    for (;;) {
+      const batch = await sendResultsEmailBatch(audience, cursor)
+      progress.value = {
+        emailed: progress.value.emailed + batch.emailed,
+        failed: progress.value.failed + batch.failed
+      }
+      if (details.value) {
+        details.value = { ...details.value, students: batch.students, supervisors: batch.supervisors }
+      }
+      cursor = batch.cursor
+      if (batch.done) break
+    }
+    const { emailed, failed } = progress.value
+    const sent = `Emailed ${plural(emailed, audience === 'students' ? 'student' : 'supervisor')}.`
+    const button = audience === 'students' ? 'Email Students' : 'Email Supervisors'
+    if (failed) {
+      const missed = audience === 'students'
+        ? `${plural(failed, 'team')} ${failed === 1 ? "wasn't" : "weren't"} emailed in full`
+        : `${plural(failed, 'supervisor')} couldn't be emailed`
+      actionError.value = `${sent} ${missed}; press ${button} again to retry.`
+    } else {
+      flashAction(sent)
+    }
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    sending.value = null
+    await loadDetails()
+  }
+}
+
+onMounted(loadDetails)
 </script>
 
 <style scoped>
@@ -66,24 +419,140 @@ const showPreview = ref(false)
   max-width: 48rem;
 }
 
-.release-results__intro {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* The card's flex gap spaces the parts; the header's own margin would double it. */
+/* The flex gap and margins below space the parts; the header's own margin
+   would double it. */
 .release-results__intro .card-header {
-  margin-bottom: 0;
+  margin-bottom: 0.75rem;
 }
 
 .release-results__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+/* As "Email Details" on Notify Finalists. */
+.release-results__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.release-results__load-error {
+  margin: 0 0 0.5rem;
+}
+
+.release-results__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  align-items: start;
+}
+
+.release-results__field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.release-results__field > span {
+  color: var(--text-muted);
+}
+
+.release-results__field input {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
+.release-results__field input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
+.release-results__field input.is-invalid {
+  border-color: var(--danger);
+}
+
+.release-results__field--wide {
+  grid-column: 1 / -1;
+}
+
+.release-results__field-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.release-results__actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+/* Each button as wide as its label. */
+.release-results__details-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+/* As the Release Marks status line. */
+.release-results__status {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 0.4rem;
+}
+
+.release-results__status--ok {
+  color: var(--dark-green);
+}
+
+.release-results__status--warn {
+  color: #eab308;
+}
+
+.release-results__counts {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.release-results__blocked {
+  color: #b8860b;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.release-results__progress {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.release-results__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
   margin: 0;
 }
 
-/* As the release confirmation dialogs. */
+.release-results__banner--error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.release-results__banner--ok {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+/* Dialogs as on Notify Finalists and the release confirmations. */
 .release-results__overlay {
   position: fixed;
   inset: 0;
@@ -108,6 +577,11 @@ const showPreview = ref(false)
   gap: 0.75rem;
 }
 
+.release-results__dialog.release-results__dialog--preview {
+  max-width: 44rem;
+  max-height: calc(100vh - 2rem);
+}
+
 .release-results__dialog-title {
   display: flex;
   align-items: center;
@@ -129,5 +603,53 @@ const showPreview = ref(false)
 .release-results__dialog-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* The files the previewed email carries, as a mail client lists them. */
+.release-results__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.release-results__attachments-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.release-results__attachments ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.release-results__attachments li {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  background: var(--bg-light);
+}
+
+.release-results__preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #eef0ee;
+}
+
+.release-results__preview-frame {
+  display: block;
+  width: 100%;
+  height: 60vh;
+  border: 0;
 }
 </style>

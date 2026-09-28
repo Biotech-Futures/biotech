@@ -20,11 +20,13 @@ import html as html_lib
 import logging
 import re
 from datetime import date, datetime
+from email.mime.base import MIMEBase
 from typing import NamedTuple, Optional
 
 import nh3
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.core.mail.message import SafeMIMEMultipart
 from django.db import DatabaseError
 from django.template.loader import render_to_string
 from django.utils import dateformat
@@ -265,16 +267,46 @@ def render_system_email(
 
 # --- sending ---------------------------------------------------------------
 
+class _MessageWithFiles(EmailMultiAlternatives):
+    """An email carrying files as well as the inline logo.
+
+    Django puts every attachment in one container, so the files would sit
+    beside the logo inside multipart/related, where some clients don't list
+    them as attachments. Here the email and its logo stay together in
+    multipart/related, and that and the files go in multipart/mixed.
+    """
+
+    def _create_attachments(self, msg):
+        encoding = self.encoding or settings.DEFAULT_CHARSET
+        inline = [a for a in self.attachments if isinstance(a, MIMEBase)]
+        files = [a for a in self.attachments if not isinstance(a, MIMEBase)]
+        if inline:
+            related = SafeMIMEMultipart(_subtype="related", encoding=encoding)
+            related.attach(msg)
+            for part in inline:
+                related.attach(part)
+            msg = related
+        if files:
+            mixed = SafeMIMEMultipart(_subtype="mixed", encoding=encoding)
+            mixed.attach(msg)
+            for file in files:
+                mixed.attach(self._create_attachment(*file))
+            msg = mixed
+        return msg
+
+
 def build_message(
     rendered: RenderedEmail,
     to,
     *,
     from_email: Optional[str] = None,
     connection=None,
+    files=(),
 ) -> EmailMultiAlternatives:
-    """An ``EmailMultiAlternatives`` for one rendered email, with the logo attached."""
+    """An ``EmailMultiAlternatives`` for one rendered email, with the logo
+    attached, and ``files`` ((filename, content, mimetype) each) if given."""
     recipients = [to] if isinstance(to, str) else list(to)
-    message = EmailMultiAlternatives(
+    message = (_MessageWithFiles if files else EmailMultiAlternatives)(
         subject=rendered.subject,
         body=rendered.text,
         from_email=from_email or settings.DEFAULT_FROM_EMAIL,
@@ -283,6 +315,8 @@ def build_message(
     )
     message.attach_alternative(rendered.html, "text/html")
     attach_inline_logo(message)
+    for filename, content, mimetype in files:
+        message.attach(filename, content, mimetype)
     return message
 
 

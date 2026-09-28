@@ -12,6 +12,9 @@ from .views import (
     ComponentMarkingListView,
     FinalistCandidatesView,
     FinalistEmailPreviewView,
+    ResultsEmailPreviewView,
+    ResultsEmailSendView,
+    ResultsEmailSettingsView,
     FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
@@ -111,6 +114,11 @@ urlpatterns = [
         name="finalist-email-preview",
     ),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
+
+    # Results emails to teams and supervisors, from the Release Results tab.
+    path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),
+    path("results-email/preview/", ResultsEmailPreviewView.as_view(), name="results-email-preview"),
+    path("results-email/send/", ResultsEmailSendView.as_view(), name="results-email-send"),
 
     # M9 — read-only analytics for Team 4's dashboards.
     path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),

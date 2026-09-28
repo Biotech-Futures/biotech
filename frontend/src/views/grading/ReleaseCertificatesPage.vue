@@ -28,11 +28,17 @@
       </p>
 
       <div class="release__finalists">
-        <label class="release__finalists-toggle">
+        <!-- Fixed once released: changing it then would hand certificates to,
+             or take them from, finalists without a new release. -->
+        <label
+          class="release__finalists-toggle"
+          :class="{ 'release__finalists-toggle--locked': released }"
+          :title="released ? 'Unrelease certificates to change this.' : undefined"
+        >
           <input
             type="checkbox"
             :checked="excludeFinalists"
-            :disabled="isTogglingExclusion"
+            :disabled="isTogglingExclusion || released"
             @change="onExclusionChange"
           />
           <span>Exclude finalists from this release</span>
@@ -107,6 +113,9 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
+// Release Results rechecks whether the results emails may be sent.
+const emit = defineEmits<{ (e: 'changed'): void }>()
+
 const status = ref<ReleaseStatus | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
@@ -128,6 +137,7 @@ const onExclusionChange = async (event: Event) => {
   actionError.value = ''
   try {
     status.value = await setCertificatesFinalistExclusion(exclude)
+    emit('changed')
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -163,6 +173,7 @@ const unrelease = async () => {
   actionError.value = ''
   try {
     status.value = await toggleCertificatesRelease(false)
+    emit('changed')
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -175,6 +186,7 @@ const confirmRelease = async () => {
   actionError.value = ''
   try {
     status.value = await toggleCertificatesRelease(true)
+    emit('changed')
     showConfirm.value = false
   } catch (err) {
     showConfirm.value = false
@@ -275,6 +287,15 @@ const confirmRelease = async () => {
   accent-color: var(--dark-green);
   width: 1.1rem;
   height: 1.1rem;
+}
+
+.release__finalists-toggle--locked {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.release__finalists-toggle--locked input {
+  cursor: not-allowed;
 }
 
 .release__actions {

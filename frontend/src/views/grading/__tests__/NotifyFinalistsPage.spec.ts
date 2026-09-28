@@ -42,6 +42,7 @@ const finalist = (group_id: number, over: Record<string, unknown> = {}) => ({
   notified: false,
   notified_at: null,
   notified_by: null,
+  students: 3,
   ...over
 })
 
@@ -108,6 +109,8 @@ describe('the finalist roster', () => {
     const status = wrapper.find('.notify-finalists__status')
     expect(status.text()).toBe('Emails are not sent to every group member')
     expect(status.classes()).toContain('notify-finalists__status--warn')
+    // One of the two teams (3 students each) is notified.
+    expect(wrapper.find('.notify-finalists__counts').text()).toBe('Students: 3 of 6 emailed')
   })
 
   it('says every member was emailed once all teams are notified', async () => {
@@ -262,14 +265,13 @@ describe('the email details', () => {
     )
   })
 
-  it('Save stays off until a detail changes, then saves it with blanks as none', async () => {
+  it('Save can always be pressed, and saves blanks as none', async () => {
     saveMock.mockResolvedValueOnce(details({ slides_due: null, complete: false }))
     const wrapper = await mountPage()
     const save = buttonNamed(wrapper, /^Save$/)
-    expect(save.attributes('disabled')).toBeDefined()
+    expect(save.attributes('disabled')).toBeUndefined()
 
     await wrapper.findAll('input[type="date"]')[2]!.setValue('')
-    expect(save.attributes('disabled')).toBeUndefined()
     await save.trigger('click')
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith({

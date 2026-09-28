@@ -17,6 +17,7 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 
@@ -121,9 +122,22 @@ class FinalistListView(APIView):
         return full_name or user.email
 
     def get(self, request):
-        flags = (
+        flags = list(
             FinalistFlag.objects.select_related("group", "flagged_by", "notified_by")
             .order_by("group__group_name")
+        )
+        # Students on each team who have an address to be emailed at.
+        students = dict(
+            GroupMembership.objects.filter(
+                group_id__in=[f.group_id for f in flags],
+                left_at__isnull=True,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                user__is_active=True,
+            )
+            .exclude(user__email="")
+            .values("group_id")
+            .annotate(n=Count("user_id", distinct=True))
+            .values_list("group_id", "n")
         )
         return Response({
             "finalists": [
@@ -135,6 +149,7 @@ class FinalistListView(APIView):
                     "notified": f.notified,
                     "notified_at": f.notified_at,
                     "notified_by": self._user_name(f.notified_by),
+                    "students": students.get(f.group_id, 0),
                 }
                 for f in flags
             ]
