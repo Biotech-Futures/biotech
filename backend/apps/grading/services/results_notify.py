@@ -470,6 +470,11 @@ def _supervisor_teams(audience: ResultsAudience, supervisor) -> list:
     return sorted({team.id: team for _, team in students}.values(), key=lambda t: t.group_name.lower())
 
 
+def supervisor_sheet_name(year: int, supervisor) -> str:
+    """"2026_BTF_Student_Marks_Sam_Lee.xlsx": whose spreadsheet it is."""
+    return _file_name(year, "Student_Marks", _person_name(supervisor), "xlsx")
+
+
 def supervisor_marks_sheet(audience: ResultsAudience, supervisor) -> bytes:
     """The marks spreadsheet a supervisor's email carries, on its own: for
     checking it before the emails go."""
@@ -486,7 +491,7 @@ def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> 
     return _numbered([
         *_certificates(docs, by_name),
         *_mentor_certificates(docs, audience, teams),
-        ResultsFile(f"{docs.year}_BTF_Student_Marks.xlsx", XLSX, lambda: docs.marks_sheet(teams)),
+        ResultsFile(supervisor_sheet_name(docs.year, supervisor), XLSX, lambda: docs.marks_sheet(teams)),
     ])
 
 
@@ -553,7 +558,7 @@ def example_file_names(audience: str, year: int) -> list[str]:
     mentor = _file_name(year, "Mentor_Certificate", "Name", "docx")
     if audience == GROUPS:
         return [student, mentor, _file_name(year, "Marks", "Team name", "docx")]
-    return [student, mentor, f"{year}_BTF_Student_Marks.xlsx"]
+    return [student, mentor, _file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
 
 
 def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> int:

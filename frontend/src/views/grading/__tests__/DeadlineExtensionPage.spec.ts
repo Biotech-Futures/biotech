@@ -43,6 +43,7 @@ const extension = (over: Record<string, unknown> = {}) => ({
   group_id: 7,
   group_name: 'BTF-1',
   extended_until: '2026-11-05T13:00:00Z',
+  added: '1d 18h',
   grace_hours: 6,
   reason: 'School flood.',
   granted_at: '2026-09-20T00:00:00Z',
@@ -110,11 +111,26 @@ describe('the extensions table', () => {
       ]
     })
     const wrapper = await mountPage()
-    const labels = wrapper.findAll('tbody td:nth-child(4)').map((c) => c.text())
+    const labels = wrapper.findAll('tbody td:nth-child(5)').map((c) => c.text())
     expect(labels).toEqual(['Active', 'In grace', 'Expired', 'Revoked'])
-    // A revoked row loses its Revoke button.
-    const lastRow = wrapper.findAll('tbody tr').at(-1)!
-    expect(lastRow.find('button').exists()).toBe(false)
+    // Only a live extension can be revoked; an expired or revoked row says
+    // which instead of offering the button.
+    const actions = wrapper.findAll('tbody td:nth-child(8)').map((c) => c.text())
+    expect(actions).toEqual(['Revoke', 'Revoke', 'Expired', 'Revoked'])
+    const rows = wrapper.findAll('tbody tr').filter((r) => !r.classes('extensions__reason-row'))
+    expect(rows.map((r) => r.find('button').exists())).toEqual([true, true, false, false])
+  })
+
+  it('shows how long past the normal deadline each extension runs, after Extension', async () => {
+    listMock.mockResolvedValue({
+      extensions: [extension(), extension({ id: 2, added: null, reason: '' })]
+    })
+    const wrapper = await mountPage()
+    const headers = wrapper.findAll('thead th').map((h) => h.text())
+    expect(headers.slice(0, 4)).toEqual(['Group', 'Extension', 'Added', 'Grace'])
+    expect(wrapper.findAll('tbody td:nth-child(3)').map((c) => c.text())).toEqual(['1d 18h', '—'])
+    // The reason row still spans every column.
+    expect(wrapper.find('.extensions__reason-row td').attributes('colspan')).toBe('8')
   })
 
   it('says so when nothing has been granted', async () => {

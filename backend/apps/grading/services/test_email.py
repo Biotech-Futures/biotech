@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
@@ -58,6 +59,10 @@ def _member_options(teams, *, roles=None) -> list[dict]:
 
 def _team_of(value: str) -> Groups:
     return Groups.objects.get(id=int(value.split(":")[0]))
+
+
+def _team_name(value: str) -> str:
+    return _team_of(value).group_name
 
 
 def _with_edits(model, serializer_class, fields: dict):
@@ -126,6 +131,10 @@ def _results_supervisors_options() -> list[dict]:
     ]
 
 
+def _supervisor_name(value: str) -> str:
+    return results_notify._person_name(get_user_model().objects.get(id=int(value)))
+
+
 def _results_supervisors_render(value: str, fields: dict):
     audience = results_notify.results_audience()
     supervisor = next((s for s in audience.supervisors if str(s.id) == value), None)
@@ -142,6 +151,8 @@ class TestKind:
     render: Callable[[str, dict], tuple[RenderedEmail, list]]
     # The results emails carry files made from the Document Setup templates.
     audience: str | None = None
+    # Who the email is addressed to, as its preview names them.
+    addressee: Callable[[str], str] = _team_name
 
 
 KINDS = {
@@ -151,12 +162,24 @@ KINDS = {
     "results-groups": TestKind(_results_groups_options, _results_groups_render, results_notify.GROUPS),
     "results-supervisors": TestKind(
         _results_supervisors_options, _results_supervisors_render, results_notify.SUPERVISORS,
+        _supervisor_name,
     ),
 }
 
 
 def recipient_options(kind: str) -> list[dict]:
     return KINDS[kind].options()
+
+
+def preview(kind: str, recipient: str, fields: dict) -> tuple[RenderedEmail, str, list[str]]:
+    """``kind`` as ``recipient`` would get it, for the page's preview: the
+    email, who it's addressed to, and its files' names (the files aren't
+    made). Raises TestEmailError when they aren't on the list."""
+    test = KINDS[kind]
+    if recipient not in {option["value"] for option in test.options()}:
+        raise TestEmailError("Pick someone from the list.")
+    rendered, planned = test.render(recipient, fields)
+    return rendered, test.addressee(recipient), [f.name for f in planned]
 
 
 def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:

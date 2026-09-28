@@ -4,6 +4,7 @@ import NotifyFinalistsPage from '@/views/grading/NotifyFinalistsPage.vue'
 import {
   fetchFinalistEmailDetails,
   fetchFinalists,
+  fetchTestEmailRecipients,
   notifyFinalists,
   previewFinalistEmail,
   updateFinalistEmailDetails
@@ -303,6 +304,19 @@ describe('the email details', () => {
     expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
   })
 
+  it('Preview shows the email as the person picked in Send Test Email gets it', async () => {
+    vi.mocked(fetchTestEmailRecipients).mockResolvedValueOnce({
+      recipients: [{ value: '1:1', label: '(BTF-1) Amy Chen' }, { value: '2:4', label: '(BTF-2) Ben Lee' }]
+    })
+    previewMock.mockResolvedValueOnce({ subject: 'Congratulations', group_name: 'BTF-2', html: '<p>email</p>' })
+    const wrapper = await mountPage()
+    await wrapper.find('.test-email__select').setValue('2:4')
+    await buttonNamed(wrapper, /Preview Email/).trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenCalledWith(expect.any(Object), '2:4')
+    expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As the members of BTF-2 would get it')
+  })
+
   it('Preview shows the email for the details as typed, sending nothing', async () => {
     previewMock.mockResolvedValueOnce({
       subject: 'Congratulations',
@@ -314,7 +328,8 @@ describe('the email details', () => {
     await buttonNamed(wrapper, /Preview Email/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenCalledWith(
-      expect.objectContaining({ symposium_date: '2026-10-30' })
+      expect.objectContaining({ symposium_date: '2026-10-30' }),
+      ''
     )
     const dialog = wrapper.find('[aria-label="Email preview"]')
     expect(dialog.text()).toContain('As the members of BTF-1 would get it')

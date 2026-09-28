@@ -160,7 +160,7 @@ class TestEmailTests(_GradingFixture):
             [
                 f"{year}_BTF_Student_Certificate_Mem_amy.docx",
                 f"{year}_BTF_Mentor_Certificate_Mem_mo.docx",
-                f"{year}_BTF_Student_Marks.xlsx",
+                f"{year}_BTF_Student_Marks_Sam_Lee.xlsx",
             ],
         ])
         self.assertEqual([m.to for m in mail.outbox], [["tester@example.com"]] * 2)
@@ -183,3 +183,58 @@ class TestEmailTests(_GradingFixture):
             self.client.get(reverse("grading:test-email", args=["finalist"])).status_code, status.HTTP_403_FORBIDDEN,
         )
         self.assertEqual(self._send("finalist", "1:1").status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- the preview follows the person picked ----------------------------------------
+
+    def _value(self, kind, label):
+        return next(o["value"] for o in self._options(kind) if o["label"] == label)
+
+    def test_the_finalist_preview_is_addressed_to_the_picked_persons_team(self):
+        other = _submitted_team("Zed Pick", self.staff)
+        _member("zed@example.com", other)
+        FinalistFlag.objects.create(group=other, flagged_by=self.staff)
+        url = reverse("grading:finalist-email-preview")
+        # Nobody picked: the first team not yet emailed.
+        self.assertEqual(self.client.post(url, {}, format="json").json()["group_name"], "Picked")
+        r = self.client.post(url, {"recipient": self._value("finalist", "(Zed Pick) Mem zed")}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["group_name"], "Zed Pick")
+        self.assertIn("Zed Pick", r.json()["html"])
+
+    def test_the_symposium_previews_are_addressed_to_the_picked_persons_team(self):
+        other = Groups.objects.create(group_name="Zed None")
+        _member("zoe@example.com", other)
+        url = reverse("grading:nonsubmission-email-preview")
+        self.assertEqual(self.client.post(url, {}, format="json").json()["to"], "No Entry")
+        r = self.client.post(url, {"recipient": self._value("nonsubmissions", "(Zed None) Mem zoe")}, format="json")
+        self.assertEqual(r.json()["to"], "Zed None")
+        self.assertIn("Zed None", r.json()["html"])
+        # A person from the other email's list isn't on this one.
+        amy = self._value("nonfinalists", f"({self.group.group_name}) Mem amy")
+        r = self.client.post(url, {"recipient": amy}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["detail"], "Pick someone from the list.")
+
+    def test_the_results_previews_show_the_picked_persons_email_and_files(self):
+        other = _submitted_team("Zed Team", self.staff)
+        _member("zed@example.com", other)
+        url = reverse("grading:results-email-preview")
+        year = self.group.year
+        r = self.client.post(url, {
+            "audience": "groups", "recipient": self._value("results-groups", "(Zed Team) Mem zed"),
+            "survey_url": "https://example.com/draft",
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["to"], "Zed Team")
+        # With the page's unsaved details, as without a pick.
+        self.assertIn('href="https://example.com/draft"', r.json()["html"])
+        self.assertEqual(r.json()["attachments"], [
+            f"{year}_BTF_Student_Certificate_Mem_zed.docx", f"{year}_BTF_Marks_Zed_Team.docx",
+        ])
+
+        r = self.client.post(url, {"audience": "supervisors", "recipient": str(self.supervisor.id)}, format="json")
+        self.assertEqual(r.json()["to"], "Sam Lee")
+        self.assertEqual(r.json()["attachments"][-1], f"{year}_BTF_Student_Marks_Sam_Lee.xlsx")
+        # Nothing was sent or recorded.
+        self.assertEqual(mail.outbox, [])
+        self.assertFalse(ResultsTeamEmail.objects.exists())

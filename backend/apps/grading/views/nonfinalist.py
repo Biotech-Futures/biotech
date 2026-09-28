@@ -14,7 +14,7 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 
 from ..models import FinalistEmailSettings
 from ..permissions import IsGrader
-from ..services import symposium_emails
+from ..services import symposium_emails, test_email
 from ..services.symposium_emails import NONFINALIST, NONSUBMISSION
 
 logger = logging.getLogger(__name__)
@@ -35,17 +35,27 @@ class _StatusView(APIView):
 
 
 class _PreviewView(APIView):
-    """POST — the email exactly as it would go out, addressed to the first
+    """POST — the email exactly as it would go out, addressed to
+    ``recipient``'s team (a person picked in Send Test Email), else the first
     team due to get it."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
     email = NONFINALIST
+    # Its Send Test Email list.
+    test_kind = "nonfinalists"
 
     def post(self, request):
-        due = symposium_emails.audience(self.email)
-        pending = [t for t in due.teams if t.id not in due.emailed] or due.teams
-        to = pending[0].group_name if pending else "Team name"
-        rendered = symposium_emails.render_email(self.email, to, FinalistEmailSettings.load())
+        recipient = request.data.get("recipient")
+        if recipient:
+            try:
+                rendered, to, _files = test_email.preview(self.test_kind, str(recipient), request.data)
+            except test_email.TestEmailError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            due = symposium_emails.audience(self.email)
+            pending = [t for t in due.teams if t.id not in due.emailed] or due.teams
+            to = pending[0].group_name if pending else "Team name"
+            rendered = symposium_emails.render_email(self.email, to, FinalistEmailSettings.load())
         # A browser has no cid: part to resolve, so the logo goes in inline.
         html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
         return Response({"subject": rendered.subject, "to": to, "html": html})
@@ -98,6 +108,7 @@ class NonSubmissionEmailView(_StatusView):
 
 class NonSubmissionEmailPreviewView(_PreviewView):
     email = NONSUBMISSION
+    test_kind = "nonsubmissions"
 
 
 class NonSubmissionEmailSendView(_SendView):
