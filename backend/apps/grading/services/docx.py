@@ -17,14 +17,17 @@ import io
 import logging
 import re
 import zipfile
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from django.core.files.storage import default_storage
 from django.utils import timezone
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches
+from docx.text.run import Run
 
 from ..models import (
     CertificatesRelease,
@@ -158,6 +161,61 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
             t_el.set(qn("xml:space"), "preserve")
 
 
+# Invisible markers a field value puts around text to raise (superscript),
+# e.g. the "th" in "29th". Private-use characters, so no template has them;
+# ``_raise_marked_text`` turns them into formatting and removes them.
+_RAISE_START, _RAISE_END = "", ""
+_RAISE_SPLIT_RE = re.compile(f"({_RAISE_START}.*?{_RAISE_END})")
+
+
+def _raise_marked_text(paragraph) -> None:
+    """Split marked text into its own superscript run, keeping the run's font,
+    size and colour. A filled-in field sits inside one ``w:t``, so its markers
+    always share a node."""
+    for t_el in paragraph._element.findall(f".//{qn('w:t')}"):
+        text = t_el.text or ""
+        if _RAISE_START not in text:
+            continue
+        run = t_el.getparent()
+        if run is None or run.tag != qn("w:r"):
+            t_el.text = text.replace(_RAISE_START, "").replace(_RAISE_END, "")
+            continue
+
+        pieces = [
+            (piece[1:-1], True) if piece.startswith(_RAISE_START) else (piece, False)
+            for piece in _RAISE_SPLIT_RE.split(text)
+            if piece
+        ]
+        rpr = run.find(qn("w:rPr"))
+        children = [c for c in run if c.tag != qn("w:rPr")]
+        at = children.index(t_el)
+        before, after = children[:at], children[at + 1:]
+
+        new_runs = []
+        for i, (piece, raised) in enumerate(pieces):
+            r = OxmlElement("w:r")
+            if rpr is not None:
+                r.append(deepcopy(rpr))
+            if i == 0:
+                r.extend(before)
+            text_el = OxmlElement("w:t")
+            text_el.text = piece
+            if piece != piece.strip():
+                text_el.set(qn("xml:space"), "preserve")
+            r.append(text_el)
+            if i == len(pieces) - 1:
+                r.extend(after)
+            if raised:
+                Run(r, paragraph).font.superscript = True
+            new_runs.append(r)
+
+        parent = run.getparent()
+        index = parent.index(run)
+        for offset, r in enumerate(new_runs):
+            parent.insert(index + offset, r)
+        parent.remove(run)
+
+
 def _insert_images_in_paragraph(paragraph, images: dict) -> None:
     """Swap ``{{Name}}`` image tokens for the picture they name.
 
@@ -217,6 +275,7 @@ def _render_token_template(data: bytes, fields: dict, images: dict | None = None
             if images:
                 _insert_images_in_paragraph(paragraph, images)
             _replace_tokens_in_paragraph(paragraph, fields)
+            _raise_marked_text(paragraph)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -330,19 +389,28 @@ def certificate_fields(context: dict) -> dict:
         "Director2Name": context.get("director_2_name", ""),
         "Director1Position": context.get("director_1_position", ""),
         "Director2Position": context.get("director_2_position", ""),
-        # The day certificates were released, e.g. "27 September 2026".
+        # The day certificates were released, e.g. "27th September 2026",
+        # with the "th" raised.
         "Date": _long_date(context.get("issued_on")),
         # The year of that same day, e.g. "2026".
         "Year": _year_of(context.get("issued_on")),
     }
 
 
+def _ordinal_suffix(day: int) -> str:
+    """1 -> "st", 2 -> "nd", 3 -> "rd", 11-13 -> "th", 21 -> "st"..."""
+    if 11 <= day % 100 <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+
+
 def _long_date(iso: str | None) -> str:
-    """"2026-09-27" -> "27 September 2026"; blank when there is no date."""
+    """"2026-09-29" -> "29th September 2026", the "th" marked to be raised
+    (see ``_raise_marked_text``); blank when there is no date."""
     if not iso:
         return ""
     day = date.fromisoformat(str(iso))
-    return f"{day.day} {day:%B %Y}"
+    return f"{day.day}{_RAISE_START}{_ordinal_suffix(day.day)}{_RAISE_END} {day:%B %Y}"
 
 
 def _year_of(iso: str | None) -> str:

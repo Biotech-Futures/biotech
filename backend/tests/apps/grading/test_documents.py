@@ -1,6 +1,7 @@
 """Docx generation: {{Variable}} templates for marks summaries and certificates,
 plus director names and signature images in rendered documents."""
 import io
+import re
 import zipfile
 from decimal import Decimal
 
@@ -30,6 +31,11 @@ class ClientDocxTemplateTests(_GradingFixture):
     def _document_xml(data: bytes) -> str:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             return z.read("word/document.xml").decode("utf8")
+
+    @classmethod
+    def _visible_text(cls, data: bytes) -> str:
+        """The document's text as read, runs joined (a raised "th" is its own run)."""
+        return re.sub(r"<[^>]+>", "", cls._document_xml(data))
 
     def test_marks_release_tokens_filled(self):
         from apps.grading.services.docx import marks_summary_context, render_marks_summary
@@ -190,7 +196,8 @@ class ClientDocxTemplateTests(_GradingFixture):
         release.released_at = datetime(2026, 3, 14, 3, 0, tzinfo=dt_timezone.utc)
         release.save()
         # Downloaded on any later day, the certificate keeps its release date.
-        self.assertIn("Issued 14 March 2026", self._render_dated_certificate())
+        text = re.sub(r"<[^>]+>", "", self._render_dated_certificate())
+        self.assertIn("Issued 14th March 2026", text)
 
     def test_certificate_date_is_the_release_day_in_sydney(self):
         from datetime import datetime, timezone as dt_timezone
@@ -201,15 +208,18 @@ class ClientDocxTemplateTests(_GradingFixture):
         release = CertificatesRelease.load()
         release.released_at = datetime(2026, 3, 13, 20, 0, tzinfo=dt_timezone.utc)
         release.save()
-        xml = self._render_dated_certificate()
-        self.assertIn("Issued 14 March 2026", xml)
-        self.assertNotIn("13 March 2026", xml)
+        text = re.sub(r"<[^>]+>", "", self._render_dated_certificate())
+        self.assertIn("Issued 14th March 2026", text)
+        self.assertNotIn("13th March 2026", text)
 
     def test_certificate_date_before_release_is_today(self):
         from django.utils import timezone
 
+        from apps.grading.services.docx import _ordinal_suffix
+
         today = timezone.localdate()
-        self.assertIn(f"Issued {today.day} {today:%B %Y}", self._render_dated_certificate())
+        text = re.sub(r"<[^>]+>", "", self._render_dated_certificate())
+        self.assertIn(f"Issued {today.day}{_ordinal_suffix(today.day)} {today:%B %Y}", text)
 
     def test_the_document_setup_test_render_uses_sydneys_today_even_after_release(self):
         from datetime import datetime, timezone as dt_timezone
@@ -225,9 +235,38 @@ class ClientDocxTemplateTests(_GradingFixture):
         now = datetime(2026, 3, 13, 20, 0, tzinfo=dt_timezone.utc)
         with mock.patch("django.utils.timezone.now", return_value=now):
             context = sample_certificate_context()
-        xml = self._document_xml(render_certificate_data(_build_docx("Issued {{Date}}"), context))
-        self.assertIn("Issued 14 March 2026", xml)
-        self.assertNotIn("1 December 2025", xml)
+        text = self._visible_text(render_certificate_data(_build_docx("Issued {{Date}}"), context))
+        self.assertIn("Issued 14th March 2026", text)
+        self.assertNotIn("1st December 2025", text)
+
+    def test_the_certificate_date_raises_its_ordinal_and_keeps_the_formatting(self):
+        from docx import Document
+
+        from apps.grading.services.docx import certificate_context, render_certificate_data
+
+        template = Document()
+        run = template.add_paragraph().add_run("On {{Date}}.")
+        run.bold = True
+        run.font.name = "Arial"
+        buf = io.BytesIO()
+        template.save(buf)
+        context = certificate_context("Jane Doe", "BTF01", 2026)
+        context["issued_on"] = "2026-10-29"
+
+        rendered = Document(io.BytesIO(render_certificate_data(buf.getvalue(), context)))
+        runs = rendered.paragraphs[0].runs
+        self.assertEqual([r.text for r in runs], ["On 29", "th", " October 2026."])
+        self.assertEqual([bool(r.font.superscript) for r in runs], [False, True, False])
+        self.assertTrue(all(r.bold and r.font.name == "Arial" for r in runs))
+        self.assertNotIn("\ue000", rendered.paragraphs[0].text)
+
+    def test_ordinal_suffixes(self):
+        from apps.grading.services.docx import _ordinal_suffix
+
+        self.assertEqual(
+            [f"{d}{_ordinal_suffix(d)}" for d in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 24, 30, 31)],
+            ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "24th", "30th", "31st"],
+        )
 
     def _render_year(self, *, download_year: int = 2031) -> tuple[str, str]:
         """{{Year}} in a summary and a certificate, downloaded in ``download_year``."""
