@@ -187,6 +187,14 @@
           <button type="button" class="btn btn-sm btn-outline" @click.stop="openDetail(toGroup(row))">
             View
           </button>
+          <!-- The group's own page, as its members see it: tasks, chat and submission. -->
+          <RouterLink
+            :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
+            class="btn btn-sm btn-outline"
+            @click.stop
+          >
+            Open
+          </RouterLink>
           <button type="button" class="btn btn-sm btn-outline" @click.stop="openRename(toGroup(row))">
             Rename
           </button>

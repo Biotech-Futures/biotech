@@ -68,9 +68,9 @@ def _require_can_view(user, group_id: int) -> None:
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Only members of the team can edit; admins can view but not author."""
-    if not group_participant_qs(user, group_id).exists():
-        raise GroupAccessDenied()
+    """Members of the team can edit, submit and reopen; so can admins, for a
+    team that needs a hand. The deadline and lock still apply to both."""
+    _require_can_view(user, group_id)
 
 
 def _require_unlocked(submission) -> None:

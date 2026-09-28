@@ -68,11 +68,11 @@
               </RouterLink>
             </li>
 
-            <li class="sidebar-item" v-if="!auth.isAdmin">
+            <li class="sidebar-item">
               <RouterLink
                 to="/groups"
                 class="sidebar-link"
-                :class="{ active: route.path.includes('/groups') }"
+                :class="{ active: route.path.startsWith('/groups') }"
               >
                 <i class="fas fa-users sidebar-icon"></i>
                 <span>Groups</span>
@@ -335,10 +335,6 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-// The React admin console — same convention the old post-login redirect used:
-// the production domain is the default, overridable per environment.
-const ADMIN_PORTAL_URL =
-  import.meta.env.VITE_ADMIN_FRONTEND_URL || 'https://mentoringadmin.biotechfutures.org'
 const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 
 interface CollectionResponse {
@@ -583,6 +579,9 @@ const loadSidebarGroups = async () => {
   }))
   sidebarGroups.value = groups
   isLoadingSidebarGroups.value = false
+  // An admin's list is every group, and they're in none of them: no unread
+  // dots, and no request per group to work them out.
+  if (auth.isAdmin) return
 
   // N requests (one per group) — defer behind idle so the page is
   // interactive before unread/latest-at indicators light up.
