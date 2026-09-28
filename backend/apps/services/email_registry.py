@@ -255,6 +255,28 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="nonsubmission_notice",
+        name="Non-submission notice",
+        description=(
+            "Sent to the members of teams that didn't make a submission, from "
+            "Email Nonfinalist, with the Symposium date and registration link "
+            "set on Notify Finalists."
+        ),
+        default_subject="{{ brand_name }} – No Submission Received",
+        default_template="emails/nonsubmission_notice.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="results_team",
         name="Results: students",
         description=(

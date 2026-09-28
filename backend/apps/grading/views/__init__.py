@@ -21,7 +21,14 @@ from .finalist import (
     FinalistNotifyAllView,
     FinalistToggleView,
 )
-from .nonfinalist import NonFinalistEmailPreviewView, NonFinalistEmailSendView, NonFinalistEmailView
+from .nonfinalist import (
+    NonFinalistEmailPreviewView,
+    NonFinalistEmailSendView,
+    NonFinalistEmailView,
+    NonSubmissionEmailPreviewView,
+    NonSubmissionEmailSendView,
+    NonSubmissionEmailView,
+)
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
 from .release import CertificatesReleaseView, MarksReleaseView
@@ -72,6 +79,9 @@ __all__ = [
     "NonFinalistEmailPreviewView",
     "NonFinalistEmailSendView",
     "NonFinalistEmailView",
+    "NonSubmissionEmailPreviewView",
+    "NonSubmissionEmailSendView",
+    "NonSubmissionEmailView",
     "SupervisorDownloadView",
     "SupervisorGradesView",
 ]

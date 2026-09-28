@@ -917,9 +917,12 @@ export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
-/** This year's teams that submitted but weren't picked as finalists, and
- *  how many have the non-finalist email. */
-export interface NonFinalistEmailStatus {
+/** The Symposium emails on the Email Nonfinalist tab: to teams that submitted
+ *  but weren't picked, and to teams that didn't submit. */
+export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
+
+/** This year's teams due the email, and how many have it. */
+export interface SymposiumEmailStatus {
   teams: EmailedCount
   /** Their students with an address; mentors and supervisors get it too. */
   students: EmailedCount
@@ -928,14 +931,14 @@ export interface NonFinalistEmailStatus {
   blocked: string
 }
 
-export interface NonFinalistEmailPreview {
+export interface SymposiumEmailPreview {
   subject: string
   /** The team the preview is addressed to. */
   to: string
   html: string
 }
 
-export interface NonFinalistEmailBatch {
+export interface SymposiumEmailBatch {
   /** People emailed in this batch. */
   emailed: number
   /** Teams in this batch not emailed in full; left for the next press. */
@@ -946,24 +949,27 @@ export interface NonFinalistEmailBatch {
   students: EmailedCount
 }
 
-// GET /api/v1/grading/nonfinalists/ — for the Email Nonfinalist tab.
-export function fetchNonFinalistEmail(): Promise<NonFinalistEmailStatus> {
-  return requestJson<NonFinalistEmailStatus>('/api/v1/grading/nonfinalists/')
+// GET /api/v1/grading/{nonfinalists|nonsubmissions}/ — who the email is for.
+export function fetchSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailStatus> {
+  return requestJson<SymposiumEmailStatus>(`/api/v1/grading/${email}/`)
 }
 
-// POST /api/v1/grading/nonfinalists/preview/ — the email as the first team
-// due would get it. Nothing is sent.
-export function previewNonFinalistEmail(): Promise<NonFinalistEmailPreview> {
-  return requestJson<NonFinalistEmailPreview>('/api/v1/grading/nonfinalists/preview/', {
+// POST /api/v1/grading/{email}/preview/ — the email as the first team due
+// would get it. Nothing is sent.
+export function previewSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailPreview> {
+  return requestJson<SymposiumEmailPreview>(`/api/v1/grading/${email}/preview/`, {
     method: 'POST',
     body: JSON.stringify({})
   })
 }
 
-// POST /api/v1/grading/nonfinalists/send/ — email the next few teams; call
-// again with the returned cursor until done.
-export function sendNonFinalistEmailBatch(cursor: number | null): Promise<NonFinalistEmailBatch> {
-  return requestJson<NonFinalistEmailBatch>('/api/v1/grading/nonfinalists/send/', {
+// POST /api/v1/grading/{email}/send/ — email the next few teams; call again
+// with the returned cursor until done.
+export function sendSymposiumEmailBatch(
+  email: SymposiumEmail,
+  cursor: number | null
+): Promise<SymposiumEmailBatch> {
+  return requestJson<SymposiumEmailBatch>(`/api/v1/grading/${email}/send/`, {
     method: 'POST',
     body: JSON.stringify({ cursor })
   })

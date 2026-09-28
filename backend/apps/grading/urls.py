@@ -34,6 +34,9 @@ from .views import (
     NonFinalistEmailPreviewView,
     NonFinalistEmailSendView,
     NonFinalistEmailView,
+    NonSubmissionEmailPreviewView,
+    NonSubmissionEmailSendView,
+    NonSubmissionEmailView,
     SupervisorDownloadView,
     SupervisorGradesView,
     TemplateDownloadView,
@@ -122,6 +125,10 @@ urlpatterns = [
     path("nonfinalists/", NonFinalistEmailView.as_view(), name="nonfinalist-email"),
     path("nonfinalists/preview/", NonFinalistEmailPreviewView.as_view(), name="nonfinalist-email-preview"),
     path("nonfinalists/send/", NonFinalistEmailSendView.as_view(), name="nonfinalist-email-send"),
+    # The same tab's notice to teams that didn't submit.
+    path("nonsubmissions/", NonSubmissionEmailView.as_view(), name="nonsubmission-email"),
+    path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
+    path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
 
     # Results emails to teams and supervisors, from the Release Results tab.
     path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),

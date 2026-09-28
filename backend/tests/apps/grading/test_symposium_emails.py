@@ -1,6 +1,7 @@
-"""The non-finalist email from the Email Nonfinalist tab: who gets it, the
-client's wording with the Symposium details from Notify Finalists, preview,
-and sending in batches."""
+"""The Symposium emails from the Email Nonfinalist tab, to teams that
+submitted but weren't picked and to teams that didn't submit: who gets them,
+the client's wording with the Symposium details from Notify Finalists,
+preview, and sending in batches."""
 from datetime import timedelta
 from unittest import mock
 
@@ -11,9 +12,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import FinalistEmailSettings, FinalistFlag, NonFinalistEmail
+from apps.grading.models import FinalistEmailSettings, FinalistFlag, NonFinalistEmail, NonSubmissionEmail
 from apps.grading.services.finalist_notify import symposium_today
-from apps.grading.services.nonfinalist_notify import send_nonfinalist_batch
+from apps.grading.services.symposium_emails import NONFINALIST, send_batch
 from apps.groups.models import GroupMembership, Groups
 from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Submission
@@ -23,6 +24,7 @@ from .fixtures import _GradingFixture
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 SEND = "grading:nonfinalist-email-send"
+NS_SEND = "grading:nonsubmission-email-send"
 
 
 def _member(email, group, role="student", left_at=None):
@@ -112,9 +114,9 @@ class NonFinalistEmailTests(_GradingFixture):
     def test_batches_move_on_and_report_progress(self):
         for n in range(6):
             _member(f"extra{n}@example.com", _submitted_team(f"Extra {n}", self.staff))
-        first = send_nonfinalist_batch(self.staff, None, limit=5)
+        first = send_batch(NONFINALIST, self.staff, None, limit=5)
         self.assertEqual((first["emailed"], first["done"]), (8, False))  # the fixture team has four members
-        second = send_nonfinalist_batch(self.staff, first["cursor"], limit=5)
+        second = send_batch(NONFINALIST, self.staff, first["cursor"], limit=5)
         self.assertEqual((second["emailed"], second["done"]), (2, True))
         self.assertEqual(second["teams"], {"total": 7, "emailed": 7})
 
@@ -127,7 +129,7 @@ class NonFinalistEmailTests(_GradingFixture):
             return real_send(message, *args, **kwargs)
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
-                self.assertLogs("apps.grading.services.nonfinalist_notify", level="ERROR"):
+                self.assertLogs("apps.grading.services.symposium_emails", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
         self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0})
@@ -176,6 +178,101 @@ class NonFinalistEmailTests(_GradingFixture):
 
     def test_graders_only(self):
         self.client.force_authenticate(self.non_staff)
-        self.assertEqual(self.client.get(reverse("grading:nonfinalist-email")).status_code, status.HTTP_403_FORBIDDEN)
-        for name in ("grading:nonfinalist-email-preview", SEND):
+        for name in ("grading:nonfinalist-email", "grading:nonsubmission-email"):
+            self.assertEqual(self.client.get(reverse(name)).status_code, status.HTTP_403_FORBIDDEN)
+        for name in ("grading:nonfinalist-email-preview", SEND, "grading:nonsubmission-email-preview", NS_SEND):
             self.assertEqual(self.client.post(reverse(name), {}, format="json").status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class NonSubmissionEmailTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+        # Teams that didn't submit: one never started, one only saved a draft.
+        self.no_entry = Groups.objects.create(group_name="No Entry")
+        _member("nia@example.com", self.no_entry)
+        _member("mo@example.com", self.no_entry, role="mentor")
+        _member("sue@example.com", self.no_entry, role="supervisor")
+        self.draft = Groups.objects.create(group_name="Draft Only")
+        Submission.objects.create(group=self.draft, answers={"q_answers": "Not sent."})
+        _member("dee@example.com", self.draft)
+
+        # Not due it: the fixture team submitted; a group of just a mentor
+        # isn't a team that entered; a group with nobody has no one to email.
+        _member("amy@example.com", self.group)
+        mentor_only = Groups.objects.create(group_name="Mentor Only")
+        _member("solo@example.com", mentor_only, role="mentor")
+        Groups.objects.create(group_name="Nobody")
+
+        details = FinalistEmailSettings.load()
+        details.symposium_date = symposium_today() + timedelta(days=30)
+        details.registration_url = "https://events.example.com/symposium"
+        details.save()
+
+    def _send_all(self):
+        cursor, results = None, []
+        while True:
+            r = self.client.post(reverse(NS_SEND), {"cursor": cursor}, format="json")
+            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+            results.append(r.json())
+            cursor = r.json()["cursor"]
+            if r.json()["done"]:
+                return results
+
+    def test_the_section_counts_teams_that_did_not_submit(self):
+        r = self.client.get(reverse("grading:nonsubmission-email"))
+        self.assertEqual(r.json(), {
+            "teams": {"total": 2, "emailed": 0},
+            "students": {"total": 2, "emailed": 0},
+            "blocked": "",
+        })
+
+    def test_every_current_member_of_a_team_that_did_not_submit_gets_it(self):
+        results = self._send_all()
+        self.assertEqual(
+            sorted(m.to[0] for m in mail.outbox),
+            ["dee@example.com", "mo@example.com", "nia@example.com", "sue@example.com"],
+        )
+        message = next(m for m in mail.outbox if m.to == ["nia@example.com"])
+        text = " ".join(message.body.split())
+        self.assertEqual(message.subject, "BIOTech Futures – No Submission Received")
+        self.assertIn("Dear members of No Entry,", text)
+        self.assertIn("We did not receive a submission from your team.", text)
+        day = FinalistEmailSettings.load().symposium_date
+        self.assertIn(f"University of Sydney on {day:%A}, {day.day} {day:%B %Y} (in-person only)", text)
+        self.assertIn("https://events.example.com/symposium", text)
+        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+
+        self.assertEqual(results[-1]["teams"], {"total": 2, "emailed": 2})
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2})
+        self.assertEqual(NonSubmissionEmail.objects.count(), 2)
+        # The two emails are recorded apart.
+        self.assertFalse(NonFinalistEmail.objects.exists())
+
+    def test_a_second_send_emails_nobody_again(self):
+        self._send_all()
+        mail.outbox = []
+        self.assertTrue(self._send_all()[-1]["done"])
+        self.assertEqual(mail.outbox, [])
+
+    def test_it_waits_for_the_symposium_details_and_can_be_switched_off(self):
+        FinalistEmailSettings.objects.update(registration_url="")
+        r = self.client.post(reverse(NS_SEND), {}, format="json")
+        self.assertEqual(
+            r.json()["detail"], "Set the Symposium date and registration link on Notify Finalists before sending.",
+        )
+        FinalistEmailSettings.objects.update(registration_url="https://events.example.com/symposium")
+        SystemEmailTemplate.objects.create(key="nonsubmission_notice", is_enabled=False)
+        r = self.client.post(reverse(NS_SEND), {}, format="json")
+        self.assertEqual(r.json()["detail"], "Non-submission notice is switched off on System Emails.")
+        self.assertEqual(mail.outbox, [])
+
+    def test_preview_is_addressed_to_the_first_team_due(self):
+        r = self.client.post(reverse("grading:nonsubmission-email-preview"), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["subject"], "BIOTech Futures – No Submission Received")
+        self.assertEqual(r.json()["to"], "No Entry")
+        self.assertIn("At the Symposium you can:", r.json()["html"])
+        self.assertEqual(mail.outbox, [])

@@ -1,9 +1,9 @@
-"""Non-finalist email: the client's invitation to the Symposium for teams
-that submitted but weren't picked as finalists, sent from the Email
-Nonfinalist tab.
+"""The Symposium emails to teams that won't present there, sent from the
+Email Nonfinalist tab: the client's invitation for teams that submitted but
+weren't picked as finalists, and their notice for teams that didn't submit.
 
 Same path as the finalist email: the shared system email path, so admins can
-switch it off or reword it on System Emails; every current member of the
+switch them off or reword them on System Emails; every current member of the
 team (students, mentors and supervisors) gets their own copy; and replies go
 to the support mailbox. The Symposium date and registration link are the
 ones set on Notify Finalists, and nothing is sent until both are set.
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from django.conf import settings
 from django.core.mail import get_connection
@@ -36,12 +37,10 @@ from apps.submissions.emails import recipients_for
 from apps.submissions.models import Submission
 from apps.submissions.services import current_cohort
 
-from ..models import FinalistEmailSettings, NonFinalistEmail
+from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
 from .finalist_notify import NOT_SET, _long_date, symposium_today
 
 logger = logging.getLogger(__name__)
-
-EMAIL_KEY = "nonfinalist_invitation"
 
 # Teams emailed per request: a few seconds of sending, so a request never
 # runs long and the page can report progress between batches.
@@ -53,10 +52,54 @@ PAST_DATE = "The Symposium date on Notify Finalists is before today. Update it b
 _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 
 
+def _submitted():
+    return Submission.objects.filter(submitted_at__isnull=False).values("group_id")
+
+
+def _nonfinalist_teams(year: int):
+    """Teams that submitted but weren't picked."""
+    return Groups.objects.filter(
+        deleted_at__isnull=True, year=year, id__in=_submitted(), finalist_flag__isnull=True,
+    )
+
+
+def _nonsubmission_teams(year: int):
+    """Teams that didn't submit (a saved draft doesn't count). Only teams
+    with a current student: a group of just a mentor or supervisor isn't a
+    team that entered."""
+    with_students = GroupMembership.objects.filter(
+        left_at__isnull=True, membership_role=_STUDENT_ROLE, user__is_active=True,
+    ).values("group_id")
+    return Groups.objects.filter(
+        deleted_at__isnull=True, year=year, id__in=with_students,
+    ).exclude(id__in=_submitted())
+
+
+@dataclass(frozen=True)
+class TeamEmail:
+    """One of the two emails: its system email, template, the record of the
+    teams emailed, and which of this year's teams are due it."""
+
+    key: str
+    record: type
+    teams: Callable[[int], object]
+
+    @property
+    def name(self) -> str:
+        return get_email_type(self.key).name
+
+
+NONFINALIST = TeamEmail("nonfinalist_invitation", NonFinalistEmail, _nonfinalist_teams)
+NONSUBMISSION = TeamEmail("nonsubmission_notice", NonSubmissionEmail, _nonsubmission_teams)
+
+
+# --- who gets it ---------------------------------------------------------------
+
+
 @dataclass
-class NonFinalistAudience:
-    """This year's teams that submitted but weren't picked, who on each gets
-    the email, and which teams already have it."""
+class TeamAudience:
+    """Teams due an email, who on each gets it, and which teams already have
+    it."""
 
     teams: list = field(default_factory=list)
     recipients: dict = field(default_factory=dict)
@@ -73,16 +116,10 @@ class NonFinalistAudience:
         }
 
 
-def nonfinalist_audience(year: int | None = None) -> NonFinalistAudience:
-    submitted = Submission.objects.filter(submitted_at__isnull=False).values("group_id")
-    teams = list(
-        Groups.objects.filter(
-            deleted_at__isnull=True,
-            year=year or current_cohort(),
-            id__in=submitted,
-            finalist_flag__isnull=True,
-        ).order_by("id")
-    )
+def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
+    """Every current member of this year's teams due ``email`` gets it, each
+    their own copy."""
+    teams = list(email.teams(year or current_cohort()).order_by("id"))
     recipients = {team.id: recipients_for(team) for team in teams}
     # A team with nobody to email can't be emailed; it isn't counted.
     teams = [team for team in teams if recipients[team.id]]
@@ -98,24 +135,21 @@ def nonfinalist_audience(year: int | None = None) -> NonFinalistAudience:
     ).exclude(user__email="").values_list("group_id", "user_id"):
         students.setdefault(group_id, set()).add(user_id)
 
-    return NonFinalistAudience(
+    return TeamAudience(
         teams=teams,
         recipients={team.id: recipients[team.id] for team in teams},
         students={group_id: len(ids) for group_id, ids in students.items()},
-        emailed=set(
-            NonFinalistEmail.objects.filter(group__in=teams).values_list("group_id", flat=True)
-        ),
+        emailed=set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True)),
     )
 
 
-def is_on() -> bool:
-    return is_email_enabled(EMAIL_KEY)
+# --- sending ---------------------------------------------------------------------
 
 
-def send_blocked_reason(details: FinalistEmailSettings) -> str:
-    """Why sending is refused, or "" when it may go ahead."""
-    if not is_on():
-        return f"{get_email_type(EMAIL_KEY).name} is switched off on System Emails."
+def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str:
+    """Why sending ``email`` is refused, or "" when it may go ahead."""
+    if not is_email_enabled(email.key):
+        return f"{email.name} is switched off on System Emails."
     if not (details.symposium_date and details.registration_url):
         return MISSING_DETAILS
     if details.symposium_date < symposium_today():
@@ -123,7 +157,7 @@ def send_blocked_reason(details: FinalistEmailSettings) -> str:
     return ""
 
 
-def render_nonfinalist_email(group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
+def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
     """The email for one team: an admin's saved wording if there is some,
     otherwise the client's template, with its plain-text twin."""
     context = {
@@ -131,13 +165,11 @@ def render_nonfinalist_email(group_name: str, details: FinalistEmailSettings) ->
         "SYMPOSIUM_DATE": _long_date(details.symposium_date),
         "REGISTER_URL": details.registration_url or NOT_SET,
     }
-    default_text = render_to_string(
-        "emails/nonfinalist_invitation.txt", {**brand_context(), **context}
-    )
-    return render_system_email(EMAIL_KEY, context, default_text=default_text)
+    default_text = render_to_string(f"emails/{email.key}.txt", {**brand_context(), **context})
+    return render_system_email(email.key, context, default_text=default_text)
 
 
-def _send_each(rendered: RenderedEmail, recipients, connection, *, group_id: int) -> int:
+def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEmail, group_id: int) -> int:
     """One copy per member, so nobody sees the others. Returns how many went."""
     sent = 0
     for address in recipients:
@@ -150,14 +182,14 @@ def _send_each(rendered: RenderedEmail, recipients, connection, *, group_id: int
             message.send(fail_silently=False)
         except Exception as exc:  # noqa: BLE001
             # Error type only: SMTP errors carry the recipient address.
-            logger.error("nonfinalist email: send failed group=%s error=%s", group_id, type(exc).__name__)
+            logger.error("%s: send failed group=%s error=%s", email.key, group_id, type(exc).__name__)
         else:
             sent += 1
     return sent
 
 
-def send_nonfinalist_batch(actor, cursor: int | None = None, *, limit: int = BATCH_SIZE) -> dict:
-    """Email the next ``limit`` teams not yet emailed.
+def send_batch(email: TeamEmail, actor, cursor: int | None = None, *, limit: int = BATCH_SIZE) -> dict:
+    """Email ``email`` to the next ``limit`` teams not yet emailed.
 
     ``cursor`` is the last team this run already tried, so one that fails is
     left for the next press rather than retried in a loop. Returns how many
@@ -166,8 +198,8 @@ def send_nonfinalist_batch(actor, cursor: int | None = None, *, limit: int = BAT
     """
     after = int(cursor or 0)
     details = FinalistEmailSettings.load()
-    audience = nonfinalist_audience()
-    pending = [t for t in audience.teams if t.id > after and t.id not in audience.emailed]
+    due = audience(email)
+    pending = [t for t in due.teams if t.id > after and t.id not in due.emailed]
     batch = pending[:limit]
 
     emailed = failed = 0
@@ -176,18 +208,18 @@ def send_nonfinalist_batch(actor, cursor: int | None = None, *, limit: int = BAT
         connection.open()
         try:
             for team in batch:
-                recipients = audience.recipients[team.id]
+                recipients = due.recipients[team.id]
                 try:
-                    rendered = render_nonfinalist_email(team.group_name, details)
+                    rendered = render_email(email, team.group_name, details)
                 except Exception:  # noqa: BLE001
-                    logger.exception("nonfinalist email: failed to render group=%s", team.id)
+                    logger.exception("%s: failed to render group=%s", email.key, team.id)
                     failed += 1
                     continue
-                sent = _send_each(rendered, recipients, connection, group_id=team.id)
+                sent = _send_each(rendered, recipients, connection, email=email, group_id=team.id)
                 if sent == len(recipients):
                     try:
                         with transaction.atomic():
-                            NonFinalistEmail.objects.create(group=team, sent_by=actor)
+                            email.record.objects.create(group=team, sent_by=actor)
                     except IntegrityError:
                         pass  # a second sender racing this one already recorded it
                     emailed += sent
@@ -204,5 +236,5 @@ def send_nonfinalist_batch(actor, cursor: int | None = None, *, limit: int = BAT
         "failed": failed,
         "cursor": batch[-1].id if batch else after,
         "done": len(pending) <= len(batch),
-        **nonfinalist_audience().counts(),
+        **audience(email).counts(),
     }

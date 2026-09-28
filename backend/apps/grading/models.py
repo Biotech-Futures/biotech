@@ -454,6 +454,32 @@ class NonFinalistEmail(models.Model):
         return f"Non-finalist emailed: {self.group}"
 
 
+class NonSubmissionEmail(models.Model):
+    """A team that didn't submit, emailed the notice (and invitation to the
+    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    recorded once every member got the email, so a retry reaches the rest."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="nonsubmission_email",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "nonsubmission_email"
+
+    def __str__(self):
+        return f"Non-submission emailed: {self.group}"
+
+
 class GradingJob(models.Model):
     KIND_BULK_ZIP = "bulk_zip"
     KIND_MARKS_RELEASE = "marks_release"
