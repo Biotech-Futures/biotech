@@ -1,7 +1,12 @@
 <template>
   <!-- Design tokens for this section are declared on .content-area. -->
   <!-- Stray drops are swallowed so the browser never navigates away to the file. -->
-  <div class="content-area" @dragover.prevent @drop.prevent>
+  <div
+    class="content-area"
+    :class="{ 'is-dragging-file': isDraggingFile }"
+    @dragover.prevent
+    @drop.prevent
+  >
     <div v-if="isLoading" class="card">
       <p>Loading submission…</p>
     </div>
@@ -159,14 +164,16 @@
           </p>
         </header>
 
+        <!-- The slot and its preview form one drop zone. -->
         <div
-          class="submission-slot submission-slot--plain"
+          class="drop-zone"
           :class="{ 'is-drop-target': dragSlot === 'poster' }"
           data-testid="drop-poster"
           @dragover.prevent="onDragOver('poster', $event)"
           @dragleave="onDragLeave('poster', $event)"
           @drop.prevent="onDrop('poster', $event)"
         >
+        <div class="submission-slot submission-slot--plain">
           <div class="submission-slot__info">
             <p class="submission-muted">
               PDF only · up to {{ maxSizeLabel('poster') }}<span v-if="isEditable"> · or drop it here</span>
@@ -265,6 +272,7 @@
             </div>
           </div>
         </article>
+        </div>
       </section>
 
       <!-- 3. Additional materials -->
@@ -276,13 +284,14 @@
         </header>
 
           <div
-            class="submission-slot submission-slot--plain"
+            class="drop-zone"
             :class="{ 'is-drop-target': dragSlot === 'report' }"
             data-testid="drop-report"
             @dragover.prevent="onDragOver('report', $event)"
             @dragleave="onDragLeave('report', $event)"
             @drop.prevent="onDrop('report', $event)"
           >
+          <div class="submission-slot submission-slot--plain">
             <div class="submission-slot__info">
               <h2 class="panel-subheading">Scientific report</h2>
               <p class="submission-muted">
@@ -372,6 +381,7 @@
               </div>
             </div>
           </article>
+          </div>
         </section>
 
         <section class="card">
@@ -1164,6 +1174,23 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
 }
 
 const dragSlot = ref<SubmissionSlot | ''>('')
+const isDraggingFile = ref(false)
+
+function onWindowDragEnter(event: DragEvent) {
+  if (event.dataTransfer?.types?.includes('Files')) isDraggingFile.value = true
+}
+
+function onWindowDragEnd(event: DragEvent) {
+  // A dragleave with no related target means the file left the window.
+  if (event.type === 'dragleave' && event.relatedTarget) return
+  isDraggingFile.value = false
+  dragSlot.value = ''
+}
+
+window.addEventListener('dragenter', onWindowDragEnter)
+window.addEventListener('dragleave', onWindowDragEnd)
+window.addEventListener('dragend', onWindowDragEnd)
+window.addEventListener('drop', onWindowDragEnd)
 
 function onDragOver(slot: SubmissionSlot, event: DragEvent) {
   if (!isEditable.value || busySlot.value) return
@@ -1180,6 +1207,7 @@ function onDragLeave(slot: SubmissionSlot, event: DragEvent) {
 
 function onDrop(slot: SubmissionSlot, event: DragEvent) {
   dragSlot.value = ''
+  isDraggingFile.value = false
   const file = event.dataTransfer?.files?.[0]
   if (!file || !isEditable.value || busySlot.value) return
   uploadFile(slot, file)
@@ -1316,6 +1344,10 @@ window.addEventListener('focus', onPageVisible)
 document.addEventListener('visibilitychange', onPageVisible)
 
 onBeforeUnmount(() => {
+  window.removeEventListener('dragenter', onWindowDragEnter)
+  window.removeEventListener('dragleave', onWindowDragEnd)
+  window.removeEventListener('dragend', onWindowDragEnd)
+  window.removeEventListener('drop', onWindowDragEnd)
   window.removeEventListener('focus', onPageVisible)
   document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)
@@ -1776,6 +1808,11 @@ onBeforeUnmount(() => {
   color: var(--body-text);
 }
 
+.content-area.is-dragging-file .preview-frame {
+  pointer-events: none;
+}
+
+.drop-zone.is-drop-target,
 .submission-slot.is-drop-target {
   outline: 2px dashed var(--accent);
   outline-offset: 6px;

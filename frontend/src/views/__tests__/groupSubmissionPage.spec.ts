@@ -598,6 +598,34 @@ describe('dropping a file onto a slot', () => {
     expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', file, expect.any(Function))
   })
 
+  it('uploads a file dropped onto the preview panel', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+
+    for (const slot of ['poster', 'report']) {
+      await wrapper!
+        .find(`[data-testid="drop-${slot}"] .preview-panel`)
+        .trigger('drop', { dataTransfer: { files: [pdf()], types: ['Files'] } })
+      await flushPromises()
+    }
+
+    expect(uploadSubmissionFile.mock.calls.map((call) => call[1])).toEqual(['poster', 'report'])
+  })
+
+  it('lets drags pass through the preview frame while a file is dragged', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const root = wrapper!.find('.content-area')
+
+    window.dispatchEvent(Object.assign(new Event('dragenter'), { dataTransfer: { types: ['Files'] } }))
+    await flushPromises()
+    expect(root.classes()).toContain('is-dragging-file')
+
+    window.dispatchEvent(new Event('drop'))
+    await flushPromises()
+    expect(root.classes()).not.toContain('is-dragging-file')
+  })
+
   it('highlights the slot while a file is dragged over it', async () => {
     await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
     const slot = wrapper!.find('[data-testid="drop-poster"]')
