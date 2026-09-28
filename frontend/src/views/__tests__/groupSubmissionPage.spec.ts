@@ -48,13 +48,17 @@ const QUESTIONS = [
 const POSTER = { storage_key: 'x/p.pdf', name: 'poster.pdf', mime: 'application/pdf', size: 2048 }
 const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.' }
 
+const TITLE = 'Coral Rescue Kit'
+
 const emptyRecord = (): SubmissionRecord => ({
+  project_title: '',
   answers: {},
   poster: null,
   poster_checks: null,
   report: null,
   prototype: null,
   prototype_url: '',
+  submitted_project_title: '',
   submitted_answers: null,
   submitted_poster: null,
   submitted_poster_checks: null,
@@ -176,19 +180,24 @@ afterEach(() => {
 describe('required-answer progress', () => {
   it('counts nothing complete on a brand new entry', async () => {
     await mountPage(buildDetail({ submission: null }))
-    expect(wrapper!.text()).toContain('0 of 2')
+    expect(wrapper!.text()).toContain('0 of 3')
   })
 
   it('does not count whitespace as an answer', async () => {
     await mountPage(
       buildDetail({ submission: { answers: { solution_purpose: 'Real.', inspiration: '   ' } } }),
     )
-    expect(wrapper!.text()).toContain('1 of 2')
+    expect(wrapper!.text()).toContain('1 of 3')
   })
 
   it('reports every required question answered', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-    expect(wrapper!.text()).toContain('2 of 2')
+    await mountPage(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED } }))
+    expect(wrapper!.text()).toContain('3 of 3')
+  })
+
+  it('counts a blank project title as outstanding', async () => {
+    await mountPage(buildDetail({ submission: { project_title: '   ', answers: ANSWERED } }))
+    expect(wrapper!.text()).toContain('2 of 3')
   })
 })
 
@@ -240,7 +249,7 @@ describe('submitting', () => {
   it('sends the student to the first unanswered question, not merely back a step', async () => {
     await mountPage(
       buildDetail({
-        submission: { answers: { solution_purpose: 'Done.' }, poster: POSTER },
+        submission: { project_title: TITLE, answers: { solution_purpose: 'Done.' }, poster: POSTER },
       }),
     )
     await goToLastStep()
@@ -253,7 +262,9 @@ describe('submitting', () => {
   })
 
   it('sends the student to the poster step when only the poster is missing', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await mountPage(
+      buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: null } }),
+    )
     await goToLastStep()
 
     await buttonNamed(/^Submit$/)!.trigger('click')
@@ -280,8 +291,53 @@ describe('submitting', () => {
     expect(submitEntry).not.toHaveBeenCalled()
   })
 
+  it('sends the student to the project title when only the title is missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A project title is required before the entry can be submitted.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    expect(document.activeElement?.id).toBe('project-title')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('names the title and the poster when both are missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A project title is required, and no poster has been uploaded.',
+    )
+  })
+
+  it('saves the project title with the draft', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#project-title').setValue(TITLE)
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledWith('1', expect.objectContaining({ project_title: TITLE }))
+  })
+
+  it('caps the project title at 150 characters', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#project-title').attributes('maxlength')).toBe('150')
+  })
+
   it('calls the API when submit is pressed', async () => {
-    const detail = buildDetail({ submission: { answers: ANSWERED, poster: POSTER } })
+    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
     await mountPage(detail)
     await goToLastStep()
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
@@ -1092,6 +1148,17 @@ describe('which copy of the entry is shown', () => {
     const text = wrapper!.find('[data-testid="closed-summary"]').text()
     expect(text).toContain('SUBMITTED.')
     expect(text).not.toContain('DRAFT.')
+  })
+
+  it('shows the submitted project title once the window has closed', async () => {
+    const detail = midRevision(false)
+    detail.submission!.project_title = 'Draft title'
+    detail.submission!.submitted_project_title = 'Submitted title'
+    await mountPage(detail)
+    const text = wrapper!.find('[data-testid="closed-summary"]').text()
+
+    expect(text).toContain('Submitted title')
+    expect(text).not.toContain('Draft title')
   })
 
   it('shows the submitted poster once the window has closed', async () => {

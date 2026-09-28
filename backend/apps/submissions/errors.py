@@ -35,6 +35,12 @@ class PosterRequired(APIException):
     default_code = "poster_required"
 
 
+class ProjectTitleRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "A project title is required before the entry can be submitted."
+    default_code = "project_title_required"
+
+
 class RequiredAnswersMissing(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Some required questions have not been answered."

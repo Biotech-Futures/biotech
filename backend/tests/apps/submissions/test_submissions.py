@@ -169,11 +169,12 @@ class SubmissionApiTests(TestCase):
 
     def _answer_everything(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {
             question.key: "An answer."
             for question in SubmissionQuestion.active().filter(is_required=True)
         }
-        submission.save(update_fields=["answers"])
+        submission.save(update_fields=["project_title", "answers"])
 
     def _attach_poster(self):
         """Record a poster directly; real uploads are covered in test_submission_files."""
@@ -223,6 +224,30 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(submission.prototype_url, "https://example.com/demo")
         self.assertIsNone(submission.submitted_at)
 
+    def test_student_saves_a_project_title(self):
+        response = self._client_for(self.student).put(
+            self.detail_url, {"project_title": "  Coral Rescue Kit  "}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["submission"]["project_title"], "Coral Rescue Kit")
+        self.assertEqual(Submission.objects.get(group=self.group).project_title, "Coral Rescue Kit")
+
+    def test_a_project_title_over_150_characters_is_refused(self):
+        response = self._client_for(self.student).put(
+            self.detail_url, {"project_title": "x" * 151}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Submission.objects.filter(group=self.group, project_title__gt="").exists())
+
+    def test_saving_answers_does_not_clear_the_project_title(self):
+        client = self._client_for(self.student)
+        client.put(self.detail_url, {"project_title": "Kept"}, format="json")
+        client.put(self.detail_url, {"answers": {self.first_key: "x"}}, format="json")
+
+        self.assertEqual(Submission.objects.get(group=self.group).project_title, "Kept")
+
     def test_partial_save_keeps_untouched_fields(self):
         client = self._client_for(self.student)
         client.put(self.detail_url, {"answers": {self.first_key: "Kept"}}, format="json")
@@ -266,10 +291,34 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
 
+    def test_submitting_without_a_project_title_is_refused(self):
+        self._answer_everything()
+        self._attach_poster()
+        Submission.objects.filter(group=self.group).update(project_title="   ")
+
+        response = self._client_for(self.student).post(self.submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "project_title_required")
+        self.assertIsNone(Submission.objects.get(group=self.group).submitted_at)
+
+    def test_the_project_title_is_frozen_with_the_submitted_copy(self):
+        self._answer_everything()
+        self._attach_poster()
+
+        self._client_for(self.student).post(self.submit_url, {}, format="json")
+
+        submission = Submission.objects.get(group=self.group)
+        self.assertEqual(submission.submitted_project_title, "Our Project")
+
     def test_submitting_with_a_required_question_blank_is_refused(self):
         client = self._client_for(self.student)
         self._attach_poster()
-        client.put(self.detail_url, {"answers": {self.first_key: "Only this one"}}, format="json")
+        client.put(
+            self.detail_url,
+            {"project_title": "Our Project", "answers": {self.first_key: "Only this one"}},
+            format="json",
+        )
 
         response = client.post(self.submit_url, {}, format="json")
 

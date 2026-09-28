@@ -119,6 +119,21 @@
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
+        <div class="submission-field">
+          <label class="submission-label" for="project-title">
+            Project title
+            <span class="submission-required" title="Required" aria-label="required">*</span>
+          </label>
+          <input
+            id="project-title"
+            v-model="projectTitle"
+            class="form-control"
+            type="text"
+            :maxlength="PROJECT_TITLE_MAX_LENGTH"
+            :disabled="!isEditable"
+          />
+        </div>
+
         <p v-if="!questions.length" class="submission-muted">
           No questions have been set up yet.
         </p>
@@ -467,6 +482,11 @@
 
           <h2 class="card-title">Short answer questions</h2>
           <dl class="closed-summary__answers">
+            <div class="closed-summary__answer">
+              <dt class="submission-label">Project title</dt>
+              <dd v-if="recordedProjectTitle.trim()">{{ recordedProjectTitle }}</dd>
+              <dd v-else class="submission-muted">Not given</dd>
+            </div>
             <div v-for="question in questions" :key="question.key" class="closed-summary__answer">
               <dt class="submission-label">{{ question.prompt }}</dt>
               <dd v-if="recordedAnswers[question.key]?.trim()">{{ recordedAnswers[question.key] }}</dd>
@@ -597,6 +617,8 @@ const loadError = ref('')
 
 const answers = reactive<Record<string, string>>({})
 const prototypeUrl = ref('')
+const projectTitle = ref('')
+const PROJECT_TITLE_MAX_LENGTH = 150
 
 /** Answers the server holds, so only changes are sent. */
 let savedAnswers: Record<string, string> = {}
@@ -727,6 +749,13 @@ const stage = computed<SubmissionStage>(
 )
 
 // Read from the server copy, so the closed view never shows unsaved typing as recorded.
+const recordedProjectTitle = computed(() => {
+  const submission = detail.value?.submission
+  return (
+    (showsSubmittedCopy.value ? submission?.submitted_project_title : submission?.project_title) ?? ''
+  )
+})
+
 const recordedAnswers = computed<Record<string, string>>(() => {
   const submission = detail.value?.submission
   return (showsSubmittedCopy.value ? submission?.submitted_answers : submission?.answers) ?? {}
@@ -837,9 +866,14 @@ const deadlineDetail = computed(() => {
 
 const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
+const TITLE_STEP_KEY = '__project_title'
+
 function stepSummary(key: TabKey): string {
   if (key === 'questions') {
-    return describeQuestionStep(answers, questions.value.map((q) => q.key))
+    return describeQuestionStep(
+      { ...answers, [TITLE_STEP_KEY]: projectTitle.value },
+      [TITLE_STEP_KEY, ...questions.value.map((q) => q.key)]
+    )
   }
   if (key === 'poster') return 'Required'
   return 'Optional'
@@ -930,21 +964,22 @@ function unansweredQuestions() {
 
 function submissionBlockers(): { message: string; step: TabKey; focusKey?: string } | null {
   const unanswered = unansweredQuestions()
+  const titleMissing = !projectTitle.value.trim()
   const posterMissing = !shownFile('poster')
 
-  if (unanswered.length && posterMissing) {
+  if (titleMissing || unanswered.length) {
+    const focusKey = titleMissing ? 'project-title' : unanswered[0].key
+    const problem = unanswered.length
+      ? 'Some required questions have not been answered'
+      : 'A project title is required'
     return {
-      message:
-        'Some required questions have not been answered, and no poster has been uploaded.',
+      message: posterMissing
+        ? `${problem}, and no poster has been uploaded.`
+        : unanswered.length
+          ? `${problem}.`
+          : 'A project title is required before the entry can be submitted.',
       step: 'questions',
-      focusKey: unanswered[0].key
-    }
-  }
-  if (unanswered.length) {
-    return {
-      message: 'Some required questions have not been answered.',
-      step: 'questions',
-      focusKey: unanswered[0].key
+      focusKey
     }
   }
   if (posterMissing) {
@@ -961,7 +996,7 @@ async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
   if (!blocker.focusKey) return
   await nextTick()
   const field = document.getElementById(blocker.focusKey)
-  if (!(field instanceof HTMLTextAreaElement)) return
+  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) return
   field.focus()
   // jsdom has no layout, so this rejects in tests.
   if (typeof field.scrollIntoView === 'function') {
@@ -1025,6 +1060,7 @@ function syncFromDetail() {
     (showsSubmittedCopy.value
       ? submission?.submitted_prototype_url
       : submission?.prototype_url) ?? ''
+  projectTitle.value = recordedProjectTitle.value
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
@@ -1045,7 +1081,7 @@ async function load() {
 }
 
 function currentSnapshot() {
-  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value })
+  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value, projectTitle: projectTitle.value })
 }
 
 function formatTime(value: Date) {
@@ -1064,7 +1100,8 @@ async function persistDraft() {
     applyResult(
       await saveDraft(groupId.value, {
         answers: sent,
-        prototype_url: prototypeUrl.value
+        prototype_url: prototypeUrl.value,
+        project_title: projectTitle.value
       })
     )
     // Only keys this save sent join the baseline, so a teammate's newer answer is kept.
@@ -1151,7 +1188,8 @@ async function onSubmit() {
     applyResult(
       await saveDraft(groupId.value, {
         answers: sent,
-        prototype_url: prototypeUrl.value
+        prototype_url: prototypeUrl.value,
+        project_title: projectTitle.value
       })
     )
     Object.assign(savedAnswers, sent)
@@ -1282,7 +1320,7 @@ watch(now, async () => {
   }
 })
 
-watch([answers, prototypeUrl], scheduleAutosave, { deep: true })
+watch([answers, prototypeUrl, projectTitle], scheduleAutosave, { deep: true })
 
 watch(activeTab, () => {
   // Save on leaving a step rather than waiting for the timer.
