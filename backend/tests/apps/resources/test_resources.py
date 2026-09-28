@@ -1304,6 +1304,8 @@ class ResourceTypeAPITests(TestCase):
             type_name='template',
             defaults={'type_description': 'Template resources'}
         )
+        # Resources are role-scoped only, so creates need an audience role.
+        self.student_role = Roles.objects.create(role_name='Student')
 
         self.client.force_authenticate(user=self.admin_user)
 
@@ -1313,7 +1315,8 @@ class ResourceTypeAPITests(TestCase):
         data = {
             'name': 'Python Guide',
             'description': 'A comprehensive Python programming guide',
-            'type_id': self.guide_type.id
+            'type_id': self.guide_type.id,
+            'role_ids': [self.student_role.id]
         }
 
         response = self.client.post(url, data, format='json')
@@ -1332,7 +1335,8 @@ class ResourceTypeAPITests(TestCase):
         url = reverse('resource-files-list')
         data = {
             'name': 'Untitled Resource',
-            'description': 'A resource without type'
+            'description': 'A resource without type',
+            'role_ids': [self.student_role.id]
         }
 
         response = self.client.post(url, data, format='json')
@@ -1542,7 +1546,8 @@ class ResourceTypeIntegrationTests(TestCase):
             data = {
                 'name': name,
                 'description': description,
-                'type_id': type_id
+                'type_id': type_id,
+                'role_ids': [self.student_role.id]
             }
 
             response = self.client.post(url, data, format='json')

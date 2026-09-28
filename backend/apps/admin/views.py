@@ -712,15 +712,21 @@ class ResourceDetailView(APIView):
     """PUT /api/v1/resource/{id} - Update resource"""
 
     def put(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
+        return self._update(request, resource_id)
 
     """PATCH /api/v1/resource/{id} - Update resource (partial)"""
 
     def patch(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
+        return self._update(request, resource_id)
+
+    def _update(self, request, resource_id):
+        try:
+            result = update_resource(resource_id, request.data)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to update resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -870,7 +876,13 @@ class ResourceRemoveRoleView(APIView):
                 {"msg": "roleId is required", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = remove_role_from_resource(resource_id, role_id)
+        try:
+            result = remove_role_from_resource(resource_id, role_id)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to remove role", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)

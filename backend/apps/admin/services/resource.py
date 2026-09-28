@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from rest_framework.exceptions import ValidationError
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
 from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
@@ -176,6 +177,53 @@ def normalize_visibility_scope(
     if value in (VISIBILITY_GLOBAL, VISIBILITY_ROLE_BASED):
         return value
     return resolve_visibility_scope(role_ids)
+
+
+NO_ROLES_SELECTED_MSG = (
+    "Select at least one role. Select every role to make the resource visible to everyone."
+)
+
+
+def selected_non_admin_role_ids(
+    requested_role_ids: Optional[List[Any]],
+    available_roles: List[RoleDict],
+) -> List[int]:
+    """Role IDs the admin actually picked: known roles only, admin role excluded.
+
+    Must run on the raw request, before ``normalize_role_ids`` adds the admin
+    role, otherwise the list is never empty.
+    """
+    admin_ids = {r['id'] for r in available_roles if r['slug'] == ADMIN_ROLE_SLUG}
+    known_ids = {r['id'] for r in available_roles}
+    selected = []
+    for rid in requested_role_ids or []:
+        try:
+            rid = int(rid)
+        except (TypeError, ValueError):
+            continue
+        if rid in known_ids and rid not in admin_ids:
+            selected.append(rid)
+    return selected
+
+
+def validate_role_based_write(
+    visibility_value: Optional[str],
+    requested_role_ids: Optional[List[Any]],
+    available_roles: List[RoleDict],
+) -> str:
+    """Write-path visibility check: role-based only, with at least one chosen role.
+
+    The read path (``normalize_visibility_scope``) still tolerates legacy
+    ``global`` values; this is only for saves. Returns the canonical model
+    value, never the ``role_based`` API token.
+    """
+    if visibility_value in (VISIBILITY_GLOBAL, Resources.VisibilityScope.PUBLIC):
+        raise ValidationError({
+            'visibility_scope': "Global visibility is no longer supported. Select the roles that can view this resource.",
+        })
+    if not selected_non_admin_role_ids(requested_role_ids, available_roles):
+        raise ValidationError({'role_ids': NO_ROLES_SELECTED_MSG})
+    return Resources.VisibilityScope.ROLE
 
 
 def build_storage_key(resource_id: int, file_name: Optional[str] = None) -> str:
@@ -617,8 +665,13 @@ def create_resource(
     available_roles = get_roles_from_db()
     
     requested_role_ids = payload.get('role_ids', [])
+    visibility_scope = validate_role_based_write(
+        payload.get('visibility_scope'),
+        requested_role_ids,
+        available_roles,
+    )
     role_ids = normalize_role_ids(requested_role_ids, available_roles)
-    
+
     requested_resource_type = payload.get('resource_type')
     resource_type_id = payload.get('resource_type_id')
     
@@ -628,12 +681,7 @@ def create_resource(
             resource_type_id = rt.id
         except ResourceType.DoesNotExist:
             resource_type_id = None
-    
-    visibility_scope = normalize_visibility_scope(
-        payload.get('visibility_scope'),
-        requested_role_ids,
-    )
-    
+
     resource = Resources.objects.create(
         name=payload['resource_name'],
         description=payload.get('resource_description', ''),
@@ -872,14 +920,28 @@ def update_resource(
     
     resource_data = existing['data']
     resource = Resources.objects.get(id=resource_id)
-    
+
+    # Visibility is role-based only. Validate before anything is saved; when
+    # only visibility_scope is sent, the resource's current roles must qualify.
+    if 'visibility_scope' in updates or 'role_ids' in updates:
+        if 'role_ids' in updates:
+            requested_role_ids = updates['role_ids'] or []
+        else:
+            requested_role_ids = list(
+                ResourceAudience.objects.filter(resource_id=resource_id)
+                .values_list('role_id', flat=True)
+            )
+        resource.visibility_scope = validate_role_based_write(
+            updates.get('visibility_scope'),
+            requested_role_ids,
+            get_roles_from_db(),
+        )
+
     # Update basic fields
     if 'resource_name' in updates:
         resource.name = updates['resource_name']
     if 'resource_description' in updates:
         resource.description = updates['resource_description'] or ''
-    if 'visibility_scope' in updates:
-        resource.visibility_scope = updates['visibility_scope']
     if 'group_id' in updates:
         resource.group_id = updates['group_id']
     if 'resource_kind' in updates:
@@ -1006,7 +1068,17 @@ def remove_role_from_resource(resource_id: int, role_id: int) -> Dict[str, Any]:
         Resources.objects.get(id=resource_id, deleted_at__isnull=True)
     except Resources.DoesNotExist:
         return {'msg': 'Resource not found', 'data': None}
-    
+
+    remaining_role_ids = (
+        ResourceAudience.objects.filter(resource_id=resource_id)
+        .exclude(role_id=role_id)
+        .values_list('role_id', flat=True)
+    )
+    if not selected_non_admin_role_ids(list(remaining_role_ids), available_roles):
+        raise ValidationError({
+            'role_ids': "A resource must stay visible to at least one role. Add another role before removing this one.",
+        })
+
     ResourceAudience.objects.filter(
         resource_id=resource_id,
         role_id=role_id,

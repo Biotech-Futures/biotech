@@ -638,7 +638,7 @@ const openBatchAccessModal = () => {
   batchAccessModalOpen.value = true
 }
 
-const onApplyBatchAccess = async (payload: { visibilityScope: 'global' | 'role_based'; roleIds: number[] }) => {
+const onApplyBatchAccess = async (payload: { visibilityScope: 'role_based'; roleIds: number[] }) => {
   if (!selectedResourceIds.value.length) return
   batchBusy.value = true
   error.value = ''

@@ -301,7 +301,41 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
                     {"storage_key": "Page resources require an external http(s) storage_key URL."}
                 )
 
+        self._validate_role_visibility(attrs)
         return attrs
+
+    def _validate_role_visibility(self, attrs):
+        # Resources are role-scoped (or group/scoped); "public" can no longer
+        # be written. Legacy public rows are tolerated until something sets it.
+        if attrs.get("visibility_scope") == Resources.VisibilityScope.PUBLIC:
+            raise serializers.ValidationError(
+                {"visibility_scope": "Public visibility is no longer supported. Select the roles that can view this resource."}
+            )
+
+        scope = attrs.get(
+            "visibility_scope",
+            getattr(self.instance, "visibility_scope", Resources.VisibilityScope.ROLE),
+        )
+        if scope != Resources.VisibilityScope.ROLE:
+            return
+
+        role_ids = attrs.get("role_ids")
+        audience_rules = attrs.get("audience_rules")
+        roles_sent = role_ids is not None or audience_rules is not None
+        if self.instance is not None and not roles_sent and "visibility_scope" not in attrs:
+            # An update that doesn't touch visibility (a rename, a type change)
+            # isn't blocked; this matches the admin update_resource check.
+            return
+        if roles_sent:
+            has_roles = bool(role_ids) or bool(audience_rules)
+        else:
+            # Omitting role_ids used to skip the check entirely; on update the
+            # resource's existing audience has to qualify instead.
+            has_roles = self.instance is not None and self.instance.audiences.exists()
+        if not has_roles:
+            raise serializers.ValidationError(
+                {"role_ids": "At least one role must be specified for visibility."}
+            )
 
     @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):

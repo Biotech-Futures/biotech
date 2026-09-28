@@ -135,6 +135,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -170,6 +171,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -202,6 +204,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -507,6 +510,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": original_upload,
                 "resource_name": "Replaceable Resource",
                 "resource_description": "Will be replaced",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -542,6 +546,7 @@ class AdminResourceUploadTests(TestCase):
                     "original.pdf", b"original content", content_type="application/pdf"
                 ),
                 "resource_name": "No Replacement File",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )

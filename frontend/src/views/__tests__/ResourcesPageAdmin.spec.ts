@@ -266,7 +266,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
   })
 
   describe('AdminResourceFormSheet Component', () => {
-    it('validates required fields and shows visible roles on role-based visibility', async () => {
+    it('validates required fields and always shows visible roles (no global option)', async () => {
       const sheetWrapper = mount(AdminResourceFormSheet, {
         props: {
           modelValue: true,
@@ -286,7 +286,9 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(sheetWrapper.find('#res-kind').exists()).toBe(true)
       expect(sheetWrapper.find('#res-name').exists()).toBe(true)
       expect(sheetWrapper.find('#res-desc').exists()).toBe(true)
-      expect(sheetWrapper.find('#res-visibility').exists()).toBe(true)
+      // Visibility is role-based only: no Global/Role-based dropdown
+      expect(sheetWrapper.find('#res-visibility').exists()).toBe(false)
+      expect(sheetWrapper.text()).not.toContain('Global')
 
       // Submit empty form -> shows validation error
       await sheetWrapper.find('form').trigger('submit')
@@ -296,10 +298,6 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       // Fill name & description
       await sheetWrapper.find('#res-name').setValue('New Handbook')
       await sheetWrapper.find('#res-desc').setValue('Handbook description')
-
-      // Switch to role_based
-      await sheetWrapper.find('#res-visibility').setValue('role_based')
-      await flushPromises()
 
       // Shows visible roles checkboxes (Student and Mentor, excluding Admin)
       expect(sheetWrapper.text()).toContain('Visible Roles')
@@ -356,8 +354,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       expect(adminApi.fetchAdminResource).toHaveBeenCalledWith(101)
-      const visibilitySelect = sheetWrapper.find('#res-visibility').element as HTMLSelectElement
-      expect(visibilitySelect.value).toBe('role_based')
+      expect(sheetWrapper.find('#res-visibility').exists()).toBe(false)
 
       // Checkbox for student (value "1") should be checked
       const studentCheckbox = sheetWrapper
@@ -406,6 +403,12 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(richTextarea.exists()).toBe(true)
       await richTextarea.setValue('<p>Official Rules Content</p>')
 
+      // Pick the Student role (value "1")
+      const studentCheckbox = sheetWrapper
+        .findAll('fieldset input[type="checkbox"]')
+        .find((c) => (c.element as HTMLInputElement).value === '1')
+      await studentCheckbox?.setValue(true)
+
       await sheetWrapper.find('form').trigger('submit')
       await flushPromises()
 
@@ -415,9 +418,47 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
           resource_description: 'Rules description',
           resource_kind: 'page',
           content_html: '<p>Official Rules Content</p>',
-          visibility_scope: 'global'
+          visibility_scope: 'role_based',
+          role_ids: [1]
         })
       )
+
+      sheetWrapper.unmount()
+    })
+
+    it('select all roles ticks and clears every visible role', async () => {
+      const sheetWrapper = mount(AdminResourceFormSheet, {
+        props: {
+          modelValue: true,
+          resource: null
+        },
+        global: {
+          stubs: {
+            FormSheet: {
+              template: '<div><slot /></div>'
+            }
+          }
+        }
+      })
+      await flushPromises()
+
+      const roleBoxes = () =>
+        sheetWrapper.findAll('fieldset input[type="checkbox"]').map((c) => c.element as HTMLInputElement)
+      const selectAll = sheetWrapper.find('#res-roles-all')
+      expect(selectAll.exists()).toBe(true)
+
+      await selectAll.setValue(true)
+      expect(roleBoxes().every((box) => box.checked)).toBe(true)
+      expect(roleBoxes()).toHaveLength(2) // Student and Mentor; Admin is never listed
+
+      await selectAll.setValue(false)
+      expect(roleBoxes().some((box) => box.checked)).toBe(false)
+
+      // One role ticked -> select-all shows as partially selected
+      await sheetWrapper.findAll('fieldset input[type="checkbox"]')[0].setValue(true)
+      const selectAllEl = selectAll.element as HTMLInputElement
+      expect(selectAllEl.checked).toBe(false)
+      expect(selectAllEl.indeterminate).toBe(true)
 
       sheetWrapper.unmount()
     })
@@ -527,6 +568,66 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(adminApi.updateAdminResource).toHaveBeenCalledWith(102, {
         visibility_scope: 'role_based',
         role_ids: [1]
+      })
+    })
+
+    const openBatchAccessSheet = async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage, {
+        attachTo: document.body
+      })
+      await flushPromises()
+
+      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await flushPromises()
+
+      const editAccessBtn = wrapper.findAll('.bulk-actions-bar .btn').find((b) => b.text().includes('Edit Access'))
+      await editAccessBtn?.trigger('click')
+      await flushPromises()
+
+      const sheet = document.body.querySelector('.admin-sheet') as HTMLElement
+      const applyBtn = Array.from(sheet.querySelectorAll('.btn')).find((el) =>
+        el.textContent?.includes('Apply Access Changes')
+      ) as HTMLButtonElement
+      return { sheet, applyBtn }
+    }
+
+    it('Batch Edit Access has no global option and blocks Apply when no roles are selected', async () => {
+      const { sheet, applyBtn } = await openBatchAccessSheet()
+
+      expect(sheet.querySelector('#batch-visibility-scope')).toBeNull()
+      expect(sheet.textContent).not.toContain('Global')
+
+      applyBtn.click()
+      await flushPromises()
+
+      expect(sheet.querySelector('.admin-batch-access-form__error')?.textContent).toContain(
+        'Please select at least one role'
+      )
+      expect(adminApi.updateAdminResource).not.toHaveBeenCalled()
+    })
+
+    it('Batch Edit Access select all roles applies every role', async () => {
+      const { sheet, applyBtn } = await openBatchAccessSheet()
+
+      const selectAll = sheet.querySelector('#batch-roles-all') as HTMLInputElement
+      expect(selectAll).not.toBeNull()
+      selectAll.checked = true
+      selectAll.dispatchEvent(new Event('change'))
+      await flushPromises()
+
+      const roleBoxes = Array.from(sheet.querySelectorAll('fieldset input[type="checkbox"]')) as HTMLInputElement[]
+      expect(roleBoxes.every((box) => box.checked)).toBe(true)
+
+      applyBtn.click()
+      await flushPromises()
+
+      expect(adminApi.updateAdminResource).toHaveBeenCalledWith(101, {
+        visibility_scope: 'role_based',
+        role_ids: [1, 2]
       })
     })
 

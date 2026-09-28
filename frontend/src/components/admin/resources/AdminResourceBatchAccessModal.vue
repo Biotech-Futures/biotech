@@ -13,31 +13,28 @@
       </p>
 
       <div class="admin-batch-access-form__grid">
-        <!-- Visibility Scope -->
+        <!-- Target Roles (visibility is role-based only) -->
         <div class="form-field form-field--full">
-          <label class="form-label" for="batch-visibility-scope">Visibility Scope *</label>
-          <select
-            id="batch-visibility-scope"
-            v-model="visibilityScope"
-            class="form-input filter-select"
-            :disabled="busy"
-          >
-            <option value="global">Global (All Users)</option>
-            <option value="role_based">Role-based</option>
-          </select>
-          <p class="admin-batch-access-form__hint">
-            {{ visibilityScope === 'global' ? 'All authenticated students, mentors, and admins will have access.' : 'Restrict visibility to selected user roles.' }}
-          </p>
-        </div>
-
-        <!-- Target Roles -->
-        <div v-if="visibilityScope === 'role_based'" class="form-field form-field--full">
           <label class="form-label">Target Roles *</label>
           <div v-if="loadingRoles" class="batch-access__roles-loading">
             <span class="admin-batch-access-form__spinner" aria-hidden="true"></span>
             <span>Loading roles...</span>
           </div>
-          <fieldset v-else class="admin-batch-access-form__checkbox-grid">
+          <label
+            v-if="!loadingRoles && availableRoles.length"
+            class="admin-batch-access-form__checkbox-label admin-batch-access-form__checkbox-label--all"
+          >
+            <input
+              id="batch-roles-all"
+              type="checkbox"
+              :checked="allRolesSelected"
+              :indeterminate="someRolesSelected"
+              :disabled="busy"
+              @change="toggleAllRoles"
+            />
+            <span>Select all roles</span>
+          </label>
+          <fieldset v-if="!loadingRoles" class="admin-batch-access-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
               v-for="role in availableRoles"
@@ -55,7 +52,7 @@
             </label>
           </fieldset>
           <p class="admin-batch-access-form__hint">
-            Select at least one role. Only users assigned these roles will be able to view and access these resources.
+            Select at least one role. Only users assigned these roles will be able to view and access these resources. Select all roles to make them visible to everyone.
           </p>
         </div>
       </div>
@@ -102,7 +99,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'close'): void
-  (e: 'apply', payload: { visibilityScope: 'global' | 'role_based'; roleIds: number[] }): void
+  (e: 'apply', payload: { visibilityScope: 'role_based'; roleIds: number[] }): void
 }>()
 
 const open = computed({
@@ -117,7 +114,6 @@ const sheetDescription = computed(() => {
   return `Updating access settings for ${props.count} selected ${props.count === 1 ? 'resource' : 'resources'}.`
 })
 
-const visibilityScope = ref<'global' | 'role_based'>('role_based')
 const selectedRoleIds = ref<number[]>([])
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const loadingRoles = ref(false)
@@ -143,6 +139,18 @@ const toggleRole = (roleId: number) => {
   }
 }
 
+// Ticking every role is how resources are made visible to everyone.
+const allRolesSelected = computed(
+  () =>
+    availableRoles.value.length > 0 &&
+    availableRoles.value.every((role) => selectedRoleIds.value.includes(role.id))
+)
+const someRolesSelected = computed(() => selectedRoleIds.value.length > 0 && !allRolesSelected.value)
+
+const toggleAllRoles = () => {
+  selectedRoleIds.value = allRolesSelected.value ? [] : availableRoles.value.map((role) => role.id)
+}
+
 const loadRoles = async () => {
   if (availableRoles.value.length > 0) return
   loadingRoles.value = true
@@ -162,7 +170,6 @@ watch(
   (isOpen) => {
     if (isOpen) {
       errorMessage.value = ''
-      visibilityScope.value = 'role_based'
       selectedRoleIds.value = []
       void loadRoles()
     }
@@ -176,15 +183,15 @@ const onCancel = () => {
 }
 
 const onApply = () => {
-  if (visibilityScope.value === 'role_based' && selectedRoleIds.value.length === 0) {
-    errorMessage.value = 'Please select at least one role for role-based visibility.'
+  if (selectedRoleIds.value.length === 0) {
+    errorMessage.value = 'Please select at least one role. Select all roles to make them visible to everyone.'
     return
   }
 
   errorMessage.value = ''
   emit('apply', {
-    visibilityScope: visibilityScope.value,
-    roleIds: visibilityScope.value === 'role_based' ? [...selectedRoleIds.value] : []
+    visibilityScope: 'role_based',
+    roleIds: [...selectedRoleIds.value]
   })
 }
 </script>
@@ -288,6 +295,13 @@ const onApply = () => {
   font-size: 0.875rem;
   color: var(--charcoal);
   cursor: pointer;
+}
+
+.admin-batch-access-form__checkbox-label--all {
+  font-weight: 600;
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.2rem;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .admin-batch-access-form__checkbox-label input[type='checkbox'] {

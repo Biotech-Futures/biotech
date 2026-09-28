@@ -800,7 +800,8 @@ export interface CreateAdminResourcePayload {
   resource_name: string
   resource_description: string
   resource_kind: 'file' | 'attachment' | 'page'
-  visibility_scope: 'global' | 'role_based'
+  // Resources are role-based only; the backend rejects 'global'.
+  visibility_scope: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -812,7 +813,7 @@ export interface CreateAdminResourcePayload {
 export interface UpdateAdminResourcePayload {
   resource_name?: string
   resource_description?: string | null
-  visibility_scope?: 'global' | 'role_based'
+  visibility_scope?: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null

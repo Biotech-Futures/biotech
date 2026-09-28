@@ -55,34 +55,28 @@
           ></textarea>
         </div>
 
-        <!-- Visibility -->
+        <!-- Visible Roles (visibility is role-based only) -->
         <div class="form-field form-field--full">
-          <div class="admin-resource-form__label-row">
-            <label class="form-label" for="res-visibility">Visibility *</label>
-            <span v-if="loadingDetail" class="admin-resource-form__detail-loading">
-              <span class="admin-resource-form__spinner" aria-hidden="true"></span>
-              <span>Loading access settings...</span>
-            </span>
-          </div>
-          <select
-            id="res-visibility"
-            v-model="form.visibilityScope"
-            class="form-input filter-select"
-            :disabled="loadingDetail || saving"
-          >
-            <option value="global">Global (All Users)</option>
-            <option value="role_based">Role-based</option>
-          </select>
-        </div>
-
-        <!-- Visible Roles (if role_based) -->
-        <div v-if="form.visibilityScope === 'role_based'" class="form-field form-field--full">
           <label class="form-label">Visible Roles *</label>
           <div v-if="loadingDetail" class="admin-resource-form__detail-loading">
             <span class="admin-resource-form__spinner" aria-hidden="true"></span>
             <span>Loading roles...</span>
           </div>
-          <fieldset v-else class="admin-resource-form__checkbox-grid">
+          <label
+            v-if="!loadingDetail && availableRoles.length"
+            class="admin-resource-form__checkbox-label admin-resource-form__checkbox-label--all"
+          >
+            <input
+              id="res-roles-all"
+              type="checkbox"
+              :checked="allRolesSelected"
+              :indeterminate="someRolesSelected"
+              :disabled="saving"
+              @change="toggleAllRoles"
+            />
+            <span>Select all roles</span>
+          </label>
+          <fieldset v-if="!loadingDetail" class="admin-resource-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
               v-for="role in availableRoles"
@@ -100,7 +94,7 @@
             </label>
           </fieldset>
           <p class="admin-resource-form__hint">
-            Only users with the selected role(s) will be able to view and access this resource.
+            Only users with the selected roles can view this resource. Select all roles to make it visible to everyone.
           </p>
         </div>
 
@@ -283,7 +277,6 @@ interface ResourceFormState {
   name: string
   description: string
   kind: ResourceKind
-  visibilityScope: 'global' | 'role_based'
   typeId: number | null
   roleIds: number[]
   labelInput: string
@@ -294,7 +287,6 @@ const defaultFormState = (): ResourceFormState => ({
   name: '',
   description: '',
   kind: 'file',
-  visibilityScope: 'global',
   typeId: null,
   roleIds: [],
   labelInput: '',
@@ -393,12 +385,6 @@ const applyResourceData = (raw: any) => {
 
   const hasVisibilityInfo = raw.visibility_scope !== undefined || roleIds.length > 0
   if (hasVisibilityInfo) {
-    const isRoleBased =
-      raw.visibility_scope === 'role_based' ||
-      raw.visibility_scope === 'role' ||
-      roleIds.length > 0
-
-    form.visibilityScope = isRoleBased ? 'role_based' : 'global'
     form.roleIds = roleIds
   }
 
@@ -512,6 +498,18 @@ const toggleRole = (roleId: number) => {
   }
 }
 
+// Ticking every role is how a resource is made visible to everyone.
+const allRolesSelected = computed(
+  () =>
+    availableRoles.value.length > 0 &&
+    availableRoles.value.every((role) => form.roleIds.includes(role.id))
+)
+const someRolesSelected = computed(() => form.roleIds.length > 0 && !allRolesSelected.value)
+
+const toggleAllRoles = () => {
+  form.roleIds = allRolesSelected.value ? [] : availableRoles.value.map((role) => role.id)
+}
+
 const onCancel = () => {
   open.value = false
   emit('close')
@@ -526,8 +524,8 @@ const validateForm = (): boolean => {
     formError.value = 'Description is required.'
     return false
   }
-  if (form.visibilityScope === 'role_based' && form.roleIds.length === 0) {
-    formError.value = 'Please select at least one visible role for role-based visibility.'
+  if (form.roleIds.length === 0) {
+    formError.value = 'Please select at least one visible role. Select all roles to make it visible to everyone.'
     return false
   }
   if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
@@ -561,8 +559,8 @@ const submitForm = async () => {
           resource_name: form.name.trim(),
           resource_description: form.description.trim(),
           resource_kind: 'page',
-          visibility_scope: form.visibilityScope,
-          role_ids: form.visibilityScope === 'role_based' ? form.roleIds : [],
+          visibility_scope: 'role_based',
+          role_ids: form.roleIds,
           resource_type_id: form.typeId,
           label_names: labelsList,
           content_html: form.contentHtml
@@ -577,16 +575,14 @@ const submitForm = async () => {
         formData.append('name', form.name.trim())
         formData.append('description', form.description.trim())
         formData.append('kind', form.kind)
-        formData.append('visibility_scope', form.visibilityScope)
+        formData.append('visibility_scope', 'role_based')
 
         if (form.typeId) {
           formData.append('resource_type_id', String(form.typeId))
         }
 
-        if (form.visibilityScope === 'role_based') {
-          for (const roleId of form.roleIds) {
-            formData.append('role_ids', String(roleId))
-          }
+        for (const roleId of form.roleIds) {
+          formData.append('role_ids', String(roleId))
         }
 
         for (const label of labelsList) {
@@ -602,8 +598,8 @@ const submitForm = async () => {
       const updatePayload: UpdateAdminResourcePayload = {
         resource_name: form.name.trim(),
         resource_description: form.description.trim(),
-        visibility_scope: form.visibilityScope,
-        role_ids: form.visibilityScope === 'role_based' ? form.roleIds : [],
+        visibility_scope: 'role_based',
+        role_ids: form.roleIds,
         resource_type_id: form.typeId,
         label_names: labelsList,
         content_html: form.kind === 'page' ? form.contentHtml : null
@@ -718,6 +714,13 @@ const submitForm = async () => {
   cursor: pointer;
 }
 
+.admin-resource-form__checkbox-label--all {
+  font-weight: 600;
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.2rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
 .admin-resource-form__checkbox-label input {
   accent-color: var(--dark-green);
   width: 16px;
@@ -811,17 +814,6 @@ const submitForm = async () => {
   border-top-color: var(--white);
   border-radius: 50%;
   animation: admin-spin 0.8s linear infinite;
-}
-
-.admin-resource-form__label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.35rem;
-}
-
-.admin-resource-form__label-row .form-label {
-  margin-bottom: 0;
 }
 
 .admin-resource-form__detail-loading {

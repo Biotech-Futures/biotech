@@ -109,12 +109,17 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             content_type=content_type,
         )
 
-    def _resource_payload(self, *, name, visibility_scope, uploaded_file=None, **overrides):
+    def _resource_payload(self, *, name, visibility_scope, uploaded_file=None, role_ids=None, **overrides):
+        # Resources are role-scoped only; default to every role, which is how
+        # "visible to everyone" is expressed now.
+        if role_ids is None:
+            role_ids = [self.mentor_role.id, self.supervisor_role.id, self.student_role.id]
         payload = {
             "name": name,
             "description": f"{name} description",
             "type_id": str(self.resource_type.id),
             "visibility_scope": visibility_scope,
+            "role_ids": [str(role_id) for role_id in role_ids],
             "uploaded_file": uploaded_file or self._build_upload(filename=f"{name}.pdf"),
         }
         for key, value in overrides.items():
@@ -138,6 +143,8 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         return response, resource
 
     def _create_resource(self, *, user, name, visibility_scope, audience_role=None, **overrides):
+        if audience_role is not None:
+            overrides["role_ids"] = [audience_role.id]
         response, resource = self._post_resource(
             user,
             name=name,
@@ -145,11 +152,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             **overrides,
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        if audience_role is not None:
-            ResourceAudience.objects.create(
-                resource=resource,
-                role=audience_role,
-            )
         resource.refresh_from_db()
         return response, resource
 
@@ -157,7 +159,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, resource = self._post_resource(
             self.global_admin,
             name="Global Admin Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -181,7 +183,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Public Detail Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -206,7 +208,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, resource = self._post_resource(
             self.second_admin,
             name="Second Admin Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -217,7 +219,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.mentor,
             name="Mentor Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -226,7 +228,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.supervisor,
             name="Supervisor Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -235,7 +237,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.student,
             name="Student Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -245,7 +247,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Large Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
             uploaded_file=self._build_upload(content=b"12345"),
         )
 
@@ -258,7 +260,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Executable Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
             uploaded_file=self._build_upload(
                 filename="malware.exe",
                 content_type="application/octet-stream",
@@ -274,7 +276,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Wrong Mime Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
             uploaded_file=self._build_upload(
                 filename="guide.pdf",
                 content_type="application/octet-stream",
@@ -290,10 +292,10 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Shared Public Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
-        # A plain student (non-admin) can reach a public resource.
+        # A plain student (non-admin) can reach a resource shared with every role.
         self.client.force_authenticate(user=self.student)
         access_response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
         self.assertEqual(access_response.status_code, status.HTTP_200_OK)
@@ -342,7 +344,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, resource = self._post_resource(
             self.global_admin,
             name="Unsafe Filename Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
             uploaded_file=self._build_upload(filename="<script>badword.PDF"),
         )
 
@@ -355,7 +357,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Unsafe Filename Download",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
             uploaded_file=self._build_upload(filename="<script>badword.PDF"),
         )
 
@@ -372,7 +374,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Inline Preview Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -406,7 +408,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Inline Preview Truthy",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -430,7 +432,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Framed Preview Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -521,7 +523,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Plain PDF Guide",
-            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            visibility_scope=Resources.VisibilityScope.ROLE,
         )
 
         self.client.force_authenticate(user=self.global_admin)
