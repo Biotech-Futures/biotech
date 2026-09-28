@@ -238,3 +238,12 @@ class TestEmailTests(_GradingFixture):
         # Nothing was sent or recorded.
         self.assertEqual(mail.outbox, [])
         self.assertFalse(ResultsTeamEmail.objects.exists())
+
+    def test_groups_are_listed_in_number_order(self):
+        # BTF2 before BTF10, not after it as plain text order would put it.
+        for name in ("BTF10", "BTF2", "BTF1"):
+            _member(f"{name.lower()}@example.com", Groups.objects.create(group_name=name))
+        self.assertEqual(
+            [o["label"] for o in self._options("nonsubmissions")],
+            ["(BTF1) Mem btf1", "(BTF2) Mem btf2", "(BTF10) Mem btf10", "(No Entry) Mem nia"],
+        )

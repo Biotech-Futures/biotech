@@ -48,7 +48,7 @@ def _member_options(teams, *, roles=None) -> list[dict]:
         role = "" if m.membership_role == _ROLES.STUDENT else f", {m.membership_role}"
         team = teams[m.group_id]
         rows[f"{m.group_id}:{m.user_id}"] = (
-            (team.group_name.lower(), _ROLE_ORDER.get(m.membership_role, 3), name.lower()),
+            (results_notify.natural_key(team.group_name), _ROLE_ORDER.get(m.membership_role, 3), name.lower()),
             f"({team.group_name}{role}) {name}",
         )
     return [

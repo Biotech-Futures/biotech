@@ -23,6 +23,7 @@ Who gets them, for the challenge year (``current_cohort``):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -136,6 +137,13 @@ def _person_name(user) -> str:
     return f"{user.first_name} {user.last_name}".strip() or user.email
 
 
+def natural_key(text: str) -> tuple:
+    """Sorts "BTF2" before "BTF10": runs of digits compare as numbers."""
+    # Splitting on a captured group puts the digit runs at the odd places.
+    parts = re.split(r"(\d+)", text.lower())
+    return tuple(int(part) if i % 2 else part for i, part in enumerate(parts))
+
+
 # --- who gets them -------------------------------------------------------------
 
 
@@ -214,7 +222,7 @@ def results_audience(year: int | None = None) -> ResultsAudience:
             (profile.user, student_team[profile.user_id])
         )
     for pairs in supervisor_students.values():
-        pairs.sort(key=lambda pair: (pair[1].group_name.lower(), _person_name(pair[0]).lower()))
+        pairs.sort(key=lambda pair: (natural_key(pair[1].group_name), _person_name(pair[0]).lower()))
     supervisors = list(
         get_user_model()
         .objects.filter(id__in=list(supervisor_students), is_active=True)
@@ -413,7 +421,7 @@ def _marks_sheet(rows: list[dict]) -> bytes:
     last, and groups on the same total by team code."""
     def order(row):
         total = row.get("MTotal")
-        return (total in (None, ""), -Decimal(total or 0), row.get("TeamCode", ""))
+        return (total in (None, ""), -Decimal(total or 0), natural_key(row.get("TeamCode", "")))
 
     return build_team_marks_xlsx(sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS))
 
@@ -467,7 +475,7 @@ def team_files(docs: Documents, audience: ResultsAudience, team) -> list[Results
 def _supervisor_teams(audience: ResultsAudience, supervisor) -> list:
     """The groups a supervisor's students are in, once each, by name."""
     students = audience.supervisor_students.get(supervisor.id, [])
-    return sorted({team.id: team for _, team in students}.values(), key=lambda t: t.group_name.lower())
+    return sorted({team.id: team for _, team in students}.values(), key=lambda t: natural_key(t.group_name))
 
 
 def supervisor_sheet_name(year: int, supervisor) -> str:
@@ -515,7 +523,7 @@ def document_people(kind: str) -> list[dict]:
     teams = list(_submitted_teams(current_cohort()))
     members = _team_members(teams, _test_role(kind))
     rows = sorted(
-        (team.group_name.lower(), _person_name(user).lower(), f"{team.id}:{user.id}",
+        (natural_key(team.group_name), _person_name(user).lower(), f"{team.id}:{user.id}",
          f"({team.group_name}) {_person_name(user)}")
         for team in teams
         for user in members.get(team.id, [])
