@@ -322,6 +322,11 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
         if self.action == 'list':
             queryset = filter_resources_for_user(queryset, user)
+            # Attachments are files embedded in a page/announcement/event, not
+            # resources in their own right: hide them from browsing. They stay
+            # reachable by ID (retrieve/access/download) through the links
+            # embedded in their parent content.
+            queryset = queryset.exclude(kind=Resources.ResourceKind.ATTACHMENT)
 
         queryset = self._apply_filters(queryset)
         return queryset.order_by('-uploaded_at')
@@ -740,8 +745,12 @@ class ResourceLabelViewSet(mixins.ListModelMixin,
         if not user or not user.is_authenticated:
             return ResourceLabel.objects.none()
 
+        # Attachments are hidden from the resource list, so they don't count
+        # towards a label either.
         visible = filter_resources_for_user(
-            Resources.objects.filter(deleted_at__isnull=True),
+            Resources.objects.filter(deleted_at__isnull=True).exclude(
+                kind=Resources.ResourceKind.ATTACHMENT
+            ),
             user,
         )
         # ``filter_resources_for_user`` may add a join to the audiences table,

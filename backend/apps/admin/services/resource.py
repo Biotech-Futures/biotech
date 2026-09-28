@@ -402,7 +402,11 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     
     if params.get('resource_kind'):
         queryset = queryset.filter(kind=params['resource_kind'])
-    
+    else:
+        # Attachments (files embedded in page/announcement/event content) are
+        # hidden unless a caller asks for them with resource_kind=attachment.
+        queryset = queryset.exclude(kind=Resources.ResourceKind.ATTACHMENT)
+
     if params.get('resource_type_id'):
         queryset = queryset.filter(type_id=params['resource_type_id'])
     
