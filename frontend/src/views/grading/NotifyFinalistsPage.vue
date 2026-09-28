@@ -19,22 +19,22 @@
               v-model="form[field.key]"
               type="date"
               :min="details.today"
-              :class="{ 'is-invalid': isPast(field.key) }"
+              :class="{ 'is-invalid': saveTried && isPast(field.key) }"
             />
-            <small v-if="isPast(field.key)" class="notify-finalists__field-error">
-              Can't be before today.
-            </small>
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
             <span>Registration Link</span>
             <input v-model="form.registration_url" type="url" placeholder="https://…" />
           </label>
         </div>
+        <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
+          {{ pastDatesMessage }}
+        </p>
         <div class="notify-finalists__email-actions">
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="!detailsChanged || savingDetails || newPastDates.length > 0"
+            :disabled="!detailsChanged || savingDetails"
             @click="saveDetails"
           >
             {{ savingDetails ? 'Saving…' : 'Save' }}
@@ -327,13 +327,19 @@ const isPast = (key: DateField) => {
   return Boolean(value && details.value && value < details.value.today)
 }
 
-// Past dates the admin has just typed; a saved one that has since passed
-// may stay while other details are edited (sending is what refuses it).
-const newPastDates = computed(() =>
-  DATE_FIELDS.filter(
-    ({ key }) => isPast(key) && (form.value[key] || null) !== details.value?.[key]
-  )
-)
+// Dates before today are only pointed out once Save is pressed: then they
+// stop the save, get a red border, and are named above the Save button.
+const saveTried = ref(false)
+const pastDates = computed(() => DATE_FIELDS.filter(({ key }) => isPast(key)))
+const pastDatesMessage = computed(() => {
+  if (!saveTried.value || !pastDates.value.length) return ''
+  const labels = pastDates.value.map((f) => f.label)
+  const named =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+  return `${named} can't be before today.`
+})
 
 const loadDetails = async () => {
   detailsError.value = ''
@@ -347,9 +353,12 @@ const loadDetails = async () => {
 const saveDetails = async () => {
   actionMessage.value = ''
   actionError.value = ''
+  saveTried.value = true
+  if (pastDates.value.length) return
   savingDetails.value = true
   try {
     showDetails(await updateFinalistEmailDetails(formFields()))
+    saveTried.value = false
     flashAction('Email details saved.')
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -493,9 +502,11 @@ const confirmSend = async () => {
   border-color: var(--danger);
 }
 
+/* Above the Save button, once Save found a date before today. */
 .notify-finalists__field-error {
   color: var(--danger);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 /* Same boxes as Document Setup's text fields. */

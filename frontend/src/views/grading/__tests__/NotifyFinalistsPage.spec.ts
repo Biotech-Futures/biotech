@@ -202,17 +202,31 @@ describe('the email details', () => {
     }
   })
 
-  it('a date typed before today is flagged and cannot be saved', async () => {
+  it('a date before today is only pointed out, above Save, once Save is pressed', async () => {
+    saveMock.mockResolvedValueOnce(details())
     const wrapper = await mountPage()
     const [symposium] = wrapper.findAll('input[type="date"]')
     await symposium!.setValue('2026-09-26')
+    // Nothing flagged while typing, and Save stays available.
+    expect(symposium!.classes()).not.toContain('is-invalid')
+    expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
+    const save = buttonNamed(wrapper, /^Save$/)
+    expect(save.attributes('disabled')).toBeUndefined()
+
+    await save.trigger('click')
+    await flushPromises()
+    expect(saveMock).not.toHaveBeenCalled()
     expect(symposium!.classes()).toContain('is-invalid')
-    expect(wrapper.find('.notify-finalists__field-error').text()).toBe("Can't be before today.")
-    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeDefined()
+    const message = wrapper.find('.notify-finalists__field-error')
+    expect(message.text()).toBe("Symposium Date can't be before today.")
+    // It sits just above the Save button.
+    expect(message.element.nextElementSibling?.contains(save.element)).toBe(true)
 
     await symposium!.setValue('2026-09-27') // today is fine
     expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
-    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeUndefined()
+    await save.trigger('click')
+    await flushPromises()
+    expect(saveMock).toHaveBeenCalledOnce()
   })
 
   it('a saved date that has since passed is flagged and blocks sending', async () => {
@@ -220,15 +234,21 @@ describe('the email details', () => {
       details({ confirm_by: '2025-10-05', dates_in_past: ['confirm_by'] })
     )
     const wrapper = await mountPage()
-    expect(wrapper.findAll('.notify-finalists__field-error')).toHaveLength(1)
+    expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
     expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
       'Some email dates are before today. Update and save them before sending.'
     )
     expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
 
-    // Editing only the link may still be saved: the passed date isn't new.
+    // Saving other details names the passed dates, all of them, and saves nothing.
+    await wrapper.findAll('input[type="date"]')[2]!.setValue('2026-09-01')
     await wrapper.find('input[type="url"]').setValue('https://events.example.com/new')
-    expect(buttonNamed(wrapper, /^Save$/).attributes('disabled')).toBeUndefined()
+    await buttonNamed(wrapper, /^Save$/).trigger('click')
+    await flushPromises()
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.notify-finalists__field-error').text()).toBe(
+      "Confirm Attendance By and Slides Due can't be before today."
+    )
   })
 
   it('shows the saved details, and no leftover under-construction banner', async () => {
