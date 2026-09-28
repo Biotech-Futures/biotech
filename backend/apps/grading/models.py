@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -295,6 +297,14 @@ class CertificatesRelease(SingletonModel):
         return f"CertificatesRelease(released_at={self.released_at})"
 
 
+def template_upload_to(instance, filename):
+    """Each uploaded template in a folder of its own, so the file keeps the
+    name it was uploaded with. In one shared folder a re-upload of the same
+    name collides with the file it replaces (deleted only after the save),
+    and storage renames it, e.g. to "BTF_Marks_Release_Template_FSXLa9F.docx"."""
+    return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
@@ -303,8 +313,9 @@ class GradingSettings(SingletonModel):
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
     director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
-    marks_summary_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
-    certificate_template = models.FileField(upload_to="grading/templates/", blank=True, null=True)
+    marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
+    certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
+    mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     # Component code (e.g. "POSTER") -> weight (0..1). Sum should be 1.0 when set.
     component_weights = models.JSONField(default=dict, blank=True)
 

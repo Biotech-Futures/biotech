@@ -1,5 +1,4 @@
 import logging
-import os
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
@@ -14,6 +13,9 @@ from ..permissions import IsGrader
 
 
 logger = logging.getLogger(__name__)
+
+# The templates the Document Setup page handles (docx.TEMPLATE_FIELDS).
+TEMPLATE_KINDS = ("marks-summary", "certificate", "mentor-certificate")
 
 # Upload checks (and later the renderers) read the whole file into memory, so
 # cap the size well above any real docx or signature scan.
@@ -32,6 +34,7 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
             "director_2_signature",
             "marks_summary_template",
             "certificate_template",
+            "mentor_certificate_template",
             "component_weights",
         ]
 
@@ -66,6 +69,11 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
             value, lambda svc, data: svc.check_template_upload("certificate", data)
         )
 
+    def validate_mentor_certificate_template(self, value):
+        return self._checked_upload(
+            value, lambda svc, data: svc.check_template_upload("mentor-certificate", data)
+        )
+
     def validate_director_1_signature(self, value):
         return self._checked_upload(value, lambda svc, data: svc.check_signature_upload(data))
 
@@ -98,6 +106,7 @@ class GradingSettingsView(RetrieveUpdateAPIView):
         "director_2_signature",
         "marks_summary_template",
         "certificate_template",
+        "mentor_certificate_template",
     )
 
     def get_object(self):
@@ -134,7 +143,7 @@ def _read_candidate(request, kind: str):
     Returns ``(data, scan, error_response)``: the error is set on failure,
     the other two on success.
     """
-    if kind not in ("marks-summary", "certificate"):
+    if kind not in TEMPLATE_KINDS:
         return None, None, Response({"detail": "unknown template kind"}, status=404)
     upload = request.FILES.get("file")
     if upload is None:
@@ -205,10 +214,11 @@ class TemplateDownloadView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def get(self, request, kind: str):
-        field = {
-            "marks-summary": "marks_summary_template",
-            "certificate": "certificate_template",
-        }.get(kind)
+        field, filename = {
+            "marks-summary": ("marks_summary_template", "BTF_Marks_Summary_Template.docx"),
+            "certificate": ("certificate_template", "BTF_Student_Certificate_Template.docx"),
+            "mentor-certificate": ("mentor_certificate_template", "BTF_Mentor_Certificate_Template.docx"),
+        }.get(kind, (None, None))
         if field is None:
             return Response({"detail": "unknown template kind"}, status=404)
         stored = getattr(GradingSettings.load(), field)
@@ -226,9 +236,8 @@ class TemplateDownloadView(APIView):
                 ".wordprocessingml.document"
             ),
         )
-        resp["Content-Disposition"] = content_disposition_header(
-            as_attachment=True, filename=os.path.basename(stored.name)
-        )
+        # Always the same name, whatever the uploaded file was called.
+        resp["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=filename)
         return resp
 
 
@@ -259,6 +268,10 @@ class TemplateTestRenderView(APIView):
                 payload = docx_service.render_participation_certificate(
                     docx_service.sample_certificate_context()
                 )
+            elif kind == "mentor-certificate":
+                payload = docx_service.render_mentor_certificate(
+                    docx_service.sample_mentor_certificate_context()
+                )
             else:
                 return Response({"detail": "unknown template kind"}, status=404)
         except docx_service.TemplateNotConfigured:
@@ -274,6 +287,10 @@ class TemplateTestRenderView(APIView):
         if kind == "marks-summary":
             payload = docx_service.render_marks_summary_data(
                 data, docx_service.sample_marks_summary_context()
+            )
+        elif kind == "mentor-certificate":
+            payload = docx_service.render_mentor_certificate_data(
+                data, docx_service.sample_mentor_certificate_context()
             )
         else:
             payload = docx_service.render_certificate_data(

@@ -278,16 +278,82 @@ class GradingSettingsViewTests(_GradingFixture):
             xml = zipfile.ZipFile(io.BytesIO(r.content)).read("word/document.xml")
             self.assertIn(b"SAMPLE-TEAM-01" if kind == "marks-summary" else b"Jane", xml)
 
-    def test_download_current_template_returns_the_saved_file(self):
+    def test_download_current_template_returns_the_saved_file_under_a_fixed_name(self):
         row = _seed_doc_templates()
-        for kind, field in (("marks-summary", "marks_summary_template"), ("certificate", "certificate_template")):
+        for kind, field, filename in (
+            ("marks-summary", "marks_summary_template", "BTF_Marks_Summary_Template.docx"),
+            ("certificate", "certificate_template", "BTF_Student_Certificate_Template.docx"),
+        ):
             r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": kind}))
             self.assertEqual(r.status_code, status.HTTP_200_OK, kind)
             self.assertIn("wordprocessingml", r["Content-Type"])
             stored = getattr(row, field)
             with stored.open("rb") as fh:
                 self.assertEqual(r.content, fh.read(), kind)
-            self.assertIn(f'attachment; filename="{stored.name.rsplit("/", 1)[-1]}"', r["Content-Disposition"])
+            # Whatever the uploaded file was called.
+            self.assertEqual(r["Content-Disposition"], f'attachment; filename="{filename}"')
+
+    def test_the_mentor_certificate_template_is_uploaded_checked_tested_and_downloaded(self):
+        template = self._docx_bytes("{{Name}} for {{ProjectTitle}} ({{Director1Name}}) {{FirstName}}")
+        r = self.client.patch(
+            reverse("grading:settings"),
+            {"mentor_certificate_template": SimpleUploadedFile("BTF_Mentor_Certificate_Template.docx", template)},
+            format="multipart",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertTrue(r.json()["mentor_certificate_template"].endswith("/BTF_Mentor_Certificate_Template.docx"))
+
+        # {{Name}} is the mentor's whole name; a student's {{FirstName}} isn't one of its variables.
+        r = self.client.get(reverse("grading:settings-template-scan", kwargs={"kind": "mentor-certificate"}))
+        self.assertEqual(r.json(), {
+            "uploaded": True, "present": ["Director1Name", "Name", "ProjectTitle"], "unknown": ["FirstName"],
+        })
+
+        r = self.client.get(reverse("grading:settings-test-render", kwargs={"kind": "mentor-certificate"}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            xml = z.read("word/document.xml").decode("utf8")
+        self.assertIn("Dr Sam Mentor for Sample Project Title", xml)
+        self.assertNotIn("{{", xml)
+
+        r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": "mentor-certificate"}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.content, template)
+        self.assertEqual(r["Content-Disposition"], 'attachment; filename="BTF_Mentor_Certificate_Template.docx"')
+
+    def test_a_mentor_certificate_candidate_is_checked_and_tested_without_saving(self):
+        candidate = SimpleUploadedFile("draft.docx", self._docx_bytes("Awarded to {{Name}}"))
+        r = self.client.post(
+            reverse("grading:settings-test-render", kwargs={"kind": "mentor-certificate"}),
+            {"file": candidate}, format="multipart",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            self.assertIn("Awarded to Dr Sam Mentor", z.read("word/document.xml").decode("utf8"))
+        self.assertFalse(GradingSettings.load().mentor_certificate_template)
+        # Nothing saved: no test render or download of a saved one yet.
+        for name in ("grading:settings-test-render", "grading:settings-template-download"):
+            r = self.client.get(reverse(name, kwargs={"kind": "mentor-certificate"}))
+            self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, name)
+
+    def test_a_template_keeps_the_name_it_was_uploaded_with(self):
+        # Uploading the same name again used to collide with the file it
+        # replaces, so storage renamed it (e.g. "..._FSXLa9F.docx").
+        names = []
+        for _ in range(2):
+            r = self.client.patch(
+                reverse("grading:settings"),
+                {"certificate_template": SimpleUploadedFile(
+                    "BTF_Marks_Release_Template.docx", self._docx_bytes("{{FirstName}}"),
+                )},
+                format="multipart",
+            )
+            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+            names.append(GradingSettings.load().certificate_template.name)
+        self.assertEqual([n.rsplit("/", 1)[-1] for n in names], ["BTF_Marks_Release_Template.docx"] * 2)
+        # Each upload has its own place; the one it replaced is gone.
+        self.assertNotEqual(names[0], names[1])
+        self.assertFalse(default_storage.exists(names[0]))
 
     def test_download_current_template_404s_when_none_or_unknown(self):
         for kind in ("marks-summary", "poster"):

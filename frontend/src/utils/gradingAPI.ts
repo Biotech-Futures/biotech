@@ -386,7 +386,18 @@ export interface GradingSettingsDetail {
   director_2_signature: string | null
   marks_summary_template: string | null
   certificate_template: string | null
+  mentor_certificate_template: string | null
   component_weights: Record<string, number>
+}
+
+/** The docx templates set up on Document Setup. */
+export type TemplateKind = 'marks-summary' | 'certificate' | 'mentor-certificate'
+
+/** The name Download Current Template saves each template under. */
+export const TEMPLATE_DOWNLOAD_NAMES: Record<TemplateKind, string> = {
+  'marks-summary': 'BTF_Marks_Summary_Template.docx',
+  certificate: 'BTF_Student_Certificate_Template.docx',
+  'mentor-certificate': 'BTF_Mentor_Certificate_Template.docx'
 }
 
 // GET /api/v1/grading/certificates-release/ — the certificates gate, separate
@@ -553,7 +564,7 @@ export interface TemplateScan {
 }
 
 // GET /api/v1/grading/settings/template-scan/{kind}/
-export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promise<TemplateScan> {
+export function fetchTemplateScan(kind: TemplateKind): Promise<TemplateScan> {
   return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`)
 }
 
@@ -561,7 +572,7 @@ export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promis
 // WITHOUT saving it, so the page can preview a selection before Save
 // replaces the stored template. A file the renderer can't open 400s.
 export function scanTemplateCandidate(
-  kind: 'marks-summary' | 'certificate',
+  kind: TemplateKind,
   file: File
 ): Promise<TemplateScan> {
   const fd = new FormData()
@@ -575,24 +586,25 @@ export function scanTemplateCandidate(
 // GET /api/v1/grading/settings/test-render/{kind}/ — render the active docx
 // template with synthetic data and save it, so admins can check placeholders.
 export async function downloadTemplateTestRender(
-  kind: 'marks-summary' | 'certificate'
+  kind: TemplateKind
 ): Promise<void> {
   const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/`)
   triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
 }
 
-// GET /api/v1/grading/settings/template/{kind}/ — the saved template file.
+// GET /api/v1/grading/settings/template/{kind}/ — the saved template file,
+// always under the same name.
 export async function downloadSavedTemplate(
-  kind: 'marks-summary' | 'certificate'
+  kind: TemplateKind
 ): Promise<void> {
   const { blob, filename } = await requestBlob(`/api/v1/grading/settings/template/${kind}/`)
-  triggerBlobDownload(blob, filename ?? `${kind}-template.docx`)
+  triggerBlobDownload(blob, filename ?? TEMPLATE_DOWNLOAD_NAMES[kind])
 }
 
 // POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
 // with synthetic data while the saved template stays active.
 export async function downloadCandidateTestRender(
-  kind: 'marks-summary' | 'certificate',
+  kind: TemplateKind,
   file: File
 ): Promise<void> {
   const fd = new FormData()

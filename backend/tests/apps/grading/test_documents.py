@@ -416,7 +416,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         )
 
         template = _build_docx(
-            "{{FirstName}} {{LastName}} — {{ProjectTitle}} — {{Director1Name}}, {{Director2Name}}"
+            "{{Name}} — {{ProjectTitle}} — {{Director1Name}}, {{Director2Name}}"
         )
         row = GradingSettings.load()
         row.director_1_name, row.director_2_name = "Mr William Nixon", "Mr Joshua Aarons"
@@ -430,9 +430,20 @@ class ClientDocxTemplateTests(_GradingFixture):
         report = scan_template_data("certificate", template)
         self.assertEqual(
             report["present"],
-            ["Director1Name", "Director2Name", "FirstName", "LastName", "ProjectTitle"],
+            ["Director1Name", "Director2Name", "Name", "ProjectTitle"],
         )
         self.assertEqual(report["unknown"], [])
+
+    def test_a_certificate_with_the_older_first_and_last_name_still_names_the_student(self):
+        from apps.grading.services.docx import certificate_context, render_certificate_data
+
+        template = _build_docx("{{FirstName}} {{LastName}} — {{ProjectTitle}}")
+        xml = self._document_xml(render_certificate_data(
+            template,
+            certificate_context("Ada Grader", "BTF-TEST-1", 2026, first_name="Ada", last_name="Grader"),
+            images={},
+        ))
+        self.assertIn("Ada Grader — BTF-TEST-1", xml)
 
 
 class DocxEngineEdgeTests(SimpleTestCase):
