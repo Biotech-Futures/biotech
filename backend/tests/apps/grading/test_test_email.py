@@ -107,9 +107,12 @@ class TestEmailTests(_GradingFixture):
         )
         self.assertEqual([o["label"] for o in self._options("nonsubmissions")], ["(No Entry) Mem nia"])
         self.assertEqual([o["label"] for o in self._options("finalist")], ["(Picked) Mem fin"])
-        # The results email goes to students only (supervisors have their own),
-        # and not to finalists while certificates are released without them.
-        self.assertEqual([o["label"] for o in self._options("results-students")], [f"({team}) Mem amy"])
+        # The results group email goes to students and mentors (supervisors have
+        # their own), and not to finalists while certificates exclude them.
+        self.assertEqual(
+            [o["label"] for o in self._options("results-groups")],
+            [f"({team}) Mem amy", f"({team}, mentor) Mem mo"],
+        )
         self.assertEqual(self._options("results-supervisors"), [{"value": str(self.supervisor.id), "label": "Sam Lee"}])
 
     def test_a_test_goes_to_the_typed_address_as_the_chosen_team_gets_it(self):
@@ -140,8 +143,8 @@ class TestEmailTests(_GradingFixture):
         self.assertEqual(FinalistEmailSettings.load().registration_url, "https://events.example.com/symposium")
 
     def test_results_tests_carry_their_files_and_record_nothing(self):
-        amy = next(o for o in self._options("results-students") if o["label"].endswith("Mem amy"))
-        self.assertEqual(self._send("results-students", amy["value"]).status_code, status.HTTP_200_OK)
+        amy = next(o for o in self._options("results-groups") if o["label"].endswith("Mem amy"))
+        self.assertEqual(self._send("results-groups", amy["value"]).status_code, status.HTTP_200_OK)
         self.assertEqual(self._send("results-supervisors", str(self.supervisor.id)).status_code, status.HTTP_200_OK)
         year = self.group.year
         files = [
@@ -149,7 +152,11 @@ class TestEmailTests(_GradingFixture):
             for m in mail.outbox
         ]
         self.assertEqual(files, [
-            [f"{year}_BTF_Certificate_Mem_amy.docx", f"{year}_BTF_Marks_BTF-TEST-1.docx"],
+            [
+                f"{year}_BTF_Certificate_Mem_amy.docx",
+                f"{year}_BTF_Mentor_Certificate_Mem_mo.docx",
+                f"{year}_BTF_Marks_BTF-TEST-1.docx",
+            ],
             [f"{year}_BTF_Certificate_Mem_amy.docx", f"{year}_BTF_Student_Marks.xlsx"],
         ])
         self.assertEqual([m.to for m in mail.outbox], [["tester@example.com"]] * 2)

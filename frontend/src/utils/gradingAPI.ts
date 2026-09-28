@@ -857,22 +857,23 @@ export interface ResultsEmailDetails extends ResultsEmailFields {
   emails_on: Record<ResultsAudience, boolean>
   /** Whether the Document Setup templates each email's files need are uploaded. */
   templates_ready: Record<ResultsAudience, boolean>
-  students: EmailedCount
+  /** Groups due the group email, which goes to their students and mentors. */
+  groups: EmailedCount
   supervisors: EmailedCount
 }
 
-export type ResultsAudience = 'students' | 'supervisors'
+export type ResultsAudience = 'groups' | 'supervisors'
 
 export interface ResultsEmailBatch {
   /** People emailed in this batch. */
   emailed: number
-  /** Teams (for students) or supervisors not emailed in full. */
+  /** Groups or supervisors not emailed in full. */
   failed: number
-  /** The last team or supervisor tried; pass it back for the next batch. */
+  /** The last group or supervisor tried; pass it back for the next batch. */
   cursor: number
   /** Everyone due has been tried in this run. */
   done: boolean
-  students: EmailedCount
+  groups: EmailedCount
   supervisors: EmailedCount
 }
 
@@ -913,7 +914,7 @@ export function previewResultsEmail(
 }
 
 // POST /api/v1/grading/results-email/send/ — email the next few teams'
-// students, or supervisors; call again with the returned cursor until done.
+// groups, or supervisors; call again with the returned cursor until done.
 export function sendResultsEmailBatch(
   audience: ResultsAudience,
   cursor: number | null
@@ -988,7 +989,7 @@ export function sendSymposiumEmailBatch(
 }
 
 /** The emails that have Send Test Email beside their preview. */
-export type TestEmailKind = SymposiumEmail | 'finalist' | 'results-students' | 'results-supervisors'
+export type TestEmailKind = SymposiumEmail | 'finalist' | 'results-groups' | 'results-supervisors'
 
 /** Someone the email can be tested as, e.g. "(BTF07) Amy Chen". */
 export interface TestEmailRecipient {

@@ -278,10 +278,10 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_team",
-        name="Results: students",
+        name="Results: groups",
         description=(
-            "Sent to each team's students from Release Results once marks and "
-            "certificates are released, with the feedback survey set there."
+            "Sent to each group's students and mentors from Release Results once "
+            "marks and certificates are released, with the feedback survey set there."
         ),
         default_subject="Your {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_team.html",

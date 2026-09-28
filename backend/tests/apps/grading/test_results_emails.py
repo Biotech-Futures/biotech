@@ -80,8 +80,8 @@ class ResultsEmailTests(_GradingFixture):
         self.client = APIClient()
         self.client.force_authenticate(self.staff)
 
-        # The fixture's submitted team: two students, a mentor, and a supervisor
-        # who is also a member. Only the students get the team email.
+        # The fixture's submitted group: two students, a mentor, and a supervisor
+        # who is also a member. The students and the mentor get the group email.
         self.supervisor = _user("sam.lee@example.com", "Sam", "Lee")
         self.sup_profile = SupervisorProfile.objects.create(user=self.supervisor)
         _student("amy@example.com", self.group, self.sup_profile)
@@ -132,9 +132,10 @@ class ResultsEmailTests(_GradingFixture):
 
     # -- who gets it ------------------------------------------------------------
 
-    def test_students_get_the_team_email(self):
-        results = self._send_all("students")
-        self.assertEqual(self._recipients(), ["amy@example.com", "ben@example.com"])
+    def test_the_groups_students_and_mentors_get_the_group_email(self):
+        results = self._send_all("groups")
+        # The supervisor who is a member gets the supervisor email instead.
+        self.assertEqual(self._recipients(), ["amy@example.com", "ben@example.com", "mentor@example.com"])
 
         message = mail.outbox[0]
         text = " ".join(message.body.split())  # the plain text wraps its lines
@@ -147,8 +148,8 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn(f" of {closes:%B}.", text)
         self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
 
-        self.assertEqual(results[-1]["emailed"], 2)
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2})
+        self.assertEqual(results[-1]["emailed"], 3)
+        self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 1})
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 0})
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
@@ -161,42 +162,48 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn("Merit certificates for each of your students", " ".join(message.body.split()))
         self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 1})
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0})
+        self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
         self.assertTrue(ResultsSupervisorEmail.objects.filter(supervisor=self.supervisor).exists())
 
     def test_finalists_are_included_when_certificates_go_to_everyone(self):
         CertificatesRelease.objects.update(exclude_finalists=False)
-        self._send_all("students")
+        self._send_all("groups")
         self._send_all("supervisors")
         self.assertIn("fin@example.com", self._recipients())
         # Their supervisor is the same person: still one supervisor email.
         self.assertEqual(self._recipients().count("sam.lee@example.com"), 1)
 
     def test_a_second_send_emails_nobody_again(self):
-        self._send_all("students")
+        self._send_all("groups")
         self._send_all("supervisors")
         mail.outbox = []
-        self.assertTrue(self._send_all("students")[-1]["done"])
+        self.assertTrue(self._send_all("groups")[-1]["done"])
         self.assertTrue(self._send_all("supervisors")[-1]["done"])
         self.assertEqual(mail.outbox, [])
 
     # -- the files they carry ------------------------------------------------------
 
-    def test_students_get_their_teams_certificates_and_marks_summary(self):
-        self._send_all("students")
+    def test_everyone_in_the_group_gets_all_its_certificates_and_the_marks_summary(self):
+        self._send_all("groups")
         year = self.group.year
+        self.assertEqual(len(mail.outbox), 3)
         for message in mail.outbox:
+            # Students and mentor alike: each sees the others' certificates.
             files = _files(message)
             self.assertEqual(list(files), [
                 f"{year}_BTF_Certificate_Stu_amy.docx",
                 f"{year}_BTF_Certificate_Stu_ben.docx",
+                f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
                 f"{year}_BTF_Marks_BTF-TEST-1.docx",
             ])
             self.assertIn("Stu amy — BTF-TEST-1", _docx_text(files[f"{year}_BTF_Certificate_Stu_amy.docx"]))
+            self.assertIn(
+                "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
+            )
             self.assertIn("Team BTF-TEST-1 S1 8 ", _docx_text(files[f"{year}_BTF_Marks_BTF-TEST-1.docx"]))
 
     def test_the_files_come_after_the_email_and_its_logo(self):
-        self._send_all("students")
+        self._send_all("groups")
         top = mail.outbox[0].message()
         self.assertEqual(top.get_content_type(), "multipart/mixed")
         body, *files = top.get_payload()
@@ -205,7 +212,7 @@ class ResultsEmailTests(_GradingFixture):
             [part.get_content_type() for part in body.get_payload()],
             ["multipart/alternative", "image/png"],
         )
-        self.assertEqual([f.get_content_disposition() for f in files], ["attachment"] * 3)
+        self.assertEqual([f.get_content_disposition() for f in files], ["attachment"] * 4)
 
     def test_supervisors_get_their_students_certificates_and_a_marks_sheet(self):
         # Only Poster and SAQ, as the email says: another marked component stays out.
@@ -241,17 +248,18 @@ class ResultsEmailTests(_GradingFixture):
         with mock.patch(
             "apps.grading.services.results_notify.Documents.marks_summary", side_effect=OSError("storage down"),
         ), self.assertLogs("apps.grading.services.results_notify", level="ERROR"):
-            results = self._send_all("students")
+            results = self._send_all("groups")
         self.assertEqual(mail.outbox, [])
         self.assertEqual(results[-1]["failed"], 1)
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     def test_sending_waits_for_the_templates_its_files_need(self):
-        GradingSettings.objects.update(marks_summary_template="")
-        r = self.client.post(reverse(SEND), {"audience": "students"}, format="json")
+        GradingSettings.objects.update(mentor_certificate_template="")
+        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
         self.assertEqual(
             r.json()["detail"],
-            "Upload the certificate and marks summary templates in Document Setup before emailing students.",
+            "Upload the marks summary, student certificate and mentor certificate templates "
+            "in Document Setup before emailing groups.",
         )
         # The supervisors' spreadsheet needs no template.
         self._send_all("supervisors")
@@ -260,10 +268,10 @@ class ResultsEmailTests(_GradingFixture):
         GradingSettings.objects.update(certificate_template="")
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
         self.assertEqual(
-            r.json()["detail"], "Upload the certificate template in Document Setup before emailing supervisors.",
+            r.json()["detail"], "Upload the student certificate template in Document Setup before emailing supervisors.",
         )
         r = self.client.get(reverse("grading:results-email"))
-        self.assertEqual(r.json()["templates_ready"], {"students": False, "supervisors": False})
+        self.assertEqual(r.json()["templates_ready"], {"groups": False, "supervisors": False})
 
     # -- batches and failures ------------------------------------------------------
 
@@ -271,11 +279,12 @@ class ResultsEmailTests(_GradingFixture):
         for n in range(6):
             team = _submitted_team(f"Extra {n}", self.staff)
             _student(f"extra{n}@example.com", team)
-        first = send_results_batch(self.staff, "students", None, limit=5)
-        self.assertEqual((first["emailed"], first["done"]), (6, False))  # the fixture team has two students
-        second = send_results_batch(self.staff, "students", first["cursor"], limit=5)
+        first = send_results_batch(self.staff, "groups", None, limit=5)
+        # The fixture group has two students and a mentor.
+        self.assertEqual((first["emailed"], first["done"]), (7, False))
+        second = send_results_batch(self.staff, "groups", first["cursor"], limit=5)
         self.assertEqual((second["emailed"], second["done"]), (2, True))
-        self.assertEqual(second["students"], {"total": 8, "emailed": 8})
+        self.assertEqual(second["groups"], {"total": 7, "emailed": 7})
 
     def test_a_team_whose_student_misses_it_stays_pending_and_is_not_retried_in_the_run(self):
         real_send = mail.EmailMultiAlternatives.send
@@ -287,33 +296,33 @@ class ResultsEmailTests(_GradingFixture):
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
                 self.assertLogs("apps.grading.services.results_notify", level="ERROR"):
-            results = self._send_all("students")
+            results = self._send_all("groups")
         self.assertEqual(sum(r["failed"] for r in results), 1)
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0})
+        self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
 
         # The next press reaches the team again.
         mail.outbox = []
-        self._send_all("students")
+        self._send_all("groups")
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     # -- when it may be sent ----------------------------------------------------------
 
     def test_sending_waits_for_both_releases(self):
         CertificatesRelease.objects.update(released_at=None)
-        for audience in ("students", "supervisors"):
+        for audience in ("groups", "supervisors"):
             r = self.client.post(reverse(SEND), {"audience": audience}, format="json")
             self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(r.json()["detail"], "Release both marks and certificates before sending the results emails.")
         self.assertEqual(mail.outbox, [])
 
-    def test_only_the_students_email_waits_for_the_survey_details(self):
+    def test_only_the_group_email_waits_for_the_survey_details(self):
         ResultsEmailSettings.objects.update(survey_closes=None)
-        r = self.client.post(reverse(SEND), {"audience": "students"}, format="json")
-        self.assertEqual(r.json()["detail"], "Set the feedback survey link and close date before emailing students.")
+        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
+        self.assertEqual(r.json()["detail"], "Set the feedback survey link and close date before emailing groups.")
         ResultsEmailSettings.objects.update(survey_closes=symposium_today() - timedelta(days=1))
-        r = self.client.post(reverse(SEND), {"audience": "students"}, format="json")
-        self.assertEqual(r.json()["detail"], "The survey close date can't be before today. Update it before emailing students.")
+        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
+        self.assertEqual(r.json()["detail"], "The survey close date can't be before today. Update it before emailing groups.")
         # Supervisors aren't told about the survey, so they can go.
         self._send_all("supervisors")
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
@@ -323,7 +332,7 @@ class ResultsEmailTests(_GradingFixture):
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
         self.assertEqual(r.json()["detail"], "Results: supervisors is switched off on System Emails.")
         r = self.client.get(reverse("grading:results-email"))
-        self.assertEqual(r.json()["emails_on"], {"students": True, "supervisors": False})
+        self.assertEqual(r.json()["emails_on"], {"groups": True, "supervisors": False})
 
     def test_an_unknown_audience_is_refused(self):
         r = self.client.post(reverse(SEND), {"audience": "mentors"}, format="json")
@@ -347,7 +356,7 @@ class ResultsEmailTests(_GradingFixture):
         body = r.json()
         self.assertEqual((body["survey_url"], body["survey_closes"], body["complete"]), ("https://example.com/survey", closes.isoformat(), True))
         self.assertEqual((body["marks_released"], body["certificates_released"]), (True, True))
-        self.assertEqual(body["students"], {"total": 2, "emailed": 0})
+        self.assertEqual(body["groups"], {"total": 1, "emailed": 0})
         self.assertEqual(body["supervisors"], {"total": 1, "emailed": 0})
 
         r = self.client.patch(
@@ -360,7 +369,7 @@ class ResultsEmailTests(_GradingFixture):
     def test_preview_shows_each_email_with_unsaved_details(self):
         r = self.client.post(
             reverse("grading:results-email-preview"),
-            {"audience": "students", "survey_url": "https://example.com/draft"},
+            {"audience": "groups", "survey_url": "https://example.com/draft"},
             format="json",
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
@@ -372,6 +381,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(r.json()["attachments"], [
             f"{year}_BTF_Certificate_Stu_amy.docx",
             f"{year}_BTF_Certificate_Stu_ben.docx",
+            f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
             f"{year}_BTF_Marks_BTF-TEST-1.docx",
         ])
 
@@ -383,8 +393,10 @@ class ResultsEmailTests(_GradingFixture):
 
     def test_preview_names_example_files_while_nobody_is_due(self):
         Submission.objects.update(submitted_at=None)
-        r = self.client.post(reverse("grading:results-email-preview"), {"audience": "students"}, format="json")
+        r = self.client.post(reverse("grading:results-email-preview"), {"audience": "groups"}, format="json")
         year = self.group.year
         self.assertEqual(r.json()["attachments"], [
-            f"{year}_BTF_Certificate_Student_name.docx", f"{year}_BTF_Marks_Team_name.docx",
+            f"{year}_BTF_Certificate_Student_name.docx",
+            f"{year}_BTF_Mentor_Certificate_Mentor_name.docx",
+            f"{year}_BTF_Marks_Team_name.docx",
         ])

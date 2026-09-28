@@ -15,6 +15,9 @@
         For teams that submitted but weren't selected as finalists.
       </p>
       <p class="non-finalist__hint">
+        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+      </p>
+      <p class="non-finalist__hint">
         The Symposium date and registration link come from Email Details on
         <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
       </p>
@@ -27,6 +30,9 @@
     >
       <h3 class="non-finalist__section-title">Email Nonsubmission</h3>
       <p class="non-finalist__hint">For teams that didn't make a submission.</p>
+      <p class="non-finalist__hint">
+        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+      </p>
       <p class="non-finalist__hint">
         The Symposium date and registration link come from Email Details on
         <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.

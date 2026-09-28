@@ -12,7 +12,7 @@
       </p>
       <h3 class="release-results__section-title">Email Details</h3>
       <p class="release-results__hint">
-        The results email to teams links to the feedback survey. Set these before sending.
+        The results email to groups links to the feedback survey. Set these before sending.
       </p>
       <p v-if="detailsError" class="release-results__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -36,7 +36,7 @@
         <p v-if="saveTried && closesPast" class="release-results__field-error" role="alert">
           Survey Closes can't be before today.
         </p>
-        <!-- Save and the student preview, then the supervisor preview on the
+        <!-- Save and the group preview, then the supervisor preview on the
              next line; each preview with its test send beside it. -->
         <div class="release-results__details-actions">
           <div class="release-results__actions">
@@ -52,11 +52,11 @@
               type="button"
               class="btn btn-outline btn-sm"
               :disabled="loadingPreview !== null"
-              @click="openPreview('students')"
+              @click="openPreview('groups')"
             >
-              {{ loadingPreview === 'students' ? 'Loading…' : 'Preview Student Email' }}
+              {{ loadingPreview === 'groups' ? 'Loading…' : 'Preview Group Email' }}
             </button>
-            <TestEmailSender kind="results-students" :fields="formFields" />
+            <TestEmailSender kind="results-groups" :fields="formFields" />
           </div>
           <div class="release-results__actions">
             <button
@@ -79,8 +79,13 @@
     <section class="card release-results__send">
       <h3 class="release-results__section-title">Send Results Emails</h3>
       <p class="release-results__hint">
-        Emails the students of every team that submitted, and their supervisors, that their
-        results are out. Each is emailed once.
+        Emails every group that submitted, and its students' supervisors, that their results
+        are out. Each is emailed once.
+      </p>
+      <p class="release-results__hint">
+        Group emails go to the group's students and mentors with every certificate in the group
+        attached, so students get each other's and their mentor's certificates. Anyone in multiple
+        groups gets multiple emails, one for each group.
       </p>
       <template v-if="details">
         <p
@@ -94,12 +99,12 @@
           ></i>
           {{
             allEmailed
-              ? 'Emails are sent to every student and supervisor'
-              : 'Emails are not sent to every student and supervisor'
+              ? 'Emails are sent to every group and supervisor'
+              : 'Emails are not sent to every group and supervisor'
           }}
         </p>
         <p class="release-results__counts">
-          Students: {{ details.students.emailed }} of {{ details.students.total }} emailed ·
+          Groups: {{ details.groups.emailed }} of {{ details.groups.total }} emailed ·
           Supervisors: {{ details.supervisors.emailed }} of {{ details.supervisors.total }} emailed
         </p>
         <p v-for="reason in blockedReasons" :key="reason" class="release-results__blocked">
@@ -117,7 +122,8 @@
             {{ sending === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
           </button>
           <span v-if="sending" class="release-results__progress" role="status">
-            Emailed {{ plural(progress.emailed, sending === 'students' ? 'student' : 'supervisor') }}
+            Emailed
+            {{ sending === 'groups' ? plural(progress.emailed, 'person', 'people') : plural(progress.emailed, 'supervisor') }}
             so far…
           </span>
         </div>
@@ -210,13 +216,13 @@ import ReleaseCertificatesPage from '@/views/grading/ReleaseCertificatesPage.vue
 import ReleasePage from '@/views/grading/ReleasePage.vue'
 import TestEmailSender from '@/views/grading/TestEmailSender.vue'
 
-// Students (the team email) and supervisors are emailed apart.
+// Groups (their students and mentors) and supervisors are emailed apart.
 const AUDIENCES: { value: ResultsAudience; noun: string }[] = [
-  { value: 'students', noun: 'Students' },
+  { value: 'groups', noun: 'Groups' },
   { value: 'supervisors', noun: 'Supervisors' }
 ]
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`
 
 const actionError = ref('')
 const { message: actionMessage, show: flashAction } = useFlashMessage()
@@ -315,13 +321,13 @@ const pending = (audience: ResultsAudience) => {
 }
 
 const totalDue = computed(() =>
-  details.value ? details.value.students.total + details.value.supervisors.total : 0
+  details.value ? details.value.groups.total + details.value.supervisors.total : 0
 )
 const allEmailed = computed(
-  () => totalDue.value > 0 && pending('students') === 0 && pending('supervisors') === 0
+  () => totalDue.value > 0 && pending('groups') === 0 && pending('supervisors') === 0
 )
 
-// Why each button is off, if it is. Releasing is shared; only the students'
+// Why each button is off, if it is. Releasing is shared; only the group
 // email carries the survey, so only it waits for those details.
 const releaseReason = computed(() => {
   if (detailsError.value) return 'The email details could not be loaded.'
@@ -339,36 +345,39 @@ const audienceReason = (audience: ResultsAudience) => {
     return `Results: ${audience} is switched off on System Emails.`
   }
   if (!d.templates_ready[audience]) {
-    return audience === 'students'
-      ? 'Upload the certificate and marks summary templates in Document Setup before emailing students.'
-      : 'Upload the certificate template in Document Setup before emailing supervisors.'
+    return audience === 'groups'
+      ? 'Upload the marks summary, student certificate and mentor certificate templates in Document Setup before emailing groups.'
+      : 'Upload the student certificate template in Document Setup before emailing supervisors.'
   }
-  if (audience === 'students') {
-    if (detailsChanged.value) return 'Save the email details before emailing students.'
-    if (!d.complete) return 'Set the feedback survey link and close date above before emailing students.'
+  if (audience === 'groups') {
+    if (detailsChanged.value) return 'Save the email details before emailing groups.'
+    if (!d.complete) return 'Set the feedback survey link and close date above before emailing groups.'
     if (d.closes_in_past) {
-      return 'The survey close date is before today. Update and save it before emailing students.'
+      return 'The survey close date is before today. Update and save it before emailing groups.'
     }
   }
   return ''
 }
 
 const blockedReasons = computed(() =>
-  [releaseReason.value, audienceReason('students'), audienceReason('supervisors')].filter(Boolean)
+  [releaseReason.value, audienceReason('groups'), audienceReason('supervisors')].filter(Boolean)
 )
 
 const canSend = computed(() => {
   const can = (audience: ResultsAudience) =>
     details.value !== null && !releaseReason.value && !audienceReason(audience) && pending(audience) > 0
-  return { students: can('students'), supervisors: can('supervisors') }
+  return { groups: can('groups'), supervisors: can('supervisors') }
 })
 
 const confirming = ref<ResultsAudience | null>(null)
 const confirmText = computed(() => {
   const audience = confirming.value
   if (!audience) return ''
-  const noun = audience === 'students' ? 'student' : 'supervisor'
-  return `This emails the ${plural(pending(audience), noun)} who haven't had their results email yet.`
+  const due = pending(audience)
+  if (audience === 'groups') {
+    return `This emails the students and mentors of the ${plural(due, 'group')} that ${due === 1 ? "hasn't" : "haven't"} had their results email yet.`
+  }
+  return `This emails the ${plural(due, 'supervisor')} who haven't had their results email yet.`
 })
 
 const sending = ref<ResultsAudience | null>(null)
@@ -389,17 +398,17 @@ const sendAll = async (audience: ResultsAudience) => {
         failed: progress.value.failed + batch.failed
       }
       if (details.value) {
-        details.value = { ...details.value, students: batch.students, supervisors: batch.supervisors }
+        details.value = { ...details.value, groups: batch.groups, supervisors: batch.supervisors }
       }
       cursor = batch.cursor
       if (batch.done) break
     }
     const { emailed, failed } = progress.value
-    const sent = `Emailed ${plural(emailed, audience === 'students' ? 'student' : 'supervisor')}.`
-    const button = audience === 'students' ? 'Email Students' : 'Email Supervisors'
+    const sent = `Emailed ${audience === 'groups' ? plural(emailed, 'person', 'people') : plural(emailed, 'supervisor')}.`
+    const button = audience === 'groups' ? 'Email Groups' : 'Email Supervisors'
     if (failed) {
-      const missed = audience === 'students'
-        ? `${plural(failed, 'team')} ${failed === 1 ? "wasn't" : "weren't"} emailed in full`
+      const missed = audience === 'groups'
+        ? `${plural(failed, 'group')} ${failed === 1 ? "wasn't" : "weren't"} emailed in full`
         : `${plural(failed, 'supervisor')} couldn't be emailed`
       actionError.value = `${sent} ${missed}; press ${button} again to retry.`
     } else {

@@ -71,7 +71,7 @@ class ResultsEmailPreviewView(APIView):
     """POST /api/v1/grading/results-email/preview/ — one email exactly as it
     would go out, for the details in the body (unsaved edits) or the saved
     ones, with the names of the files it carries (not made here). ``audience``
-    is "students" or "supervisors"; it is addressed to the first team or
+    is "groups" or "supervisors"; it is addressed to the first team or
     supervisor due to get it."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -80,7 +80,7 @@ class ResultsEmailPreviewView(APIView):
         audience_kind = request.data.get("audience")
         if audience_kind not in results_notify.AUDIENCES:
             return Response(
-                {"detail": 'audience must be "students" or "supervisors"'},
+                {"detail": 'audience must be "groups" or "supervisors"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         details = ResultsEmailSettings.load()
@@ -92,7 +92,7 @@ class ResultsEmailPreviewView(APIView):
         audience = results_notify.results_audience()
         docs = results_notify.Documents(audience.year)
         attachments = results_notify.example_file_names(audience_kind, audience.year)
-        if audience_kind == results_notify.STUDENTS:
+        if audience_kind == results_notify.GROUPS:
             team = audience.teams[0] if audience.teams else None
             to = team.group_name if team else "Team name"
             rendered = results_notify.render_team_email(to, details, audience.year)
@@ -111,7 +111,7 @@ class ResultsEmailPreviewView(APIView):
 
 class ResultsEmailSendView(APIView):
     """POST /api/v1/grading/results-email/send/ — email ``audience``
-    ("students" or "supervisors") for the next few teams or supervisors not
+    ("groups" or "supervisors") for the next few teams or supervisors not
     emailed yet. The page calls it again with the returned ``cursor`` until
     ``done``. Refused until marks and certificates are released, and for
     students until the survey details are set."""
@@ -122,7 +122,7 @@ class ResultsEmailSendView(APIView):
         audience = request.data.get("audience")
         if audience not in results_notify.AUDIENCES:
             return Response(
-                {"detail": 'audience must be "students" or "supervisors"'},
+                {"detail": 'audience must be "groups" or "supervisors"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         cursor = request.data.get("cursor")

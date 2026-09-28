@@ -58,6 +58,9 @@
         Send a notification email to the finalist teams. Tick Notify on specific teams
         to email only those.
       </p>
+      <p class="notify-finalists__hint">
+        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+      </p>
       <!-- Same status line as Release Marks. A team only counts as notified
            once every member got the email. -->
       <p

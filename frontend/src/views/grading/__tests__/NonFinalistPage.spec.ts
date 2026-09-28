@@ -75,10 +75,12 @@ describe('Email Nonfinalist', () => {
     // Each sentence on its own line, spaced like the lines around it.
     expect(wrapper.findAll(`${NONFINALISTS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that submitted but weren't selected as finalists.",
+      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.findAll(`${NONSUBMISSIONS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that didn't make a submission.",
+      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')

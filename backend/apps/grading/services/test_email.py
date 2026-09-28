@@ -4,7 +4,7 @@ types. Nothing is recorded as sent, and it goes even while the email is
 switched off, as a test from System Emails does.
 
 Each kind is one email: the finalist email, the two Symposium emails, and the
-results emails to students and to supervisors. Its list is everyone that
+results emails to groups and to supervisors. Its list is everyone that
 email can go to, so the test shows a real team's or person's version.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ class TestEmailError(ValueError):
     """Why a test can't be sent, worded for the page."""
 
 
-def _member_options(teams, *, students_only: bool = False) -> list[dict]:
+def _member_options(teams, *, roles=None) -> list[dict]:
     """Everyone on ``teams`` who gets the team's email, as "(Team) Name"
     options, a team's members together; a mentor or supervisor has their
     role after the team: "(Team, mentor) Name"."""
@@ -39,8 +39,8 @@ def _member_options(teams, *, students_only: bool = False) -> list[dict]:
     memberships = GroupMembership.objects.filter(
         group_id__in=list(teams), left_at__isnull=True, user__is_active=True,
     ).exclude(user__email="").select_related("user")
-    if students_only:
-        memberships = memberships.filter(membership_role=_ROLES.STUDENT)
+    if roles:
+        memberships = memberships.filter(membership_role__in=roles)
     rows = {}
     for m in memberships:
         name = results_notify._person_name(m.user)
@@ -96,18 +96,21 @@ def _symposium(email):
     return options, render
 
 
-def _results_students_options() -> list[dict]:
-    return _member_options(results_notify.results_audience().teams, students_only=True)
+def _results_groups_options() -> list[dict]:
+    # The group email goes to students and mentors; supervisors have their own.
+    return _member_options(
+        results_notify.results_audience().teams, roles=(_ROLES.STUDENT, _ROLES.MENTOR),
+    )
 
 
-def _results_students_render(value: str, fields: dict):
+def _results_groups_render(value: str, fields: dict):
     from ..views.results import ResultsEmailSettingsSerializer
 
     details = _with_edits(ResultsEmailSettings, ResultsEmailSettingsSerializer, fields)
     audience = results_notify.results_audience()
     team = next((t for t in audience.teams if t.id == _team_of(value).id), None)
     if team is None:
-        raise TestEmailError("That student's team isn't due the results email.")
+        raise TestEmailError("That group isn't due the results email.")
     rendered = results_notify.render_team_email(team.group_name, details, audience.year)
     files = results_notify.team_files(results_notify.Documents(audience.year), audience, team)
     return rendered, files
@@ -145,7 +148,7 @@ KINDS = {
     "finalist": TestKind(lambda: _member_options(_finalist_teams()), _finalist_render),
     "nonfinalists": TestKind(*_symposium(symposium_emails.NONFINALIST)),
     "nonsubmissions": TestKind(*_symposium(symposium_emails.NONSUBMISSION)),
-    "results-students": TestKind(_results_students_options, _results_students_render, results_notify.STUDENTS),
+    "results-groups": TestKind(_results_groups_options, _results_groups_render, results_notify.GROUPS),
     "results-supervisors": TestKind(
         _results_supervisors_options, _results_supervisors_render, results_notify.SUPERVISORS,
     ),

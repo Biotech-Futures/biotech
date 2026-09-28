@@ -1,21 +1,22 @@
-"""Results emails: the client's emails to students and to supervisors once
+"""Results emails: the client's emails to groups and to supervisors once
 both marks and certificates are released, sent from the Release Results tab.
 
 Same path as the finalist email: the shared system email path, so admins can
 switch them off or reword them on System Emails; one copy per recipient; and
 replies go to the support mailbox. They carry the documents they speak of:
-the team's certificates and marks summary for its students, and each
-supervisor's students' certificates and a spreadsheet of their marks. Students and supervisors are emailed from
-separate buttons, in small batches, so each request stays short and the page
-can show progress. A team (for its students) or a supervisor is recorded as
-emailed only once every copy went out, so a retry reaches whoever missed it,
-and is skipped after that.
+the group's certificates (its students' and its mentors') and marks summary,
+and each supervisor's students' certificates and a spreadsheet of their
+marks. Groups and supervisors are emailed from separate buttons, in small
+batches, so each request stays short and the page can show progress. A group
+or a supervisor is recorded as emailed only once every copy went out, so a
+retry reaches whoever missed it, and is skipped after that.
 
 Who gets them, for the challenge year (``current_cohort``):
 
-* teams that submitted, minus the finalists while certificates are released
-  without them (they get theirs at the Symposium). Each team's students get
-  the team email, which is addressed to the team and speaks of "your mentor";
+* groups that submitted, minus the finalists while certificates are released
+  without them (they get theirs at the Symposium). Each group's students and
+  mentors get the group email, addressed to the group, so they see each
+  other's certificates; someone in several groups gets one per group;
 * the supervisors of those students (``StudentProfile.supervisor``, as in the
   supervisor download) get the supervisor email, once each.
 """
@@ -61,6 +62,7 @@ from .docx import (
     marks_summary_context,
     render_certificate_data,
     render_marks_summary_data,
+    render_mentor_certificate_data,
     signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
@@ -69,12 +71,12 @@ from .zip import _safe
 
 logger = logging.getLogger(__name__)
 
-STUDENTS = "students"
+GROUPS = "groups"
 SUPERVISORS = "supervisors"
-AUDIENCES = (STUDENTS, SUPERVISORS)
+AUDIENCES = (GROUPS, SUPERVISORS)
 
 # Which system email each audience gets.
-EMAIL_KEYS = {STUDENTS: "results_team", SUPERVISORS: "results_supervisor"}
+EMAIL_KEYS = {GROUPS: "results_team", SUPERVISORS: "results_supervisor"}
 
 # Teams or supervisors emailed per request: a few seconds of sending, so a
 # request never runs long and the page can report progress between batches.
@@ -82,13 +84,17 @@ BATCH_SIZE = 5
 
 RELEASE_FIRST = "Release both marks and certificates before sending the results emails."
 TEMPLATES_MISSING = {
-    STUDENTS: "Upload the certificate and marks summary templates in Document Setup before emailing students.",
-    SUPERVISORS: "Upload the certificate template in Document Setup before emailing supervisors.",
+    GROUPS: (
+        "Upload the marks summary, student certificate and mentor certificate templates "
+        "in Document Setup before emailing groups."
+    ),
+    SUPERVISORS: "Upload the student certificate template in Document Setup before emailing supervisors.",
 }
-MISSING_DETAILS = "Set the feedback survey link and close date before emailing students."
-PAST_DATE = "The survey close date can't be before today. Update it before emailing students."
+MISSING_DETAILS = "Set the feedback survey link and close date before emailing groups."
+PAST_DATE = "The survey close date can't be before today. Update it before emailing groups."
 
 _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
+_MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
 # The components the emails speak of, as on the marks summary.
 MARKED_COMPONENTS = ("SAQ", "POSTER")
@@ -111,11 +117,12 @@ def _person_name(user) -> str:
 # --- who gets them -------------------------------------------------------------
 
 
-def _team_members(teams) -> dict[int, list]:
-    """Each team's active students, by name: who its certificates are for."""
+def _team_members(teams, role) -> dict[int, list]:
+    """Each team's active members in ``role``, by name: its students or its
+    mentors, who its certificates are for."""
     members: dict[int, list] = {}
     memberships = GroupMembership.objects.filter(
-        group__in=teams, left_at__isnull=True, membership_role=_STUDENT_ROLE
+        group__in=teams, left_at__isnull=True, membership_role=role
     ).select_related("user")
     for m in memberships:
         if m.user and m.user.is_active:
@@ -131,9 +138,10 @@ class ResultsAudience:
 
     year: int
     teams: list = field(default_factory=list)
-    # Each team's students, and the addresses its email goes to.
-    team_members: dict = field(default_factory=dict)
+    # Each group's students and mentors, and the addresses its email goes to.
     team_students: dict = field(default_factory=dict)
+    team_mentors: dict = field(default_factory=dict)
+    team_recipients: dict = field(default_factory=dict)
     supervisors: list = field(default_factory=list)
     # Each supervisor's students on those teams, as (student, team).
     supervisor_students: dict = field(default_factory=dict)
@@ -141,12 +149,8 @@ class ResultsAudience:
     supervisors_emailed: set = field(default_factory=set)
 
     def counts(self) -> dict:
-        students_total = sum(len(self.team_students[t.id]) for t in self.teams)
-        students_emailed = sum(
-            len(self.team_students[t.id]) for t in self.teams if t.id in self.teams_emailed
-        )
         return {
-            STUDENTS: {"total": students_total, "emailed": students_emailed},
+            GROUPS: {"total": len(self.teams), "emailed": len(self.teams_emailed)},
             SUPERVISORS: {"total": len(self.supervisors), "emailed": len(self.supervisors_emailed)},
         }
 
@@ -159,15 +163,20 @@ def results_audience(year: int | None = None) -> ResultsAudience:
         # Their certificates come at the Symposium, so this email isn't theirs yet.
         teams = teams.exclude(finalist_flag__isnull=False)
     team_list = list(teams.order_by("id"))
-    members = _team_members(team_list)
-    students = {
-        team_id: sorted({user.email for user in users if user.email})
-        for team_id, users in members.items()
+    students = _team_members(team_list, _STUDENT_ROLE)
+    mentors = _team_members(team_list, _MENTOR_ROLE)
+    recipients = {
+        team.id: sorted({
+            user.email
+            for user in students.get(team.id, []) + mentors.get(team.id, [])
+            if user.email
+        })
+        for team in team_list
     }
-    # A team with no student to email can't be emailed; it isn't counted.
-    team_list = [team for team in team_list if students.get(team.id)]
+    # A group with nobody to email can't be emailed; it isn't counted.
+    team_list = [team for team in team_list if recipients[team.id]]
 
-    student_team = {user.id: team for team in team_list for user in members[team.id]}
+    student_team = {user.id: team for team in team_list for user in students.get(team.id, [])}
     supervisor_students: dict[int, list] = {}
     profiles = StudentProfile.objects.filter(
         user_id__in=list(student_team), supervisor__isnull=False
@@ -189,8 +198,9 @@ def results_audience(year: int | None = None) -> ResultsAudience:
     return ResultsAudience(
         year=year,
         teams=team_list,
-        team_members={team.id: members[team.id] for team in team_list},
-        team_students={team.id: students[team.id] for team in team_list},
+        team_students={team.id: students.get(team.id, []) for team in team_list},
+        team_mentors={team.id: mentors.get(team.id, []) for team in team_list},
+        team_recipients={team.id: recipients[team.id] for team in team_list},
         supervisors=supervisors,
         supervisor_students={s.id: supervisor_students[s.id] for s in supervisors},
         teams_emailed=set(
@@ -206,12 +216,17 @@ def results_audience(year: int | None = None) -> ResultsAudience:
 
 def templates_ready() -> dict[str, bool]:
     """Whether the documents each audience's email carries can be made:
-    students get certificates and a marks summary, supervisors certificates
-    and a spreadsheet, which needs no template."""
+    groups get their students' and mentors' certificates and a marks summary,
+    supervisors their students' certificates and a spreadsheet, which needs
+    no template."""
     grading = GradingSettings.load()
     certificate = bool(grading.certificate_template)
     return {
-        STUDENTS: certificate and bool(grading.marks_summary_template),
+        GROUPS: (
+            certificate
+            and bool(grading.mentor_certificate_template)
+            and bool(grading.marks_summary_template)
+        ),
         SUPERVISORS: certificate,
     }
 
@@ -229,8 +244,8 @@ def send_blocked_reason(details: ResultsEmailSettings, audience: str) -> str:
         return f"{get_email_type(EMAIL_KEYS[audience]).name} is switched off on System Emails."
     if not templates_ready()[audience]:
         return TEMPLATES_MISSING[audience]
-    if audience == STUDENTS:
-        # Only the students' email carries the survey.
+    if audience == GROUPS:
+        # Only the group email carries the survey.
         if not details.is_complete:
             return MISSING_DETAILS
         if details.survey_closes < symposium_today():
@@ -242,7 +257,7 @@ def send_blocked_reason(details: ResultsEmailSettings, audience: str) -> str:
 
 
 def render_team_email(group_name: str, details: ResultsEmailSettings, year: int) -> RenderedEmail:
-    """The students' email: an admin's saved wording if there is some,
+    """The group email: an admin's saved wording if there is some,
     otherwise the client's template, with its plain-text twin."""
     context = {
         "GROUP_NAME": group_name,
@@ -251,7 +266,7 @@ def render_team_email(group_name: str, details: ResultsEmailSettings, year: int)
         "SURVEY_CLOSES": _closes_text(details.survey_closes),
     }
     default_text = render_to_string("emails/results_team.txt", {**brand_context(), **context})
-    return render_system_email(EMAIL_KEYS[STUDENTS], context, default_text=default_text)
+    return render_system_email(EMAIL_KEYS[GROUPS], context, default_text=default_text)
 
 
 def render_supervisor_email(supervisor_name: str, year: int) -> RenderedEmail:
@@ -317,6 +332,15 @@ class Documents:
         )
         return render_certificate_data(self._template("certificate_template"), context, self._signatures())
 
+    def mentor_certificate(self, mentor, team) -> bytes:
+        context = certificate_context(
+            _person_name(mentor), team.group_name, self.year,
+            first_name=mentor.first_name, last_name=mentor.last_name,
+        )
+        return render_mentor_certificate_data(
+            self._template("mentor_certificate_template"), context, self._signatures()
+        )
+
     def marks_summary(self, team) -> bytes:
         from ..views.student import _grades_payload  # the views import this module
 
@@ -348,11 +372,21 @@ def _certificates(docs: Documents, students) -> list[ResultsFile]:
 
 
 def team_files(docs: Documents, audience: ResultsAudience, team) -> list[ResultsFile]:
-    """What the students' email carries: every team member's certificate,
-    then the team's marks summary."""
-    students = [(student, team) for student in audience.team_members.get(team.id, [])]
+    """What the group email carries: each student's certificate, each
+    mentor's certificate, then the group's marks summary. Everyone it goes to
+    gets the lot, so they see each other's."""
+    students = [(student, team) for student in audience.team_students.get(team.id, [])]
+    mentors = [
+        ResultsFile(
+            _file_name(docs.year, "Mentor_Certificate", _person_name(mentor), "docx"),
+            DOCX,
+            lambda mentor=mentor: docs.mentor_certificate(mentor, team),
+        )
+        for mentor in audience.team_mentors.get(team.id, [])
+    ]
     return _numbered([
         *_certificates(docs, students),
+        *mentors,
         ResultsFile(
             _file_name(docs.year, "Marks", team.group_name, "docx"),
             DOCX,
@@ -376,8 +410,12 @@ def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> 
 def example_file_names(audience: str, year: int) -> list[str]:
     """The attachments' names for a preview while nobody is due the email."""
     certificate = _file_name(year, "Certificate", "Student name", "docx")
-    if audience == STUDENTS:
-        return [certificate, _file_name(year, "Marks", "Team name", "docx")]
+    if audience == GROUPS:
+        return [
+            certificate,
+            _file_name(year, "Mentor_Certificate", "Mentor name", "docx"),
+            _file_name(year, "Marks", "Team name", "docx"),
+        ]
     return [certificate, f"{year}_BTF_Student_Marks.xlsx"]
 
 
@@ -411,8 +449,8 @@ def _record(model, **fields) -> None:
 
 
 def send_results_batch(actor, audience: str, cursor: int | None = None, *, limit: int = BATCH_SIZE) -> dict:
-    """Email ``audience`` for the next ``limit`` teams (students) or
-    supervisors not yet emailed.
+    """Email ``audience`` for the next ``limit`` groups or supervisors not
+    yet emailed.
 
     ``cursor`` is the last team or supervisor this run already tried, so one
     that fails is left for the next press rather than retried in a loop.
@@ -423,7 +461,7 @@ def send_results_batch(actor, audience: str, cursor: int | None = None, *, limit
     details = ResultsEmailSettings.load()
     result = results_audience()
 
-    if audience == STUDENTS:
+    if audience == GROUPS:
         pending = [t for t in result.teams if t.id > after and t.id not in result.teams_emailed]
     else:
         pending = [s for s in result.supervisors if s.id > after and s.id not in result.supervisors_emailed]
@@ -436,14 +474,14 @@ def send_results_batch(actor, audience: str, cursor: int | None = None, *, limit
         connection.open()
         try:
             for item in batch:
-                if audience == STUDENTS:
-                    recipients = result.team_students.get(item.id, [])
+                if audience == GROUPS:
+                    recipients = result.team_recipients.get(item.id, [])
                     who = f"group={item.id}"
                 else:
                     recipients = [item.email]
                     who = f"supervisor={item.id}"
                 try:
-                    if audience == STUDENTS:
+                    if audience == GROUPS:
                         rendered = render_team_email(item.group_name, details, result.year)
                         planned = team_files(docs, result, item)
                     else:
@@ -457,7 +495,7 @@ def send_results_batch(actor, audience: str, cursor: int | None = None, *, limit
                     continue
                 sent = _send_each(rendered, recipients, connection, who=who, files=files)
                 if recipients and sent == len(recipients):
-                    if audience == STUDENTS:
+                    if audience == GROUPS:
                         _record(ResultsTeamEmail, group=item, sent_by=actor)
                     else:
                         _record(ResultsSupervisorEmail, supervisor=item, year=result.year, sent_by=actor)
