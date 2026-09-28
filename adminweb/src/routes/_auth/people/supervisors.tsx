@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ForceDeleteNotice } from "@/components/people/ForceDeleteNotice";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,8 +67,7 @@ function SupervisorsPage() {
   } | null>(null);
   // Mass "select all matching" delete requires typing DELETE to confirm.
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  // Force delete also purges records that PROTECT the user (chat messages,
-  // resources, workshops, match runs) — needed to remove accounts with activity.
+  // What force delete destroys is written once, in ForceDeleteNotice.
   const [forceDelete, setForceDelete] = useState(false);
 
   const { data, isPending } = useQueryUsers({
@@ -434,11 +434,7 @@ function SupervisorsPage() {
                 checked={forceDelete}
                 onChange={(event) => setForceDelete(event.target.checked)}
               />
-              <span>
-                Force delete — also permanently delete each supervisor's chat
-                messages, uploaded resources, workshops, and match runs. Required
-                to remove accounts that have any activity.
-              </span>
+              <ForceDeleteNotice subject="supervisor" />
             </label>
             {forceDelete ? (
               <p className="text-sm font-medium text-destructive">

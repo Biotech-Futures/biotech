@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   USER_ROLES,
+  roleHasGeography,
   type CountryOption,
   type StateOption,
   type UserAccount,
@@ -212,8 +213,11 @@ export function UserEditorSheet({
       return;
     }
     // State stays optional — only Australian registrations carry one.
-    if (values.role !== "admin" && values.countryId == null) {
-      toast.error("Country is required for non-admin users.");
+    if (roleHasGeography(values.role) && values.countryId == null) {
+      // Admin and support are exempt. Neither form asks for a country, and
+      // nothing reads one: Ticket.region is a snapshot of the *requester's*
+      // country taken at submission, not the agent's.
+      toast.error("Country is required for this role.");
       return;
     }
     if (values.role === "student") {
@@ -317,8 +321,12 @@ export function UserEditorSheet({
                 setValues((current) => ({
                   ...current,
                   role: value as UserRole,
-                  countryId: value === "admin" ? null : current.countryId,
-                  stateId: value === "admin" ? null : current.stateId,
+                  countryId: roleHasGeography(value as UserRole)
+                    ? current.countryId
+                    : null,
+                  stateId: roleHasGeography(value as UserRole)
+                    ? current.stateId
+                    : null,
                 }))
               }
             >
@@ -335,7 +343,7 @@ export function UserEditorSheet({
             </Select>
           </UserFormRow>
 
-          {values.role !== "admin" ? (
+          {roleHasGeography(values.role) ? (
             <>
               <UserFormRow label="Country" htmlFor="user-country-select" required>
                 <Select

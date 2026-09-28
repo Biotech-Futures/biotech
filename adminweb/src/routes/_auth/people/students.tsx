@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ForceDeleteNotice } from "@/components/people/ForceDeleteNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StudentFilters } from "@/components/user/StudentFilters";
 import { StudentTable } from "@/components/user/StudentTable";
@@ -587,11 +588,7 @@ function StudentPage() {
                 checked={forceDelete}
                 onChange={(event) => setForceDelete(event.target.checked)}
               />
-              <span>
-                Force delete — also permanently delete each student's chat
-                messages, uploaded resources, and other activity. Required to
-                remove accounts that have any activity.
-              </span>
+              <ForceDeleteNotice subject="student" />
             </label>
             {forceDelete ? (
               <p className="text-sm font-medium text-destructive">
