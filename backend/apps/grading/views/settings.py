@@ -163,7 +163,7 @@ def _read_candidate(request, kind: str):
     return data, scan, None
 
 
-def _docx_response(payload: bytes, kind: str) -> HttpResponse:
+def _docx_response(payload: bytes, kind: str, filename: str | None = None) -> HttpResponse:
     resp = HttpResponse(
         payload,
         content_type=(
@@ -171,8 +171,25 @@ def _docx_response(payload: bytes, kind: str) -> HttpResponse:
             ".wordprocessingml.document"
         ),
     )
-    resp["Content-Disposition"] = f'attachment; filename="test-{kind}.docx"'
+    resp["Content-Disposition"] = content_disposition_header(
+        as_attachment=True, filename=filename or f"test-{kind}.docx"
+    )
     return resp
+
+
+def _person_render(kind: str, person: str, template: bytes | None = None):
+    """A test render with a real person's details (``person`` is a value from
+    ``TemplatePeopleView``), or the error to answer with."""
+    from ..services import docx as docx_service
+    from ..services import results_notify
+
+    try:
+        name, payload = results_notify.document_for(kind, person, template)
+    except docx_service.TemplateNotConfigured:
+        return Response({"detail": "No template uploaded yet."}, status=404)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    return _docx_response(payload, kind, name)
 
 
 class TemplateScanView(APIView):
@@ -241,6 +258,21 @@ class TemplateDownloadView(APIView):
         return resp
 
 
+class TemplatePeopleView(APIView):
+    """GET /api/v1/grading/settings/test-people/<kind>/ — who a template can
+    be tested with: this year's students, or mentors for the mentor
+    certificate, as ``{"options": [{"value", "label"}]}``."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def get(self, request, kind: str):
+        from ..services import results_notify
+
+        if kind not in TEMPLATE_KINDS:
+            return Response({"detail": "unknown template kind"}, status=404)
+        return Response({"options": results_notify.document_people(kind)})
+
+
 class TemplateTestRenderView(APIView):
     """GET/POST /api/v1/grading/settings/test-render/<kind>/
 
@@ -250,6 +282,10 @@ class TemplateTestRenderView(APIView):
     template (uploaded, or the bundled fallback); POST renders an attached
     candidate file WITHOUT saving it, so a selection can be test-driven
     while the stored template stays untouched until Save.
+
+    With ``person`` (a query parameter, or a form field on POST) it renders
+    that student's or mentor's real document instead, as their results
+    email would carry it.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -259,6 +295,11 @@ class TemplateTestRenderView(APIView):
         # Local import: python-docx is heavier than anything else views pull in.
         from ..services import docx as docx_service
 
+        if kind not in TEMPLATE_KINDS:
+            return Response({"detail": "unknown template kind"}, status=404)
+        person = request.query_params.get("person")
+        if person:
+            return _person_render(kind, person)
         try:
             if kind == "marks-summary":
                 payload = docx_service.render_marks_summary(
@@ -284,6 +325,9 @@ class TemplateTestRenderView(APIView):
         data, _scan, error = _read_candidate(request, kind)
         if error:
             return error
+        person = request.data.get("person")
+        if person:
+            return _person_render(kind, person, data)
         if kind == "marks-summary":
             payload = docx_service.render_marks_summary_data(
                 data, docx_service.sample_marks_summary_context()

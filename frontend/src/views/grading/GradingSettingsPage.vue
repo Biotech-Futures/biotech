@@ -108,14 +108,38 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('marks-summary')" :key="name">{{ name }}</code>
             </p>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
-              @click="testRender('marks-summary')"
-            >
-              {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
-            </button>
+            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
+                @click="testRender('marks-summary')"
+              >
+                {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['marks-summary'] || !(summaryTpl || settings.marks_summary_template)"
+                  @click="testRender('marks-summary', true)"
+                >
+                  {{ testing === 'marks-summary-person' ? 'Rendering…' : 'Test Student' }}
+                </button>
+                <select
+                  v-model="person['marks-summary']"
+                  class="grading-settings__person-select"
+                  aria-label="Student"
+                  :disabled="!people['marks-summary'].length"
+                >
+                  <option v-if="!people['marks-summary'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['marks-summary']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
             <p v-if="summaryTpl" class="grading-settings__save-hint">
               Click Update to save templates
             </p>
@@ -153,14 +177,38 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('certificate')" :key="name">{{ name }}</code>
             </p>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
-              @click="testRender('certificate')"
-            >
-              {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
-            </button>
+            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
+                @click="testRender('certificate')"
+              >
+                {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['certificate'] || !(certTpl || settings.certificate_template)"
+                  @click="testRender('certificate', true)"
+                >
+                  {{ testing === 'certificate-person' ? 'Rendering…' : 'Test Student' }}
+                </button>
+                <select
+                  v-model="person['certificate']"
+                  class="grading-settings__person-select"
+                  aria-label="Student"
+                  :disabled="!people['certificate'].length"
+                >
+                  <option v-if="!people['certificate'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['certificate']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
             <p v-if="certTpl" class="grading-settings__save-hint">
               Click Update to save templates
             </p>
@@ -198,14 +246,38 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('mentor-certificate')" :key="name">{{ name }}</code>
             </p>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="testing !== '' || !(mentorTpl || settings.mentor_certificate_template)"
-              @click="testRender('mentor-certificate')"
-            >
-              {{ testing === 'mentor-certificate' ? 'Rendering…' : 'Test' }}
-            </button>
+            <!-- Test fills in made-up details; Test Mentor a real mentor's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(mentorTpl || settings.mentor_certificate_template)"
+                @click="testRender('mentor-certificate')"
+              >
+                {{ testing === 'mentor-certificate' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['mentor-certificate'] || !(mentorTpl || settings.mentor_certificate_template)"
+                  @click="testRender('mentor-certificate', true)"
+                >
+                  {{ testing === 'mentor-certificate-person' ? 'Rendering…' : 'Test Mentor' }}
+                </button>
+                <select
+                  v-model="person['mentor-certificate']"
+                  class="grading-settings__person-select"
+                  aria-label="Mentor"
+                  :disabled="!people['mentor-certificate'].length"
+                >
+                  <option v-if="!people['mentor-certificate'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['mentor-certificate']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
             <p v-if="mentorTpl" class="grading-settings__save-hint">
               Click Update to save templates
             </p>
@@ -252,11 +324,13 @@ import {
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
+  fetchTemplateTestPeople,
   scanTemplateCandidate,
   updateGradingSettings,
   type GradingSettingsDetail,
   type TemplateKind,
-  type TemplateScan
+  type TemplateScan,
+  type TestEmailRecipient
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -474,7 +548,9 @@ const MENTOR_CERTIFICATE_FIELDS: Placeholder[] = [
   'Director2Position'
 ].map(token)
 
-const testing = ref<'' | TemplateKind>('')
+// Which Test is rendering: a kind, or "<kind>-person" for its Test Student
+// or Test Mentor.
+const testing = ref<'' | TemplateKind | `${TemplateKind}-person`>('')
 
 // What the saved template actually contains, so chips can show which
 // placeholders were found and which stray ones would render blank.
@@ -544,14 +620,44 @@ const downloadCurrent = async (kind: TemplateKind) => {
   }
 }
 
-const testRender = async (kind: TemplateKind) => {
+// Who each template can be tested with: this year's students, or mentors for
+// the mentor certificate. The first is picked to start with.
+const people = ref<Record<TemplateKind, TestEmailRecipient[]>>({
+  'marks-summary': [],
+  certificate: [],
+  'mentor-certificate': []
+})
+const person = ref<Record<TemplateKind, string>>({
+  'marks-summary': '',
+  certificate: '',
+  'mentor-certificate': ''
+})
+
+const loadPeople = async () => {
+  await Promise.all(
+    (Object.keys(PICKED) as TemplateKind[]).map(async (kind) => {
+      try {
+        people.value[kind] = (await fetchTemplateTestPeople(kind)).options
+      } catch {
+        // Best-effort: the dropdown just reads Nobody yet.
+        people.value[kind] = []
+      }
+      person.value[kind] = people.value[kind][0]?.value ?? ''
+    })
+  )
+}
+
+// With forPerson, the chosen student's or mentor's real document; otherwise
+// made-up details.
+const testRender = async (kind: TemplateKind, forPerson = false) => {
   actionError.value = ''
-  testing.value = kind
+  testing.value = forPerson ? `${kind}-person` : kind
   const candidate = PICKED[kind].value
+  const who = forPerson ? person.value[kind] : undefined
   try {
     // A picked file is test-driven as-is; otherwise the saved template runs.
-    if (candidate) await downloadCandidateTestRender(kind, candidate)
-    else await downloadTemplateTestRender(kind)
+    if (candidate) await downloadCandidateTestRender(kind, candidate, who)
+    else await downloadTemplateTestRender(kind, who)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -576,6 +682,7 @@ const load = async () => {
 onMounted(() => {
   void load()
   void loadScans()
+  void loadPeople()
 })
 
 const clearFilePickers = () => {
@@ -782,6 +889,32 @@ const save = async () => {
 }
 
 /* Yellow nudge under Test while a picked file is still unsaved. */
+/* Test, then Test Student or Test Mentor with its dropdown. */
+.grading-settings__test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+/* The button and its dropdown stay together when the line wraps. */
+.grading-settings__person-test {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.grading-settings__person-select {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  max-width: 14rem;
+}
+
 .grading-settings__save-hint {
   color: #b8860b;
   font-size: 0.85rem;

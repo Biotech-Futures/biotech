@@ -229,6 +229,31 @@ class FinalistToggleTests(_GradingFixture):
         self.assertTrue(row["is_late"])
         self.assertEqual(row["late_by"], "3h 12m")
 
+    def test_candidates_carry_the_marking_key_categories(self):
+        from apps.grading.models import GroupMarkingCategories
+
+        GroupMarkingCategories.objects.create(
+            group=self.group,
+            product_categories=["Health and Medicine", "Other"],
+            product_category_other="Wearables",
+            solution_category="Other",
+            solution_category_other="App",
+        )
+        bare = Groups.objects.create(group_name="BTF-BARE")
+        self.client.force_authenticate(self.staff)
+        rows = {
+            row["group_id"]: row
+            for row in self.client.get(reverse("grading:finalist-candidates")).json()["rows"]
+        }
+        team = rows[self.group.id]
+        self.assertEqual(team["project_category"], "Health and Medicine, Wearables")
+        self.assertEqual(team["solution_category"], "App")
+        # No project title is kept anywhere yet.
+        self.assertEqual(team["project_title"], "")
+        # A group with nothing picked reads blank.
+        self.assertEqual(rows[bare.id]["project_category"], "")
+        self.assertEqual(rows[bare.id]["solution_category"], "")
+
     def test_late_label_drops_minutes_past_a_day(self):
         from datetime import timedelta
 

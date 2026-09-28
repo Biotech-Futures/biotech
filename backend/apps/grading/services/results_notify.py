@@ -177,10 +177,15 @@ class ResultsAudience:
         }
 
 
+def _submitted_teams(year: int):
+    """This year's groups that handed something in."""
+    submitted = Submission.objects.filter(submitted_at__isnull=False).values("group_id")
+    return Groups.objects.filter(deleted_at__isnull=True, year=year, id__in=submitted)
+
+
 def results_audience(year: int | None = None) -> ResultsAudience:
     year = year or current_cohort()
-    submitted = Submission.objects.filter(submitted_at__isnull=False).values("group_id")
-    teams = Groups.objects.filter(deleted_at__isnull=True, year=year, id__in=submitted)
+    teams = _submitted_teams(year)
     if CertificatesRelease.load().exclude_finalists:
         # Their certificates come at the Symposium, so this email isn't theirs yet.
         teams = teams.exclude(finalist_flag__isnull=False)
@@ -326,10 +331,12 @@ class Documents:
     """Makes the attachments for one batch, reading each template and the
     signatures from storage once rather than once per document."""
 
-    def __init__(self, year: int):
+    def __init__(self, year: int, templates: dict[str, bytes] | None = None):
         self.year = year
         self._grading = GradingSettings.load()
-        self._templates: dict[str, bytes] = {}
+        # ``templates`` stand in for saved ones, by settings field: a file
+        # Document Setup is testing before it's saved.
+        self._templates: dict[str, bytes] = dict(templates or {})
         self._images: dict | None = None
 
     def _template(self, field_name: str) -> bytes:
@@ -481,6 +488,63 @@ def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> 
         *_mentor_certificates(docs, audience, teams),
         ResultsFile(f"{docs.year}_BTF_Student_Marks.xlsx", XLSX, lambda: docs.marks_sheet(teams)),
     ])
+
+
+# --- Document Setup's tests with a real person --------------------------------------
+
+_TEMPLATE_FIELDS = {
+    "marks-summary": "marks_summary_template",
+    "certificate": "certificate_template",
+    "mentor-certificate": "mentor_certificate_template",
+}
+
+
+def _test_role(kind: str):
+    return _MENTOR_ROLE if kind == "mentor-certificate" else _STUDENT_ROLE
+
+
+def document_people(kind: str) -> list[dict]:
+    """Who Document Setup can test a template with: this year's students in
+    groups that submitted (the marks summary is their group's), or their
+    mentors for the mentor certificate. "(Team) Name" options, by team."""
+    teams = list(_submitted_teams(current_cohort()))
+    members = _team_members(teams, _test_role(kind))
+    rows = sorted(
+        (team.group_name.lower(), _person_name(user).lower(), f"{team.id}:{user.id}",
+         f"({team.group_name}) {_person_name(user)}")
+        for team in teams
+        for user in members.get(team.id, [])
+    )
+    return [{"value": value, "label": label} for *_, value, label in rows]
+
+
+def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[str, bytes]:
+    """The document that person's results email carries, from the saved
+    template or ``template`` (a file picked but not saved), with its file
+    name. ValueError when they aren't on ``document_people``."""
+    year = current_cohort()
+    try:
+        team_id, user_id = (int(part) for part in value.split(":"))
+    except ValueError:
+        raise ValueError("Pick someone from the list.") from None
+    team = _submitted_teams(year).filter(id=team_id).first()
+    members = _team_members([team], _test_role(kind)).get(team_id, []) if team else []
+    person = next((user for user in members if user.id == user_id), None)
+    if person is None:
+        raise ValueError("That person isn't on this year's list.")
+    field_name = _TEMPLATE_FIELDS[kind]
+    docs = Documents(year, {field_name: template} if template else None)
+    if kind == "marks-summary":
+        return _file_name(year, "Marks", team.group_name, "docx"), docs.marks_summary(team)
+    if kind == "mentor-certificate":
+        return (
+            _file_name(year, "Mentor_Certificate", _person_name(person), "docx"),
+            docs.mentor_certificate(person, team),
+        )
+    return (
+        _file_name(year, "Student_Certificate", _person_name(person), "docx"),
+        docs.certificate(person, team),
+    )
 
 
 def example_file_names(audience: str, year: int) -> list[str]:

@@ -21,10 +21,18 @@ from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 
-from ..models import FinalistEmailSettings, FinalistFlag, Grade, Rubric, SubmissionComponent
+from ..models import (
+    FinalistEmailSettings,
+    FinalistFlag,
+    Grade,
+    GroupMarkingCategories,
+    Rubric,
+    SubmissionComponent,
+)
 from ..permissions import IsGrader
 from ..services import content
 from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
+from ..services.xlsx import _format_product_category, _format_solution_category
 
 MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
@@ -170,6 +178,9 @@ class FinalistCandidatesView(APIView):
              "total": "31.00" | null,                  # sum across components
              "markers": ["Ada Grader", ...],           # deduped, latest first
              "incomplete": ["REPORT", ...],            # entered, not fully marked
+             "project_title": "",                      # no title is kept yet
+             "project_category": "Health and Medicine" | "",
+             "solution_category": "App" | "",
              "is_finalist": bool}
           ]
         }
@@ -284,6 +295,11 @@ class FinalistCandidatesView(APIView):
             marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        # The categories picked on the marking key.
+        categories = {
+            c.group_id: c
+            for c in GroupMarkingCategories.objects.filter(group_id__in=[g["id"] for g in groups])
+        }
         submitted_group_ids = {e.group_id for e in entries}
         # Parts a team handed in that still have unscored criteria (including
         # parts nobody has started), so the table can flag them apart from
@@ -324,6 +340,10 @@ class FinalistCandidatesView(APIView):
                 "markers": markers_by_group.get(g["id"], []),
                 # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
+                # No project title is kept anywhere yet, so it stays blank.
+                "project_title": "",
+                "project_category": _format_product_category(categories.get(g["id"])),
+                "solution_category": _format_solution_category(categories.get(g["id"])),
                 "is_finalist": g["id"] in finalist_ids,
                 "has_submission": g["id"] in submitted_group_ids,
                 "incomplete": [

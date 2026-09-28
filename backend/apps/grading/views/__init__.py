@@ -41,6 +41,7 @@ from .release import CertificatesReleaseView, MarksReleaseView
 from .settings import (
     GradingSettingsView,
     TemplateDownloadView,
+    TemplatePeopleView,
     TemplateScanView,
     TemplateTestRenderView,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "GradingJobDownloadView",
     "GradingSettingsView",
     "TemplateDownloadView",
+    "TemplatePeopleView",
     "TemplateScanView",
     "TemplateTestRenderView",
     "GroupDownloadView",

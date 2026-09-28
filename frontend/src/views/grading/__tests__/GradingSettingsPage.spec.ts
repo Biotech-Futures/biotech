@@ -7,6 +7,7 @@ import {
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
+  fetchTemplateTestPeople,
   scanTemplateCandidate,
   updateGradingSettings
 } from '@/utils/gradingAPI'
@@ -22,6 +23,7 @@ vi.mock('@/utils/gradingAPI', () => ({
   downloadTemplateTestRender: vi.fn(),
   fetchGradingSettings: vi.fn(),
   fetchTemplateScan: vi.fn(),
+  fetchTemplateTestPeople: vi.fn(),
   scanTemplateCandidate: vi.fn(),
   updateGradingSettings: vi.fn()
 }))
@@ -32,6 +34,20 @@ const updateMock = vi.mocked(updateGradingSettings)
 const testStoredMock = vi.mocked(downloadTemplateTestRender)
 const testCandidateMock = vi.mocked(downloadCandidateTestRender)
 const savedTemplateMock = vi.mocked(downloadSavedTemplate)
+const peopleMock = vi.mocked(fetchTemplateTestPeople)
+
+// This year's students, or mentors for the mentor certificate.
+const PEOPLE = {
+  'marks-summary': [
+    { value: '1:11', label: '(BTF1) Amy Chen' },
+    { value: '2:12', label: '(BTF2) Ben Lee' }
+  ],
+  certificate: [
+    { value: '1:11', label: '(BTF1) Amy Chen' },
+    { value: '2:12', label: '(BTF2) Ben Lee' }
+  ],
+  'mentor-certificate': [{ value: '1:21', label: '(BTF1) Mo Mentor' }]
+}
 
 const detail = (over: Record<string, unknown> = {}) => ({
   director_1_name: 'Prof. Alice Adams',
@@ -93,6 +109,7 @@ beforeEach(() => {
   testStoredMock.mockReset()
   testCandidateMock.mockReset()
   savedTemplateMock.mockReset()
+  peopleMock.mockReset().mockImplementation(async (kind) => ({ options: PEOPLE[kind] }))
 })
 
 describe('loading', () => {
@@ -259,13 +276,62 @@ describe('template picking and testing', () => {
 
     await buttonNamed(wrapper, /^Test$/).trigger('click')
     await flushPromises()
-    expect(testStoredMock).toHaveBeenCalledWith('marks-summary')
+    expect(testStoredMock).toHaveBeenCalledWith('marks-summary', undefined)
 
     await pickFile(wrapper, '.docx', 'candidate.docx', 1) // certificate slot
     const testButtons = wrapper.findAll('button').filter((b) => /^Test$/.test(b.text().trim()))
     await testButtons[1]!.trigger('click')
     await flushPromises()
-    expect(testCandidateMock).toHaveBeenCalledWith('certificate', expect.any(File))
+    expect(testCandidateMock).toHaveBeenCalledWith('certificate', expect.any(File), undefined)
+  })
+
+  it('each Test is followed by Test Student or Test Mentor and its dropdown', async () => {
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.grading-settings__test-row')
+    expect(rows.map((r) => r.findAll('button').map((b) => b.text().trim()))).toEqual([
+      ['Test', 'Test Student'],
+      ['Test', 'Test Student'],
+      ['Test', 'Test Mentor']
+    ])
+    const options = (i: number) => rows[i]!.findAll('option').map((o) => o.text())
+    expect(options(0)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
+    expect(options(1)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
+    expect(options(2)).toEqual(['(BTF1) Mo Mentor'])
+    expect(peopleMock).toHaveBeenCalledWith('mentor-certificate')
+  })
+
+  it('Test Student renders the chosen student with the saved template', async () => {
+    testStoredMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const row = wrapper.findAll('.grading-settings__test-row')[0]!
+    await row.find('select').setValue('2:12')
+    await buttonNamed(wrapper, /^Test Student$/).trigger('click')
+    await flushPromises()
+    expect(testStoredMock).toHaveBeenCalledWith('marks-summary', '2:12')
+  })
+
+  it('Test Mentor renders a picked file with the chosen mentor', async () => {
+    candidateScanMock.mockResolvedValueOnce(scan(['Name']))
+    testCandidateMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    await pickFile(wrapper, '.docx', 'BTF_Mentor.docx', 2)
+    await buttonNamed(wrapper, /^Test Mentor$/).trigger('click')
+    await flushPromises()
+    expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File), '1:21')
+  })
+
+  it('Test Student stays off while nobody is on the list or no template exists', async () => {
+    peopleMock.mockImplementation(async (kind) => ({
+      options: kind === 'marks-summary' ? [] : PEOPLE[kind]
+    }))
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.grading-settings__test-row')
+    // Nobody yet: the dropdown says so and both it and the button are off.
+    expect(rows[0]!.find('select').text()).toBe('Nobody yet')
+    expect(rows[0]!.find('select').attributes('disabled')).toBeDefined()
+    expect(rows[0]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+    // People, but no certificate template saved or picked.
+    expect(rows[1]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()
   })
 
   it('Download Current Template sits above Browse and fetches the saved file', async () => {
@@ -340,7 +406,7 @@ describe('template picking and testing', () => {
 
     await mentor.findAll('button').find((b) => b.text().trim() === 'Test')!.trigger('click')
     await flushPromises()
-    expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File))
+    expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File), undefined)
 
     await buttonNamed(wrapper, /^Update$/).trigger('click')
     await flushPromises()

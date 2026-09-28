@@ -583,12 +583,25 @@ export function scanTemplateCandidate(
   })
 }
 
+// GET /api/v1/grading/settings/test-people/{kind}/ — who a template can be
+// tested with: this year's students, or mentors for the mentor certificate.
+export function fetchTemplateTestPeople(
+  kind: TemplateKind
+): Promise<{ options: TestEmailRecipient[] }> {
+  return requestJson<{ options: TestEmailRecipient[] }>(
+    `/api/v1/grading/settings/test-people/${kind}/`
+  )
+}
+
 // GET /api/v1/grading/settings/test-render/{kind}/ — render the active docx
 // template with synthetic data and save it, so admins can check placeholders.
+// With `person` (from fetchTemplateTestPeople), that person's real document.
 export async function downloadTemplateTestRender(
-  kind: TemplateKind
+  kind: TemplateKind,
+  person?: string
 ): Promise<void> {
-  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/`)
+  const qs = person ? `?person=${encodeURIComponent(person)}` : ''
+  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/${qs}`)
   triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
 }
 
@@ -602,13 +615,16 @@ export async function downloadSavedTemplate(
 }
 
 // POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
-// with synthetic data while the saved template stays active.
+// with synthetic data while the saved template stays active. With `person`,
+// that person's real details.
 export async function downloadCandidateTestRender(
   kind: TemplateKind,
-  file: File
+  file: File,
+  person?: string
 ): Promise<void> {
   const fd = new FormData()
   fd.append('file', file)
+  if (person) fd.append('person', person)
   const { blob, filename } = await requestBlob(
     `/api/v1/grading/settings/test-render/${kind}/`,
     { method: 'POST', body: fd }
@@ -754,6 +770,11 @@ export interface FinalistCandidateRow {
   markers: string[]
   /** Latest marker per rubric criterion, e.g. {label: "SAQ 1", marker: "Ada"}. */
   criterion_markers: { label: string; marker: string }[]
+  /** No project title is kept yet, so this is always "". */
+  project_title: string
+  /** The categories picked on the marking key; "" when none. */
+  project_category: string
+  solution_category: string
   is_finalist: boolean
   has_submission: boolean
   /** Components the team submitted that still have unmarked criteria. */

@@ -489,3 +489,78 @@ class ResultsEmailTests(_GradingFixture):
             f"{year}_BTF_Mentor_Certificate_Name.docx",
             f"{year}_BTF_Marks_Team_name.docx",
         ])
+
+    # -- Document Setup's tests with a real person ----------------------------------------
+
+    def _people(self, kind):
+        r = self.client.get(reverse("grading:settings-test-people", args=[kind]))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        return r.json()["options"]
+
+    def _value(self, kind, label):
+        return next(o["value"] for o in self._people(kind) if o["label"] == label)
+
+    def test_templates_can_be_tested_with_this_years_students_or_mentors(self):
+        # Every group that submitted, finalists too; not the one with no entry.
+        self.assertEqual(
+            [o["label"] for o in self._people("certificate")],
+            ["(BTF-TEST-1) Stu amy", "(BTF-TEST-1) Stu ben", "(Finalist Team) Stu fin"],
+        )
+        self.assertEqual(self._people("marks-summary"), self._people("certificate"))
+        self.assertEqual([o["label"] for o in self._people("mentor-certificate")], ["(BTF-TEST-1) Mo Mentor"])
+        self.assertEqual(
+            self.client.get(reverse("grading:settings-test-people", args=["nope"])).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_a_test_render_for_a_person_is_their_real_document(self):
+        from apps.submissions.services import current_cohort
+
+        year = current_cohort()
+        url = reverse("grading:settings-test-render", args=["certificate"])
+        r = self.client.get(url, {"person": self._value("certificate", "(BTF-TEST-1) Stu amy")})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertIn(f"{year}_BTF_Student_Certificate_Stu_amy.docx", r["Content-Disposition"])
+        self.assertIn("Stu amy — BTF-TEST-1", _docx_text(r.content))
+
+        url = reverse("grading:settings-test-render", args=["mentor-certificate"])
+        r = self.client.get(url, {"person": self._value("mentor-certificate", "(BTF-TEST-1) Mo Mentor")})
+        self.assertIn(f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx", r["Content-Disposition"])
+        self.assertIn("Mo Mentor mentored BTF-TEST-1", _docx_text(r.content))
+
+        # The marks summary is the student's group's, with its real marks.
+        url = reverse("grading:settings-test-render", args=["marks-summary"])
+        r = self.client.get(url, {"person": self._value("marks-summary", "(BTF-TEST-1) Stu ben")})
+        self.assertIn(f"{year}_BTF_Marks_BTF-TEST-1.docx", r["Content-Disposition"])
+        self.assertIn("Team BTF-TEST-1 S1 8", _docx_text(r.content))
+
+    def test_a_picked_file_is_tested_with_a_person_before_it_is_saved(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from .fixtures import _build_docx
+
+        url = reverse("grading:settings-test-render", args=["certificate"])
+        r = self.client.post(url, {
+            "file": SimpleUploadedFile("new.docx", _build_docx("Candidate for {{Name}}")),
+            "person": self._value("certificate", "(Finalist Team) Stu fin"),
+        }, format="multipart")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertIn("Candidate for Stu fin", _docx_text(r.content))
+        # The saved template is untouched.
+        with GradingSettings.load().certificate_template.open("rb") as fh:
+            self.assertIn("{{Name}} — {{ProjectTitle}}", _docx_text(fh.read()))
+
+    def test_a_person_not_on_the_list_is_refused(self):
+        url = reverse("grading:settings-test-render", args=["mentor-certificate"])
+        # A student isn't on the mentor list.
+        student = self._value("certificate", "(BTF-TEST-1) Stu amy")
+        r = self.client.get(url, {"person": student})
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["detail"], "That person isn't on this year's list.")
+        r = self.client.get(url, {"person": "rubbish"})
+        self.assertEqual(r.json()["detail"], "Pick someone from the list.")
+
+    def test_the_people_list_is_for_graders_only(self):
+        self.client.force_authenticate(_user("kid@example.com"))
+        r = self.client.get(reverse("grading:settings-test-people", args=["certificate"]))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)

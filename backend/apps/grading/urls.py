@@ -43,6 +43,7 @@ from .views import (
     SupervisorGradesView,
     TestEmailView,
     TemplateDownloadView,
+    TemplatePeopleView,
     TemplateScanView,
     TemplateTestRenderView,
 )
@@ -95,6 +96,12 @@ urlpatterns = [
         "settings/template/<str:kind>/",
         TemplateDownloadView.as_view(),
         name="settings-template-download",
+    ),
+    # Who a template can be tested with, for a real person's document.
+    path(
+        "settings/test-people/<str:kind>/",
+        TemplatePeopleView.as_view(),
+        name="settings-test-people",
     ),
     # Render the active template with synthetic data to check placeholders.
     path(
