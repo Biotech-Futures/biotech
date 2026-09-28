@@ -861,9 +861,16 @@ export const updateAdminResource = (id: number | string, payload: UpdateAdminRes
 export const deleteAdminResource = (id: number | string) =>
   adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
 
-export const replaceAdminResourceFile = (id: number | string, file: File) => {
+export const replaceAdminResourceFile = (
+  id: number | string,
+  file: File,
+  // The admin ticked "I understand this file is large"; the backend only
+  // accepts a file over the size limit when this is true.
+  acknowledgedOversized = false
+) => {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
     method: 'POST',
     body: formData,

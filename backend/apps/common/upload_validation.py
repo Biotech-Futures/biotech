@@ -21,6 +21,22 @@ def _normalized_mime_types(values) -> set[str]:
     }
 
 
+_TRUTHY_FLAG_VALUES = {"1", "true", "yes", "on"}
+
+
+def is_truthy_flag(value) -> bool:
+    """Read a boolean flag that may arrive as a multipart/query string.
+
+    Multipart forms send "true"/"false" as text, so ``bool("false")`` would be
+    wrong. Same truthy set the views use for ``?inline=``/``?force=``.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in _TRUTHY_FLAG_VALUES
+
+
 def _format_bytes(size: int) -> str:
     if size >= 1024 * 1024:
         return f"{size // (1024 * 1024)} MB"
@@ -119,12 +135,19 @@ def validate_uploaded_file(
     allowed_extensions,
     allowed_mime_types,
     field_label: str,
+    acknowledged_oversized: bool = False,
 ):
+    """Size, type allow-list and executable checks for an uploaded file.
+
+    ``acknowledged_oversized`` lets a file over ``max_size`` through once the
+    uploader has confirmed it's large. It bypasses the size check only: the
+    extension/MIME allow-list and the executable checks always run.
+    """
     if uploaded_file is None:
         return uploaded_file
 
     file_size = getattr(uploaded_file, "size", None)
-    if file_size is not None and file_size > max_size:
+    if file_size is not None and file_size > max_size and not acknowledged_oversized:
         raise serializers.ValidationError(
             f"{field_label} exceeds the maximum allowed size of {_format_bytes(max_size)}."
         )

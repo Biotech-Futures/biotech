@@ -174,8 +174,26 @@
             <span v-if="currentFileSize" class="admin-resource-file-size">({{ formatFileSize(currentFileSize) }})</span>
           </div>
 
+          <!-- Large files are allowed once the admin confirms -->
+          <div v-if="isOversized && selectedFile" class="admin-resource-form__oversize" role="alert">
+            <p class="admin-resource-form__oversize-text">
+              <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+              This file is {{ formatFileSize(selectedFile.size) }}, over the 25 MB guideline. Large files
+              take longer to upload and open.
+            </p>
+            <label class="admin-resource-form__checkbox-label">
+              <input
+                id="res-oversize-ack"
+                v-model="acknowledgedOversized"
+                type="checkbox"
+                :disabled="saving"
+              />
+              <span>I understand this file is large</span>
+            </label>
+          </div>
+
           <p class="admin-resource-form__hint">
-            Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Max 25 MB
+            Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Files over 25 MB need confirmation
           </p>
         </div>
       </div>
@@ -219,7 +237,7 @@
         <button
           type="submit"
           class="btn btn-primary"
-          :disabled="saving || busy || loadingDetail"
+          :disabled="saving || busy || loadingDetail || (form.kind !== 'page' && needsOversizeAck)"
         >
           <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
           {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
@@ -305,6 +323,13 @@ const resourceTypes = ref<ResourceType[]>([])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
+
+// Files over this size are allowed, but only after the admin confirms they
+// know it's large; the backend rejects them without that confirmation.
+const LARGE_FILE_BYTES = 25 * 1024 * 1024
+const acknowledgedOversized = ref(false)
+const isOversized = computed(() => (selectedFile.value?.size ?? 0) > LARGE_FILE_BYTES)
+const needsOversizeAck = computed(() => isOversized.value && !acknowledgedOversized.value)
 
 const currentFileName = computed(() => {
   if (adminDetail.value?.file_name) return adminDetail.value.file_name
@@ -411,6 +436,7 @@ const applyResourceData = (raw: any) => {
 const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
   formError.value = ''
   selectedFile.value = null
+  acknowledgedOversized.value = false
   adminDetail.value = null
   editorKey.value++
   if (fileInputRef.value) {
@@ -473,17 +499,16 @@ const onFileChange = (e: Event) => {
   const file = target.files?.[0]
   if (!file) return
 
-  if (file.size > 25 * 1024 * 1024) {
-    formError.value = 'File is too large. Maximum allowed size is 25 MB.'
-    return
-  }
-
+  // Large files aren't blocked; the template asks for confirmation instead.
+  // A new file always needs its own confirmation.
   selectedFile.value = file
+  acknowledgedOversized.value = false
   formError.value = ''
 }
 
 const clearSelectedFile = () => {
   selectedFile.value = null
+  acknowledgedOversized.value = false
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -532,6 +557,10 @@ const validateForm = (): boolean => {
     formError.value = 'Please select a file to upload.'
     return false
   }
+  if (form.kind !== 'page' && needsOversizeAck.value) {
+    formError.value = 'Please confirm you understand this file is large before uploading it.'
+    return false
+  }
   if (form.kind === 'page') {
     const strippedContent = form.contentHtml.replace(/<[^>]*>/g, '').trim()
     if (!strippedContent && !form.contentHtml.includes('<img') && !form.contentHtml.includes('<table')) {
@@ -576,6 +605,7 @@ const submitForm = async () => {
         formData.append('description', form.description.trim())
         formData.append('kind', form.kind)
         formData.append('visibility_scope', 'role_based')
+        formData.append('acknowledged_oversized', String(acknowledgedOversized.value))
 
         if (form.typeId) {
           formData.append('resource_type_id', String(form.typeId))
@@ -609,7 +639,21 @@ const submitForm = async () => {
 
       // If a new physical file was chosen in edit mode for a file resource, replace it
       if (selectedFile.value && form.kind !== 'page') {
-        await replaceAdminResourceFile(props.resource.id, selectedFile.value)
+        try {
+          await replaceAdminResourceFile(
+            props.resource.id,
+            selectedFile.value,
+            acknowledgedOversized.value
+          )
+        } catch (err: unknown) {
+          // The details above are already saved; only the file was refused.
+          // Keep the sheet open so the admin can pick another file, and
+          // refresh the list so it shows the saved details.
+          const reason = err instanceof Error && err.message ? err.message : 'unknown error'
+          formError.value = `Details were saved, but the new file was rejected: ${reason}`
+          emit('saved')
+          return
+        }
       }
     }
 
@@ -779,6 +823,26 @@ const submitForm = async () => {
   margin: 0.25rem 0 0;
   font-size: 0.78rem;
   color: var(--text-muted);
+}
+
+.admin-resource-form__oversize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.admin-resource-form__oversize-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #92400e;
 }
 
 .admin-resource-form__error {

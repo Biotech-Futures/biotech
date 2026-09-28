@@ -464,6 +464,153 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
     })
   })
 
+  describe('AdminResourceFormSheet large files', () => {
+    const makeFile = (name: string, sizeBytes: number) => {
+      const file = new File(['%PDF-1.4'], name, { type: 'application/pdf' })
+      // jsdom can't cheaply hold a real 30 MB file; the form only reads .size.
+      Object.defineProperty(file, 'size', { value: sizeBytes })
+      return file
+    }
+    const LARGE = 30 * 1024 * 1024
+    const SMALL = 1024
+
+    const mountSheet = async (resource: resourcesApi.Resource | null = null) => {
+      const sheetWrapper = mount(AdminResourceFormSheet, {
+        props: { modelValue: true, resource },
+        global: { stubs: { FormSheet: { template: '<div><slot /></div>' } } }
+      })
+      await flushPromises()
+      return sheetWrapper
+    }
+
+    const pickFile = async (sheetWrapper: VueWrapper, file: File) => {
+      const input = sheetWrapper.find('input[type="file"]')
+      Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+      await input.trigger('change')
+    }
+
+    const fillRequiredFields = async (sheetWrapper: VueWrapper) => {
+      await sheetWrapper.find('#res-name').setValue('Big Recording')
+      await sheetWrapper.find('#res-desc').setValue('A large file')
+      await sheetWrapper.findAll('fieldset input[type="checkbox"]')[0].setValue(true)
+    }
+
+    const submitButton = (sheetWrapper: VueWrapper) =>
+      sheetWrapper.find('button[type="submit"]').element as HTMLButtonElement
+
+    const uploadedFormData = () =>
+      vi.mocked(adminApi.uploadAdminResource).mock.calls[0][0] as FormData
+
+    it('warns about a large file and only uploads once it is acknowledged', async () => {
+      const sheetWrapper = await mountSheet()
+      await fillRequiredFields(sheetWrapper)
+      await pickFile(sheetWrapper, makeFile('big.pdf', LARGE))
+
+      expect(sheetWrapper.text()).toContain('over the 25 MB guideline')
+      expect(sheetWrapper.find('#res-oversize-ack').exists()).toBe(true)
+      expect(submitButton(sheetWrapper).disabled).toBe(true)
+
+      await sheetWrapper.find('#res-oversize-ack').setValue(true)
+      expect(submitButton(sheetWrapper).disabled).toBe(false)
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(adminApi.uploadAdminResource).toHaveBeenCalledTimes(1)
+      expect(uploadedFormData().get('acknowledged_oversized')).toBe('true')
+
+      sheetWrapper.unmount()
+    })
+
+    it('resets the acknowledgement when a different file is chosen', async () => {
+      const sheetWrapper = await mountSheet()
+      await pickFile(sheetWrapper, makeFile('big.pdf', LARGE))
+      await sheetWrapper.find('#res-oversize-ack').setValue(true)
+
+      await pickFile(sheetWrapper, makeFile('other-big.pdf', LARGE))
+
+      const ack = sheetWrapper.find('#res-oversize-ack').element as HTMLInputElement
+      expect(ack.checked).toBe(false)
+      expect(submitButton(sheetWrapper).disabled).toBe(true)
+
+      sheetWrapper.unmount()
+    })
+
+    it('shows no warning for a normal-size file and sends acknowledged_oversized=false', async () => {
+      const sheetWrapper = await mountSheet()
+      await fillRequiredFields(sheetWrapper)
+      await pickFile(sheetWrapper, makeFile('small.pdf', SMALL))
+
+      expect(sheetWrapper.find('#res-oversize-ack').exists()).toBe(false)
+      expect(submitButton(sheetWrapper).disabled).toBe(false)
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(uploadedFormData().get('acknowledged_oversized')).toBe('false')
+
+      sheetWrapper.unmount()
+    })
+
+    const editDetail: adminApi.AdminResourceDetail = {
+      id: 101,
+      resource_name: 'Mentor Handbook 2026',
+      resource_description: 'Official mentor onboarding handbook.',
+      resource_kind: 'file',
+      resource_type: 'Guide',
+      resource_type_id: 1,
+      visibility_scope: 'role_based',
+      uploaded_at: '2026-03-01T10:00:00Z',
+      deleted_at: null,
+      file_name: 'mentor_handbook.pdf',
+      file_mime_type: 'application/pdf',
+      file_size: 102400,
+      audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+    }
+
+    it('passes the acknowledgement when replacing a file on edit', async () => {
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(editDetail)
+      const replaceSpy = vi
+        .spyOn(adminApi, 'replaceAdminResourceFile')
+        .mockResolvedValue(editDetail)
+
+      const sheetWrapper = await mountSheet(mockResource1)
+      const file = makeFile('new-handbook.pdf', LARGE)
+      await pickFile(sheetWrapper, file)
+      await sheetWrapper.find('#res-oversize-ack').setValue(true)
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(adminApi.updateAdminResource).toHaveBeenCalled()
+      expect(replaceSpy).toHaveBeenCalledWith(101, file, true)
+      expect(sheetWrapper.emitted('update:modelValue')?.at(-1)).toEqual([false])
+
+      sheetWrapper.unmount()
+    })
+
+    it('says the details were saved when the replacement file is rejected', async () => {
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(editDetail)
+      vi.spyOn(adminApi, 'replaceAdminResourceFile').mockRejectedValue(
+        new Error('Resource file must use an allowed file extension.')
+      )
+
+      const sheetWrapper = await mountSheet(mockResource1)
+      await pickFile(sheetWrapper, makeFile('new-handbook.pdf', SMALL))
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(adminApi.updateAdminResource).toHaveBeenCalled()
+      expect(sheetWrapper.find('.admin-resource-form__error').text()).toContain(
+        'Details were saved, but the new file was rejected: Resource file must use an allowed file extension.'
+      )
+      // The list refreshes, but the sheet stays open for another file.
+      expect(sheetWrapper.emitted('saved')).toHaveLength(1)
+      expect(sheetWrapper.emitted('update:modelValue')).toBeUndefined()
+
+      sheetWrapper.unmount()
+    })
+  })
+
   describe('Multi-Select & Bulk Actions', () => {
     it('renders selection checkboxes for admin and hides them for student', async () => {
       const auth = useAuthStore()

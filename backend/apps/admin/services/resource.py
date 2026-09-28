@@ -6,6 +6,7 @@ import os
 import tempfile
 
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Q, F, Exists, OuterRef, Value, CharField
 from django.db import transaction
 from django.utils import timezone
@@ -15,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
 from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
+from apps.common.upload_validation import is_truthy_flag, validate_uploaded_file
 from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -731,6 +733,17 @@ def create_resource(
     return query_resource_by_id(resource.id)
 
 
+def _first_error_message(detail: Any) -> str:
+    """First human-readable message from a DRF ValidationError detail."""
+    if isinstance(detail, dict):
+        detail = next(iter(detail.values()), '')
+    if isinstance(detail, (list, tuple)):
+        detail = detail[0] if detail else ''
+    if isinstance(detail, (dict, list, tuple)):
+        return _first_error_message(detail)
+    return str(detail) or 'The file could not be accepted.'
+
+
 @transaction.atomic
 def replace_resource_file(
     resource_id: int,
@@ -751,17 +764,39 @@ def replace_resource_file(
             'data': None,
         }
     
+    file_bytes = payload.get('file_bytes', b'')
+    if not isinstance(file_bytes, bytes):
+        file_bytes = bytes(file_bytes)
+
+    # Same checks as a new upload (size, type allow-list, executable
+    # signature) before anything reaches storage. The view sends raw bytes, so
+    # wrap them in a file object when no uploaded file is passed through.
+    uploaded_file = payload.get('uploaded_file') or SimpleUploadedFile(
+        payload.get('file_name') or 'file',
+        file_bytes,
+        content_type=payload.get('file_mime_type') or 'application/octet-stream',
+    )
+    try:
+        validate_uploaded_file(
+            uploaded_file,
+            max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+            allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
+            allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
+            field_label="Resource file",
+            acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
+        )
+    except ValidationError as exc:
+        # Plain-string msg so the admin UI can show the reason.
+        return {'msg': _first_error_message(exc.detail), 'data': None}
+
     resource = Resources.objects.get(id=resource_id)
     next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
-    
+
     # Upload new file via the shared ManagedContainerStorage, so replaced
     # files land in the same AZURE_RESOURCE_CONTAINER that the resources
     # app reads from — azure_blob_utils.upload_file() was writing to
     # AZURE_CONTAINER instead, a different container, which made replaced
     # files silently unreachable on download.
-    file_bytes = payload.get('file_bytes', b'')
-    if not isinstance(file_bytes, bytes):
-        file_bytes = bytes(file_bytes)
     get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
     
     resource.storage_key = next_storage_key

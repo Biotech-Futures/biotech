@@ -109,6 +109,8 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
             _get_first(data, "visibility_scope"),
             role_ids=role_ids,
         ),
+        # Raw value; ResourcesSerializer.validate_uploaded_file parses it.
+        "acknowledged_oversized": _get_first(data, "acknowledged_oversized"),
     }
 
     if type_id is not None:

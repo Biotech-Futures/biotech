@@ -6,7 +6,7 @@ from rest_framework import serializers
 from rest_framework.reverse import reverse
 
 from apps.common.filenames import sanitize_upload_filename
-from apps.common.upload_validation import validate_uploaded_file
+from apps.common.upload_validation import is_truthy_flag, validate_uploaded_file
 from apps.users.models import User
 
 from .models import RoleAssignmentHistory, ResourceAudience, ResourceLabel, Resources, ResourceType, Roles
@@ -281,6 +281,11 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
             allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
             field_label="Resource file",
+            # Not a model field: the uploader's "I understand this file is
+            # large" confirmation, sent alongside the file.
+            acknowledged_oversized=is_truthy_flag(
+                self.initial_data.get("acknowledged_oversized")
+            ),
         )
 
     def validate(self, attrs):
