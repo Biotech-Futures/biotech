@@ -12,7 +12,12 @@ from .download import (
     GradingJobDownloadView,
     GroupDownloadView,
 )
-from .results import ResultsEmailPreviewView, ResultsEmailSendView, ResultsEmailSettingsView
+from .results import (
+    ResultsEmailPreviewView,
+    ResultsEmailSendView,
+    ResultsEmailSettingsView,
+    ResultsSampleSheetView,
+)
 from .finalist import (
     FinalistCandidatesView,
     FinalistEmailPreviewView,
@@ -55,6 +60,7 @@ __all__ = [
     "ResultsEmailPreviewView",
     "ResultsEmailSendView",
     "ResultsEmailSettingsView",
+    "ResultsSampleSheetView",
     "FinalistEmailSettingsView",
     "FinalistListView",
     "FinalistNotifyAllView",

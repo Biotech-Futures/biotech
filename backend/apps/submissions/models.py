@@ -12,8 +12,11 @@ STAGE_REVISING = "revising"
 
 
 def _default_cohort() -> int:
-    """Fallback cohort for a draft; replaced with the real cohort on submit."""
-    return timezone.now().year
+    """Fallback cohort for a draft, the challenge year; replaced with the real
+    cohort on submit."""
+    from .services import current_cohort  # services imports this module
+
+    return current_cohort()
 
 
 class SubmissionQuestion(models.Model):

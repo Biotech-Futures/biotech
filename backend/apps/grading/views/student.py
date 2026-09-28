@@ -7,14 +7,13 @@ data.
 """
 from __future__ import annotations
 
-from datetime import date
-
 from django.http import HttpResponse
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.group_members import GroupMembership
+from apps.submissions.services import current_cohort
 
 from ..models import CertificatesRelease, FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import CertificatesReleased, MarksReleased
@@ -114,7 +113,7 @@ class MyGradesView(APIView):
             return Response({"detail": "not a member of any group"}, status=404)
         if not content.has_submitted(group.id):
             return _no_submission_response("marks")
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
         return Response({
             "group": {"id": group.id, "group_name": group.group_name},
             "year": year,
@@ -133,7 +132,7 @@ class MySummaryView(APIView):
             return Response({"detail": "not a member of any group"}, status=404)
         if not content.has_submitted(group.id):
             return _no_submission_response("marks summary")
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
         components = _grades_payload(group, year)
         # Docx template iterates .criteria (see docx template) so shape mirrors JSON.
         for c in components:
@@ -170,7 +169,7 @@ class MyCertificateView(APIView):
                 {"detail": "Finalist certificates are issued separately."},
                 status=403,
             )
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
         student_full_name = (
             request.user.get_full_name() if hasattr(request.user, "get_full_name") else ""
         ) or request.user.email

@@ -6,11 +6,11 @@ JSON payload at capstone scale.
 """
 from __future__ import annotations
 
-from datetime import date
-
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.submissions.services import current_cohort
 
 from ..permissions import IsGrader
 from ..services.analytics import (
@@ -34,7 +34,7 @@ class ComponentAnalyticsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def get(self, request, code: str):
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
         top = min(int(request.query_params.get("top") or DEFAULT_TOP_N), 100)
         buckets = min(int(request.query_params.get("buckets") or DEFAULT_HISTOGRAM_BUCKETS), 50)
         return Response(

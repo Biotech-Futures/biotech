@@ -24,6 +24,8 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from django.core.files.storage import default_storage
 from django.utils import timezone
+
+from apps.submissions.services import current_cohort
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -538,10 +540,11 @@ def render_participation_certificate(context: dict) -> bytes:
 _SAMPLE_MARK_SHARES = (Decimal("0.6"), Decimal("0.7"), Decimal("0.8"), Decimal("0.9"))
 
 
-def _sample_components(year: int) -> list[dict]:
+def _sample_components(year: int, shift: int = 0) -> list[dict]:
     """Every component with its real rubric, as a released summary would show
     it: this year's active rubric, else the component's latest active one.
-    Marks and comments are made up. A component with no rubric has no
+    Marks and comments are made up; ``shift`` varies them, so several sample
+    teams don't all score the same. A component with no rubric has no
     criteria, as on a real summary."""
     out = []
     for component in SubmissionComponent.objects.order_by("order", "id"):
@@ -558,7 +561,7 @@ def _sample_components(year: int) -> list[dict]:
                 {
                     "name": criterion_name,
                     "max_mark": str(max_mark),
-                    "mark": str((max_mark * _SAMPLE_MARK_SHARES[i % 4]).quantize(Decimal("1"))),
+                    "mark": str((max_mark * _SAMPLE_MARK_SHARES[(i + shift) % 4]).quantize(Decimal("1"))),
                     "comment": f"Sample comment for {name} criterion {i}.",
                 }
                 for i, (criterion_name, max_mark) in enumerate(criteria, start=1)
@@ -581,8 +584,8 @@ def sample_marks_summary_context() -> dict:
         "project_title": "Sample Project Title",
         "project_category": "Sample Project Category",
         "solution_category": "Sample Solution Category",
-        "year": date.today().year,
-        "components": _sample_components(date.today().year),
+        "year": current_cohort(),
+        "components": _sample_components(current_cohort()),
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "director_1_position": settings.director_1_position or "Sample Position One",
@@ -603,7 +606,7 @@ def sample_certificate_context() -> dict:
     context = certificate_context(
         "Jane Doe",
         "SAMPLE-TEAM-01",
-        date.today().year,
+        current_cohort(),
         first_name="Jane",
         last_name="Doe",
     )
@@ -616,7 +619,7 @@ def sample_certificate_context() -> dict:
 
 def sample_mentor_certificate_context() -> dict:
     """Synthetic mentor certificate data for the Document Setup test render."""
-    context = certificate_context("Dr Sam Mentor", "SAMPLE-TEAM-01", date.today().year)
+    context = certificate_context("Dr Sam Mentor", "SAMPLE-TEAM-01", current_cohort())
     context["project_title"] = "Sample Project Title"
     context["issued_on"] = timezone.localdate(timezone=RELEASE_TZ).isoformat()
     return context

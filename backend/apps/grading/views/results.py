@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from django.http import HttpResponse
+from django.utils.http import content_disposition_header
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -65,6 +67,22 @@ class ResultsEmailSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(_payload(details))
+
+
+class ResultsSampleSheetView(APIView):
+    """GET /api/v1/grading/results-email/sample-sheet/ — the marks spreadsheet
+    the supervisor email carries, filled with made-up groups, so an admin can
+    see what supervisors will get."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def get(self, request):
+        year = results_notify.results_audience().year
+        response = HttpResponse(results_notify.sample_marks_sheet(year), content_type=results_notify.XLSX)
+        response["Content-Disposition"] = content_disposition_header(
+            as_attachment=True, filename=f"{year}_BTF_Student_Marks_Sample.xlsx"
+        )
+        return response
 
 
 class ResultsEmailPreviewView(APIView):

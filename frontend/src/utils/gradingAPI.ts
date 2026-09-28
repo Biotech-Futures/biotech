@@ -913,8 +913,15 @@ export function previewResultsEmail(
   })
 }
 
-// POST /api/v1/grading/results-email/send/ — email the next few teams'
-// groups, or supervisors; call again with the returned cursor until done.
+// GET /api/v1/grading/results-email/sample-sheet/ — the marks spreadsheet the
+// supervisor email carries, filled with made-up groups.
+export async function downloadResultsSampleSheet(): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/grading/results-email/sample-sheet/')
+  triggerBlobDownload(blob, filename ?? 'BTF_Student_Marks_Sample.xlsx')
+}
+
+// POST /api/v1/grading/results-email/send/ — email the next few groups, or
+// supervisors; call again with the returned cursor until done.
 export function sendResultsEmailBatch(
   audience: ResultsAudience,
   cursor: number | null

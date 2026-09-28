@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Callable
 
 from django.conf import settings
@@ -58,12 +59,14 @@ from ..models import (
 from .docx import (
     _open_template,
     _ordinal_suffix,
+    _sample_components,
     certificate_context,
     marks_release_fields,
     marks_summary_context,
     render_certificate_data,
     render_marks_summary_data,
     render_mentor_certificate_data,
+    sample_marks_summary_context,
     signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
@@ -101,13 +104,12 @@ _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 _MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
 # The supervisor's marks spreadsheet: one row per group, in the marks
-# summary's own field names, so the two always agree.
+# summary's own field names, so the two always agree, and one total:
+# MTotal, the Poster and SAQ marks together (the summary's CombinedTotal).
 MARKS_SHEET_MARKS = [
     *(f"PM{i}" for i in range(1, 11)),
     *(f"SM{i}" for i in range(1, 5)),
-    "PMTotal",
-    "SMTotal",
-    "CombinedTotal",
+    "MTotal",
 ]
 MARKS_SHEET_COLUMNS = [
     "TeamCode",
@@ -367,14 +369,12 @@ class Documents:
         """One row per group, filled exactly as its marks summary is."""
         from ..views.student import _grades_payload
 
-        return build_team_marks_xlsx(
-            (
-                marks_release_fields(marks_summary_context(team, self.year, _grades_payload(team, self.year)))
-                for team in teams
-            ),
-            MARKS_SHEET_COLUMNS,
-            set(MARKS_SHEET_MARKS),
-        )
+        return _marks_sheet([
+            _sheet_row(marks_release_fields(
+                marks_summary_context(team, self.year, _grades_payload(team, self.year))
+            ))
+            for team in teams
+        ])
 
 
 def _certificates(docs: Documents, students) -> list[ResultsFile]:
@@ -386,6 +386,47 @@ def _certificates(docs: Documents, students) -> list[ResultsFile]:
         )
         for student, team in students
     ]
+
+
+# Made-up groups for the sample spreadsheet on Release Results.
+_SAMPLE_GROUPS = (
+    ("Jane Doe, John Roe, Ann Lee", "Dr Sample Mentor"),
+    ("Mia Park, Noah Diaz", "Dr Second Mentor"),
+    ("Liam Ross, Emma Hart, Jack Wong, Zoe Kim", "Ms Third Mentor"),
+)
+
+
+def _sheet_row(fields: dict) -> dict:
+    """A group's marks summary fields as a spreadsheet row."""
+    return {**fields, "MTotal": fields["CombinedTotal"]}
+
+
+def _marks_sheet(rows: list[dict]) -> bytes:
+    """The spreadsheet, highest MTotal first; a group not marked at all goes
+    last, and groups on the same total by team code."""
+    def order(row):
+        total = row.get("MTotal")
+        return (total in (None, ""), -Decimal(total or 0), row.get("TeamCode", ""))
+
+    return build_team_marks_xlsx(sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS))
+
+
+def sample_marks_sheet(year: int) -> bytes:
+    """The supervisor's marks spreadsheet as it will look: made-up groups,
+    marked against the real rubric's criteria and maximums, as Document
+    Setup's test render fills the marks summary."""
+    rows = []
+    for n, (students, mentors) in enumerate(_SAMPLE_GROUPS, start=1):
+        context = sample_marks_summary_context()
+        context.update(
+            # Short, like a real team code, to fit its column.
+            group_name=f"SAMPLE{n}",
+            students=students,
+            mentors=mentors,
+            components=_sample_components(year, shift=n - 1),
+        )
+        rows.append(_sheet_row(marks_release_fields(context)))
+    return _marks_sheet(rows)
 
 
 def _mentor_certificates(docs: Documents, audience: ResultsAudience, teams) -> list[ResultsFile]:

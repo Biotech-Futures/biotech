@@ -15,6 +15,7 @@ from .views import (
     ResultsEmailPreviewView,
     ResultsEmailSendView,
     ResultsEmailSettingsView,
+    ResultsSampleSheetView,
     FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
@@ -138,6 +139,7 @@ urlpatterns = [
     path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),
     path("results-email/preview/", ResultsEmailPreviewView.as_view(), name="results-email-preview"),
     path("results-email/send/", ResultsEmailSendView.as_view(), name="results-email-send"),
+    path("results-email/sample-sheet/", ResultsSampleSheetView.as_view(), name="results-email-sample-sheet"),
 
     # M9 — read-only analytics for Team 4's dashboards.
     path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),

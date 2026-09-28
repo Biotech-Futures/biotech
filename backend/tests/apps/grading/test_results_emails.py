@@ -242,7 +242,7 @@ class ResultsEmailTests(_GradingFixture):
             "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
             "PM1", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "PM10",
             "SM1", "SM2", "SM3", "SM4",
-            "PMTotal", "SMTotal", "CombinedTotal",
+            "MTotal",
         ])
         self.assertEqual(len(rows), 2)
         row = dict(zip(rows[0], rows[1]))
@@ -252,7 +252,8 @@ class ResultsEmailTests(_GradingFixture):
         )
         # The design mark is poster criterion 1; content is SAQ 1, clarity (SAQ 2) unmarked.
         self.assertEqual((row["PM1"], row["PM2"], row["SM1"], row["SM2"]), (6.5, None, 8, None))
-        self.assertEqual((row["PMTotal"], row["SMTotal"], row["CombinedTotal"]), (6.5, 8, 14.5))
+        # One total: the Poster and SAQ marks together.
+        self.assertEqual(row["MTotal"], 14.5)
 
     def test_a_team_whose_files_cant_be_made_stays_pending(self):
         with mock.patch(
@@ -402,6 +403,60 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn("Dear Sam Lee,", r.json()["html"])
         self.assertEqual(r.json()["attachments"][-1], f"{year}_BTF_Student_Marks.xlsx")
         self.assertEqual(mail.outbox, [])
+
+    def test_the_sample_spreadsheet_has_made_up_groups_marked_on_the_real_rubric(self):
+        r = self.client.get(reverse("grading:results-email-sample-sheet"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sample.xlsx"',
+        )
+        rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
+        self.assertEqual(rows[0][:6], ["TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory"])
+        self.assertEqual(rows[0][-2:], ["SM4", "MTotal"])
+        teams = [dict(zip(rows[0], row)) for row in rows[1:]]
+        self.assertEqual(sorted(t["TeamCode"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
+        self.assertEqual({t["TeamCode"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")
+        # Highest total first, as in the real spreadsheet.
+        totals = [t["MTotal"] for t in teams]
+        self.assertEqual(totals, sorted(totals, reverse=True))
+        # The fixture rubric: SAQ criteria out of 10 and 5, one poster criterion out of 10.
+        for t in teams:
+            self.assertIsNotNone(t["SM1"])
+            self.assertIsNotNone(t["SM2"])
+            self.assertIsNone(t["SM3"])
+            self.assertIsNotNone(t["PM1"])
+            self.assertIsNone(t["PM2"])
+            self.assertEqual(t["MTotal"], t["PM1"] + t["SM1"] + t["SM2"])
+        # Not every sample group scores the same.
+        self.assertGreater(len({t["MTotal"] for t in teams}), 1)
+        # Nothing about real people.
+        self.assertNotIn("Stu amy", str(rows))
+
+    def test_the_spreadsheet_puts_the_highest_total_first(self):
+        # A second group of Sam's students that scored less, and one not marked.
+        lower = _submitted_team("A Lower Team", self.staff)
+        _student("lo@example.com", lower, self.sup_profile)
+        Grade.objects.create(
+            submission=Submission.objects.get(group=lower), criterion=self.saq_c1,
+            mark=Decimal("2.00"), graded_by=self.staff,
+        )
+        unmarked = _submitted_team("An Unmarked Team", self.staff)
+        _student("un@example.com", unmarked, self.sup_profile)
+        self._send_all("supervisors")
+        files = _files(mail.outbox[0])
+        sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks.xlsx"])).active
+        rows = [[c.value for c in row] for row in sheet.iter_rows()]
+        codes = [row[0] for row in rows[1:]]
+        totals = [row[-1] for row in rows[1:]]
+        # By total, not by name: BTF-TEST-1 (14.5) before A Lower Team (2);
+        # the unmarked group last.
+        self.assertEqual(codes, ["BTF-TEST-1", "A Lower Team", "An Unmarked Team"])
+        self.assertEqual(totals[:2], [14.5, 2])
+
+    def test_the_sample_spreadsheet_is_for_graders_only(self):
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("grading:results-email-sample-sheet"))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_preview_names_example_files_while_nobody_is_due(self):
         Submission.objects.update(submitted_at=None)

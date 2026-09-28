@@ -20,7 +20,7 @@ from apps.services.system_email import build_message, is_email_enabled, render_s
 from .emails import components_list_html, recipients_for, send_individually
 from .models import Submission, SubmissionReminder
 from .serializers import missing_required_answers
-from .services import deadline_for_group
+from .services import current_cohort, deadline_for_group
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
     context = {
         **brand_context(),
         "GROUP_NAME": group.group_name,
-        "YEAR": timezone.now().year,
+        "YEAR": current_cohort(),
         "REQUIRED_COMPONENTS": required,
         "OPTIONAL_COMPONENTS": optional,
         # The same lists as HTML, for an admin's edited wording.

@@ -69,6 +69,16 @@
             </button>
             <TestEmailSender kind="results-supervisors" />
           </div>
+          <!-- What the supervisor email's marks spreadsheet looks like, with
+               made-up groups. -->
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="downloadingSample"
+            @click="downloadSample"
+          >
+            {{ downloadingSample ? 'Downloading…' : 'Download Sample Marks Spreadsheet' }}
+          </button>
         </div>
       </template>
     </section>
@@ -202,6 +212,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
+  downloadResultsSampleSheet,
   fetchResultsEmailDetails,
   previewResultsEmail,
   sendResultsEmailBatch,
@@ -311,6 +322,22 @@ const fitPreview = (event: Event) => {
   const frame = event.target as HTMLIFrameElement
   const page = frame.contentDocument?.documentElement
   if (page) frame.style.height = `${page.scrollHeight}px`
+}
+
+// -- Sample spreadsheet -----------------------------------------------------
+
+const downloadingSample = ref(false)
+
+const downloadSample = async () => {
+  actionError.value = ''
+  downloadingSample.value = true
+  try {
+    await downloadResultsSampleSheet()
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    downloadingSample.value = false
+  }
 }
 
 // -- Sending ----------------------------------------------------------------

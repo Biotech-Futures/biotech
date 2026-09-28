@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ReleaseResultsPage from '@/views/grading/ReleaseResultsPage.vue'
 import ReleasePage from '@/views/grading/ReleasePage.vue'
 import {
+  downloadResultsSampleSheet,
   fetchCertificatesRelease,
   fetchRelease,
   fetchResultsEmailDetails,
@@ -12,6 +13,7 @@ import {
 } from '@/utils/gradingAPI'
 
 vi.mock('@/utils/gradingAPI', () => ({
+  downloadResultsSampleSheet: vi.fn(),
   fetchTestEmailRecipients: vi.fn(async () => ({ recipients: [] })),
   sendTestEmail: vi.fn(),
   fetchRelease: vi.fn(),
@@ -177,6 +179,27 @@ describe('preview', () => {
     expect(previewMock).toHaveBeenLastCalledWith('supervisors', expect.any(Object))
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As Sam Lee would get it.')
     expect(attachments()).toEqual(['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx'])
+  })
+})
+
+describe('sample spreadsheet', () => {
+  it('can be downloaded from the bottom of the Release Results card, above Release Marks', async () => {
+    const sampleMock = vi.mocked(downloadResultsSampleSheet)
+    sampleMock.mockReset().mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const buttons = wrapper.findAll('.card')[0]!.findAll('button')
+    expect(buttons[buttons.length - 1]!.text()).toBe('Download Sample Marks Spreadsheet')
+    await buttons[buttons.length - 1]!.trigger('click')
+    await flushPromises()
+    expect(sampleMock).toHaveBeenCalledOnce()
+  })
+
+  it('says why a download failed', async () => {
+    vi.mocked(downloadResultsSampleSheet).mockReset().mockRejectedValueOnce(new Error('Server down'))
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /^Download Sample Marks Spreadsheet$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.release-results__banner--error').text()).toContain('Server down')
   })
 })
 

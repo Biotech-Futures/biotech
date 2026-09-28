@@ -179,21 +179,20 @@ def _number(value):
         return None
 
 
-# Text columns wide enough to read; the mark columns keep the default width.
+# Text columns wide enough to read; TeamCode and the marks keep the default width.
 _TEAM_SHEET_WIDTHS = {
-    "TeamCode": 12,
-    "Students": 32,
-    "Mentor": 24,
-    "ProjectTitle": 28,
-    "ProjectCategory": 28,
-    "SolutionCategory": 28,
+    "Students": 20,
+    "Mentor": 20,
+    "ProjectTitle": 30,
+    "ProjectCategory": 20,
+    "SolutionCategory": 20,
 }
 
 
 def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set[str]) -> bytes:
     """The marks spreadsheet a supervisor's results email carries: one row
     per team, one column per name in ``columns`` (the marks summary's own
-    field names, e.g. TeamCode, PM1, SMTotal), filled from ``rows``: each
+    field names, e.g. TeamCode, PM1, SM4), filled from ``rows``: each
     team's marks summary fields. The ``numeric`` columns hold marks and are
     written as numbers; a mark not given stays blank.
     """
