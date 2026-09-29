@@ -229,7 +229,7 @@ class FinalistToggleTests(_GradingFixture):
         self.assertTrue(row["is_late"])
         self.assertEqual(row["late_by"], "3h 12m")
 
-    def test_candidates_carry_the_marking_key_categories(self):
+    def test_candidates_carry_the_submitted_title_and_marking_key_categories(self):
         from apps.grading.models import GroupMarkingCategories
 
         GroupMarkingCategories.objects.create(
@@ -248,8 +248,16 @@ class FinalistToggleTests(_GradingFixture):
         team = rows[self.group.id]
         self.assertEqual(team["project_category"], "Health and Medicine, Wearables")
         self.assertEqual(team["solution_category"], "App")
-        # No project title is kept anywhere yet.
         self.assertEqual(team["project_title"], "")
+        # The title the team submitted, not one typed since.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant Sensors", project_title="A Later Draft"
+        )
+        rows = {
+            row["group_id"]: row
+            for row in self.client.get(reverse("grading:finalist-candidates")).json()["rows"]
+        }
+        self.assertEqual(rows[self.group.id]["project_title"], "Plant Sensors")
         # A group with nothing picked reads blank.
         self.assertEqual(rows[bare.id]["project_category"], "")
         self.assertEqual(rows[bare.id]["solution_category"], "")

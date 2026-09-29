@@ -100,6 +100,13 @@
         </div>
       </div>
 
+      <!-- The title the team submitted: under the name and search, above
+           the Marker line. -->
+      <p v-if="payload.group.project_title" class="group-marking__project-title">
+        <span class="group-marking__project-title-label">Title:</span>
+        {{ payload.group.project_title }}
+      </p>
+
       <p v-if="actionError" class="group-marking__banner group-marking__banner--error">
         {{ actionError }}
       </p>
@@ -888,6 +895,19 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
+}
+
+/* The team's submitted title, on its own line above the Marker line. The
+   negative bottom margin takes back most of the page's 1rem gap between
+   sections, as the Marker line's 2rem-tall row brings space of its own. */
+.group-marking__project-title {
+  margin: -0.25rem 0 -0.7rem;
+  color: var(--charcoal);
+  font-size: 0.95rem;
+}
+
+.group-marking__project-title-label {
+  color: var(--text-muted);
 }
 
 .group-marking__header-actions {

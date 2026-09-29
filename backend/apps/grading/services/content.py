@@ -70,6 +70,20 @@ class ComponentEntry:
     # SAQ only: the same answers structured as (prompt, answer) pairs, so the
     # marking page can render one box per question instead of parsing `text`.
     answers: tuple[tuple[str, str], ...] = ()
+    # The title the team submitted; "" when it gave none.
+    project_title: str = ""
+
+
+def submitted_titles(group_ids) -> dict[int, str]:
+    """The title each of these groups submitted, by group id; a group with
+    no title (or no entry) is left out."""
+    return {
+        group_id: title
+        for group_id, title in Submission.objects.filter(group_id__in=list(group_ids)).values_list(
+            "group_id", "submitted_project_title"
+        )
+        if title
+    }
 
 
 def _answer_blocks(answers: dict) -> list[tuple[str, str]]:
@@ -105,6 +119,7 @@ def _expand(submission: Submission, components: list[SubmissionComponent]) -> li
         "submission_id": submission.id,
         "group_id": submission.group_id,
         "group_name": submission.group.group_name,
+        "project_title": submission.submitted_project_title,
         "submitted_at": submission.submitted_at,
         "is_late": submission.is_late,
     }

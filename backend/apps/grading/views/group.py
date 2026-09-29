@@ -22,7 +22,7 @@ class GroupMarkingView(APIView):
 
     Shape:
         {
-          "group": {"id": ..., "group_name": ...},
+          "group": {"id": ..., "group_name": ..., "project_title": ...},
           "year": 2026,
           "components": [
             {
@@ -99,7 +99,11 @@ class GroupMarkingView(APIView):
             })
 
         return Response({
-            "group": {"id": group.id, "group_name": group.group_name},
+            "group": {
+                "id": group.id,
+                "group_name": group.group_name,
+                "project_title": content.submitted_titles([group.id]).get(group.id, ""),
+            },
             "year": year,
             "components": payload_components,
         })

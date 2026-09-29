@@ -219,7 +219,8 @@ export interface GroupMarkingComponentBlock {
 }
 
 export interface GroupMarkingPayload {
-  group: { id: number; group_name: string }
+  /** project_title: the title the team submitted; "" when it gave none. */
+  group: { id: number; group_name: string; project_title: string }
   year: number
   components: GroupMarkingComponentBlock[]
 }
@@ -773,7 +774,7 @@ export interface FinalistCandidateRow {
   markers: string[]
   /** Latest marker per rubric criterion, e.g. {label: "SAQ 1", marker: "Ada"}. */
   criterion_markers: { label: string; marker: string }[]
-  /** No project title is kept yet, so this is always "". */
+  /** The title the team submitted; "" when it gave none. */
   project_title: string
   /** The categories picked on the marking key; "" when none. */
   project_category: string

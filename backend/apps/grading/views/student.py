@@ -22,6 +22,7 @@ from ..services.docx import (
     TemplateNotConfigured,
     certificate_context,
     marks_summary_context,
+    project_title,
     render_marks_summary,
     render_participation_certificate,
 )
@@ -181,6 +182,7 @@ class MyCertificateView(APIView):
                     year,
                     first_name=request.user.first_name,
                     last_name=request.user.last_name,
+                    project_title=project_title(group),
                 )
             )
         except TemplateNotConfigured:
