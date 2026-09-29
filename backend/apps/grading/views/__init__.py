@@ -37,6 +37,11 @@ from .nonfinalist import (
 )
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
+from .presentation import (
+    PresentationResponsesView,
+    PresentationSlotDetailView,
+    PresentationSlotListView,
+)
 from .release import CertificatesReleaseView, MarksReleaseView
 from .settings import (
     GradingSettingsView,
@@ -93,6 +98,9 @@ __all__ = [
     "NonSubmissionEmailPreviewView",
     "NonSubmissionEmailSendView",
     "NonSubmissionEmailView",
+    "PresentationResponsesView",
+    "PresentationSlotDetailView",
+    "PresentationSlotListView",
     "SupervisorDownloadView",
     "SupervisorGradesView",
     "TestEmailView",

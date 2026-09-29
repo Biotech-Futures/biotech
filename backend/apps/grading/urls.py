@@ -39,6 +39,9 @@ from .views import (
     NonSubmissionEmailPreviewView,
     NonSubmissionEmailSendView,
     NonSubmissionEmailView,
+    PresentationResponsesView,
+    PresentationSlotDetailView,
+    PresentationSlotListView,
     SupervisorDownloadView,
     SupervisorGradesView,
     TestEmailView,
@@ -139,6 +142,24 @@ urlpatterns = [
     path("nonsubmissions/", NonSubmissionEmailView.as_view(), name="nonsubmission-email"),
     path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
     path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
+
+    # The Finalist Presentation tab: this year's times finalists can present.
+    path(
+        "finalists/presentation-slots/",
+        PresentationSlotListView.as_view(),
+        name="presentation-slots",
+    ),
+    path(
+        "finalists/presentation-slots/<int:slot_id>/",
+        PresentationSlotDetailView.as_view(),
+        name="presentation-slot-detail",
+    ),
+    # What each finalist student said they can make.
+    path(
+        "finalists/presentation-responses/",
+        PresentationResponsesView.as_view(),
+        name="presentation-responses",
+    ),
 
     # Send Test Email beside each email tab's preview.
     path("test-email/<str:kind>/", TestEmailView.as_view(), name="test-email"),

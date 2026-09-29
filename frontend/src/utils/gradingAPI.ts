@@ -836,6 +836,82 @@ export function updateFinalistEmailDetails(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Finalist Presentation tab: the times finalists can present at the Symposium
+
+/** One time on the Symposium day, as "HH:MM" (24 hour). */
+export interface PresentationSlot {
+  id: number
+  starts_at: string
+  ends_at: string
+}
+
+export interface PresentationSlots {
+  year: number
+  /** The day they're on, set on Notify Finalists; null until it is. */
+  symposium_date: string | null
+  /** Earliest first. */
+  slots: PresentationSlot[]
+}
+
+export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_at'>
+
+const PRESENTATION_SLOTS = '/api/v1/grading/finalists/presentation-slots/'
+
+// GET — this year's times. Every change below answers with the whole list.
+export function fetchPresentationSlots(): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(PRESENTATION_SLOTS)
+}
+
+// POST — add a time.
+export function addPresentationSlot(fields: PresentationSlotFields): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(PRESENTATION_SLOTS, {
+    method: 'POST',
+    body: JSON.stringify(fields)
+  })
+}
+
+// PATCH {id}/ — change a time.
+export function updatePresentationSlot(
+  id: number,
+  fields: Partial<PresentationSlotFields>
+): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+// DELETE {id}/ — remove a time.
+export function deletePresentationSlot(id: number): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, { method: 'DELETE' })
+}
+
+/** One finalist student's answer. */
+export interface PresentationResponseStudent {
+  user_id: number
+  name: string
+  /** False until they answer. */
+  responded: boolean
+  /** The times they can make. */
+  slot_ids: number[]
+  updated_at: string | null
+}
+
+export interface PresentationResponseTeam {
+  group_id: number
+  group_name: string
+  students: PresentationResponseStudent[]
+}
+
+// GET /api/v1/grading/finalists/presentation-responses/ — this year's
+// finalist teams by number, each student in them, and what they answered.
+export function fetchPresentationResponses(): Promise<{ teams: PresentationResponseTeam[] }> {
+  return requestJson<{ teams: PresentationResponseTeam[] }>(
+    '/api/v1/grading/finalists/presentation-responses/'
+  )
+}
+
 export interface FinalistEmailPreview {
   subject: string
   /** The team the preview is addressed to. */
