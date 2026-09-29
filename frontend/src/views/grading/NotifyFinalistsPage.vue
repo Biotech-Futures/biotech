@@ -47,7 +47,7 @@
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
-          <TestEmailSender kind="finalist" :fields="formFields" />
+          <TestEmailSender v-model:recipient="testRecipient" kind="finalist" :fields="formFields" />
         </div>
       </template>
     </section>
@@ -397,6 +397,8 @@ const canSend = computed(() => details.value !== null && !sendBlockedReason.valu
 // The email exactly as a finalist would get it, for the details as typed.
 const preview = ref<FinalistEmailPreview | null>(null)
 const loadingPreview = ref(false)
+// The person picked in Send Test Email: the preview is their team's email.
+const testRecipient = ref('')
 
 // Grow the frame to the whole email, so only the dialog's box scrolls.
 const fitPreview = (event: Event) => {
@@ -409,7 +411,7 @@ const openPreview = async () => {
   actionError.value = ''
   loadingPreview.value = true
   try {
-    preview.value = await previewFinalistEmail(formFields())
+    preview.value = await previewFinalistEmail(formFields(), testRecipient.value)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {

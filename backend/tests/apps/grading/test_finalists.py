@@ -386,13 +386,12 @@ class FinalistEmailTests(_GradingFixture):
         GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
         return user
 
-    def test_details_start_empty_with_the_usual_registration_link(self):
+    def test_details_start_empty(self):
+        # The registration link too: last year's must never go out unnoticed.
         body = self.client.get(reverse("grading:finalist-email")).json()
         self.assertEqual(
-            (body["symposium_date"], body["confirm_by"], body["slides_due"]), (None, None, None)
-        )
-        self.assertEqual(
-            body["registration_url"], "https://events.humanitix.com/biotech-futures-symposium"
+            (body["symposium_date"], body["confirm_by"], body["slides_due"], body["registration_url"]),
+            (None, None, None, ""),
         )
         self.assertFalse(body["complete"])
 

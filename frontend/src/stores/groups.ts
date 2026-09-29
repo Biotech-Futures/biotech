@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown } from '@/utils/apiError'
+import { useAuthStore } from '@/stores/auth'
 
 export interface GroupSummary {
   id: string
@@ -13,6 +14,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 // Server-filtered list of the caller's groups. Avoids the
 // fetch-all-groups + fetch-all-memberships + filter-client-side dance.
 const GROUPS_MINE_ENDPOINT = `${API_BASE_URL}/groups/groups/?page_size=100&mine=true`
+// Admins belong to no group but can open any, so theirs is every group.
+const GROUPS_ALL_ENDPOINT = `${API_BASE_URL}/groups/groups/`
 
 interface RawGroup {
   id?: unknown
@@ -28,6 +31,14 @@ interface RawGroup {
 
 interface ListResponse {
   results?: RawGroup[]
+  next?: string | null
+}
+
+// The next page's query on our own base URL: the server's absolute link can
+// name another scheme or host when it sits behind a proxy.
+const nextPageUrl = (current: string, next: string | null | undefined): string | null => {
+  if (!next) return null
+  return `${current.split('?')[0]}${new URL(next, current).search}`
 }
 
 const extractCollection = (data: RawGroup[] | ListResponse | null): RawGroup[] => {
@@ -101,14 +112,21 @@ export const useGroupsStore = defineStore('groups', {
       const promise = (async () => {
         try {
           const headers = buildSessionHeaders({ headers: { Accept: 'application/json' } })
-          const response = await fetch(GROUPS_MINE_ENDPOINT, {
-            method: 'GET',
-            credentials: 'include',
-            headers,
-          })
-          if (!response.ok) throw await apiErrorFromResponse(response)
-          const data = (await response.json()) as RawGroup[] | ListResponse
-          const next = extractCollection(data)
+          const raw: RawGroup[] = []
+          // Every page of the list: an admin's runs well past one page.
+          let url: string | null = useAuthStore().isAdmin ? GROUPS_ALL_ENDPOINT : GROUPS_MINE_ENDPOINT
+          while (url) {
+            const response: Response = await fetch(url, {
+              method: 'GET',
+              credentials: 'include',
+              headers,
+            })
+            if (!response.ok) throw await apiErrorFromResponse(response)
+            const data = (await response.json()) as RawGroup[] | ListResponse
+            raw.push(...extractCollection(data))
+            url = Array.isArray(data) ? null : nextPageUrl(url, data?.next)
+          }
+          const next = raw
             .map(normalizeGroup)
             .filter((group) => group.id)
           this.groups = next

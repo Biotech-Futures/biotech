@@ -56,19 +56,22 @@
 
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
+import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
 // /groups has no id of its own — resolve the user's first group from the
-// store and forward there. Falls back to /dashboard when the user has no
-// groups, instead of rendering a half-loaded placeholder.
+// store and forward there (an admin's list is every group). Falls back to
+// /dashboard when the user has no groups, instead of rendering a
+// half-loaded placeholder; an admin goes to Admin > Groups to make one.
 const resolveGroupsLanding = async () => {
   const store = useGroupsStore();
   await store.ensureLoaded();
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
+  if (useAuthStore().isAdmin) return { name: 'admin-groups', replace: true };
   window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
 };

@@ -131,6 +131,40 @@ class GroupExtensionViewTests(_GradingFixture):
         self.assertTrue(all(row["revoked_at"] is not None for row in listed[1:]))
         self.assertTrue(deadline_for_group(self.group.id).is_extended)
 
+    def test_each_extension_says_how_much_time_it_adds(self):
+        from datetime import datetime, timezone as tz
+
+        self.client.force_authenticate(self.staff)
+        # Without a deadline there's nothing to measure from.
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-10-03T07:00:00Z"},
+            format="json",
+        )
+        self.assertIsNone(r.json()["extension"]["added"])
+
+        # Past the normal deadline by 1 day 18 hours, its grace aside.
+        Deadline.objects.create(
+            closes_at=datetime(2026, 10, 1, 13, 0, tzinfo=tz.utc), grace_hours=24, is_active=True,
+        )
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-10-03T07:00:00Z", "grace_hours": 12},
+            format="json",
+        )
+        self.assertEqual(r.json()["extension"]["added"], "1d 18h")
+        # Under a day it keeps the minutes.
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-10-01T18:30:00Z"},
+            format="json",
+        )
+        self.assertEqual(r.json()["extension"]["added"], "5h 30m")
+        # The list measures every row from the deadline now in force, the
+        # active extension first.
+        listed = self.client.get(self.url).json()["extensions"]
+        self.assertEqual([row["added"] for row in listed], ["5h 30m", "1d 18h", "1d 18h"])
+
     def test_unknown_group_404(self):
         self.client.force_authenticate(self.staff)
         r = self.client.post(

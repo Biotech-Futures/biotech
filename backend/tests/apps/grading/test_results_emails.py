@@ -107,6 +107,7 @@ class ResultsEmailTests(_GradingFixture):
         certificates.exclude_finalists = True
         certificates.save()
         details = ResultsEmailSettings.load()
+        details.survey_url = "https://example.com/survey"
         details.survey_closes = symposium_today() + timedelta(days=30)
         details.save()
         _seed_doc_templates()
@@ -142,7 +143,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(message.subject, f"Your {self.group.year} BIOTech Futures Challenge results")
         self.assertIn(f"Dear {self.group.group_name},", text)
         self.assertIn(f"Congratulations on your participation in the {self.group.year} BIOTech Futures Challenge!", text)
-        self.assertIn("https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA", text)
+        self.assertIn("https://example.com/survey", text)
         closes = ResultsEmailSettings.load().survey_closes
         self.assertIn(f"until the {closes.day}", text)
         self.assertIn(f" of {closes:%B}.", text)
@@ -229,14 +230,14 @@ class ResultsEmailTests(_GradingFixture):
             f"{year}_BTF_Student_Certificate_Stu_amy.docx",
             f"{year}_BTF_Student_Certificate_Stu_ben.docx",
             f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
-            f"{year}_BTF_Student_Marks.xlsx",
+            f"{year}_BTF_Student_Marks_Sam_Lee.xlsx",
         ])
         self.assertIn(
             "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
         )
 
         # One row per group, in the marks summary's own field names.
-        sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks.xlsx"])).active
+        sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
         self.assertEqual(rows[0], [
             "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
@@ -340,6 +341,33 @@ class ResultsEmailTests(_GradingFixture):
         self._send_all("supervisors")
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
 
+    def test_the_survey_link_starts_empty_and_holds_the_group_email(self):
+        # Last year's survey must never go out unnoticed.
+        ResultsEmailSettings.objects.all().delete()
+        self.assertEqual(ResultsEmailSettings.load().survey_url, "")
+        ResultsEmailSettings.objects.update(survey_closes=symposium_today() + timedelta(days=30))
+        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
+        self.assertEqual(r.json()["detail"], "Set the feedback survey link and close date before emailing groups.")
+        self.assertEqual(mail.outbox, [])
+
+    def test_links_left_from_the_old_defaults_are_cleared(self):
+        from importlib import import_module
+
+        from django.apps import apps
+
+        from apps.grading.models import FinalistEmailSettings
+
+        migration = import_module("apps.grading.migrations.0015_email_links_start_empty")
+        ResultsEmailSettings.objects.update(survey_url=migration.OLD_SURVEY_URL)
+        FinalistEmailSettings.objects.create(registration_url=migration.OLD_REGISTRATION_URL)
+        migration.clear_old_links(apps, None)
+        self.assertEqual(ResultsEmailSettings.load().survey_url, "")
+        self.assertEqual(FinalistEmailSettings.load().registration_url, "")
+        # A link an admin entered stays.
+        ResultsEmailSettings.objects.update(survey_url="https://example.com/survey")
+        migration.clear_old_links(apps, None)
+        self.assertEqual(ResultsEmailSettings.load().survey_url, "https://example.com/survey")
+
     def test_a_switched_off_email_is_refused(self):
         SystemEmailTemplate.objects.create(key="results_supervisor", is_enabled=False)
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
@@ -388,7 +416,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual(r.json()["to"], self.group.group_name)
         self.assertIn('href="https://example.com/draft"', r.json()["html"])
-        self.assertEqual(ResultsEmailSettings.load().survey_url, "https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA")
+        self.assertEqual(ResultsEmailSettings.load().survey_url, "https://example.com/survey")
 
         year = self.group.year
         self.assertEqual(r.json()["attachments"], [
@@ -401,7 +429,7 @@ class ResultsEmailTests(_GradingFixture):
         r = self.client.post(reverse("grading:results-email-preview"), {"audience": "supervisors"}, format="json")
         self.assertEqual(r.json()["to"], "Sam Lee")
         self.assertIn("Dear Sam Lee,", r.json()["html"])
-        self.assertEqual(r.json()["attachments"][-1], f"{year}_BTF_Student_Marks.xlsx")
+        self.assertEqual(r.json()["attachments"][-1], f"{year}_BTF_Student_Marks_Sam_Lee.xlsx")
         self.assertEqual(mail.outbox, [])
 
     def test_the_sample_spreadsheet_has_made_up_groups_marked_on_the_real_rubric(self):
@@ -444,7 +472,7 @@ class ResultsEmailTests(_GradingFixture):
         _student("un@example.com", unmarked, self.sup_profile)
         self._send_all("supervisors")
         files = _files(mail.outbox[0])
-        sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks.xlsx"])).active
+        sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[c.value for c in row] for row in sheet.iter_rows()]
         codes = [row[0] for row in rows[1:]]
         totals = [row[-1] for row in rows[1:]]
@@ -456,14 +484,14 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_supervisors_real_spreadsheet_can_be_checked_before_sending(self):
         r = self.client.get(reverse("grading:results-email-supervisor-sheet", args=[self.supervisor.id]))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertEqual(r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks.xlsx"')
+        self.assertEqual(r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"')
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
         row = dict(zip(rows[0], rows[1]))
         self.assertEqual((row["TeamCode"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
         # The same as the one the email attaches, and nothing was sent.
         self.assertEqual(mail.outbox, [])
         self._send_all("supervisors")
-        attached = _files(mail.outbox[0])[f"{self.group.year}_BTF_Student_Marks.xlsx"]
+        attached = _files(mail.outbox[0])[f"{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"]
         attached_rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(attached)).active.iter_rows()]
         self.assertEqual(attached_rows, rows)
 
@@ -489,6 +517,8 @@ class ResultsEmailTests(_GradingFixture):
             f"{year}_BTF_Mentor_Certificate_Name.docx",
             f"{year}_BTF_Marks_Team_name.docx",
         ])
+        r = self.client.post(reverse("grading:results-email-preview"), {"audience": "supervisors"}, format="json")
+        self.assertEqual(r.json()["attachments"][-1], f"{year}_BTF_Student_Marks_Supervisor_name.xlsx")
 
     # -- Document Setup's tests with a real person ----------------------------------------
 

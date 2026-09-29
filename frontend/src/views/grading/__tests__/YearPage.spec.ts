@@ -36,7 +36,7 @@ const finalist = (notified: boolean) => ({
 })
 
 const extension = (until: string) => ({
-  id: 1, group_id: 7, group_name: 'BTF-1', extended_until: until, grace_hours: 0,
+  id: 1, group_id: 7, group_name: 'BTF-1', extended_until: until, added: null, grace_hours: 0,
   reason: '', granted_at: '', granted_by: null, revoked_at: null, revoked_by: null
 })
 

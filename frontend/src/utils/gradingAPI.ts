@@ -429,6 +429,9 @@ export interface GroupExtension {
   group_id: number
   group_name: string
   extended_until: string
+  /** Time past the normal deadline, grace aside, e.g. "1d 18h"; null
+   *  without a deadline or once the deadline has moved past it. */
+  added: string | null
   /** Quiet extra hours the server accepts past the granted time. */
   grace_hours: number
   reason: string
@@ -842,12 +845,14 @@ export interface FinalistEmailPreview {
 
 // POST /api/v1/grading/finalists/email/preview/ — the email as a finalist
 // would get it, for the given (possibly unsaved) details. Sends nothing.
+// `recipient` is a person picked in Send Test Email: their team's email.
 export function previewFinalistEmail(
-  fields: Partial<FinalistEmailFields>
+  fields: Partial<FinalistEmailFields>,
+  recipient = ''
 ): Promise<FinalistEmailPreview> {
   return requestJson<FinalistEmailPreview>('/api/v1/grading/finalists/email/preview/', {
     method: 'POST',
-    body: JSON.stringify(fields)
+    body: JSON.stringify({ ...fields, ...(recipient ? { recipient } : {}) })
   })
 }
 
@@ -923,14 +928,16 @@ export function updateResultsEmailDetails(
 }
 
 // POST /api/v1/grading/results-email/preview/ — one email as it would go out,
-// for the given (possibly unsaved) details. Sends nothing.
+// for the given (possibly unsaved) details. Sends nothing. `recipient` is a
+// person picked in Send Test Email: their email and files.
 export function previewResultsEmail(
   audience: ResultsAudience,
-  fields: Partial<ResultsEmailFields>
+  fields: Partial<ResultsEmailFields>,
+  recipient = ''
 ): Promise<ResultsEmailPreview> {
   return requestJson<ResultsEmailPreview>('/api/v1/grading/results-email/preview/', {
     method: 'POST',
-    body: JSON.stringify({ audience, ...fields })
+    body: JSON.stringify({ audience, ...fields, ...(recipient ? { recipient } : {}) })
   })
 }
 
@@ -1002,12 +1009,16 @@ export function fetchSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEma
   return requestJson<SymposiumEmailStatus>(`/api/v1/grading/${email}/`)
 }
 
-// POST /api/v1/grading/{email}/preview/ — the email as the first team due
-// would get it. Nothing is sent.
-export function previewSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailPreview> {
+// POST /api/v1/grading/{email}/preview/ — the email as `recipient`'s team (a
+// person picked in Send Test Email) would get it, else the first team due.
+// Nothing is sent.
+export function previewSymposiumEmail(
+  email: SymposiumEmail,
+  recipient = ''
+): Promise<SymposiumEmailPreview> {
   return requestJson<SymposiumEmailPreview>(`/api/v1/grading/${email}/preview/`, {
     method: 'POST',
-    body: JSON.stringify({})
+    body: JSON.stringify(recipient ? { recipient } : {})
   })
 }
 
