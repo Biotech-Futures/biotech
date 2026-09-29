@@ -15,6 +15,12 @@ export interface ComponentBlock {
   name: string
   submitted: boolean
   criteria: CriterionMark[]
+  /** The marker's comment on the part as a whole; "" when none. */
+  overall_comment?: string
+  /** On the Results section: the part's marks added up, e.g. "14.5". */
+  subtotal?: string
+  /** The most they could be, e.g. "20". */
+  subtotal_max?: string
 }
 
 export interface MyGradesPayload {
@@ -129,6 +135,70 @@ async function requestBlob(
 export async function downloadSubmissionFile(url: string, fallbackName: string): Promise<void> {
   const { blob, filename } = await requestBlob(url)
   triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// ---------------------------------------------------------------------------
+// The Results section on a group's page
+
+/** The marks summary's details and total, as its document has them. */
+export interface GroupResultsSummary {
+  project_title: string
+  /** "Project Category", or "Project Categories" for more than one. */
+  project_category_heading: string
+  project_category: string
+  solution_category: string
+  /** SAQ and Poster marks together, e.g. "40.5". */
+  combined_total: string
+  /** The most they could be, e.g. "70". */
+  combined_max: string
+}
+
+/** A student's or mentor's certificate in the group. */
+export interface GroupCertificate {
+  user_id: number
+  name: string
+  kind: 'student' | 'mentor'
+  file_name: string
+}
+
+export interface GroupResults {
+  marks_released: boolean
+  certificates_released: boolean
+  /** A finalist team's certificates, while certificates exclude finalists. */
+  certificates_withheld: boolean
+  /** Results are only for a group that made a submission. */
+  has_submission: boolean
+  year: number
+  /** Once marks are released: SAQ and Poster marks and comments. */
+  components: ComponentBlock[]
+  /** Once marks are released: as the marks summary fills them. */
+  summary: GroupResultsSummary | null
+  /** The marks summary's download name; "" until marks are released. */
+  summary_file_name: string
+  /** Once certificates are released: every student's, then mentor's. */
+  certificates: GroupCertificate[]
+}
+
+// GET /api/v1/grading/groups/{id}/results/ — what's out for the group.
+export function fetchGroupResults(groupId: number | string): Promise<GroupResults> {
+  return requestJson<GroupResults>(`/api/v1/grading/groups/${groupId}/results/`)
+}
+
+// GET /api/v1/grading/groups/{id}/results/summary/ — the marks summary docx.
+export async function downloadGroupSummary(groupId: number | string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/grading/groups/${groupId}/results/summary/`)
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/grading/groups/{id}/results/certificate/{userId}/ — one certificate docx.
+export async function downloadGroupCertificate(
+  groupId: number | string,
+  certificate: GroupCertificate
+): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/grading/groups/${groupId}/results/certificate/${certificate.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? certificate.file_name)
 }
 
 // Fetch bytes for the summary/certificate docx and trigger a browser download.

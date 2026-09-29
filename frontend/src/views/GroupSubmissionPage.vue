@@ -17,7 +17,6 @@
     </div>
 
     <template v-else-if="detail">
-      <template v-if="activeTab !== 'finalist'">
       <div class="status-line" :class="`is-${state.tone}`">
         <span class="status-line__icon" aria-hidden="true">
           <i :class="`fas ${state.icon}`"></i>
@@ -103,7 +102,6 @@
         :summary="stepSummary"
         @select="selectTab"
       />
-      </template>
 
       <!-- 1. Short-answer questions -->
       <section v-show="activeTab === 'questions'" class="card">
@@ -465,25 +463,7 @@
       </div>
 
 
-      <!-- The finalist round has its own deadline, status and submit. -->
-      <div v-if="isFinalist" v-show="activeTab === 'finalist'" data-testid="finalist-step">
-        <FinalistPage
-          v-if="hasOpenedFinalist"
-          :previous-label="tabs[tabs.length - 2]?.label"
-          @back="goToStep(tabs.length - 2)"
-        >
-          <template #steps>
-            <SubmissionStepStrip
-              :steps="tabs"
-              :active="activeTab"
-              :summary="stepSummary"
-              @select="selectTab"
-            />
-          </template>
-        </FinalistPage>
-      </div>
-
-      <div v-show="activeTab !== 'finalist'" class="submission-actions">
+      <div class="submission-actions">
 
         <span
           v-if="isEditable"
@@ -531,10 +511,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
-import { fetchFinalist } from '@/utils/finalistAPI'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
@@ -560,9 +539,8 @@ import {
   type SubmissionWriteResult
 } from '@/utils/submissionsAPI'
 
-type TabKey = 'questions' | 'poster' | 'extras' | 'finalist'
+type TabKey = 'questions' | 'poster' | 'extras'
 
-const FinalistPage = defineAsyncComponent(() => import('@/views/FinalistPage.vue'))
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'questions', label: 'Questions' },
@@ -687,29 +665,8 @@ function shownFile(slot: SubmissionSlot): StoredFile | null {
     ? submission[`submitted_${slot}` as const]
     : submission[slot]
 }
-// Asked of the server, which alone knows whether this group reached the finalist round.
-const isFinalist = ref(false)
-const hasOpenedFinalist = ref(false)
-const tabs = computed(() =>
-  isFinalist.value ? [...TABS, { key: 'finalist' as TabKey, label: 'Finalist' }] : TABS
-)
-
-async function checkFinalist() {
-  const id = groupId.value
-  try {
-    await fetchFinalist(id)
-    if (id !== groupId.value) return
-    isFinalist.value = true
-    // Once the main round has closed, open on the round still in play.
-    if (!isOpen.value && activeTab.value === 'questions') activeTab.value = 'finalist'
-  } catch {
-    if (id === groupId.value) isFinalist.value = false
-  }
-}
-
-watch(activeTab, (tab) => {
-  if (tab === 'finalist') hasOpenedFinalist.value = true
-}, { immediate: true })
+// The finalist round has a section of its own on the group page.
+const tabs = computed(() => TABS)
 
 function selectTab(key: string) {
   goToStep(tabs.value.findIndex((tab) => tab.key === key))
@@ -861,7 +818,6 @@ function stepSummary(key: string): string {
       [TITLE_STEP_KEY, ...questions.value.map((q) => q.key)]
     )
   }
-  if (key === 'finalist') return ''
   if (key === 'poster') return 'Required'
   return 'Optional'
 }
@@ -1060,8 +1016,6 @@ async function load() {
     detail.value = await fetchSubmission(groupId.value)
     syncFromDetail()
     await syncPreviewForTab()
-    // Not awaited: the Finalist step appears once known, without delaying the page.
-    void checkFinalist()
   } catch (error) {
     loadError.value = apiErrorFromUnknown(error).message
   } finally {
@@ -1320,7 +1274,6 @@ async function refreshDeadline() {
   if (!detail.value || isLoading.value || isBusy.value) return
   if (Date.now() - lastRefreshAt < REFRESH_MIN_GAP_MS) return
   lastRefreshAt = Date.now()
-  void checkFinalist()
   try {
     const latest = await fetchSubmission(groupId.value)
     if (!detail.value || isBusy.value) return

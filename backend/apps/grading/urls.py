@@ -29,6 +29,9 @@ from .views import (
     GroupCategoriesView,
     GroupDownloadView,
     GroupMarkingView,
+    GroupResultsCertificateView,
+    GroupResultsSummaryView,
+    GroupResultsView,
     MarksReleaseView,
     MyCertificateView,
     MyGradesView,
@@ -59,6 +62,18 @@ app_name = "grading"
 urlpatterns = [
     # Per-group marking payload (composite: submissions + rubric + grades).
     path("groups/<int:group_id>/", GroupMarkingView.as_view(), name="group-marking"),
+    # The Results section on the group's own page, for its members and admins.
+    path("groups/<int:group_id>/results/", GroupResultsView.as_view(), name="group-results"),
+    path(
+        "groups/<int:group_id>/results/summary/",
+        GroupResultsSummaryView.as_view(),
+        name="group-results-summary",
+    ),
+    path(
+        "groups/<int:group_id>/results/certificate/<int:user_id>/",
+        GroupResultsCertificateView.as_view(),
+        name="group-results-certificate",
+    ),
     # Sync zip of one group's submissions (bounded — up to 4 components).
     path("groups/<int:group_id>/download/", GroupDownloadView.as_view(), name="group-download"),
     # The marking key's header categories (product / solution) for one group.
