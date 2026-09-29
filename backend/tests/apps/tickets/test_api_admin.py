@@ -13,7 +13,7 @@ from datetime import timezone as dt_timezone
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from unittest import skipIf
 from unittest.mock import patch
@@ -1791,7 +1791,8 @@ class SupportEndpointPermissionTests(AdminTicketAPITestCase):
         t = self.ticket.pk
         return [
             ("GET queue", lambda: self.client.get(QUEUE)),
-            ("GET export", lambda: self.client.get(f"{QUEUE}export/")),
+            ("POST export", lambda: self.client.post(
+                f"{QUEUE}export/", {}, format="json")),
             ("GET summary", lambda: self.client.get(f"{QUEUE}summary/")),
             ("GET assignees", lambda: self.client.get(f"{QUEUE}assignees/")),
             ("GET regions", lambda: self.client.get(f"{QUEUE}regions/")),
@@ -4068,11 +4069,15 @@ class QueueExportTestCase(AdminTicketAPITestCase):
     Everything goes through the endpoint and is read back with openpyxl, the
     same way Excel would open it. Comparisons against the queue use the queue
     endpoint itself, because the promise is that the file and the table agree
-    for the same query string, whatever the filter rules turn into later.
+    for the same filters, whatever the filter rules turn into later.
+
+    The export is a POST with the filters in a JSON body (QueueExportCsrfTests
+    says why). The table still reads them from its query string, so each
+    comparison sends the same dict both ways.
     """
 
     def export(self, params=None):
-        return self.client.get(EXPORT, params or {})
+        return self.client.post(EXPORT, params or {}, format="json")
 
     def body_rows(self, params=None):
         response = self.export(params)
@@ -4294,7 +4299,7 @@ class QueueExportContentTests(QueueExportTestCase):
 
 
 class QueueExportFilterTests(QueueExportTestCase):
-    """The file holds what the table holds, for the same query string."""
+    """The file holds what the table holds, for the same filters."""
 
     def setUp(self):
         super().setUp()
@@ -4379,6 +4384,50 @@ class QueueExportFilterTests(QueueExportTestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(self.export_audit_rows().exists())
 
+    def test_a_filter_that_is_not_text_is_refused(self):
+        """A query string can only carry text, and the table's filters are
+        read as text. A JSON body can carry anything. Read as it came,
+        ``true`` for assignee is user 1 (int(True)) and a list for status
+        matches nothing. Neither is a filter the table could have sent."""
+        cases = [
+            ({"assignee": True}, "assignee must be a string."),
+            ({"assignee": self.admin.pk}, "assignee must be a string."),
+            ({"status": ["open", "resolved"]}, "status must be a string."),
+            ({"search": {"contains": "Mia"}}, "search must be a string."),
+        ]
+        for body, error in cases:
+            with self.subTest(body=body):
+                response = self.export(body)
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["error"], error)
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_body_that_is_not_an_object_is_refused(self):
+        for body in (["open"], "open", 5):
+            with self.subTest(body=body):
+                response = self.client.post(EXPORT, body, format="json")
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(
+                    response.json()["error"], "The filters must be a JSON object."
+                )
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_filters_in_the_query_string_are_not_read(self):
+        # The body is the one place the filters come from. The URL disagrees
+        # with it on status, and adds a priority the body does not carry.
+        # Read from the URL, or with the body's gaps filled from it, the file
+        # would hold no rows at all.
+        response = self.client.post(
+            f"{EXPORT}?status=resolved&priority=low", {"status": "open"}, format="json"
+        )
+        sheet = load_workbook(io.BytesIO(response.content)).active
+
+        self.assertEqual(
+            [row[2].value for row in sheet.iter_rows(min_row=2)], ["One", "Five"]
+        )
+
 
 class QueueExportAuditTests(QueueExportTestCase):
     def test_an_export_is_recorded_with_its_filters_and_what_left(self):
@@ -4421,6 +4470,88 @@ class QueueExportAuditTests(QueueExportTestCase):
         self.make_ticket()
 
         response = self.client.head(EXPORT)
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertFalse(self.export_audit_rows().exists())
+
+
+class QueueExportCsrfTests(QueueExportTestCase):
+    """The export writes an audit row, so it has to be CSRF-checked.
+
+    The session cookie is SameSite=None in production, so a browser sends it
+    with a request another site starts. Django does not check CSRF on a GET.
+    As a GET, an <img> on any page an agent opened would build the file and
+    record an export under the agent's name. The response is not readable
+    cross-site, so nothing leaks; what is forged is the audit trail.
+
+    As a POST, SessionAuthentication checks the X-CSRFToken header against
+    the csrftoken cookie. Another site's page can get the browser to send
+    both cookies, but it cannot read the token to put it in the header.
+
+    APITestCase's own client skips that check, which is why every other test
+    here can post without a token. This client runs it, as a browser would.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.make_ticket(subject="Only one")
+        self.browser = APIClient(enforce_csrf_checks=True)
+        self.browser.force_login(self.agent)
+        # The portal's way to a token. It also sets the csrftoken cookie, so
+        # the jar holds everything a cross-site request would carry.
+        self.token = self.browser.get("/services/csrf/").json()["csrfToken"]
+        self.assertIn("csrftoken", self.browser.cookies)
+
+    def test_a_post_without_the_token_is_refused_and_records_nothing(self):
+        # What another site can make the browser send: both cookies, no header.
+        sends = [
+            ("json", lambda: self.browser.post(EXPORT, {"status": "open"}, format="json")),
+            # A plain HTML form needs no preflight to go cross-site.
+            ("form", lambda: self.browser.post(EXPORT, {"status": "open"})),
+        ]
+        for label, send in sends:
+            with self.subTest(body=label):
+                response = send()
+
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertEqual(response.json()["error"], "CSRF Failed: CSRF token missing.")
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_post_with_a_token_that_is_not_the_cookies_is_refused(self):
+        response = self.browser.post(EXPORT, {}, format="json", HTTP_X_CSRFTOKEN="x" * 64)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_post_with_the_token_gets_the_file_and_is_recorded(self):
+        moment = datetime(2030, 1, 1, 13, 30, tzinfo=dt_timezone.utc)
+
+        # Only the view's clock is held still, as in the naming tests above.
+        with patch("apps.tickets.views_admin.timezone") as clock:
+            clock.now.return_value = moment
+            response = self.browser.post(
+                EXPORT, {"status": "open"}, format="json", HTTP_X_CSRFTOKEN=self.token
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(
+            response["Content-Disposition"], 'attachment; filename="tickets-2030-01-01.xlsx"'
+        )
+        sheet = load_workbook(io.BytesIO(response.content)).active
+        self.assertEqual([row[2].value for row in sheet.iter_rows(min_row=2)], ["Only one"])
+        rows = list(self.export_audit_rows())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].actor_user, self.agent)
+        self.assertEqual(rows[0].after_state["filters"], {"status": "open"})
+
+    def test_a_get_is_not_allowed_and_records_nothing(self):
+        # The old way in, filters in the query string, which is how an
+        # <img src> would send it.
+        response = self.browser.get(EXPORT, {"status": "open"})
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertFalse(self.export_audit_rows().exists())

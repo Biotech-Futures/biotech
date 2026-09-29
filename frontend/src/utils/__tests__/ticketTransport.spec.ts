@@ -10,6 +10,7 @@ import {
   TicketSessionError,
   fetchBlob,
   filenameFromDisposition,
+  requestBlob,
   requestJson,
   saveBlob,
   ticketFormData
@@ -34,8 +35,9 @@ import {
  *     jar belongs to at that moment.
  * A write is "filed" only if it reaches the server with the current token, and
  * it is filed under whoever owns the session then, which is what Django does.
- * The queue export is filed too, though it is a GET with no token: the export
- * view records it under whoever owns the session when it lands.
+ * The queue export is one of those writes: a POST that needs the token, whose
+ * audit row names whoever owns the session, and whose answer is the file. A
+ * GET to it is refused with a 405, as the export view refuses one.
  *
  * Tokens are unique across the whole file, as Django's are (it masks the
  * secret afresh on every fetch). The transport keeps track of which token it
@@ -114,14 +116,8 @@ function fakeBackend() {
       return answer
     }
     if (method === 'GET') {
-      // TicketQueueExportView's audit row: no token to check, and the name on
-      // it is whoever owns the session now. Then the file.
       if (url.pathname === EXPORT_PATH) {
-        server.filed.push({ path: url.pathname, by: server.sessionUser })
-        return new Response('PK', {
-          status: 200,
-          headers: { 'Content-Disposition': 'attachment; filename="tickets-2026-09-29.xlsx"' }
-        })
+        return json({ error: 'Method "GET" not allowed.', code: 'method_not_allowed' }, 405)
       }
       return json({ msg: 'ok', data: { readAs: server.sessionUser } })
     }
@@ -129,6 +125,13 @@ function fakeBackend() {
       return json({ error: 'CSRF Failed: CSRF token incorrect.', code: 'permission_denied' }, 403)
     }
     server.filed.push({ path: url.pathname, by: server.sessionUser })
+    if (url.pathname === EXPORT_PATH) {
+      // TicketQueueExportView: the audit row above, then the file.
+      return new Response('PK', {
+        status: 200,
+        headers: { 'Content-Disposition': 'attachment; filename="tickets-2026-09-29.xlsx"' }
+      })
+    }
     return json({ msg: 'created', data: { filedUnder: server.sessionUser } }, 201)
   })
 
@@ -255,8 +258,10 @@ describe('the first write after the page loaded (a cold cache, T01)', () => {
     const { server } = backend
     signInThisTabAs(null)
 
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
+    const error = await sendReply().catch((caught: unknown) => caught)
 
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(server.filed).toEqual([])
     expect(server.seen).toEqual(['GET /services/csrf/'])
   })
@@ -780,21 +785,19 @@ describe('fetchBlob', () => {
   it('hands back the bytes and the name the server offered', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        fileResponse({ 'Content-Disposition': 'attachment; filename="tickets-2026-09-29.xlsx"' })
-      )
+      vi.fn(async () => fileResponse({ 'Content-Disposition': 'attachment; filename="error.png"' }))
     )
 
-    const { blob, filename } = await fetchBlob('/api/v1/admin/tickets/export/', 'x')
+    const { blob, filename } = await fetchBlob('/api/v1/admin/tickets/42/attachments/7/', 'x')
 
     expect(await readText(blob)).toBe('PK')
-    expect(filename).toBe('tickets-2026-09-29.xlsx')
+    expect(filename).toBe('error.png')
   })
 
   it('offers no name when the server sent none', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => fileResponse()))
 
-    await expect(fetchBlob('/api/v1/admin/tickets/export/', 'x')).resolves.toMatchObject({
+    await expect(fetchBlob('/api/v1/admin/tickets/42/attachments/7/', 'x')).resolves.toMatchObject({
       filename: null
     })
   })
@@ -815,19 +818,33 @@ describe('fetchBlob', () => {
   })
 })
 
-describe('fetchBlob asked to confirm the session (the queue export)', () => {
-  // The export is a GET, so it carries no token, but the server records it
-  // under whoever owns the session. The page loaded as 7. Every case below
-  // is about whether an export can go out on a session that is not 7's.
+describe('requestBlob: a write whose answer is a file (the queue export)', () => {
+  // The export changes no ticket, but the server records it under whoever
+  // owns the session, so it is a POST that needs the token. It goes through
+  // the same path as a reply. The page loaded as 7. Every case below is about
+  // whether an export can go out on a session that is not 7's, and whether it
+  // costs anything more than a reply when nothing is wrong.
+  const EXPORT_BODY = '{"status":"open"}'
+
   function exportQueue() {
-    return fetchBlob(EXPORT_PATH, 'Could not export the tickets. Please try again.', {
-      confirmSession: true
-    })
+    return requestBlob(
+      EXPORT_PATH,
+      { method: 'POST', body: EXPORT_BODY },
+      'Could not export the tickets. Please try again.'
+    )
+  }
+
+  // The init the export itself went out with, the token fetch and the
+  // identity check aside.
+  function exportCalls() {
+    return backend.fetchMock.mock.calls
+      .filter(([input]) => new URL(String(input)).pathname === EXPORT_PATH)
+      .map(([, init]) => init as RequestInit)
   }
 
   it('is never sent once /users/me/ says somebody else owns the session', async () => {
-    // 99 signed in on another tab of the same browser. Before the check the
-    // export went straight out and the audit row said 99 took the file.
+    // 99 signed in on another tab of the same browser. As a GET the export
+    // went straight out and the audit row said 99 took the file.
     const { server } = backend
     server.signIn(99)
 
@@ -835,14 +852,14 @@ describe('fetchBlob asked to confirm the session (the queue export)', () => {
 
     expect(error).toBeInstanceOf(TicketSessionError)
     expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    // The same sentence a refused write carries, so every page that already
+    // The same sentence a refused reply carries, so every page that already
     // words that refusal words this one too.
     expect((error as Error).message).toBe(
       'You appear to be signed in as someone else now — this can happen if you ' +
         'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
     )
     expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /api/v1/users/me/'])
+    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
   })
 
   it('is never sent when /users/me/ answers with a failure instead of a person', async () => {
@@ -857,7 +874,7 @@ describe('fetchBlob asked to confirm the session (the queue export)', () => {
     expect(error).toBeInstanceOf(TicketSessionError)
     expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /api/v1/users/me/'])
+    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
   })
 
   it('is never sent when this tab does not know who it is', async () => {
@@ -868,11 +885,12 @@ describe('fetchBlob asked to confirm the session (the queue export)', () => {
     const error = await exportQueue().catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(server.filed).toEqual([])
-    expect(server.seen).toEqual([])
+    expect(server.seen).toEqual(['GET /services/csrf/'])
   })
 
-  it('is sent exactly once, after the check, when it is still the same person', async () => {
+  it('is sent exactly once, as a POST carrying the checked token, when it is still the same person', async () => {
     const { server } = backend
 
     const { blob, filename } = await exportQueue()
@@ -880,30 +898,83 @@ describe('fetchBlob asked to confirm the session (the queue export)', () => {
     expect(blob.size).toBe(2)
     expect(filename).toBe('tickets-2026-09-29.xlsx')
     expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
-    expect(server.seen).toEqual(['GET /api/v1/users/me/', `GET ${EXPORT_PATH}`])
-    // Still a read: no token was fetched for it and none went with it.
-    const exportCall = backend.fetchMock.mock.calls[1]
-    expect(new Headers(exportCall[1]?.headers).get('X-CSRFToken')).toBeNull()
-    expect(getCSRFToken()).toBeNull()
+    expect(server.seen).toEqual([
+      'GET /services/csrf/',
+      'GET /api/v1/users/me/',
+      `POST ${EXPORT_PATH}`
+    ])
+    const [init] = exportCalls()
+    expect(init.body).toBe(EXPORT_BODY)
+    const headers = new Headers(init.headers)
+    expect(headers.get('X-CSRFToken')).toBe(server.token())
+    expect(headers.get('Content-Type')).toBe('application/json')
+    expect(headers.get('Accept')).toBe('application/json')
+    expect(init.credentials).toBe('include')
   })
 
-  it('asks again on the next export, since a sign-in has no token here to rotate', async () => {
-    // A write may trust a token it checked earlier: a sign-in since then
-    // rotates it and the write 403s. This GET has nothing like that, so a
-    // check that passed on the last export says nothing about this one.
+  it('goes straight out on a token a reply already checked, and a reply on one it checked', async () => {
+    // One rule for both. The token the reply's check vouched for is good for
+    // the export, and the other way round: no second check of its own.
     const { server } = backend
+    await sendReply()
     await exportQueue()
-    server.signIn(99)
+    await sendReply()
+
+    expect(server.seen).toEqual([
+      'GET /services/csrf/',
+      'GET /api/v1/users/me/',
+      `POST ${REPLY_PATH}`,
+      `POST ${EXPORT_PATH}`,
+      `POST ${REPLY_PATH}`
+    ])
+    expect(server.filed).toEqual([
+      { path: REPLY_PATH, by: 7 },
+      { path: EXPORT_PATH, by: 7 },
+      { path: REPLY_PATH, by: 7 }
+    ])
+  })
+
+  it('is refused, not replayed, when somebody else signs in after the check', async () => {
+    // The window the GET version left open. /users/me/ said 7, then 99 signed
+    // in before the export landed. The token that was checked is rotated, so
+    // the server refuses the POST, and the transport asks again and stops.
+    const { server } = backend
+    server.afterMe = () => server.signIn(99)
 
     const error = await exportQueue().catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
+    expect(server.filed).toEqual([])
     expect(server.seen).toEqual([
+      'GET /services/csrf/',
       'GET /api/v1/users/me/',
-      `GET ${EXPORT_PATH}`,
+      `POST ${EXPORT_PATH}`,
+      'GET /services/csrf/',
       'GET /api/v1/users/me/'
     ])
+  })
+
+  it('is sent again, once, with its body, when the same person signed in again elsewhere', async () => {
+    // A rotated token with the same owner: safe to retry, as for a reply.
+    // The body is a string, so the retry carries the same filters.
+    const { server } = backend
+    await sendReply()
+    server.signIn(7)
+    server.seen = []
+    server.filed = []
+
+    const { filename } = await exportQueue()
+
+    expect(filename).toBe('tickets-2026-09-29.xlsx')
+    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
+    expect(server.seen).toEqual([
+      `POST ${EXPORT_PATH}`,
+      'GET /services/csrf/',
+      'GET /api/v1/users/me/',
+      `POST ${EXPORT_PATH}`
+    ])
+    expect(exportCalls().map((init) => init.body)).toEqual([EXPORT_BODY, EXPORT_BODY])
   })
 
   it("judges by this tab's own memory, not by what the other tab wrote to localStorage", async () => {
@@ -944,15 +1015,36 @@ describe('fetchBlob asked to confirm the session (the queue export)', () => {
     expect(server.filed).toEqual([])
   })
 
+  it("reads a failure with no message of its own as the caller's sentence", async () => {
+    // Checked and sent, then the build fails with Django's own error page.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input)).pathname
+        if (path === '/services/csrf/') return new Response('{"csrfToken":"t-500"}')
+        if (path === '/api/v1/users/me/') return new Response('{"id":7}')
+        return new Response('<h1>Server Error</h1>', { status: 500 })
+      })
+    )
+
+    const error = await exportQueue().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(500)
+    expect((error as ApiError).message).toBe('Could not export the tickets. Please try again.')
+  })
+
   it('is not asked for on a plain download, which the server does not record', async () => {
     // An attachment download changes nothing and writes no audit row, so it
-    // asks nobody first, even on a session that has changed hands.
+    // stays a GET: no token, and nobody asked first, even on a session that
+    // has changed hands.
     const { server } = backend
     server.signIn(99)
 
     await fetchBlob('/api/v1/admin/tickets/42/attachments/7/', 'Could not download that file.')
 
     expect(server.seen).toEqual(['GET /api/v1/admin/tickets/42/attachments/7/'])
+    expect(getCSRFToken()).toBeNull()
   })
 })
 

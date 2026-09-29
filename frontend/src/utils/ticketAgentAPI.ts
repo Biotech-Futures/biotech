@@ -31,6 +31,7 @@ import { ApiError } from './apiError'
 import {
   TicketSessionError,
   fetchBlob,
+  requestBlob,
   requestJson,
   saveBlob,
   ticketFormData
@@ -66,13 +67,19 @@ const BASE = '/api/v1/admin/tickets'
 // these and nothing else from the queue's state.
 const FILTER_KEYS = ['region', 'status', 'category', 'assignee', 'priority', 'search'] as const
 
-function appendFilters(params: URLSearchParams, filters: TicketFilters) {
-  // Falsy means "no filter" — the backend reads them the same way, so an
-  // empty select does not have to be special-cased on either side.
-  FILTER_KEYS.forEach((key) => {
+// The filters that are set, as [key, value] pairs in FILTER_KEYS order.
+// Falsy means "no filter". The backend reads them the same way, so an empty
+// select does not have to be special-cased on either side. The list puts
+// these in its query string and the export in its body, both from here.
+function activeFilters(filters: TicketFilters): Array<[string, string]> {
+  return FILTER_KEYS.flatMap((key) => {
     const value = filters[key]
-    if (value) params.set(key, value)
+    return value ? [[key, value] as [string, string]] : []
   })
+}
+
+function appendFilters(params: URLSearchParams, filters: TicketFilters) {
+  activeFilters(filters).forEach(([key, value]) => params.set(key, value))
   return params
 }
 
@@ -154,20 +161,22 @@ export async function bulkAssignTickets(
  * exposes that header cross-origin), otherwise tickets-YYYY-MM-DD.xlsx on the
  * reader's own calendar. The caller saves it with saveTicketExport.
  *
- * A GET, but the one agent read the server records: the export view writes an
- * audit row under whoever owns the session. So it asks /users/me/ first, on
- * every export. A session that now belongs to somebody else is refused with
- * the same TicketSessionError a write gets; fetchBlob in ticketTransport.ts
- * says what that check does and does not close. ticketRefusalReason already
- * turns that error into the sentence the queue page shows.
+ * A POST with the filters as a JSON body, though it changes no ticket. The
+ * export view writes an audit row under whoever owns the session, so the
+ * backend takes it as a write and checks its CSRF token. Here it goes out
+ * through the transport's write path (requestBlob in ticketTransport.ts),
+ * with the token and the same "is this still the same person" check a reply
+ * gets. A session that now belongs to somebody else is refused with the
+ * same TicketSessionError, and ticketRefusalReason already turns that into
+ * the sentence the queue page shows.
  */
 export async function exportTickets(
   filters: TicketFilters = {}
 ): Promise<{ blob: Blob; filename: string }> {
-  const { blob, filename } = await fetchBlob(
-    withQuery(`${BASE}/export/`, appendFilters(new URLSearchParams(), filters)),
-    'Could not export the tickets. Please try again.',
-    { confirmSession: true }
+  const { blob, filename } = await requestBlob(
+    `${BASE}/export/`,
+    { method: 'POST', body: JSON.stringify(Object.fromEntries(activeFilters(filters))) },
+    'Could not export the tickets. Please try again.'
   )
   return { blob, filename: filename ?? `tickets-${localDateStamp(new Date())}.xlsx` }
 }
@@ -279,7 +288,7 @@ export async function deleteTicket(id: number): Promise<number> {
  *  Internal-note attachments are served here too; that is why this is the
  *  admin endpoint and never the requester's.
  *
- *  No session check before it, unlike exportTickets. The download view
+ *  A plain read, unlike exportTickets, which is a write. The download view
  *  changes nothing and writes no audit row, so a download on a session that
  *  changed hands leaves no record under the wrong name.
  */

@@ -476,16 +476,25 @@ test.describe('support tickets, both sides in the portal', () => {
     await expect(page.getByRole('button', { name: `Open ${ticket.number}` })).toBeVisible()
 
     const dayBefore = new Date().toISOString().slice(0, 10)
-    const requested = page.waitForRequest((request) =>
-      request.url().startsWith(`${API_URL}/api/v1/admin/tickets/export/`)
+    // A POST: the export writes an audit row, so it carries the CSRF token.
+    // The method test also keeps a CORS preflight (an OPTIONS to the same
+    // URL) from being taken for the export.
+    const requested = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        request.url().startsWith(`${API_URL}/api/v1/admin/tickets/export/`)
     )
     const downloading = page.waitForEvent('download')
     await page.getByRole('button', { name: 'Export to Excel' }).click()
-    const query = new URL((await requested).url()).searchParams
-    expect(query.get('search')).toBe(tag)
-    expect(query.get('status')).toBe('open')
+    const request = await requested
+    // The filters travel in the JSON body and nowhere else.
+    expect(new URL(request.url()).search).toBe('')
+    const body = request.postDataJSON() as Record<string, unknown>
+    expect(body.search).toBe(tag)
+    expect(body.status).toBe('open')
     // The page on screen is not the export: no paging goes with it.
-    expect(query.has('page') || query.has('asOf') || query.has('after')).toBe(false)
+    expect('page' in body || 'limit' in body || 'asOf' in body || 'after' in body).toBe(false)
+    expect(await request.headerValue('x-csrftoken')).toBeTruthy()
 
     const download = await downloading
     const dayAfter = new Date().toISOString().slice(0, 10)

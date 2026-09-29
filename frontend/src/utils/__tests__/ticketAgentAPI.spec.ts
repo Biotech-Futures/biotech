@@ -38,11 +38,11 @@ import type { TicketFilters } from '@/utils/ticketAgentSchema'
  * really sends (backend/apps/tickets/views_admin.py).
  *
  * The CSRF cache starts warm, as it is after signing in. The transport asks
- * /users/me/ about a token before the first write that carries it, and before
- * every queue export; the stub below answers that, and the token fetch, and
- * keeps both out of `sent`, so a write is one entry in `sent`. The takeover
- * check has its own suite (ticketTransport.spec.ts); the T01 cases here only
- * prove the agent writes and the export go through it at all.
+ * /users/me/ about a token before the first write that carries it (the queue
+ * export is one of those writes); the stub below answers that, and the token
+ * fetch, and keeps both out of `sent`, so a write is one entry in `sent`. The
+ * takeover check has its own suite (ticketTransport.spec.ts); the T01 cases
+ * here only prove the agent writes and the export go through it at all.
  */
 
 type Sent = { method: string; url: string; headers: Headers; body: BodyInit | null | undefined }
@@ -315,31 +315,42 @@ describe('exporting the queue (C-09)', () => {
       }
     })
 
-  it('sends the queue filters and nothing about paging', async () => {
+  it('posts the queue filters as JSON, with the token, and nothing about paging', async () => {
     answer(xlsx())
 
     await exportTickets({
       search: 'Mia Thompson',
       assignee: '__unassigned__',
       status: 'open',
-      // What a page might spread in from its own state. Not a filter.
+      // An empty select is no filter, as on the list.
+      region: '',
+      // What a page might spread in from its own state. Not filters.
       page: '3',
-      asOf: '2026-09-02T04:00:00Z'
+      limit: '25',
+      asOf: '2026-09-02T04:00:00Z',
+      after: '2026-09-02T04:00:00Z_7'
     } as TicketFilters)
 
-    expect(last().method).toBe('GET')
-    expect(last().url).toBe(
-      'http://localhost:8000/api/v1/admin/tickets/export/?status=open&assignee=__unassigned__&search=Mia+Thompson'
+    expect(last().method).toBe('POST')
+    // Nothing in the URL: the body is where the export view reads filters.
+    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/export/')
+    // The filters that are set, in the list's own order, and no other key.
+    expect(String(last().body)).toBe(
+      '{"status":"open","assignee":"__unassigned__","search":"Mia Thompson"}'
     )
+    expect(last().headers.get('Content-Type')).toBe('application/json')
     expect(last().headers.get('Accept')).toBe('application/json')
+    expect(last().headers.get('X-CSRFToken')).toBe('test-token')
   })
 
-  it('asks for everything when nothing is filtered', async () => {
+  it('posts an empty object when nothing is filtered', async () => {
     answer(xlsx())
 
     await exportTickets()
 
+    expect(last().method).toBe('POST')
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/export/')
+    expect(String(last().body)).toBe('{}')
   })
 
   it('names the file the way the server did', async () => {
@@ -390,24 +401,34 @@ describe('exporting the queue (C-09)', () => {
   })
 
   // The export view writes an audit row naming whoever owns the session, so
-  // an export from a tab whose session has changed hands is refused the way
-  // a write is. The rest of the rule is in ticketTransport.spec.ts.
-  it('asks who is signed in first, then sends the export exactly once', async () => {
+  // the export is a write and goes through the takeover check like one. The
+  // cases below start from a cold cache, so the token is one the transport
+  // has not checked. The rest of the rule is in ticketTransport.spec.ts.
+  it('asks who is signed in about a new token, then sends the export exactly once', async () => {
+    resetCsrfToken()
     answer(xlsx())
 
     await exportTickets({ status: 'open' })
 
-    expect(everyPath()).toEqual(['/api/v1/users/me/', '/api/v1/admin/tickets/export/'])
+    expect(everyPath()).toEqual([
+      '/services/csrf/',
+      '/api/v1/users/me/',
+      '/api/v1/admin/tickets/export/'
+    ])
     expect(sent).toHaveLength(1)
+    expect(last().headers.get('X-CSRFToken')).toBe(`fresh-token-${tokenFetches}`)
   })
 
   it("is never sent once the session is somebody else's, and the page has a sentence for it", async () => {
+    resetCsrfToken()
     meId = 99
 
     const error = await exportTickets({ status: 'open' }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(sent).toEqual([])
+    expect(everyPath()).toEqual(['/services/csrf/', '/api/v1/users/me/'])
     // What the queue page puts in its alert (useTicketQueue's exportQueue).
     expect(ticketRefusalReason(error)).toBe(
       'You appear to be signed in as someone else now. This can happen if you signed in to ' +
@@ -416,13 +437,14 @@ describe('exporting the queue (C-09)', () => {
   })
 
   it('is never sent when /users/me/ cannot say who is signed in', async () => {
+    resetCsrfToken()
     meFailsWith = 502
 
     const error = await exportTickets().catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
     expect(sent).toEqual([])
-    expect(everyPath()).toEqual(['/api/v1/users/me/'])
+    expect(everyPath()).toEqual(['/services/csrf/', '/api/v1/users/me/'])
   })
 
   it('saves the file under its name', async () => {

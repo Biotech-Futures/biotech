@@ -271,14 +271,35 @@ def _detail(ticket, *, overdue):
     }
 
 
-# The query parameters the queue filters on, and the only list of them. The
-# table and the export both read their filters through here, so a filter added
-# for one is a filter the other honours.
+# The filters the queue offers, and the only list of them. The table and the
+# export both read their filters through _queue_filters, so a filter added for
+# one is a filter the other honours.
 QUEUE_FILTERS = ("region", "status", "category", "assignee", "priority", "search")
 
 
-def _queue_filters(request):
-    return {name: request.query_params.get(name) for name in QUEUE_FILTERS}
+def _queue_filters(source):
+    """The queue's filters, read out of ``source``.
+
+    The table sends them in its query string (``request.query_params``) and
+    the export in its JSON body (``request.data``). Both come through here so
+    that the two can never read the same filters two ways.
+
+    A query string can only carry text. A JSON body can carry anything, so
+    anything other than text or null is refused here, before apply_filters
+    sees it. Left to apply_filters, ``"assignee": true`` would read as user 1
+    and ``"status": ["open"]`` as a status that matches nothing. Neither is a
+    filter the table could have sent.
+    """
+    if not hasattr(source, "get"):
+        # A body that is a list, a number or a bare string.
+        raise serializers.ValidationError("The filters must be a JSON object.")
+    filters = {}
+    for name in QUEUE_FILTERS:
+        value = source.get(name)
+        if value is not None and not isinstance(value, str):
+            raise serializers.ValidationError({name: f"{name} must be a string."})
+        filters[name] = value
+    return filters
 
 
 def _queue_tickets(filters, as_of):
@@ -346,7 +367,7 @@ class TicketQueueView(APIView):
         # onto the page just read. So a request without a cursor is a fresh look
         # whatever else it carries.
         as_of = snapshot_from(request) if cursor is not None else timezone.now()
-        queryset = _queue_tickets(_queue_filters(request), as_of)
+        queryset = _queue_tickets(_queue_filters(request.query_params), as_of)
 
         total = queryset.count()
         # A cursor continues a walk; its absence starts one. Choosing a page
@@ -388,19 +409,30 @@ class TicketQueueExportView(APIView):
     Client item C-09. Same gate as the queue itself: whoever can read the
     table can take it away, and admins are in that set already.
 
-    Always a fresh look at the moment of the request. The paging parameters
-    the table sends (page, limit, asOf, after) are not read, because they
-    choose which slice of the queue is on screen, and the export is all of it.
+    A POST, though it changes no ticket, because it writes an audit row. The
+    session cookie is SameSite=None in production, and Django does not check
+    CSRF on a GET. As a GET, any page an agent visited could start an export
+    with an <img> tag, and the audit trail would say the agent took a file
+    that went nowhere. SessionAuthentication checks the CSRF token on a POST,
+    and another site cannot read that token to send it.
+
+    The filters come in the JSON body, read by the same _queue_filters as the
+    table's query string. The query string is not read at all. Always a fresh
+    look at the moment of the request: the paging values the table uses (page,
+    limit, asOf, after) are not read either, because they choose which slice
+    of the queue is on screen, and the export is all of it.
     """
 
     permission_classes = SUPPORT_PERMISSIONS
-    # No HEAD. Django answers HEAD by running get() and dropping the body, so
-    # a HEAD here would build the file and record an export that sent nothing.
-    # The audit row has to mean a file left, and nothing needs HEAD on this.
-    http_method_names = ["get", "options"]
+    # POST only: a GET or a HEAD is answered 405 and records nothing. Do not
+    # put either back. A GET is not CSRF-checked (see above). And Django
+    # answers a HEAD by running get() and dropping the body, which would
+    # record an export that sent nothing; the audit row has to mean a file
+    # left.
+    http_method_names = ["post", "options"]
 
-    def get(self, request):
-        filters = _queue_filters(request)
+    def post(self, request):
+        filters = _queue_filters(request.data)
         now = timezone.now()
         tickets = list(_queue_tickets(filters, now))
         flagged = overdue_ids(tickets, now)
