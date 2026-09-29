@@ -836,6 +836,126 @@ export function updateFinalistEmailDetails(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Finalist Presentation tab: the times finalists can present at the Symposium
+
+/** One time on the Symposium day, as "HH:MM" (24 hour). */
+export interface PresentationSlot {
+  id: number
+  starts_at: string
+  ends_at: string
+}
+
+export interface PresentationSlots {
+  year: number
+  /** The day they're on, set on Notify Finalists; null until it is. */
+  symposium_date: string | null
+  /** Earliest first. */
+  slots: PresentationSlot[]
+}
+
+export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_at'>
+
+const PRESENTATION_SLOTS = '/api/v1/grading/finalists/presentation-slots/'
+
+// GET — this year's times. Every change below answers with the whole list.
+export function fetchPresentationSlots(): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(PRESENTATION_SLOTS)
+}
+
+// POST — add a time.
+export function addPresentationSlot(fields: PresentationSlotFields): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(PRESENTATION_SLOTS, {
+    method: 'POST',
+    body: JSON.stringify(fields)
+  })
+}
+
+// PATCH {id}/ — change a time.
+export function updatePresentationSlot(
+  id: number,
+  fields: Partial<PresentationSlotFields>
+): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+// DELETE {id}/ — remove a time.
+export function deletePresentationSlot(id: number): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, { method: 'DELETE' })
+}
+
+/** One finalist student's answer. */
+export interface PresentationResponseStudent {
+  user_id: number
+  name: string
+  /** False until they answer. */
+  responded: boolean
+  /** The times they can make. */
+  slot_ids: number[]
+  updated_at: string | null
+}
+
+export interface PresentationResponseTeam {
+  group_id: number
+  group_name: string
+  /** The time the team has been given; null until it is. */
+  allocated_slot_id: number | null
+  students: PresentationResponseStudent[]
+}
+
+// PUT /api/v1/grading/finalists/presentation-allocation/{group_id}/ — give a
+// finalist team a time, or take it away with null.
+export function allocatePresentationSlot(
+  groupId: number,
+  slotId: number | null
+): Promise<{ group_id: number; slot_id: number | null }> {
+  return requestJson<{ group_id: number; slot_id: number | null }>(
+    `/api/v1/grading/finalists/presentation-allocation/${groupId}/`,
+    { method: 'PUT', body: JSON.stringify({ slot_id: slotId }) }
+  )
+}
+
+/** A finalist team's presentation slides, once handed in. */
+export interface PresentationSlidesTeam {
+  group_id: number
+  group_name: string
+  submitted: boolean
+  file_name: string
+  /** Who handed them in; null when not yet, or their account is gone. */
+  submitted_by: string | null
+  submitted_at: string | null
+}
+
+export interface PresentationSlides {
+  /** Set on Notify Finalists; null until it is. */
+  slides_due: string | null
+  teams: PresentationSlidesTeam[]
+}
+
+// GET /api/v1/grading/finalists/presentation-slides/ — this year's finalist
+// teams and the slides each has handed in, the latest first; teams still to
+// hand theirs in follow, by number.
+export function fetchPresentationSlides(): Promise<PresentationSlides> {
+  return requestJson<PresentationSlides>('/api/v1/grading/finalists/presentation-slides/')
+}
+
+// GET /api/v1/grading/finalists/presentation-slides/{group_id}/file/ — a
+// team's slides, for a link: a PDF opens in the browser, anything else downloads.
+export function presentationSlidesUrl(groupId: number): string {
+  return `${API_BASE_URL}/api/v1/grading/finalists/presentation-slides/${groupId}/file/`
+}
+
+// GET /api/v1/grading/finalists/presentation-responses/ — this year's
+// finalist teams by number, each student in them, and what they answered.
+export function fetchPresentationResponses(): Promise<{ teams: PresentationResponseTeam[] }> {
+  return requestJson<{ teams: PresentationResponseTeam[] }>(
+    '/api/v1/grading/finalists/presentation-responses/'
+  )
+}
+
 export interface FinalistEmailPreview {
   subject: string
   /** The team the preview is addressed to. */
