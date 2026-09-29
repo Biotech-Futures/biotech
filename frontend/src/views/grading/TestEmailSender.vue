@@ -66,7 +66,9 @@ const props = defineProps<{
 }>()
 
 const recipients = ref<TestEmailRecipient[]>([])
-const recipient = ref('')
+// Shared with the page (v-model:recipient), so its preview shows the email
+// as the person picked here gets it.
+const recipient = defineModel<string>('recipient', { default: '' })
 const loadError = ref(false)
 const to = ref('')
 const sending = ref(false)

@@ -14,7 +14,7 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 
 from ..models import CertificatesRelease, MarksRelease, ResultsEmailSettings
 from ..permissions import IsGrader
-from ..services import results_notify
+from ..services import results_notify, test_email
 from ..services.finalist_notify import symposium_today
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class ResultsSupervisorSheetView(APIView):
         )
         # Named as the email attaches it.
         response["Content-Disposition"] = content_disposition_header(
-            as_attachment=True, filename=f"{audience.year}_BTF_Student_Marks.xlsx"
+            as_attachment=True, filename=results_notify.supervisor_sheet_name(audience.year, supervisor)
         )
         return response
 
@@ -113,8 +113,9 @@ class ResultsEmailPreviewView(APIView):
     """POST /api/v1/grading/results-email/preview/ — one email exactly as it
     would go out, for the details in the body (unsaved edits) or the saved
     ones, with the names of the files it carries (not made here). ``audience``
-    is "groups" or "supervisors"; it is addressed to the first team or
-    supervisor due to get it."""
+    is "groups" or "supervisors"; it is addressed to ``recipient`` (a person
+    picked in Send Test Email), else the first team or supervisor due to get
+    it."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
@@ -130,6 +131,17 @@ class ResultsEmailPreviewView(APIView):
         serializer.is_valid(raise_exception=True)
         for name, value in serializer.validated_data.items():
             setattr(details, name, value)
+
+        recipient = request.data.get("recipient")
+        if recipient:
+            try:
+                rendered, to, attachments = test_email.preview(
+                    f"results-{audience_kind}", str(recipient), request.data
+                )
+            except test_email.TestEmailError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+            return Response({"subject": rendered.subject, "to": to, "html": html, "attachments": attachments})
 
         audience = results_notify.results_audience()
         docs = results_notify.Documents(audience.year)

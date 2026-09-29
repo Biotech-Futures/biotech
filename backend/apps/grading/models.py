@@ -333,11 +333,8 @@ class FinalistEmailSettings(SingletonModel):
     symposium_date = models.DateField(null=True, blank=True)
     confirm_by = models.DateField(null=True, blank=True)
     slides_due = models.DateField(null=True, blank=True)
-    registration_url = models.URLField(
-        max_length=500,
-        blank=True,
-        default="https://events.humanitix.com/biotech-futures-symposium",
-    )
+    # Starts empty: each year's link is entered, so last year's never goes out.
+    registration_url = models.URLField(max_length=500, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -363,12 +360,8 @@ class ResultsEmailSettings(SingletonModel):
     """What the results emails tell teams about the feedback survey, set on
     the Release Results tab each year. Nothing is sent until both are set."""
 
-    survey_url = models.URLField(
-        max_length=500,
-        blank=True,
-        # The survey in the client's 2025 email; replace it each year.
-        default="https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
-    )
+    # Starts empty: each year's survey is entered, so last year's never goes out.
+    survey_url = models.URLField(max_length=500, blank=True)
     survey_closes = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -56,7 +56,7 @@
             >
               {{ loadingPreview === 'groups' ? 'Loading…' : 'Preview Group Email' }}
             </button>
-            <TestEmailSender kind="results-groups" :fields="formFields" />
+            <TestEmailSender v-model:recipient="testRecipients.groups" kind="results-groups" :fields="formFields" />
           </div>
           <div class="release-results__actions">
             <button
@@ -67,7 +67,7 @@
             >
               {{ loadingPreview === 'supervisors' ? 'Loading…' : 'Preview Supervisor Email' }}
             </button>
-            <TestEmailSender kind="results-supervisors" />
+            <TestEmailSender v-model:recipient="testRecipients.supervisors" kind="results-supervisors" />
           </div>
           <!-- What the supervisor email's marks spreadsheet looks like: with
                made-up groups, or a chosen supervisor's real one. -->
@@ -330,12 +330,14 @@ const saveDetails = async () => {
 
 const preview = ref<ResultsEmailPreview | null>(null)
 const loadingPreview = ref<ResultsAudience | null>(null)
+// The person picked in each Send Test Email: the preview is their email.
+const testRecipients = ref<Record<ResultsAudience, string>>({ groups: '', supervisors: '' })
 
 const openPreview = async (audience: ResultsAudience) => {
   actionError.value = ''
   loadingPreview.value = audience
   try {
-    preview.value = await previewResultsEmail(audience, formFields())
+    preview.value = await previewResultsEmail(audience, formFields(), testRecipients.value[audience])
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {

@@ -161,7 +161,7 @@ describe('preview', () => {
       attachments:
         audience === 'groups'
           ? groupFiles
-          : ['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx']
+          : ['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks_Sam_Lee.xlsx']
     }))
     const wrapper = await mountPage()
     await wrapper.find('input[type="url"]').setValue('https://survey.example.com/draft')
@@ -170,7 +170,7 @@ describe('preview', () => {
     expect(previewMock).toHaveBeenCalledWith('groups', {
       survey_url: 'https://survey.example.com/draft',
       survey_closes: '2026-11-30'
-    })
+    }, '')
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As BTF01 would get it.')
     const attachments = () => wrapper.findAll('.release-results__attachments li').map((li) => li.text())
     expect(attachments()).toEqual(groupFiles)
@@ -179,9 +179,32 @@ describe('preview', () => {
     expect(wrapper.find('[aria-label="Email preview"]').exists()).toBe(false)
     await buttonNamed(wrapper, /^Preview Supervisor Email$/).trigger('click')
     await flushPromises()
-    expect(previewMock).toHaveBeenLastCalledWith('supervisors', expect.any(Object))
+    expect(previewMock).toHaveBeenLastCalledWith('supervisors', expect.any(Object), '')
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As Sam Lee would get it.')
-    expect(attachments()).toEqual(['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks.xlsx'])
+    expect(attachments()).toEqual(['2026_BTF_Student_Certificate_Amy_Chen.docx', '2026_BTF_Student_Marks_Sam_Lee.xlsx'])
+  })
+})
+
+describe('preview of the person picked', () => {
+  it('each preview is the email the person picked beside it gets', async () => {
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async (kind) => ({
+      recipients: kind === 'results-supervisors'
+        ? [{ value: '7', label: 'Sam Lee' }, { value: '9', label: 'Ann Wu' }]
+        : [{ value: '1:11', label: '(BTF01) Amy Chen' }, { value: '2:12', label: '(BTF02) Ben Lee' }]
+    }))
+    previewMock.mockResolvedValue({ subject: 'Results', to: 'Ann Wu', html: '<p>email</p>', attachments: [] })
+    const wrapper = await mountPage()
+    const [groupSelect, supervisorSelect] = wrapper.findAll('.test-email__select')
+    await groupSelect!.setValue('2:12')
+    await supervisorSelect!.setValue('9')
+    await buttonNamed(wrapper, /^Preview Group Email$/).trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenLastCalledWith('groups', expect.any(Object), '2:12')
+    await buttonNamed(wrapper, /^Close$/).trigger('click')
+    await buttonNamed(wrapper, /^Preview Supervisor Email$/).trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenLastCalledWith('supervisors', expect.any(Object), '9')
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
   })
 })
 

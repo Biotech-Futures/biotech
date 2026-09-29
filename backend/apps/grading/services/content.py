@@ -368,12 +368,29 @@ def _user_display(user) -> str | None:
     return f"{user.first_name} {user.last_name}".strip() or user.email
 
 
-def _extension_payload(extension) -> dict:
+def _normal_closes_at():
+    """The active deadline's announced time, without its grace; None when no
+    deadline is set."""
+    from apps.submissions.models import Deadline
+
+    row = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
+    return row.closes_at if row else None
+
+
+def _extension_payload(extension, closes_at) -> dict:
+    # How far past the normal deadline it runs, its grace aside: "1d 18h".
+    # None without a deadline, or when the deadline has moved past it.
+    added = (
+        late_by_label(extension.extended_until - closes_at)
+        if closes_at is not None and extension.extended_until > closes_at
+        else None
+    )
     return {
         "id": extension.pk,
         "group_id": extension.group_id,
         "group_name": extension.group.group_name,
         "extended_until": extension.extended_until,
+        "added": added,
         "grace_hours": extension.grace_hours,
         "reason": extension.reason,
         "granted_at": extension.granted_at,
@@ -389,8 +406,9 @@ def group_extensions() -> list[dict]:
 
     from apps.submissions.models import GroupExtension
 
+    closes_at = _normal_closes_at()
     return [
-        _extension_payload(e)
+        _extension_payload(e, closes_at)
         for e in GroupExtension.objects.select_related("group", "granted_by", "revoked_by")
         .filter(group__deleted_at__isnull=True)
         # Active first (longest-running extension leading — the team with the
@@ -433,7 +451,7 @@ def set_group_extension(
     extension = GroupExtension.objects.select_related(
         "group", "granted_by", "revoked_by"
     ).get(pk=extension.pk)
-    return _extension_payload(extension)
+    return _extension_payload(extension, _normal_closes_at())
 
 
 def remove_group_extension(group_id: int, *, revoked_by=None) -> bool:

@@ -85,11 +85,6 @@ router.beforeEach((to, from, next) => {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 
-  } else if (auth.isAdmin && (to.path === '/groups' || to.path.startsWith('/groups/'))) {
-    // Admins manage groups from /admin/groups; keep them off the member group
-    // pages and send them to the admin dashboard instead.
-    next('/admin')
-
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)

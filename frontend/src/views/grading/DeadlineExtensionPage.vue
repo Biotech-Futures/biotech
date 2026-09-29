@@ -71,6 +71,7 @@
             <tr>
               <th>Group</th>
               <th>Extension</th>
+              <th>Added</th>
               <th>Grace</th>
               <th>Status</th>
               <th>Granted by</th>
@@ -80,12 +81,14 @@
           </thead>
           <tbody>
             <tr v-if="extensions.length === 0">
-              <td colspan="7" class="extensions__empty">No extensions granted.</td>
+              <td colspan="8" class="extensions__empty">No extensions granted.</td>
             </tr>
             <template v-for="e in extensions" :key="e.id">
               <tr :class="{ 'extensions__row--with-reason': e.reason }">
                 <td class="extensions__cell--strong">{{ e.group_name }}</td>
                 <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
+                <!-- Past the normal deadline, grace aside: "1d 18h". -->
+                <td>{{ e.added ?? '—' }}</td>
                 <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
                 <td>
                   <span :class="`extensions__status--${extensionStatus(e).state}`">
@@ -95,8 +98,13 @@
                 <td>{{ e.granted_by ?? '—' }}</td>
                 <td>{{ e.revoked_by ?? '—' }}</td>
                 <td class="extensions__cell--right">
+                  <span v-if="e.revoked_at" class="extensions__muted">Revoked</span>
+                  <!-- Past its grace period there's nothing left to revoke. -->
+                  <span v-else-if="extensionStatus(e).state === 'expired'" class="extensions__muted">
+                    Expired
+                  </span>
                   <button
-                    v-if="!e.revoked_at"
+                    v-else
                     type="button"
                     class="btn btn-outline btn-sm"
                     :disabled="isSaving"
@@ -104,13 +112,12 @@
                   >
                     Revoke
                   </button>
-                  <span v-else class="extensions__muted">Revoked</span>
                 </td>
               </tr>
               <!-- The reason gets a full-width row of its own so multi-line
                    text can wrap; the pair reads as one record. -->
               <tr v-if="e.reason" class="extensions__reason-row">
-                <td colspan="7">
+                <td colspan="8">
                   <span class="extensions__muted">Reason:</span> {{ e.reason }}
                 </td>
               </tr>
