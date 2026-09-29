@@ -3,6 +3,7 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import type { FinalistDetail, FinalistEntry } from '@/utils/finalistAPI'
+import { ApiError } from '@/utils/apiError'
 
 const fetchFinalist = vi.fn()
 const saveAvailability = vi.fn()
@@ -25,10 +26,11 @@ vi.mock('@/utils/finalistAPI', async (importOriginal) => {
 // Imported after the mock is registered so the component picks up the stubs.
 const FinalistPage = (await import('../FinalistPage.vue')).default
 
+// This year's times, as set on Management > Finalist Presentation.
 const SESSIONS = [
-  { id: 1, label: '10:00 - 11:00 am' },
-  { id: 2, label: '11:40am - 12:30pm' },
-  { id: 3, label: '1:55 - 3:00pm' },
+  { id: 1, label: '10:00 – 11:00' },
+  { id: 2, label: '11:40 – 12:30' },
+  { id: 3, label: '13:55 – 15:00' },
 ]
 const PDF = { storage_key: 'f/deck.pdf', name: 'deck.pdf', mime: 'application/pdf', size: 2048 }
 const PPTX = { ...PDF, storage_key: 'f/deck.pptx', name: 'deck.pptx' }
@@ -47,12 +49,20 @@ const blankEntry = (): FinalistEntry => ({
   updated_at: new Date().toISOString(),
 })
 
-const buildDetail = (entry: Partial<FinalistEntry> | null = {}, isOpen = true): FinalistDetail => ({
+// A student's view unless said otherwise: each student ticks their own times.
+const buildDetail = (
+  entry: Partial<FinalistEntry> | null = {},
+  isOpen = true,
+  over: Partial<FinalistDetail> = {}
+): FinalistDetail => ({
   group: { id: 1, name: 'BTF1' },
   deadline: { closes_at: new Date(Date.now() + 5 * 86_400_000).toISOString(), is_extended: false, is_open: isOpen },
   sessions: SESSIONS,
+  symposium_date: null,
+  can_choose_sessions: true,
   max_file_size: 25 * 1024 * 1024,
   entry: entry === null ? null : { ...blankEntry(), ...entry },
+  ...over,
 })
 
 const lockedEntry = (): Partial<FinalistEntry> => ({
@@ -183,15 +193,15 @@ describe('what the fixes cover', () => {
 })
 
 describe('availability', () => {
-  it('lists every session from the server', async () => {
+  it('lists every time from the server', async () => {
     await mountPage(buildDetail(null))
 
-    expect(wrapper!.text()).toContain('10:00 - 11:00 am')
-    expect(wrapper!.text()).toContain('1:55 - 3:00pm')
+    expect(wrapper!.text()).toContain('10:00 – 11:00')
+    expect(wrapper!.text()).toContain('13:55 – 15:00')
     expect(wrapper!.find('.status-line').text()).toContain('Not Started')
   })
 
-  it('saves the chosen sessions after a short pause', async () => {
+  it('saves the chosen times after a short pause', async () => {
     await mountPage(buildDetail(null))
     saveAvailability.mockResolvedValue(result({ available_session_ids: [1, 3] }))
 
@@ -253,14 +263,31 @@ describe('the presentation', () => {
 })
 
 describe('submitting', () => {
-  it('sends the team to availability when no session is chosen', async () => {
+  it('sends a student to availability when they have chosen no times', async () => {
     await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }))
 
     await button(/^Submit$/)!.trigger('click')
     await flushPromises()
 
     expect(submitFinalist).not.toHaveBeenCalled()
-    expect(wrapper!.find('.submission-message').text()).toContain('Choose at least one session')
+    expect(wrapper!.find('.submission-message').text()).toContain('Choose at least one session you can attend')
+  })
+
+  it("leaves a mentor's submit to the server, which says when no student has chosen times", async () => {
+    await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }, true, { can_choose_sessions: false }))
+    submitFinalist.mockRejectedValue(
+      new ApiError({
+        error: 'At least one student needs to choose the sessions they can attend first.',
+        code: 'availability_required',
+        request_id: 'x',
+      })
+    )
+
+    await button(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(submitFinalist).toHaveBeenCalledWith('1')
+    expect(wrapper!.find('.submission-message').text()).toContain('At least one student needs to choose')
   })
 
   it('sends the team to the presentation step when nothing is uploaded', async () => {
@@ -298,6 +325,29 @@ describe('submitting', () => {
 
     expect(reopenFinalist).toHaveBeenCalledWith('1')
     expect(wrapper!.find('fieldset').attributes('disabled')).toBeUndefined()
+  })
+})
+
+describe('times', () => {
+  it("lists this year's times and the Symposium day", async () => {
+    await mountPage(buildDetail(null, true, { symposium_date: '2026-10-23' }))
+
+    const labels = wrapper!.findAll('.finalist-session').map((l) => l.text())
+    expect(labels).toEqual(['10:00 – 11:00', '11:40 – 12:30', '13:55 – 15:00'])
+    expect(wrapper!.text()).toContain('The sessions are on Friday 23 October 2026.')
+  })
+
+  it('shows the times to a mentor without letting them tick for the students', async () => {
+    await mountPage(buildDetail(null, true, { can_choose_sessions: false }))
+
+    expect(wrapper!.find('fieldset').attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('[data-testid="students-choose"]').text()).toBe('Each student chooses their own sessions.')
+  })
+
+  it('says when no times have been set up yet', async () => {
+    await mountPage(buildDetail(null, true, { sessions: [] }))
+
+    expect(wrapper!.text()).toContain('No sessions have been set up yet.')
   })
 })
 

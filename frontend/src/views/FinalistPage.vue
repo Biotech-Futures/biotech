@@ -84,17 +84,22 @@
             While we hope you can join us for the whole day, we understand that not all teams are
             able to. Please select which sessions you will be able to join us for to ensure we
             schedule you into an appropriate presentation slot. You may select multiple options.
+            Each student answers for themselves.
           </p>
+          <p v-if="symposiumDay" class="section-head__sub">The sessions are on {{ symposiumDay }}.</p>
         </header>
 
         <p v-if="!detail.sessions.length" class="submission-muted">
           No sessions have been set up yet.
         </p>
-        <fieldset v-else class="finalist-sessions" :disabled="!isEditable">
+        <fieldset v-else class="finalist-sessions" :disabled="!isEditable || !detail.can_choose_sessions">
           <legend class="submission-label">
             Sessions
             <span class="submission-required" title="Required" aria-label="required">*</span>
           </legend>
+          <p v-if="!detail.can_choose_sessions" class="submission-muted" data-testid="students-choose">
+            Each student chooses their own sessions.
+          </p>
           <label v-for="session in detail.sessions" :key="session.id" class="finalist-session">
             <input
               type="checkbox"
@@ -310,6 +315,18 @@ const isPdf = computed(() => (shownPresentation.value?.name ?? '').toLowerCase()
 const isPreviewShut = computed(() => !isEditable.value && !shownPresentation.value)
 const isPreviewFolded = computed(() => previewCollapsed.value || isPreviewShut.value)
 const maxSizeLabel = computed(() => formatFileSize(detail.value?.max_file_size ?? 25 * 1024 * 1024))
+// "Friday, 23 October 2026", as the finalist email words the Symposium day.
+const symposiumDay = computed(() => {
+  const iso = detail.value?.symposium_date
+  if (!iso) return ''
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(year!, month! - 1, day).toLocaleDateString('en-AU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  })
+})
 const downloadUrl = computed(() => presentationDownloadUrl(groupId.value))
 const previewUrl = computed(() => presentationPreviewUrl(groupId.value))
 
@@ -520,8 +537,10 @@ async function removeFile() {
 
 async function onSubmit() {
   if (saveTimer) await flushAvailability()
-  if (!selected.value.length) {
-    setMessage('Choose at least one session your team can attend.', true)
+  // Whether any of the team's students has chosen sessions is the server's to
+  // say (see the catch below); a student hasn't, when they haven't themselves.
+  if (detail.value?.can_choose_sessions && !selected.value.length) {
+    setMessage('Choose at least one session you can attend.', true)
     showPart('availability')
     return
   }
@@ -538,6 +557,7 @@ async function onSubmit() {
     setMessage('Submitted. Choose Resubmit if you need to change anything before the deadline.')
   } catch (error) {
     setMessage(errorText(error), true)
+    if (apiErrorFromUnknown(error).code === 'availability_required') showPart('availability')
   } finally {
     isSubmitting.value = false
   }

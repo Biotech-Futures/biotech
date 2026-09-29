@@ -1,7 +1,9 @@
-"""Tests for the finalist round: access, availability, presentation and submit."""
+"""Tests for the finalist round: access, availability, presentation and submit.
+The times are the Finalist Presentation tab's, each student gives their own
+availability, and the submitted slides land in that tab's table."""
 import io
 import zipfile
-from datetime import timedelta
+from datetime import time
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -10,10 +12,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.common.storage import reset_managed_storage_caches
-from apps.grading.models import FinalistFlag
+from apps.grading.models import FinalistFlag, FinalistSlides, PresentationAvailability, PresentationSlot
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.submissions.models import FinalistDeadline, FinalistEntry, FinalistSession
+from apps.submissions.models import FinalistEntry
+from apps.submissions.services import current_cohort
 from apps.users.models import User
 
 
@@ -53,9 +56,10 @@ class FinalistTests(TestCase):
         )
 
         FinalistFlag.objects.create(group=self.group, notified=True)
-        FinalistDeadline.objects.create(closes_at=timezone.now() + timedelta(days=3), is_active=True)
-        self.morning = FinalistSession.objects.create(label="10:00 - 11:00 am", order=1)
-        self.noon = FinalistSession.objects.create(label="11:40am - 12:30pm", order=2)
+        # This year's times, as set on Management > Finalist Presentation.
+        year = current_cohort()
+        self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
+        self.noon = PresentationSlot.objects.create(year=year, starts_at=time(11, 40), ends_at=time(12, 30))
 
         self.url = reverse("finalist-entry", kwargs={"group_id": self.group.id})
         self.file_url = reverse("finalist-presentation", kwargs={"group_id": self.group.id})
@@ -82,19 +86,22 @@ class FinalistTests(TestCase):
         return client
 
     def _ready(self, client=None):
+        # A student gives their times; whoever submits uploads the slides.
+        self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
         client = client or self._client(self.student)
-        client.put(self.url, {"session_ids": [self.morning.id]}, format="json")
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
         return client
 
     # Access
     def test_every_member_role_can_read_a_notified_finalist_entry(self):
-        for user in (self.student, self.mentor, self.supervisor):
+        for user, chooses in ((self.student, True), (self.mentor, False), (self.supervisor, False)):
             with self.subTest(user=user.email):
                 response = self._client(user).get(self.url)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual([s["label"] for s in response.data["sessions"]],
-                                 ["10:00 - 11:00 am", "11:40am - 12:30pm"])
+                                 ["10:00 – 11:00", "11:40 – 12:30"])
+                # Only students tick times, each their own.
+                self.assertEqual(response.data["can_choose_sessions"], chooses)
 
     def test_a_group_flagged_but_not_yet_notified_is_not_a_finalist(self):
         FinalistFlag.objects.filter(group=self.group).update(notified=False)
@@ -129,51 +136,68 @@ class FinalistTests(TestCase):
         self.assertEqual(response.data["code"], "not_a_finalist")
 
     # Availability
-    def test_availability_is_saved(self):
-        response = self._client(self.mentor).put(
+    def test_a_students_availability_is_saved_for_the_finalist_presentation_tab(self):
+        response = self._client(self.student).put(
             self.url, {"session_ids": [self.noon.id, self.morning.id]}, format="json"
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["entry"]["available_session_ids"], sorted([self.morning.id, self.noon.id]))
+        # Kept as the student's own answer, which the tab's tables read.
+        answer = PresentationAvailability.objects.get(group=self.group, user=self.student)
+        self.assertEqual(sorted(answer.slots.values_list("id", flat=True)), sorted([self.morning.id, self.noon.id]))
 
-    def test_a_retired_session_cannot_be_chosen(self):
-        self.noon.is_active = False
-        self.noon.save()
+    def test_each_student_answers_for_themselves(self):
+        other = self._user("student2@test.local", "student")
+        GroupMembership.objects.create(group=self.group, user=other, membership_role="student")
+        self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
+        self._client(other).put(self.url, {"session_ids": [self.noon.id]}, format="json")
 
-        response = self._client(self.student).put(self.url, {"session_ids": [self.noon.id]}, format="json")
+        self.assertEqual(
+            self._client(self.student).get(self.url).data["entry"]["available_session_ids"], [self.morning.id]
+        )
+        self.assertEqual(self._client(other).get(self.url).data["entry"]["available_session_ids"], [self.noon.id])
+
+    def test_only_students_choose_times(self):
+        for user in (self.mentor, self.supervisor, self.admin):
+            with self.subTest(user=user.email):
+                response = self._client(user).put(self.url, {"session_ids": [self.morning.id]}, format="json")
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.data["code"], "availability_students_only")
+        self.assertFalse(PresentationAvailability.objects.exists())
+
+    def test_a_time_from_another_year_cannot_be_chosen(self):
+        old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
+
+        response = self._client(self.student).put(self.url, {"session_ids": [old.id]}, format="json")
 
         self.assertEqual(response.status_code, 400)
 
-    def test_a_retired_session_drops_out_of_the_teams_choices(self):
+    def test_a_removed_time_drops_out_of_a_students_choices(self):
         client = self._client(self.student)
         client.put(self.url, {"session_ids": [self.morning.id, self.noon.id]}, format="json")
-        self.noon.is_active = False
-        self.noon.save()
+        self.noon.delete()
 
         entry = client.get(self.url).data["entry"]
         self.assertEqual(entry["available_session_ids"], [self.morning.id])
-        # The team can keep editing without the retired session blocking the save.
         response = client.put(self.url, {"session_ids": entry["available_session_ids"]}, format="json")
         self.assertEqual(response.status_code, 200)
 
-    def test_a_retired_session_alone_does_not_count_as_availability(self):
+    def test_a_removed_time_alone_does_not_count_as_availability(self):
         client = self._client(self.student)
         client.put(self.url, {"session_ids": [self.noon.id]}, format="json")
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
-        self.noon.is_active = False
-        self.noon.save()
+        self.noon.delete()
 
         response = client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(response.data["code"], "availability_required")
 
-    def test_retired_sessions_are_not_offered(self):
-        self.noon.is_active = False
-        self.noon.save()
+    def test_only_this_years_times_are_offered(self):
+        PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
 
         labels = [s["label"] for s in self._client(self.student).get(self.url).data["sessions"]]
-        self.assertEqual(labels, ["10:00 - 11:00 am"])
+        self.assertEqual(labels, ["10:00 – 11:00", "11:40 – 12:30"])
 
     # Presentation
     def test_pdf_pptx_and_ppt_are_accepted(self):
@@ -252,7 +276,7 @@ class FinalistTests(TestCase):
 
         self.assertEqual(response.data["code"], "presentation_required")
 
-    def test_submitting_freezes_availability_and_presentation(self):
+    def test_submitting_freezes_the_presentation_for_the_finalist_presentation_tab(self):
         client = self._ready(self._client(self.supervisor))
 
         response = client.post(self.submit_url, {}, format="json")
@@ -260,8 +284,16 @@ class FinalistTests(TestCase):
         self.assertEqual(response.status_code, 200)
         entry = response.data["entry"]
         self.assertTrue(entry["is_locked"])
-        self.assertEqual(entry["submitted_session_ids"], [self.morning.id])
         self.assertEqual(entry["submitted_presentation"]["name"], "deck.pdf")
+        # The tab's Finalist Submission table has it, and its Open serves it.
+        slides = FinalistSlides.objects.get(group=self.group)
+        self.assertEqual((slides.file["name"], slides.submitted_by), ("deck.pdf", self.supervisor))
+        opened = self._client(self.admin).get(
+            reverse("grading:presentation-slides-file", kwargs={"group_id": self.group.id})
+        )
+        self.assertEqual(opened.status_code, 200)
+        self.assertEqual(b"".join(opened.streaming_content), b"%PDF-1.7\nslides\n%%EOF\n")
+        opened.close()
 
     def test_a_submitted_entry_cannot_be_edited_until_reopened(self):
         client = self._ready()
@@ -284,31 +316,33 @@ class FinalistTests(TestCase):
         client.post(self.file_url, {"file": _pptx()}, format="multipart")
 
         entry = FinalistEntry.objects.get(group=self.group)
-        self.assertEqual(list(entry.submitted_sessions.values_list("id", flat=True)), [self.morning.id])
         self.assertEqual(entry.submitted_presentation["name"], "deck.pdf")
         self.assertEqual(entry.presentation["name"], "deck.pptx")
+        # The tab still shows the submitted slides until the next submit.
+        self.assertEqual(FinalistSlides.objects.get(group=self.group).file["name"], "deck.pdf")
 
-    # Deadline
-    def test_nothing_can_be_saved_before_a_finalist_deadline_is_set(self):
-        FinalistDeadline.objects.all().delete()
+    # Due when the slides are; shown, not enforced
+    def test_the_due_date_is_the_slides_due_date_from_notify_finalists(self):
+        from datetime import date, datetime
+        from zoneinfo import ZoneInfo
 
-        response = self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
+        from apps.grading.models import FinalistEmailSettings
 
-        self.assertEqual(response.data["code"], "submissions_not_configured")
-
-    def test_nothing_can_be_saved_after_the_finalist_deadline(self):
-        FinalistDeadline.objects.update(closes_at=timezone.now() - timedelta(minutes=1))
-        client = self._client(self.student)
-
+        FinalistEmailSettings.objects.update_or_create(pk=1, defaults={"slides_due": date(2026, 10, 16)})
+        deadline = self._client(self.student).get(self.url).data["deadline"]
+        # The end of that day, Sydney time.
         self.assertEqual(
-            client.put(self.url, {"session_ids": [self.morning.id]}, format="json").data["code"],
-            "submissions_closed",
+            deadline["closes_at"], datetime(2026, 10, 16, 23, 59, tzinfo=ZoneInfo("Australia/Sydney"))
         )
-        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 403)
-        self.assertFalse(client.get(self.url).data["deadline"]["is_open"])
+        self.assertTrue(deadline["is_open"])
 
-    def test_the_finalist_deadline_is_independent_of_the_main_deadline(self):
-        # No main submission deadline exists in this test at all.
-        response = self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
+    def test_the_finalist_round_stays_open_without_a_deadline(self):
+        client = self._client(self.student)
+        # No finalist or main submission deadline exists in this test at all.
+        deadline = client.get(self.url).data["deadline"]
+        self.assertEqual((deadline["closes_at"], deadline["is_open"]), (None, True))
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(client.put(self.url, {"session_ids": [self.morning.id]}, format="json").status_code, 200)
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
+        self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
+        self.assertEqual(client.post(self.reopen_url, {}, format="json").status_code, 200)

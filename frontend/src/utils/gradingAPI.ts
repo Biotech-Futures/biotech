@@ -376,6 +376,9 @@ export interface FinalistRow {
 
 export interface FinalistListResponse {
   finalists: FinalistRow[]
+  /** Everyone the finalist email goes to, by role; a notified team's
+   *  members count as emailed. */
+  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
 }
 
 export interface GradingSettingsDetail {
@@ -1098,10 +1101,18 @@ export function fetchFinalists(): Promise<FinalistListResponse> {
 export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
 
 /** This year's teams due the email, and how many have it. */
+/** People due an email and emailed (at least once), and how many emails
+ *  that is: someone on several teams gets one per team. */
+export interface PeopleEmailedCount extends EmailedCount {
+  times: EmailedCount
+}
+
 export interface SymposiumEmailStatus {
   teams: EmailedCount
-  /** Their students with an address; mentors and supervisors get it too. */
-  students: EmailedCount
+  /** Their members with an address, by role; each gets the email. */
+  students: PeopleEmailedCount
+  mentors: PeopleEmailedCount
+  supervisors: PeopleEmailedCount
   /** Why sending is refused (details missing on Notify Finalists, switched
    *  off), or "" when it may go ahead. */
   blocked: string
@@ -1122,7 +1133,9 @@ export interface SymposiumEmailBatch {
   cursor: number
   done: boolean
   teams: EmailedCount
-  students: EmailedCount
+  students: PeopleEmailedCount
+  mentors: PeopleEmailedCount
+  supervisors: PeopleEmailedCount
 }
 
 // GET /api/v1/grading/{nonfinalists|nonsubmissions}/ — who the email is for.

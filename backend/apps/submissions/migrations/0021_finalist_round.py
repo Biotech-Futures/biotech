@@ -16,20 +16,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='FinalistSession',
-            fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('label', models.CharField(max_length=120)),
-                ('order', models.PositiveIntegerField(default=0)),
-                ('is_active', models.BooleanField(default=True)),
-            ],
-            options={
-                'verbose_name': 'Finalist session',
-                'db_table': 'submission_finalist_session',
-                'ordering': ['order', 'id'],
-            },
-        ),
-        migrations.CreateModel(
             name='FinalistDeadline',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -56,8 +42,6 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('group', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='finalist_entry', to='groups.groups')),
                 ('submitted_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='finalist_entries_submitted', to=settings.AUTH_USER_MODEL)),
-                ('available_sessions', models.ManyToManyField(blank=True, related_name='available_entries', to='submissions.finalistsession')),
-                ('submitted_sessions', models.ManyToManyField(blank=True, related_name='submitted_entries', to='submissions.finalistsession')),
             ],
             options={
                 'verbose_name': 'Finalist entry',

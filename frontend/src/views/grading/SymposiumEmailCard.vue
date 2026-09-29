@@ -20,7 +20,11 @@
           {{ allEmailed ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
         </p>
         <p class="symposium-email__counts">
-          Students: {{ status.students.emailed }} of {{ status.students.total }} emailed
+          Students: {{ status.students.emailed }} of {{ status.students.total }} emailed ·
+          Mentors: {{ status.mentors.emailed }} of {{ status.mentors.total }} emailed
+          (Times {{ status.mentors.times.emailed }} of {{ status.mentors.times.total }}) ·
+          Supervisors: {{ status.supervisors.emailed }} of {{ status.supervisors.total }} emailed
+          (Times {{ status.supervisors.times.emailed }} of {{ status.supervisors.times.total }})
         </p>
         <p v-if="status.blocked" class="symposium-email__blocked">{{ status.blocked }}</p>
         <div class="symposium-email__actions">
@@ -198,7 +202,13 @@ const sendAll = async () => {
         failed: progress.value.failed + batch.failed
       }
       if (status.value) {
-        status.value = { ...status.value, teams: batch.teams, students: batch.students }
+        status.value = {
+          ...status.value,
+          teams: batch.teams,
+          students: batch.students,
+          mentors: batch.mentors,
+          supervisors: batch.supervisors
+        }
       }
       cursor = batch.cursor
       if (batch.done) break

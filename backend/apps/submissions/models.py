@@ -283,7 +283,11 @@ class Submission(models.Model):
 
 
 class FinalistDeadline(models.Model):
-    """Closing time for the finalist round, separate from the main deadline."""
+    """Closing time for the finalist round, separate from the main deadline.
+
+    Not used for now: the finalist round stays open. Kept so a deadline can
+    come back without recreating the table.
+    """
 
     closes_at = models.DateTimeField()
     # Only the active row is consulted; past rows are kept on record.
@@ -306,45 +310,23 @@ class FinalistDeadline(models.Model):
         return f"Finalist deadline closing {self.closes_at:%Y-%m-%d %H:%M} UTC"
 
 
-class FinalistSession(models.Model):
-    """One presentation session finalists can say they are available for."""
-
-    label = models.CharField(max_length=120)
-    order = models.PositiveIntegerField(default=0)
-    # Retired rather than deleted, so earlier choices keep their label.
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = "submission_finalist_session"
-        verbose_name = "Finalist session"
-        ordering = ["order", "id"]
-
-    def __str__(self):
-        return self.label
-
-    @classmethod
-    def active(cls):
-        return cls.objects.filter(is_active=True)
-
-
 class FinalistEntry(models.Model):
-    """A finalist team's availability and presentation."""
+    """A finalist team's presentation, as it works on it and submits it.
+
+    The times it can present are each student's own answer, kept with the
+    Finalist Presentation tab's times (grading's PresentationAvailability);
+    the submitted slides are also kept for that tab (grading's FinalistSlides).
+    """
 
     group = models.OneToOneField(
         "groups.Groups",
         on_delete=models.CASCADE,
         related_name="finalist_entry",
     )
-    available_sessions = models.ManyToManyField(
-        FinalistSession, blank=True, related_name="available_entries"
-    )
     # Each file is {"storage_key", "name", "mime", "size"}.
     presentation = models.JSONField(null=True, blank=True)
 
     # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
-    submitted_sessions = models.ManyToManyField(
-        FinalistSession, blank=True, related_name="submitted_entries"
-    )
     submitted_presentation = models.JSONField(null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(
@@ -381,13 +363,15 @@ class FinalistEntry(models.Model):
     @property
     def stage(self) -> str:
         if self.submitted_at is None:
-            has_content = bool(self.presentation) or self.available_sessions.exists()
+            # A student's answer counts as the team having started.
+            has_content = bool(self.presentation) or self.group.presentation_availability.filter(
+                slots__isnull=False
+            ).exists()
             return STAGE_IN_PROGRESS if has_content else STAGE_NOT_STARTED
         return STAGE_SUBMITTED if self.is_locked else STAGE_REVISING
 
     def snapshot(self, user):
         """Copy the working entry into the submitted set."""
-        self.submitted_sessions.set(self.available_sessions.filter(is_active=True))
         self.submitted_presentation = self.presentation
         self.submitted_at = timezone.now()
         self.submitted_by = user

@@ -21,9 +21,18 @@ const statusMock = vi.mocked(fetchSymposiumEmail)
 const previewMock = vi.mocked(previewSymposiumEmail)
 const sendMock = vi.mocked(sendSymposiumEmailBatch)
 
+// People due the email and emailed, and the emails that makes ("times").
+const people = (total: number, emailed: number, timesTotal = total, timesEmailed = emailed) => ({
+  total,
+  emailed,
+  times: { total: timesTotal, emailed: timesEmailed }
+})
+
 const status = (overrides: Partial<SymposiumEmailStatus> = {}): SymposiumEmailStatus => ({
   teams: { total: 3, emailed: 0 },
-  students: { total: 6, emailed: 0 },
+  students: people(6, 0),
+  mentors: people(3, 0, 4),
+  supervisors: people(2, 0),
   blocked: '',
   ...overrides
 })
@@ -60,7 +69,7 @@ beforeEach(() => {
   sendMock.mockReset()
   statuses = {
     nonfinalists: status(),
-    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, students: { total: 1, emailed: 0 } })
+    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, students: people(1, 0) })
   }
   statusMock.mockImplementation(async (email) => statuses[email])
 })
@@ -87,11 +96,19 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')
   })
 
-  it('shows each email: not sent yet, how many students, and its buttons', async () => {
+  it('shows each email: not sent yet, how many students, mentors and supervisors, and its buttons', async () => {
     const wrapper = await mountPage()
     for (const [card, count, label] of [
-      [NONFINALISTS, 'Students: 0 of 6 emailed', 'Email Nonfinalists'],
-      [NONSUBMISSIONS, 'Students: 0 of 1 emailed', 'Email Nonsubmissions']
+      [
+        NONFINALISTS,
+        'Students: 0 of 6 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Email Nonfinalists'
+      ],
+      [
+        NONSUBMISSIONS,
+        'Students: 0 of 1 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Email Nonsubmissions'
+      ]
     ] as const) {
       const line = wrapper.find(`${card} .symposium-email__status`)
       expect(line.text()).toBe('Emails are not sent to every group member')
@@ -104,7 +121,7 @@ describe('Email Nonfinalist', () => {
   })
 
   it('turns green and stops offering to send once every team is emailed', async () => {
-    statuses.nonsubmissions = status({ teams: { total: 1, emailed: 1 }, students: { total: 1, emailed: 1 } })
+    statuses.nonsubmissions = status({ teams: { total: 1, emailed: 1 }, students: people(1, 1) })
     const wrapper = await mountPage()
     expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__status`).text()).toBe(
       'Emails are sent to every group member'
@@ -122,12 +139,12 @@ describe('Email Nonfinalist', () => {
   })
 
   it('still shows the status line and count while no team is due the email', async () => {
-    statuses.nonsubmissions = status({ teams: { total: 0, emailed: 0 }, students: { total: 0, emailed: 0 } })
+    statuses.nonsubmissions = status({ teams: { total: 0, emailed: 0 }, students: people(0, 0) })
     const wrapper = await mountPage()
     expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__status`).text()).toBe(
       'Emails are not sent to every group member'
     )
-    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__counts`).text()).toBe('Students: 0 of 0 emailed')
+    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__counts`).text()).toContain('Students: 0 of 0 emailed')
     // Nobody to email, so nothing to send.
     expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeDefined()
   })
@@ -184,11 +201,13 @@ describe('Email Nonfinalist', () => {
     sendMock
       .mockResolvedValueOnce({
         emailed: 8, failed: 0, cursor: 5, done: false,
-        teams: { total: 3, emailed: 2 }, students: { total: 6, emailed: 4 }
+        teams: { total: 3, emailed: 2 }, students: people(6, 4),
+        mentors: people(3, 2, 4, 3), supervisors: people(2, 1)
       })
       .mockResolvedValueOnce({
         emailed: 4, failed: 0, cursor: 9, done: true,
-        teams: { total: 3, emailed: 3 }, students: { total: 6, emailed: 6 }
+        teams: { total: 3, emailed: 3 }, students: people(6, 6),
+        mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
       })
     const wrapper = await mountPage()
     await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
@@ -197,7 +216,10 @@ describe('Email Nonfinalist', () => {
     expect(confirm.text()).toContain("This emails every member of the 3 teams that haven't had this email yet.")
     expect(sendMock).not.toHaveBeenCalled()
 
-    statuses.nonfinalists = status({ teams: { total: 3, emailed: 3 }, students: { total: 6, emailed: 6 } })
+    statuses.nonfinalists = status({
+      teams: { total: 3, emailed: 3 }, students: people(6, 6),
+      mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
+    })
     await dialogButton(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(sendMock.mock.calls).toEqual([
@@ -205,13 +227,18 @@ describe('Email Nonfinalist', () => {
       ['nonfinalists', 5]
     ])
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--ok`).text()).toBe('Emailed 12 people.')
-    expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe('Students: 6 of 6 emailed')
+    // Everyone emailed once done: people, and the emails that made.
+    expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe(
+      'Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
+        'Supervisors: 2 of 2 emailed (Times 2 of 2)'
+    )
   })
 
   it('says how many teams were not emailed in full, for a retry', async () => {
     sendMock.mockResolvedValue({
       emailed: 1, failed: 1, cursor: 5, done: true,
-      teams: { total: 1, emailed: 0 }, students: { total: 1, emailed: 0 }
+      teams: { total: 1, emailed: 0 }, students: people(1, 0),
+      mentors: people(1, 0), supervisors: people(0, 0)
     })
     const wrapper = await mountPage()
     await buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).trigger('click')

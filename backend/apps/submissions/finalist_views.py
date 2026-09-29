@@ -16,28 +16,32 @@ from config.errors import GroupAccessDenied
 
 from .errors import (
     AvailabilityRequired,
+    AvailabilityStudentsOnly,
     FileNotUploadedYet,
     NoFileUploaded,
     NotAFinalist,
     NotSubmittedYet,
     PresentationRequired,
     SubmissionLocked,
-    SubmissionsClosed,
-    SubmissionsNotConfigured,
 )
 from .finalist import (
     FinalistAvailabilitySerializer,
     FinalistEntrySerializer,
-    FinalistSessionSerializer,
-    finalist_deadline_info,
     is_finalist_group,
+    is_team_student,
+    record_submitted_slides,
+    save_own_times,
+    slides_due_at,
+    symposium_date,
+    team_has_availability,
+    time_options,
 )
-from .models import FinalistEntry, FinalistSession
-from .storage import submission_file_service
-from .uploads import FINALIST_MAX_UPLOAD_SIZE, PROTOTYPE, validate_presentation_file
+from .models import FinalistEntry
+from .storage import FINALIST_SLIDES_FILES
+from .uploads import FINALIST_MAX_UPLOAD_SIZE, validate_presentation_file
 
-# Presentations share the prototype container, which already accepts any file type.
-_storage = submission_file_service(PROTOTYPE)
+# The slides' own container, which the Finalist Presentation tab opens them from.
+_storage = FINALIST_SLIDES_FILES
 
 
 def _finalist_group(group_id: int) -> Groups:
@@ -59,30 +63,28 @@ def _require_can_edit(user, group_id: int) -> None:
     _require_can_view(user, group_id)
 
 
-def _require_open() -> None:
-    info = finalist_deadline_info()
-    if info.closes_at is None:
-        raise SubmissionsNotConfigured()
-    if not info.is_open:
-        raise SubmissionsClosed()
-
-
 def _require_unlocked(entry) -> None:
     if entry is not None and entry.is_locked:
         raise SubmissionLocked()
 
 
 def _deadline_payload() -> dict:
-    info = finalist_deadline_info()
-    return {"closes_at": info.closes_at, "is_extended": False, "is_open": info.is_open}
+    # Due when Notify Finalists says the slides are; shown, not enforced, so
+    # the round stays open for now. The shape is the submission portal's.
+    return {"closes_at": slides_due_at(), "is_extended": False, "is_open": True}
 
 
-def _write_result(entry) -> Response:
-    return Response({"deadline": _deadline_payload(), "entry": FinalistEntrySerializer(entry).data})
+def _entry_data(entry, user) -> dict:
+    return FinalistEntrySerializer(entry, context={"user": user}).data
+
+
+def _write_result(entry, user) -> Response:
+    return Response({"deadline": _deadline_payload(), "entry": _entry_data(entry, user)})
 
 
 class FinalistEntryView(APIView):
-    """Read the finalist entry, or save the team's availability."""
+    """Read the finalist entry, or save a student's own availability: the
+    times, set on Management > Finalist Presentation, they can make."""
 
     def get(self, request, group_id: int):
         group = _finalist_group(group_id)
@@ -91,16 +93,21 @@ class FinalistEntryView(APIView):
         return Response({
             "group": {"id": group.id, "name": group.group_name},
             "deadline": _deadline_payload(),
-            "sessions": FinalistSessionSerializer(FinalistSession.active(), many=True).data,
+            # This year's presentation times, as "9:30 – 10:00".
+            "sessions": time_options(),
+            "symposium_date": symposium_date(),
+            # Each student ticks their own; others see the times only.
+            "can_choose_sessions": is_team_student(request.user, group.id),
             "max_file_size": FINALIST_MAX_UPLOAD_SIZE,
             # None means the team has not started.
-            "entry": FinalistEntrySerializer(entry).data if entry is not None else None,
+            "entry": _entry_data(entry, request.user) if entry is not None else None,
         })
 
     def put(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open()
+        if not is_team_student(request.user, group.id):
+            raise AvailabilityStudentsOnly()
 
         payload = FinalistAvailabilitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -108,9 +115,9 @@ class FinalistEntryView(APIView):
         with transaction.atomic():
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
             _require_unlocked(entry)
-            entry.available_sessions.set(payload.validated_data["session_ids"])
+            save_own_times(request.user, group, payload.validated_data["session_ids"])
             entry.save(update_fields=["updated_at"])
-        return _write_result(entry)
+        return _write_result(entry, request.user)
 
 
 class FinalistPresentationView(APIView):
@@ -121,7 +128,6 @@ class FinalistPresentationView(APIView):
     def post(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open()
 
         uploaded = request.FILES.get("file")
         if uploaded is None:
@@ -146,12 +152,11 @@ class FinalistPresentationView(APIView):
         submitted_key = (entry.submitted_presentation or {}).get("storage_key")
         if previous_key and previous_key not in (file_data.get("storage_key"), submitted_key):
             _storage.delete(previous_key)
-        return _write_result(entry)
+        return _write_result(entry, request.user)
 
     def delete(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open()
 
         entry = FinalistEntry.objects.filter(group=group).first()
         _require_unlocked(entry)
@@ -164,7 +169,7 @@ class FinalistPresentationView(APIView):
         key = existing.get("storage_key")
         if key and key != (entry.submitted_presentation or {}).get("storage_key"):
             _storage.delete(key)
-        return _write_result(entry)
+        return _write_result(entry, request.user)
 
 
 def _serve_presentation(request, group_id: int, *, as_attachment: bool):
@@ -205,13 +210,12 @@ class FinalistSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open()
 
         with transaction.atomic():
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
             if entry.is_locked:
                 raise SubmissionLocked()
-            if not entry.available_sessions.filter(is_active=True).exists():
+            if not team_has_availability(group.id):
                 raise AvailabilityRequired()
             if not entry.presentation:
                 raise PresentationRequired()
@@ -219,11 +223,13 @@ class FinalistSubmitView(APIView):
             superseded = (entry.submitted_presentation or {}).get("storage_key")
             entry.snapshot(request.user)
             entry.save()
+            # The Finalist Presentation tab's Finalist Submission table.
+            record_submitted_slides(entry)
 
         # Outside the transaction, since a blob delete cannot be rolled back.
         if superseded and superseded != (entry.presentation or {}).get("storage_key"):
             _storage.delete(superseded)
-        return _write_result(entry)
+        return _write_result(entry, request.user)
 
 
 class FinalistReopenView(APIView):
@@ -232,11 +238,10 @@ class FinalistReopenView(APIView):
     def post(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open()
 
         entry = FinalistEntry.objects.filter(group=group).first()
         if entry is None or not entry.is_submitted:
             raise NotSubmittedYet()
         entry.reopened_at = timezone.now()
         entry.save(update_fields=["reopened_at", "updated_at"])
-        return _write_result(entry)
+        return _write_result(entry, request.user)

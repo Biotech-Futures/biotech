@@ -8,10 +8,11 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.storage import ManagedFileService, get_slides_storage, serve_managed_file
+from apps.common.storage import serve_managed_file
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
+from apps.submissions.storage import FINALIST_SLIDES_FILES
 
 from ..models import (
     FinalistEmailSettings,
@@ -96,8 +97,8 @@ class PresentationSlotDetailView(APIView):
         return Response(_payload())
 
 
-# Where finalists' slides are kept: their own container, apart from entries.
-SLIDES_FILES = ManagedFileService(get_slides_storage)
+# Where finalists' slides are kept, as the finalist step uploads them.
+SLIDES_FILES = FINALIST_SLIDES_FILES
 
 
 def _finalist_teams() -> list:

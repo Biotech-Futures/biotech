@@ -3,15 +3,18 @@ import type { StoredFile, SubmissionDeadline, SubmissionStage } from './submissi
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+/** A presentation time, set on Management > Finalist Presentation. */
 export interface FinalistSession {
   id: number
+  /** e.g. "9:30 – 10:00" */
   label: string
 }
 
 export interface FinalistEntry {
+  /** The viewer's own times: each student answers for themselves. */
   available_session_ids: number[]
   presentation: StoredFile | null
-  /** The submitted copy, unchanged while a revision is in progress. */
+  /** The same own times; answers aren't frozen at submit. */
   submitted_session_ids: number[]
   submitted_presentation: StoredFile | null
   submitted_at: string | null
@@ -26,7 +29,12 @@ export interface FinalistEntry {
 export interface FinalistDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
+  /** This year's presentation times. */
   sessions: FinalistSession[]
+  /** The day they're on (set on Notify Finalists); null until it is. */
+  symposium_date: string | null
+  /** Whether the viewer is one of the team's students, who each tick their own. */
+  can_choose_sessions: boolean
   max_file_size: number
   /** Null until the team first saves something. */
   entry: FinalistEntry | null
