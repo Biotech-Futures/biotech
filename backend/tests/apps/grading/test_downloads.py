@@ -17,6 +17,7 @@ from apps.grading.models import Grade, GradingJob, GroupMarkingCategories
 from apps.grading.services import zip as zip_service
 from apps.grading.services.content import ComponentEntry
 from apps.grading.services.xlsx import build_saq_xlsx
+from apps.submissions.models import Submission
 
 from .fixtures import _GradingFixture
 
@@ -249,21 +250,24 @@ class SaqXlsxExportTests(_GradingFixture):
             solution_category="Other",
             solution_category_other="App",
         )
+        Submission.objects.filter(group=self.group).update(submitted_project_title="Plant Sensors")
         ws = load_workbook(io.BytesIO(self._export_xlsx())).active
         rows = list(ws.iter_rows(values_only=True))
         # One answered question and a two-criterion rubric.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "type", "q1",
+            ["year", "group_name", "project_title", "type", "q1",
              "r1_mark", "r1_comment", "r2_mark", "r2_comment",
              "overall_comment", "product_category", "category_of_solution"],
         )
         # One row per group.
         self.assertEqual(len(rows), 2)
-        (year, group_name, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
+        (year, group_name, project_title, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
          overall_comment, product_category, category_of_solution) = rows[1]
         self.assertEqual(year, self.group.year)  # the team's challenge year
         self.assertEqual(group_name, "BTF-TEST-1")
+        # The title the team submitted.
+        self.assertEqual(project_title, "Plant Sensors")
         self.assertEqual(row_type, "SAQs")
         # The answer cell carries the answer under its question prompt.
         self.assertIn("Team answers", q1)
@@ -357,10 +361,10 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         # nobody answered gets no column.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "type", "q1", "q2", "q3",
+            ["year", "group_name", "project_title", "type", "q1", "q2", "q3",
              "overall_comment", "product_category", "category_of_solution"],
         )
-        answers = [[cell or None for cell in row[3:6]] for row in rows[1:]]
+        answers = [[cell or None for cell in row[4:7]] for row in rows[1:]]
         self.assertEqual(answers, [
             ["Q one\na1", "Q two\na2", None],
             [None, "Q two\nb2", None],
@@ -374,7 +378,7 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         )
         ws = load_workbook(io.BytesIO(payload), rich_text=True).active
         # The question is bold; the answer below it is plain.
-        question, answer = ws["D2"].value
+        question, answer = ws["E2"].value
         self.assertEqual(question.text, "Q one")
         self.assertTrue(question.font.b)
         self.assertEqual(answer, "\na1")
@@ -383,13 +387,14 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
             {cell.alignment.vertical for row in ws.iter_rows() for cell in row}, {"top"}
         )
         # Question columns are 43 wide.
-        self.assertEqual(ws.column_dimensions["D"].width, 43)
-        # Comment columns (rN_comment, overall_comment) and both category
-        # columns are 30 wide and wrap; the group name keeps the default width.
+        self.assertEqual(ws.column_dimensions["E"].width, 43)
+        # Comment columns (rN_comment, overall_comment), the title and both
+        # category columns are 30 wide and wrap; the group name keeps the
+        # default width.
         headers = [cell.value for cell in ws[1]]
         for index, header in enumerate(headers, start=1):
             letter = get_column_letter(index)
-            if header.endswith("comment") or header in ("product_category", "category_of_solution"):
+            if header.endswith("comment") or header in ("project_title", "product_category", "category_of_solution"):
                 self.assertEqual(ws.column_dimensions[letter].width, 30)
                 self.assertTrue(ws[f"{letter}2"].alignment.wrap_text, header)
         self.assertNotIn("B", ws.column_dimensions)

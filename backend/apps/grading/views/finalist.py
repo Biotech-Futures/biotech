@@ -187,7 +187,7 @@ class FinalistCandidatesView(APIView):
              "total": "31.00" | null,                  # sum across components
              "markers": ["Ada Grader", ...],           # deduped, latest first
              "incomplete": ["REPORT", ...],            # entered, not fully marked
-             "project_title": "",                      # no title is kept yet
+             "project_title": "Plant Sensors" | "",    # as submitted
              "project_category": "Health and Medicine" | "",
              "solution_category": "App" | "",
              "is_finalist": bool}
@@ -304,6 +304,8 @@ class FinalistCandidatesView(APIView):
             marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        # The title each team submitted, as the entry being marked has it.
+        titles = content.submitted_titles(g["id"] for g in groups)
         # The categories picked on the marking key.
         categories = {
             c.group_id: c
@@ -349,8 +351,7 @@ class FinalistCandidatesView(APIView):
                 "markers": markers_by_group.get(g["id"], []),
                 # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
-                # No project title is kept anywhere yet, so it stays blank.
-                "project_title": "",
+                "project_title": titles.get(g["id"]) or "",
                 "project_category": _format_product_category(categories.get(g["id"])),
                 "solution_category": _format_solution_category(categories.get(g["id"])),
                 "is_finalist": g["id"] in finalist_ids,

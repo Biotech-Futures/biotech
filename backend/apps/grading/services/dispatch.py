@@ -49,6 +49,7 @@ from .content import feedback_map, submission_entries
 from .docx import (
     certificate_context,
     marks_summary_context,
+    project_title,
     render_marks_summary,
     render_participation_certificate,
 )
@@ -266,6 +267,7 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
                         year,
                         first_name=sp.user.first_name,
                         last_name=sp.user.last_name,
+                        project_title=project_title(group),
                     )
                 )
                 zf.writestr(f"{folder}/certificate.docx", cert_bytes)

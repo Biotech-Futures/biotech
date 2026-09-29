@@ -88,7 +88,7 @@ beforeEach(() => {
   routeState.name = 'grading-group'
   routeState.params = { groupId: '3' }
   markingMock.mockReset().mockResolvedValue({
-    group: { id: 3, group_name: 'Alpha Team' },
+    group: { id: 3, group_name: 'Alpha Team', project_title: '' },
     year: 2026,
     components: [block('SAQ', 1), block('POSTER', 2)]
   } as never)

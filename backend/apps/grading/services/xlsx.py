@@ -107,7 +107,7 @@ def build_saq_xlsx(
     years_by_group = years_by_group or {}
     prompts = _question_columns(entries, questions)
 
-    headers = ["year", "group_name", "type"]
+    headers = ["year", "group_name", "project_title", "type"]
     headers += [f"q{i}" for i in range(1, len(prompts) + 1)]
     for i in range(1, len(criteria_list) + 1):
         headers += [f"r{i}_mark", f"r{i}_comment"]
@@ -124,7 +124,7 @@ def build_saq_xlsx(
     for entry in entries:
         cats = categories_by_group.get(entry.group_id)
         answers = dict(entry.answers)
-        row = [years_by_group.get(entry.group_id), entry.group_name, TYPE_LABELS["SAQ"]]
+        row = [years_by_group.get(entry.group_id), entry.group_name, entry.project_title, TYPE_LABELS["SAQ"]]
         row += [
             _answer_cell(prompt, answers[prompt]) if prompt in answers else ""
             for prompt in prompts
@@ -142,16 +142,16 @@ def build_saq_xlsx(
         ]
         ws.append(row)
 
-    # Answers, comments and the category columns wrap in fixed-width columns
-    # (the categories treated like comments); year, group names, type and marks
-    # keep the default width.
+    # Answers, comments, the title and the category columns wrap in fixed-width
+    # columns (the title and categories treated like comments); year, group
+    # names, type and marks keep the default width.
     widths = {}
     wrapped: set[int] = set()
     for index, header in enumerate(headers, start=1):
         if header.startswith("q"):
             widths[header] = QUESTION_COLUMN_WIDTH
             wrapped.add(index)
-        elif header.endswith("comment") or header in ("product_category", "category_of_solution"):
+        elif header.endswith("comment") or header in ("project_title", "product_category", "category_of_solution"):
             widths[header] = COMMENT_COLUMN_WIDTH
             wrapped.add(index)
         if header in widths:

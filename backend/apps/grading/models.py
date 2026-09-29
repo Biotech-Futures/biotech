@@ -221,6 +221,15 @@ class FinalistFlag(models.Model):
         blank=True,
         related_name="finalist_notifications",
     )
+    # The presentation time allocated on the Finalist Presentation tab;
+    # cleared when that time is removed.
+    presentation_slot = models.ForeignKey(
+        "PresentationSlot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="allocated_flags",
+    )
 
     class Meta:
         db_table = "finalist_flag"
@@ -354,6 +363,85 @@ class FinalistEmailSettings(SingletonModel):
     def dates_before(self, today) -> list[str]:
         """The date fields set to a day before ``today`` (last year's, say)."""
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
+
+
+class PresentationSlot(models.Model):
+    """A time finalists can present at the Symposium, on the Symposium date
+    set on Notify Finalists. Admins set them on the Finalist Presentation
+    tab; each year has its own, since the times change year to year. Each
+    finalist student will tick every slot they can make."""
+
+    year = models.PositiveSmallIntegerField()
+    starts_at = models.TimeField()
+    ends_at = models.TimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "presentation_slot"
+        ordering = ["year", "starts_at", "ends_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["year", "starts_at", "ends_at"], name="uniq_presentation_slot_per_year"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(ends_at__gt=models.F("starts_at")),
+                name="presentation_slot_ends_after_it_starts",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.year} {self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
+
+
+class PresentationAvailability(models.Model):
+    """One finalist student's answer: every presentation time they can make.
+    Each student in a finalist team answers for themselves; a student with
+    no row hasn't answered yet."""
+
+    group = models.ForeignKey(
+        "groups.Groups", on_delete=models.CASCADE, related_name="presentation_availability"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="presentation_availability"
+    )
+    # A removed time drops out of every answer.
+    slots = models.ManyToManyField(PresentationSlot, blank=True, related_name="available")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "presentation_availability"
+        constraints = [
+            models.UniqueConstraint(fields=["group", "user"], name="uniq_presentation_availability")
+        ]
+
+    def __str__(self):
+        return f"{self.group_id}:{self.user_id}"
+
+
+class FinalistSlides(models.Model):
+    """A finalist team's slide deck for its Symposium presentation, due on
+    the slides due date set on Notify Finalists. One per team; uploading
+    again replaces it."""
+
+    group = models.OneToOneField(
+        "groups.Groups", on_delete=models.CASCADE, related_name="finalist_slides"
+    )
+    # As a submission's files: {"storage_key", "name", "mime", "size"}.
+    file = models.JSONField()
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_slides",
+    )
+    submitted_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "finalist_slides"
+
+    def __str__(self):
+        return f"{self.group_id}: {self.file.get('name', '')}"
 
 
 class ResultsEmailSettings(SingletonModel):

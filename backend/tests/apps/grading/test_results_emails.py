@@ -460,6 +460,23 @@ class ResultsEmailTests(_GradingFixture):
         # Nothing about real people.
         self.assertNotIn("Stu amy", str(rows))
 
+    def test_the_files_carry_the_title_the_team_submitted(self):
+        Submission.objects.filter(group=self.group).update(submitted_project_title="Plant Sensors")
+        self._send_all("groups")
+        year = self.group.year
+        files = _files(mail.outbox[0])
+        self.assertIn("Stu amy — Plant Sensors", _docx_text(files[f"{year}_BTF_Student_Certificate_Stu_amy.docx"]))
+        self.assertIn(
+            "Mo Mentor mentored Plant Sensors", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"])
+        )
+        mail.outbox.clear()
+        self._send_all("supervisors")
+        sheet = load_workbook(
+            io.BytesIO(_files(mail.outbox[0])[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])
+        ).active
+        rows = [[c.value for c in row] for row in sheet.iter_rows()]
+        self.assertEqual(rows[1][rows[0].index("ProjectTitle")], "Plant Sensors")
+
     def test_the_spreadsheet_puts_the_highest_total_first(self):
         # A second group of Sam's students that scored less, and one not marked.
         lower = _submitted_team("A Lower Team", self.staff)
