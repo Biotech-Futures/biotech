@@ -154,7 +154,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'release-certificates', redirect: '/management/release-results' },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') },
-      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/grading/NonFinalistPage.vue') }
+      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/grading/NonFinalistPage.vue') },
+      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/grading/FinalistPresentationPage.vue') }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
