@@ -30,18 +30,51 @@
         </div>
         <div v-if="!isEditing" class="form-field">
           <label class="form-label" for="f-role">Role *</label>
-          <select id="f-role" v-model="form.role" class="form-input" :disabled="!!fixedRole">
+          <select
+            id="f-role"
+            v-model="form.role"
+            class="form-input"
+            :disabled="!!fixedRole"
+            @change="onRoleChange"
+          >
             <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
           </select>
         </div>
         <div v-if="isEditing" class="form-field">
           <label class="form-label" for="f-role-edit">Role</label>
-          <select id="f-role-edit" v-model="form.role" class="form-input" :disabled="!!fixedRole">
+          <select
+            id="f-role-edit"
+            v-model="form.role"
+            class="form-input"
+            :disabled="!!fixedRole"
+            :aria-describedby="losesSupportAccess ? 'f-role-support-note' : undefined"
+            @change="onRoleChange"
+          >
             <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
           </select>
         </div>
+        <!-- Moving an account off the support role revokes its queue access on
+             save (backend services/user.py, the role_moved branch, audited).
+             The server is right to do it, but nothing here said so; adminweb
+             was silent too (U6 C9). Said at the moment of the change, because
+             the save is the action and it cannot be taken back from here.
+             Not said for a move to admin, which keeps the queue (see
+             losesSupportAccess). aria-describedby is what carries the note to
+             a screen reader; aria-live on an element inserted together with
+             its text is announced unreliably, so it is only a second chance. -->
+        <p
+          v-if="losesSupportAccess"
+          id="f-role-support-note"
+          class="admin-users-form__note form-field--full"
+          aria-live="polite"
+        >
+          Saving with this role removes their access to the support queue. Tickets they own stay in
+          their name until somebody reassigns them.
+        </p>
 
-        <template v-if="form.role !== 'admin'">
+        <!-- One rule for every role without geography (userOptions.ts), not a
+             hard-coded 'admin': a support agent has no country either. -->
+        <template v-if="roleHasGeography(form.role)">
           <div class="form-field">
             <label class="form-label" for="f-country">Country *</label>
             <select id="f-country" v-model="form.countryId" class="form-input" @change="onFormCountryChange">
@@ -190,7 +223,7 @@ import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } f
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { roleLabel, userName } from '@/utils/userFormat'
-import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
+import { INTEREST_OPTIONS, USER_ROLES, roleHasGeography, type UserRole } from '@/utils/userOptions'
 
 interface UserForm {
   firstName: string
@@ -273,6 +306,35 @@ const onFormCountryChange = () => {
   form.stateId = undefined
 }
 
+// A role without geography drops the country and state it had (adminweb
+// UserEditorSheet does the same). Hidden fields must not carry a value: the
+// hidden pick would otherwise come back if the role is switched back, and
+// nothing on screen would show where it came from. Reads the select's own
+// value so the order of this listener and v-model's does not matter.
+const onRoleChange = (event: Event) => {
+  const role = (event.target as HTMLSelectElement).value
+  if (!roleHasGeography(role)) {
+    form.countryId = undefined
+    form.stateId = undefined
+  }
+}
+
+// Editing a support agent and picking another role. Case-folded like the
+// backend's role_moved check: a stored "Support" re-saved as "support" is not
+// a move and revokes nothing, so it must not be warned about either.
+//
+// Admin is not a loss. The save does delete their SupportScope row, but it
+// creates an AdminScope row in the same call, and is_support() is true for
+// every admin (backend apps/tickets/permissions.py), so the person keeps the
+// queue. Saying otherwise would warn an admin off a promotion that takes
+// nothing away.
+const losesSupportAccess = computed(() => {
+  if (!isEditing.value) return false
+  const stored = (props.user?.role ?? '').trim().toLowerCase()
+  const next = form.role.trim().toLowerCase()
+  return stored === 'support' && next !== 'support' && next !== 'admin'
+})
+
 const onInterestToggle = (option: string, event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
   const next = new Set(form.interests)
@@ -340,8 +402,12 @@ const validateForm = (): boolean => {
     formError.value = 'Invalid email format.'
     return false
   }
-  if (role !== 'admin' && form.countryId === undefined) {
-    formError.value = 'Country is required for non-admin users.'
+  // Admin and support are exempt. Neither form asks for a country, and nothing
+  // reads one: Ticket.region is a snapshot of the *requester's* country taken
+  // at submission, not the agent's. The wording is adminweb's: "non-admin"
+  // stopped being true of this rule when support joined it.
+  if (roleHasGeography(role) && form.countryId === undefined) {
+    formError.value = 'Country is required for this role.'
     return false
   }
   if (role === 'student') {
@@ -396,8 +462,10 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        // null for a role without geography: the backend accepts a cleared
+        // country only for those roles (services/user.py ROLES_WITHOUT_GEOGRAPHY).
+        countryId: roleHasGeography(role) ? form.countryId : null,
+        stateId: roleHasGeography(role) ? form.stateId : null
       }
       if (role === 'student') {
         payload.schoolName = form.schoolName
@@ -427,8 +495,9 @@ const submitForm = async () => {
         role,
         active: form.active
       }
-      const countryName = resolveCountryName(form.countryId)
-      const stateName = role === 'admin' ? undefined : resolveStateName(form.stateId)
+      // Neither is sent for a role without geography.
+      const countryName = roleHasGeography(role) ? resolveCountryName(form.countryId) : undefined
+      const stateName = roleHasGeography(role) ? resolveStateName(form.stateId) : undefined
       if (countryName) payload.country = countryName
       if (stateName) payload.state = stateName
 
@@ -504,6 +573,18 @@ const submitForm = async () => {
 
 .form-field--full {
   grid-column: 1 / -1;
+}
+
+/* Text in --charcoal on the sheet's own --white, both theme tokens that are
+   defined as a pair in light and dark (11:1 and 14:1). No tinted background:
+   a translucent one would hand the contrast to whatever paints underneath. */
+.admin-users-form__note {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  color: var(--charcoal);
+  font-size: 0.85rem;
 }
 
 .form-label {

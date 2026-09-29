@@ -7,6 +7,27 @@ import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { pureAgent } from '@/__tests__/supportAccountFixtures'
 
+// These specs mount the real app shell or ticket pages to check routing and
+// navigation, not what the pages load. The pages' reads never settle here, so
+// they sit in their loading state instead of logging network errors from a
+// test that is not about them.
+vi.mock('@/utils/ticketAgentAPI', async (importActual) => {
+  const actual = await importActual<typeof import('@/utils/ticketAgentAPI')>()
+  const pending = () => new Promise<never>(() => {})
+  return {
+    ...actual,
+    fetchTicketQueue: vi.fn(pending),
+    fetchTicketSummary: vi.fn(pending),
+    fetchAssignees: vi.fn(pending),
+    fetchTicketRegions: vi.fn(pending),
+    fetchTicketDetail: vi.fn(pending),
+    fetchTicketHistory: vi.fn(pending),
+    fetchTicketAudit: vi.fn(pending),
+    fetchTicketAnalytics: vi.fn(pending),
+    fetchSupportRoster: vi.fn(pending)
+  }
+})
+
 // The section shell rendered through the real route table: the parent
 // /admin/tickets record and its child pages, on the real router, signed in as
 // a support agent who is not an admin (the account the section exists for).

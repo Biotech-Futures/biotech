@@ -563,7 +563,7 @@ describe('downloading an attachment', () => {
 
     expect(clicked).toEqual([])
     expect(attachmentErrorMessage(error)).toBe(
-      'This file is gone. The ticket or the message it belonged to was deleted. Reload the queue.'
+      'This file could not be found. Its ticket or message may have been deleted, or the file is missing from storage. Reload the queue to check.'
     )
   })
 
@@ -791,6 +791,23 @@ describe('reading a refused ticket write', () => {
 
     expect(ticketRefusalReason(error)).toBe('You do not have admin privileges.')
     expect(wasRefused(error)).toBe(true)
+  })
+
+  it('does not call a signed-out session a refusal', async () => {
+    // SessionAuthentication answers a signed-out read with 403 as well, so
+    // only the code tells "you may not" from "sign in again". The pages show
+    // their "could not be loaded" sentence for the second.
+    answer(
+      refuse(
+        { error: 'Authentication credentials were not provided.', code: 'not_authenticated' },
+        403
+      )
+    )
+
+    const error = await fetchTicketSummary().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(wasRefused(error)).toBe(false)
   })
 
   it("leaves DRF's machine English and the not-found envelope to the caller's own sentence", async () => {

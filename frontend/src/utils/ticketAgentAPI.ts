@@ -286,18 +286,23 @@ export async function downloadTicketAttachment(
 
 /** What to put in front of an agent when the download is refused.
  *
- *  Keyed on the status alone, as the React version was. Two known gaps, left
- *  for the detail panel's owner to decide: a 403 for an agent whose queue
- *  access was just revoked reads as an expired session, and a 404 for a file
- *  missing from storage ({detail: ...} rather than {msg: "Attachment not
- *  found"}) reads as a deleted ticket. */
+ *  Keyed on the status alone, as the React version was. The detail panel
+ *  reads the body's code first (components/admin/tickets/detail/
+ *  ticketDetailText.ts) so a 403 for an agent whose queue access was just
+ *  revoked does not read as an expired session; this is its fallback.
+ *
+ *  The 404 sentence covers two causes on purpose. Since T15 the download
+ *  view opens the stored file before answering, and a file missing from
+ *  storage comes back as the same {msg: "Attachment not found"} 404 as a
+ *  deleted ticket or message, so the client cannot tell them apart. React's
+ *  "the ticket ... was deleted" was true only for the first. */
 export function attachmentErrorMessage(error: unknown): string {
   const status = error instanceof ApiError ? error.status : undefined
   if (status === 401 || status === 403) {
     return 'Your session has expired. Reload this page and sign in again to open this file.'
   }
   if (status === 404) {
-    return 'This file is gone. The ticket or the message it belonged to was deleted. Reload the queue.'
+    return 'This file could not be found. Its ticket or message may have been deleted, or the file is missing from storage. Reload the queue to check.'
   }
   return 'Could not download that file. Try again.'
 }
@@ -459,11 +464,14 @@ export function serverMessage(error: unknown): string | undefined {
 /** Whether a failed read was a refusal rather than a fault.
  *
  *  Reporting a 403 as "could not be loaded" tells the reader the product is
- *  broken when it is working exactly as intended. Note that signed out is a
- *  403 here too, not a 401 (SessionAuthentication sends no
- *  WWW-Authenticate), so this cannot tell "not allowed" from "session
- *  expired"; the body's code can (`permission_denied` or `not_authenticated`).
+ *  broken when it is working exactly as intended. Signed out is a 403 here
+ *  too, not a 401 (SessionAuthentication sends no WWW-Authenticate), and the
+ *  body's code is what tells the two apart. A signed-out agent is not being
+ *  refused anything: telling them "You do not have access" sends them to an
+ *  administrator for a problem a reload and sign-in fixes, so
+ *  `not_authenticated` falls through to the page's "could not be loaded"
+ *  sentence instead.
  */
 export function wasRefused(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 403
+  return error instanceof ApiError && error.status === 403 && error.code !== 'not_authenticated'
 }

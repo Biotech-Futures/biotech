@@ -175,8 +175,11 @@ export const fetchAdminSummary = (): Promise<AdminSummaryResponse> =>
 // Contract notes (matches apps/admin/):
 // - List uses a custom envelope: `{ msg, data: { items, total, page, limit, hasMore } }`.
 //   Pagination param is `limit` (not page_size) and sorting uses `sortBy`/`sortOrder`.
-// - Role strings: "student" | "mentor" | "supervisor" | "admin". Supervisors are
+// - Role strings: "student" | "mentor" | "supervisor" | "admin" | "support"
+//   (USER_ROLES in utils/userOptions.ts, the backend's ROLES). Supervisors are
 //   just users filtered with `?role=supervisor`; there is no separate endpoint.
+//   "support" is for single create and update only: the bulk import endpoints
+//   refuse it (and "admin") on purpose, backend BULK_IMPORTABLE_ROLES.
 // - Single status toggle: PATCH .../status/ with `{ isActive: bool }`.
 // - Bulk status: PATCH .../bulk-status/; bulk delete: POST .../bulk-delete/ (accepts
 //   `force` + `selectAll` for delete-all-matching).
