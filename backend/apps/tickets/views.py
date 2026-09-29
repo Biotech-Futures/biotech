@@ -17,7 +17,7 @@ from apps.common.storage import serve_managed_file
 from .models import Ticket, TicketAttachment, TicketMessage, TicketMessageType
 from .serializers import TicketCreateSerializer, TicketReplySerializer
 from .services import lifecycle
-from .services.attachments import stored_attachments, ticket_files
+from .services.attachments import open_for_download, stored_attachments, ticket_files
 from .services.paging import (
     after_cursor,
     as_at,
@@ -345,9 +345,20 @@ class TicketAttachmentDownloadView(APIView):
                 {"msg": "Attachment not found", "data": None},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # Opened here rather than inside serve_managed_file, whose try around
+        # open() turns every failure into a 404 and, on Azure, sees none of
+        # them: the blob is only fetched once the response is being built.
+        # This makes storage produce the file first, so a lost one is the same
+        # 404 as above and anything else is still a 500.
+        stored = open_for_download(attachment, ticket_id=ticket_id)
+        if stored is None:
+            return Response(
+                {"msg": "Attachment not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return serve_managed_file(
             resolve_url=ticket_files.resolve_url,
-            open_file=ticket_files.open,
+            open_file=lambda _key: stored,
             storage_key=attachment.storage_key,
             filename=attachment.original_filename,
             mime_type=attachment.mime_type,

@@ -10,15 +10,14 @@ Source of truth: .capstone/design/ticketing/05-conversation-model.md §2.
 
 from ..models import TicketStatus
 
-# T1 — dropped into the timeline the moment the ticket is created, rather
-# than "within ~2 minutes" as the client's mock-up suggested.
-AUTO_ACKNOWLEDGEMENT = "Thanks {first_name}. We're looking into this and will get back to you shortly."
-AUTO_ACKNOWLEDGEMENT_NO_NAME = "Thanks. We're looking into this and will get back to you shortly."
-
-# T3 — deliberately says only what changed, never who picked it up. Naming
-# the agent in a requester-visible message is what DEC-017 was written to
-# prevent.
-TICKET_NOW_HANDLED = "Your ticket is now being handled."
+# No line for T1 (a new ticket) or T3 (the first pick-up from the pool). There
+# used to be one for each: "Thanks {first_name}. We're looking into this and
+# will get back to you shortly." and "Your ticket is now being handled." The
+# client asked for both to go (C-05): "I don't think that adds anything." The
+# receipt email already says the first, and the status badge moving from Open
+# to In progress already says the second. Tickets raised before the change
+# still carry the old rows. They are history and are left alone, and nothing
+# in the code reads them back.
 
 # T4 — written by add_support_reply(move_to_pending=True), which is the reply
 # that asks the question, and by mark_pending(), which production does not
@@ -48,13 +47,6 @@ EMAIL_DELIVERY_FAILED = (
 # design gives no wording for these landings; deliberately neutral, because
 # the T4 sentence above points at "the reply above" and there isn't one.
 STATUS_CHANGED = "Status changed to {label}."
-
-
-def auto_acknowledgement(first_name: str) -> str:
-    first_name = (first_name or "").strip()
-    if not first_name:
-        return AUTO_ACKNOWLEDGEMENT_NO_NAME
-    return AUTO_ACKNOWLEDGEMENT.format(first_name=first_name)
 
 
 def status_changed(new_status: str) -> str:

@@ -159,14 +159,12 @@ def create_ticket_from_screening(message, verdict, text_snapshot) -> Ticket:
             # all: its only row is the internal note below.
             awaiting_support_since=timezone.now(),
         )
-        # One system message, not two: the acknowledgement T1 writes exists to
-        # reassure a requester, and this ticket has none.
         # INTERNAL_NOTE, not SYSTEM. SYSTEM is the type the requester is meant
-        # to read — "we are looking into this", "this has been resolved" — and
-        # views.py excludes only internal notes from their timeline. This body
-        # is a case file: it names the sender (falling back to their email
-        # address), quotes the flagged private message word for word, and
-        # links into the admin app.
+        # to read ("this ticket has been marked as resolved", "ticket
+        # reopened"), and views.py excludes only internal notes from their
+        # timeline. This body is a case file: it names the sender (falling
+        # back to their email address), quotes the flagged private message
+        # word for word, and links into the admin app.
         #
         # It is not reachable today, because these tickets are created with
         # created_by=None and the requester's queryset filters on ownership.

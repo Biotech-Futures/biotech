@@ -165,11 +165,13 @@ watch(() => route.params.id, load)
   overflow-wrap: anywhere;
 }
 
+/* Status and priority are two separate facts about the enquiry. At 0.35rem
+   apart the client read them as too close to each other (client item C-08). */
 .ticket__badges {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.35rem;
+  gap: 0.6rem;
 }
 
 .ticket__meta {
@@ -187,8 +189,14 @@ watch(() => route.params.id, load)
   font-size: 0.9rem;
 }
 
+/* The conversation gets a column of its own, narrower than the page and
+   centred in it, so the two sides of the thread sit close enough to read as
+   one exchange (client item C-07). TicketTimeline.vue sizes its bubbles as a
+   share of this width, so the two numbers are one decision: widen this and
+   the bubbles widen with it. */
 .ticket__conversation {
-  margin: 1.5rem 0;
+  max-width: 46rem;
+  margin: 1.5rem auto;
 }
 
 .ticket__state {

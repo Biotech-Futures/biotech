@@ -171,8 +171,10 @@ function loadMore() {
   load(page.value + 1)
 }
 
-// Straight to the new ticket: the acknowledgement is already on its timeline,
-// so landing there answers "did that work?" without a second click.
+// Straight to the new ticket: its number, its Open badge and the requester's
+// own message are already on the page, so landing there answers "did that
+// work?" without a second click. There is no "thanks, we're looking into
+// this" line under the message any more (C-05); the page itself is the answer.
 function onSubmitted(ticket: TicketDetail) {
   router.push(`/support/tickets/${ticket.id}`)
 }

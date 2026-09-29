@@ -20,12 +20,23 @@ and ``settings_local`` both set ``USE_AZURE_BLOB_STORAGE = False``, so
 fires. Every test below that cares about the production shape patches
 ``resolve_url`` to return an absolute URL, which is the only way to reach the
 branch at all.
+
+The one exception is ``AMissingStoredFileIsA404Tests``, which has to see what
+the Azure backend does when a blob is missing. It switches ticket storage to
+the real Azure classes and fakes only the HTTP session underneath the SDK.
 """
 import ast
+import errno
+import io
+import logging
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlparse
 
+import requests
+from azure.core.pipeline.transport import RequestsTransport
+from azure.storage.blob import ContainerClient
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -34,10 +45,15 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.common.storage import reset_managed_storage_caches, serve_managed_file
+from apps.common.storage import (
+    get_ticket_storage,
+    reset_managed_storage_caches,
+    serve_managed_file,
+)
 from apps.tickets.models import (
     SupportScope,
     Ticket,
+    TicketAttachment,
     TicketCategory,
 )
 from apps.tickets.services import attachments as attachments_module
@@ -252,10 +268,15 @@ class RefusalsStayMachineReadableTests(APITestCase):
         # The one refusal that comes from storage rather than the queryset, and
         # the one that would be 100% of downloads on day one if the container
         # and the tickets/ prefix did not line up in the deployed config.
-        with patch.object(
-            attachments_module.ticket_files, "open", side_effect=OSError("BlobNotFound")
-        ):
-            response = self.client.get(self.url(), HTTP_ACCEPT="application/json")
+        #
+        # The file is really taken off disk rather than open() being patched.
+        # The patch used to raise a bare OSError("BlobNotFound"), which neither
+        # backend this runs on raises for a missing file (local storage raises
+        # FileNotFoundError, Azure raises ResourceNotFoundError), and any other
+        # OSError, a permission problem say, is now meant to stay a 500.
+        key = TicketAttachment.objects.get(pk=self.attachment_id).storage_key
+        get_ticket_storage().backend.delete(key)
+        response = self.client.get(self.url(), HTTP_ACCEPT="application/json")
         self.assertEqual(response.status_code, 404)
         self.assertIn("application/json", response.headers["Content-Type"])
 
@@ -271,6 +292,346 @@ class RefusalsStayMachineReadableTests(APITestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn("text/html", response.headers["Content-Type"])
         self.assertIn(b"<!DOCTYPE html>", body_of(response))
+
+
+AZURE_SETTINGS = {
+    "USE_AZURE_BLOB_STORAGE": True,
+    "AZURE_CONNECTION_STRING": "",
+    "AZURE_ACCOUNT_NAME": "acct",
+    "AZURE_ACCOUNT_KEY": "a2V5",
+    "AZURE_CHAT_CONTAINER": "chat",
+    "AZURE_CUSTOM_DOMAIN": "",
+}
+
+# Every byte value, so a stream that re-encoded or trimmed anything shows.
+AZURE_BODY = b"%PDF-1.4\n" + bytes(range(256)) * 40
+
+
+class _AzureAnswers(requests.Session):
+    """The bottom of the real Azure SDK stack, answering the way Azure does.
+
+    Everything above this session is production code. azure-core's own
+    pipeline turns these HTTP answers into the exceptions it really raises
+    (a 404 becomes ResourceNotFoundError, a 403 an HttpResponseError), and it
+    raises them from inside django-storages' own AzureStorageFile at the moment
+    that class really asks. Patching any higher means choosing the exception
+    and the moment by hand, and the moment is the whole bug here: open() never
+    touches the network, the first touch of the file does.
+    """
+
+    def __init__(self, answer):
+        super().__init__()
+        self.answer = answer
+        self.seen = []
+
+    def request(self, method, url, **kwargs):
+        self.seen.append((method, urlparse(url).path))
+        return self.answer(url)
+
+
+def _azure_reply(url, status_code, headers, body):
+    reply = requests.Response()
+    reply.status_code = status_code
+    reply.headers.update(headers)
+    reply.headers["Content-Length"] = str(len(body))
+    reply.raw = io.BytesIO(body)
+    reply.url = url
+    return reply
+
+
+def _azure_error(url, status_code, code):
+    body = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        f"<Error><Code>{code}</Code><Message>{code}</Message></Error>"
+    ).encode()
+    return _azure_reply(
+        url,
+        status_code,
+        {"x-ms-error-code": code, "Content-Type": "application/xml"},
+        body,
+    )
+
+
+def blob_not_found(url):
+    return _azure_error(url, 404, "BlobNotFound")
+
+
+def container_not_found(url):
+    return _azure_error(url, 404, "ContainerNotFound")
+
+
+def access_refused(url):
+    return _azure_error(url, 403, "AuthorizationFailure")
+
+
+def unreachable(url):
+    raise requests.ConnectionError("Connection refused")
+
+
+def blob_holding(body):
+    def answer(url):
+        return _azure_reply(
+            url,
+            206,
+            {
+                "Content-Range": f"bytes 0-{len(body) - 1}/{len(body)}",
+                "Content-Type": "application/pdf",
+                "ETag": '"0x8DC0000000000"',
+                "Last-Modified": "Mon, 28 Sep 2026 10:00:00 GMT",
+                "x-ms-blob-type": "BlockBlob",
+            },
+            body,
+        )
+
+    return answer
+
+
+@override_settings(MEDIA_ROOT=_MEDIA)
+class AMissingStoredFileIsA404Tests(APITestCase):
+    """T15. A row whose file storage no longer has is "not found", on both sides.
+
+    It was a 404 in development and a 500 in production. Local storage opens
+    eagerly, so a missing file raised inside the try around open().
+    django-storages' AzureStorageFile is lazy: open() returns without a network
+    call, the blob is fetched the first time anything touches the file, and the
+    first thing that did was FileResponse's own header code, outside every try.
+    Both front ends read a 500 as "try again", which for a file that is gone is
+    advice that can never work.
+
+    The other half matters as much: only "not there" becomes a 404. Storage
+    refusing our credentials, or not answering at all, is an outage somebody
+    has to see, so it stays a logged 500.
+    """
+
+    NOT_FOUND = {"msg": "Attachment not found", "data": None}
+
+    def setUp(self):
+        reset_managed_storage_caches()
+        cache.clear()
+        # The SDK logs every request and response at INFO. Noise here.
+        azure_logger = logging.getLogger("azure")
+        self.addCleanup(azure_logger.setLevel, azure_logger.level)
+        azure_logger.setLevel(logging.WARNING)
+
+        self.requester = User.objects.create_user(
+            email="mia@example.com", password="pass1234",
+            first_name="Mia", last_name="Thompson",
+        )
+        self.agent = User.objects.create_user(
+            email="agent@example.com", password="pass1234",
+            first_name="Sam", last_name="Reid",
+        )
+        SupportScope.objects.create(user=self.agent)
+        self.client.force_login(self.requester)
+        # An earlier ticket carrying three files and one follow-up, so that the
+        # ticket, message and attachment under test get three different ids.
+        # On a fresh test database they would all be 1, and a warning that
+        # printed one id in the other's place would still read correctly.
+        #
+        # The follow-up is what keeps message ids ahead of ticket ids. This
+        # used to lean on creation writing a second, system line, and C-05
+        # took that line away: the ids collapsed to (2, 2, 4) with nothing
+        # else changed. A message the requester sends is not going anywhere.
+        earlier = self.client.post(
+            LIST_URL,
+            {
+                "category": TicketCategory.HELP_STUDENT_GROUP,
+                "subject": "Earlier",
+                "body": "Three files.",
+                "files": [pdf("one.pdf"), pdf("two.pdf"), pdf("three.pdf")],
+            },
+            format="multipart",
+        )
+        # Checked here because nothing below reads it: if it were refused,
+        # the ids would quietly collapse back to 1, 1, 1.
+        self.assertEqual(earlier.status_code, 201, earlier.content)
+        follow_up = self.client.post(
+            f"{LIST_URL}{earlier.json()['data']['id']}/messages/",
+            {"body": "One more thing."},
+        )
+        self.assertEqual(follow_up.status_code, 201, follow_up.content)
+        data = self.client.post(
+            LIST_URL,
+            {
+                "category": TicketCategory.HELP_STUDENT_GROUP,
+                "subject": "With a file",
+                "body": "See attached.",
+                "files": pdf(),
+            },
+            format="multipart",
+        ).json()["data"]
+        self.ticket = Ticket.objects.get(pk=data["id"])
+        self.attachment_id = data["messages"][0]["attachments"][0]["id"]
+        row = TicketAttachment.objects.get(pk=self.attachment_id)
+        self.storage_key = row.storage_key
+        self.message_id = row.message_id
+
+    def tearDown(self):
+        reset_managed_storage_caches()
+
+    def endpoints(self):
+        return (
+            (
+                "requester",
+                f"{LIST_URL}{self.ticket.pk}/attachments/{self.attachment_id}/",
+                self.requester,
+            ),
+            (
+                "support",
+                f"/api/v1/admin/tickets/{self.ticket.pk}/attachments/{self.attachment_id}/",
+                self.agent,
+            ),
+        )
+
+    def get_from_azure(self, url, answer):
+        """GET the url with ticket storage on Azure and `answer` behind the SDK."""
+        session = _AzureAnswers(answer)
+        with override_settings(**AZURE_SETTINGS):
+            reset_managed_storage_caches()
+            get_ticket_storage().backend._client = ContainerClient(
+                "https://acct.blob.core.windows.net",
+                "chat",
+                credential={"account_name": "acct", "account_key": "a2V5"},
+                transport=RequestsTransport(session=session, session_owner=False),
+                # Each fake answers every request the same way, so a retry
+                # would only repeat it, after a backoff sleep.
+                retry_total=0,
+            )
+            response = self.client.get(url, HTTP_ACCEPT="application/json")
+            body = body_of(response)
+        reset_managed_storage_caches()
+        return response, body, session.seen
+
+    def test_a_blob_azure_no_longer_has_is_a_404_on_both_endpoints(self):
+        for side, url, who in self.endpoints():
+            with self.subTest(endpoint=side):
+                self.client.force_login(who)
+                response, _body, seen = self.get_from_azure(url, blob_not_found)
+                # One GET, and Azure answered it. The 404 is Azure's answer
+                # passed on, not a shortcut that never reached storage.
+                self.assertEqual(seen, [("GET", f"/chat/{self.storage_key}")])
+                self.assertEqual(response.status_code, 404)
+                self.assertEqual(response.json(), self.NOT_FOUND)
+
+    def test_a_file_gone_from_local_disk_is_the_same_404(self):
+        # The real FileSystemStorage, raising its real FileNotFoundError.
+        get_ticket_storage().backend.delete(self.storage_key)
+        for side, url, who in self.endpoints():
+            with self.subTest(endpoint=side):
+                self.client.force_login(who)
+                response = self.client.get(url, HTTP_ACCEPT="application/json")
+                self.assertEqual(response.status_code, 404)
+                self.assertEqual(response.json(), self.NOT_FOUND)
+
+    def test_a_missing_file_is_logged_by_id_and_nothing_else(self):
+        # Ticket and attachment ids only. The storage key ends in the
+        # student's own file name, so it stays out of a line that ops will
+        # paste into chat. The reason tells one lost blob (BlobNotFound) from
+        # a container that is not configured at all (ContainerNotFound): one
+        # missing file, or every download failing.
+        #
+        # Only meaningful while the three ids differ, which setUp arranges.
+        self.assertEqual(
+            len({self.ticket.pk, self.message_id, self.attachment_id}),
+            3,
+            (self.ticket.pk, self.message_id, self.attachment_id),
+        )
+        prefix = (
+            f"ticket_attachment.file_missing ticket={self.ticket.pk} "
+            f"attachment={self.attachment_id}"
+        )
+        for side, url, who in self.endpoints():
+            for answer, reason in (
+                (blob_not_found, "BlobNotFound"),
+                (container_not_found, "ContainerNotFound"),
+            ):
+                with self.subTest(backend="azure", endpoint=side, reason=reason):
+                    self.client.force_login(who)
+                    with self.assertLogs(
+                        "apps.tickets.services.attachments", level="WARNING"
+                    ) as logged:
+                        self.get_from_azure(url, answer)
+                    self.assertEqual(
+                        [(r.levelno, r.getMessage()) for r in logged.records],
+                        [(logging.WARNING, f"{prefix} reason={reason}")],
+                    )
+
+        get_ticket_storage().backend.delete(self.storage_key)
+        for side, url, who in self.endpoints():
+            with self.subTest(backend="local", endpoint=side):
+                self.client.force_login(who)
+                with self.assertLogs(
+                    "apps.tickets.services.attachments", level="WARNING"
+                ) as logged:
+                    self.client.get(url, HTTP_ACCEPT="application/json")
+                self.assertEqual(
+                    [(r.levelno, r.getMessage()) for r in logged.records],
+                    [(logging.WARNING, f"{prefix} reason=FileNotFoundError")],
+                )
+
+    def test_azure_refusing_or_not_answering_is_still_a_logged_500(self):
+        for label, answer, raised in (
+            ("403 AuthorizationFailure", access_refused, "HttpResponseError"),
+            ("connection refused", unreachable, "ServiceRequestError"),
+        ):
+            for side, url, who in self.endpoints():
+                with self.subTest(azure=label, endpoint=side):
+                    self.client.force_login(who)
+                    with (
+                        self.assertLogs("config.exception_handler", level="ERROR") as logged,
+                        self.assertLogs("django.request", level="ERROR"),
+                        self.assertNoLogs("apps.tickets.services.attachments", level="WARNING"),
+                    ):
+                        response, _body, seen = self.get_from_azure(url, answer)
+                    self.assertEqual(seen, [("GET", f"/chat/{self.storage_key}")])
+                    self.assertEqual(response.status_code, 500)
+                    self.assertEqual(response.json()["code"], "internal_server_error")
+                    self.assertEqual(
+                        [type(r.exc_info[1]).__name__ for r in logged.records],
+                        [raised],
+                    )
+
+    def test_a_local_permission_error_is_a_logged_500_not_a_404(self):
+        # FileSystemStorage._open is where the real local backend calls the
+        # builtin open(), so it is where a permission problem really raises.
+        # This used to be answered 404 with nothing logged at all.
+        denied = PermissionError(errno.EACCES, "Permission denied")
+        for side, url, who in self.endpoints():
+            with self.subTest(endpoint=side):
+                self.client.force_login(who)
+                with (
+                    patch.object(get_ticket_storage().backend, "_open", side_effect=denied),
+                    self.assertLogs("config.exception_handler", level="ERROR") as logged,
+                    self.assertLogs("django.request", level="ERROR"),
+                    self.assertNoLogs("apps.tickets.services.attachments", level="WARNING"),
+                ):
+                    response = self.client.get(url, HTTP_ACCEPT="application/json")
+                self.assertEqual(response.status_code, 500)
+                self.assertEqual(
+                    [type(r.exc_info[1]).__name__ for r in logged.records],
+                    ["PermissionError"],
+                )
+
+    def test_a_file_that_exists_still_streams_byte_identical(self):
+        for side, url, who in self.endpoints():
+            self.client.force_login(who)
+            with self.subTest(backend="azure", endpoint=side):
+                response, body, seen = self.get_from_azure(url, blob_holding(AZURE_BODY))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(body, AZURE_BODY)
+                self.assertEqual(response.headers["Content-Length"], str(len(AZURE_BODY)))
+                self.assertEqual(
+                    response.headers["Content-Disposition"],
+                    'attachment; filename="report.pdf"',
+                )
+                # Still one download. Proving the blob is there must not cost
+                # a second round trip (an exists() first, say) on every file.
+                self.assertEqual(seen, [("GET", f"/chat/{self.storage_key}")])
+            with self.subTest(backend="local", endpoint=side):
+                response = self.client.get(url, HTTP_ACCEPT="application/json")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(body_of(response), FILE_BODY)
+                self.assertEqual(response.headers["Content-Length"], str(len(FILE_BODY)))
 
 
 class ServeManagedFileDefaultTests(SimpleTestCase):

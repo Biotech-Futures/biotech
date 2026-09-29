@@ -9,6 +9,7 @@ move it is next, and roughly when to expect a reply.
 """
 
 import logging
+from email.utils import parseaddr
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -77,10 +78,20 @@ def _context(ticket, **extra):
     first_name = getattr(ticket.created_by, "first_name", "") or ""
     ctx = {
         **brand_context(),
+        # The footer's "Add <address> to your address book" line has to name
+        # the mailbox these emails really come from, and they come from
+        # support@ (TICKET_FROM_EMAIL), not the info@ brand_context() gives
+        # every other email on the platform. Read off the From value itself so
+        # the header and the footer cannot name two different mailboxes.
+        "SENDER_EMAIL": parseaddr(settings.TICKET_FROM_EMAIL)[1],
         "TICKET_NUMBER": ticket.ticket_number,
         "TICKET_SUBJECT": ticket.subject,
         "TICKET_URL": _ticket_url(ticket),
         "STATUS_LABEL": TicketStatus(ticket.status).label,
+        # The template picks the status style on this and not on the label.
+        # The label is copy and may be reworded; the key is what the ticket
+        # actually stores.
+        "STATUS_KEY": ticket.status,
         "FIRST_NAME": first_name,
         # Already resolved, so the plain-text bodies can interpolate it with
         # str.format the way the templates use |default. An account invited by
@@ -116,7 +127,10 @@ def _dispatch(ticket, *, template, subject, kind, text_body, context=None, on_fa
     msg = EmailMultiAlternatives(
         subject=subject.format(**ctx),
         body=text_body.format(**ctx),
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        # support@ and not DEFAULT_FROM_EMAIL (info@): the client asked for
+        # enquiry mail to come from the support address. See TICKET_FROM_EMAIL
+        # in settings.py for why the same SMTP login can send as it.
+        from_email=settings.TICKET_FROM_EMAIL,
         to=[to],
     )
     msg.attach_alternative(html_body, "text/html")

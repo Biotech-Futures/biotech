@@ -11,6 +11,7 @@ from .views_admin import (
     TicketAuditView,
     TicketBulkAssignView,
     TicketHistoryView,
+    TicketQueueExportView,
     TicketQueueView,
     TicketRegionsView,
     TicketSummaryView,
@@ -23,6 +24,8 @@ app_name = "tickets_admin"
 
 urlpatterns = [
     path("", TicketQueueView.as_view(), name="queue"),
+    # The queue itself as an Excel file; takes the queue's own filters.
+    path("export/", TicketQueueExportView.as_view(), name="export"),
     path("summary/", TicketSummaryView.as_view(), name="summary"),
     path("assignees/", TicketAssigneesView.as_view(), name="assignees"),
     path("regions/", TicketRegionsView.as_view(), name="regions"),

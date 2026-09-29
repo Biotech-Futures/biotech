@@ -493,8 +493,9 @@ class Command(BaseCommand):
             reopened_at = now - timedelta(hours=6)
 
             # When each clock last moved. The requester's clock moves on the
-            # events they can see; the support clock moves on those and on the
-            # silent ones too, so they part company on exactly one outcome.
+            # events that put something on their timeline; the support clock
+            # moves on those and on the silent ones too, so they part company
+            # on the two outcomes whose last event was silent.
             #
             # Read off the last thing the lifecycle did rather than fixed at
             # "two hours after it was raised": a ticket whose newest timeline
@@ -504,21 +505,27 @@ class Command(BaseCommand):
             last_activity = {
                 "open": created,
                 "overdue": created,
-                "claimed": claimed_at,
-                "handed_off": claimed_at,
+                # The claim writes nothing on the requester's timeline (C-05),
+                # so their clock stays where they raised the ticket. So does
+                # the hand-off after it.
+                "claimed": created,
+                "handed_off": created,
                 "replied": replied_at,
                 "pending": replied_at,
                 "resolved": resolved_at,
                 "reopened": reopened_at,
             }[outcome]
+            # The claim and the hand-off are silent on the requester's
+            # timeline (the hand-off by 03-state-machine.md §4, the claim
+            # since C-05), so they move this one alone.
+            support_activity = {
+                "claimed": claimed_at,
+                "handed_off": handed_off_at,
+            }.get(outcome, last_activity)
             fields = {
                 "created_at": created,
                 "updated_at": last_activity,
-                # The hand-off is silent on the requester's timeline
-                # (03-state-machine.md §4), so it moves this one alone.
-                "support_updated_at": (
-                    handed_off_at if outcome == "handed_off" else last_activity
-                ),
+                "support_updated_at": support_activity,
             }
             # An answered ticket needs its first reply to sit between being
             # raised and now, or "average time to first reply" comes out
@@ -584,32 +591,32 @@ class Command(BaseCommand):
             # clocks were written to avoid, and the queue sorts on that column.
             if last_message is not None and last_message > last_activity:
                 caught_up = {"updated_at": last_message}
-                # The hand-off keeps its own support clock: it is the one
-                # outcome where the two deliberately part company.
-                if outcome != "handed_off":
+                # Only ever forwards. The claim and the hand-off keep a support
+                # clock later than anything on the timeline, and pulling it
+                # back to the last message would undo the silent event.
+                if last_message > support_activity:
                     caught_up["support_updated_at"] = last_message
                 Ticket.objects.filter(pk=pk).update(**caught_up)
 
     # One moment per message the lifecycle writes, in the order it writes
     # them. Read it as the timeline the reader of a demo ticket should see.
     #
-    # The pair on every row is T1: the requester's own words and the
-    # automatic acknowledgement, both inside the creation transaction. After
-    # that each outcome adds what its own service calls add — and a hand-off
-    # adds nothing, because it is silent on the timeline by design.
+    # Every row opens with T1, which is the requester's own words and nothing
+    # else. After that each outcome adds what its own service calls add. The
+    # claim adds nothing and neither does a hand-off: both are silent on the
+    # timeline (C-05 took the "now being handled" line off the claim).
     TIMELINE = {
-        "open":       ("created", "created"),
-        "overdue":    ("created", "created"),
-        "claimed":    ("created", "created", "claimed"),
-        "handed_off": ("created", "created", "claimed"),
-        "replied":    ("created", "created", "claimed", "replied"),
+        "open":       ("created",),
+        "overdue":    ("created",),
+        "claimed":    ("created",),
+        "handed_off": ("created",),
+        "replied":    ("created", "replied"),
         # The reply and the move to pending user are one transaction, so they
         # share a moment.
-        "pending":    ("created", "created", "claimed", "replied", "replied"),
-        "resolved":   ("created", "created", "claimed", "replied", "resolved"),
+        "pending":    ("created", "replied", "replied"),
+        "resolved":   ("created", "replied", "resolved"),
         # The requester's follow-up and the "reopened" line are also one.
-        "reopened":   ("created", "created", "claimed", "replied", "resolved",
-                       "reopened", "reopened"),
+        "reopened":   ("created", "replied", "resolved", "reopened", "reopened"),
     }
 
     def _wind_back_the_timeline(self, pk, outcome, anchors):
@@ -645,9 +652,10 @@ class Command(BaseCommand):
         # timelines order by created_at alone, with no second key:
         # views.py _visible_messages() and views_admin.py _detail(). Given
         # equal stamps the database is free to return them either way round,
-        # and it does: a seeded run put the automatic acknowledgement above
-        # the requester's own question on four of thirty tickets, and the
-        # "reopened" line above the reply that reopened it.
+        # and it does: a seeded run put the automatic acknowledgement (since
+        # removed, C-05) above the requester's own question on four of thirty
+        # tickets, and the "reopened" line above the reply that reopened it.
+        # The reopen pair and the reply-and-pending pair still share a moment.
         #
         # A second apart is enough to fix the order and small enough to still
         # read as one action. The offset is per position, so the run stays

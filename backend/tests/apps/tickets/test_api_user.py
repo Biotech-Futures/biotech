@@ -197,15 +197,27 @@ class TicketSubmissionTests(UserTicketAPITestCase):
         self.assertRegex(data["ticketNumber"], r"^SUP-\d{4}-\d{5}$")
         self.assertEqual(data["status"], "open")
 
-    def test_the_timeline_comes_back_with_the_message_and_the_acknowledgement(self):
+    def test_a_new_ticket_timeline_is_the_requesters_message_and_nothing_else(self):
+        """C-05. There used to be a second line, "Thanks Mia. We're looking
+        into this and will get back to you shortly.", and the client asked for
+        it to go: "I don't think that adds anything." The receipt email still
+        says it.
+
+        Read back with a fresh GET rather than off the create response, so it
+        is what was stored and not only what the POST happened to return.
+        """
         response = self.client.post(LIST_URL, {
             "category": TicketCategory.ACCOUNT_ACCESS,
             "subject": "Cannot sign in",
             "body": "The login code never arrives.",
         })
-        messages = response.json()["data"]["messages"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        ticket_id = response.json()["data"]["id"]
+
+        messages = self.client.get(f"{LIST_URL}{ticket_id}/").json()["data"]["messages"]
         self.assertEqual(
-            [m["messageType"] for m in messages], ["user_message", "system"]
+            [(m["messageType"], m["author"], m["body"]) for m in messages],
+            [("user_message", "Mia Thompson", "The login code never arrives.")],
         )
 
     def test_a_body_over_two_thousand_characters_is_refused(self):

@@ -26,6 +26,22 @@ Named here because this is where the rule is explained; the test that keeps
 all three honest does not work from a list of places, it fills every field a
 requester can type into and looks for wherever the words come out.
 
+"Pending user" is the one status that means the requester has to act, and in
+the same green bold as the ticket number it read as part of the reference. The
+client asked for it to stand out, so it alone is drawn as an amber pill. Style
+only: the words stay exactly the label the portal shows. The branch is on
+STATUS_KEY, the stored value, so rewording the label cannot silently drop the
+pill. #7A4B00 on #FFF4D6 is about 6.8:1, above the 4.5:1 AA needs at this size.
+Outlook for Windows does not support border-radius, so there the pill is a
+square box; the colours are what carry it.
+
+The address under the button is a real link and not plain text. Mail clients
+turn a bare URL into a link of their own and paint it their default blue, which
+is what the client saw. An anchor of ours carries its own colour and underline,
+inline, because base.html resets every anchor to color:inherit and
+text-decoration:none and a client that keeps that rule would otherwise show it
+as unmarked text.
+
 Use {% templatetag openblock %} comment {% templatetag closeblock %} and not
 the {% templatetag opencomment %} short form for any note spanning more than
 one line. The short form is single-line only, and a multi-line note written
@@ -35,7 +51,7 @@ with it was rendered into a live email to a student.
                 <tr>
                   <td style="padding:16px 18px;">
                     <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
-                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {{ STATUS_LABEL }}
+                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {% if STATUS_KEY == "pending_user" %}<span style="display:inline-block; padding:0 8px; background:#FFF4D6; border:1px solid #E0B252; border-radius:999px; color:#7A4B00; font-weight:700;">{{ STATUS_LABEL }}</span>{% else %}{{ STATUS_LABEL }}{% endif %}
                     </p>
                     <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55; overflow-wrap:anywhere;">
                       {{ TICKET_SUBJECT }}
@@ -63,7 +79,7 @@ with it was rendered into a live email to a student.
               </table>
 
               <p style="margin:8px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.6; text-align:center;">
-                Or paste this into your browser: <span style="color:#307054; word-break:break-all;">{{ TICKET_URL }}</span>
+                Or paste this into your browser: <a href="{{ TICKET_URL }}" style="color:#307054; text-decoration:underline; word-break:break-all;">{{ TICKET_URL }}</a>
               </p>
 
 {% include "emails/_ticket_signoff.html" %}

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/utils/apiError'
 import type { TicketMessage } from '@/utils/supportAPI'
 
@@ -117,6 +117,66 @@ describe('TicketTimeline', () => {
     const wrapper = render([message({ id: 1, attachments: [attachment(7, 'screenshot.png')] })])
 
     expect(wrapper.get('button.timeline__file').text()).toContain('screenshot.png')
+  })
+})
+
+/**
+ * The stamp on every line.
+ *
+ * Client item C-06: the date alone could not tell a student whether support
+ * answered in five minutes or eight hours, so each line now carries the time
+ * as well. One case per kind of line, because the requester's message
+ * and a support reply share one template line and a system note has its own:
+ * a stamp changed on one of them is not a stamp changed on all three.
+ *
+ * The zone is pinned to Sydney so the strings can be written out in full. How
+ * the time follows the reader's zone is covered in utils/__tests__/date.spec.ts.
+ */
+describe('TicketTimeline stamps every line with the date and the time', () => {
+  // What the API sends. 05:37 UTC on 24 September is 3:37 pm in Sydney.
+  const SENT = '2026-09-24T05:37:00Z'
+
+  beforeEach(() => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("on the requester's own message", () => {
+    const wrapper = render([message({ id: 1, createdAt: SENT })])
+
+    const stamp = wrapper.get('.timeline__row--mine time')
+    expect(stamp.text()).toBe('24 September 2026, 3:37 pm')
+    // The machine-readable instant stays exactly what the API sent.
+    expect(stamp.attributes('datetime')).toBe('2026-09-24T05:37:00Z')
+  })
+
+  it('on a support reply', () => {
+    const wrapper = render([
+      message({ id: 2, messageType: 'support_reply', author: 'Support', createdAt: SENT }),
+    ])
+
+    const stamp = wrapper.get('.timeline__row--support time')
+    expect(stamp.text()).toBe('24 September 2026, 3:37 pm')
+    expect(stamp.attributes('datetime')).toBe('2026-09-24T05:37:00Z')
+  })
+
+  it('on a system note', () => {
+    const wrapper = render([
+      message({
+        id: 3,
+        messageType: 'system',
+        author: null,
+        body: 'Ticket reopened following your reply. Our team will take another look.',
+        createdAt: SENT,
+      }),
+    ])
+
+    const stamp = wrapper.get('.timeline__row--system time')
+    expect(stamp.text()).toBe('24 September 2026, 3:37 pm')
+    expect(stamp.attributes('datetime')).toBe('2026-09-24T05:37:00Z')
   })
 })
 

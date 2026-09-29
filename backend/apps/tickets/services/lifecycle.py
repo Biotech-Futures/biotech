@@ -115,7 +115,8 @@ def _touch(ticket, *, user_visible: bool, **extra):
 
     ``user_visible`` decides whether the requester's clock moves too. It is
     False for everything that puts nothing new on the requester's timeline:
-    internal notes, hand-offs between agents, priority and category changes.
+    internal notes, picking a ticket up or passing it between agents, priority
+    and category changes.
     Moving their clock for an event with no timeline entry floats the ticket
     to the top of their list with nothing new to read, which tells them
     something is going on behind the scenes.
@@ -213,28 +214,6 @@ def _add_message(ticket, *, message_type, body, author=None, attachments=None):
     return message
 
 
-def _last_system_message(ticket) -> str:
-    """The last line the product wrote on this timeline in its own voice.
-
-    System messages are the ones nobody signs, and every one of them reaches
-    the requester: internal notes are a different message type and are
-    stripped at the queryset before the timeline is serialised. Deleted rows
-    are left out for the same reason ``_visible_messages`` leaves them out.
-    What this answers is "what were they last told", not "what was ever
-    written". The empty string on a ticket that has none, so callers can
-    compare it without a null check.
-    """
-    return (
-        ticket.messages.filter(
-            message_type=TicketMessageType.SYSTEM, deleted_at__isnull=True
-        )
-        .order_by("-created_at", "-pk")
-        .values_list("body", flat=True)
-        .first()
-        or ""
-    )
-
-
 # --------------------------------------------------------------------------
 # T1 / T2 — a ticket comes into existence
 # --------------------------------------------------------------------------
@@ -287,17 +266,16 @@ def create_ticket(
             # definition, and this is the client's step one: "Raised".
             awaiting_support_since=timezone.now(),
         )
+        # The requester's own words are the whole timeline of a new ticket.
+        # There used to be a "Thanks, we're looking into this" line under
+        # them. The client asked for it to go (C-05) because it added nothing:
+        # the receipt email scheduled below already tells them we have it.
         _add_message(
             ticket,
             message_type=TicketMessageType.USER_MESSAGE,
             body=body,
             author=user,
             attachments=attachments,
-        )
-        _add_message(
-            ticket,
-            message_type=TicketMessageType.SYSTEM,
-            body=system_messages.auto_acknowledgement(getattr(user, "first_name", "")),
         )
         # After commit, never inside the transaction: if this rolled back
         # with the email already sent, the requester would be holding a
@@ -587,8 +565,11 @@ def _assign_one(ticket, *, actor, assignee) -> None:
 
     Two different things wear the same UI control:
 
-    Picking up an unowned ticket is T3 — it starts the work, so the status
-    moves and the requester is told ("your ticket is now being handled").
+    Picking up an unowned ticket is T3. It starts the work, so the status
+    moves to in progress, and that status change is all the requester sees:
+    no timeline line and no move of their clock. It used to write "Your
+    ticket is now being handled." and the client asked for that to go (C-05),
+    because the badge changing from Open to In progress already says it.
 
     Passing an already-owned ticket to a colleague is a hand-off. Nothing
     about it is the requester's business, so no message is written and their
@@ -602,12 +583,10 @@ def _assign_one(ticket, *, actor, assignee) -> None:
     telling them their ticket was being handled by a person who had put it
     down.
 
-    The release is silent and the pick-up is not, which means the two are not
-    a matched pair on the requester's timeline: after a release the sentence
-    from the last pick-up is still the last thing they were told. So the
-    announcement is made once per spell of being handled, not once per
-    pick-up. Only the events that tell the requester the ticket stopped being
-    handled put the next pick-up back on the record.
+    None of the three writes a line on the requester's timeline or moves their
+    clock, so the audit row is the only record of any of them. That is also
+    why an agent clicking the owner dropdown back and forth cannot stack
+    anything up on the requester's timeline or float the ticket up their list.
     """
     after_state = {"assignee_id": getattr(assignee, "pk", None)}
 
@@ -618,9 +597,9 @@ def _assign_one(ticket, *, actor, assignee) -> None:
         before_state = {"assignee_id": ticket.assignee_id}
         # ``assignee is not None`` matters now that a ticket can be handed
         # back. Without it, releasing an open ticket reads as somebody picking
-        # it up: the requester is told "your ticket is now being handled" and
-        # the status moves to in progress, on a ticket that just lost its
-        # owner and has nobody working it.
+        # it up: the status moves to in progress, and the requester's page
+        # says it is being worked, on a ticket that just lost its owner and
+        # has nobody working it.
         picked_up_from_the_pool = (
             ticket.status == TicketStatus.OPEN and assignee is not None
         )
@@ -655,34 +634,6 @@ def _assign_one(ticket, *, actor, assignee) -> None:
         if before_state == after_state and not handed_back_to_the_pool:
             return
 
-        # Saying it twice is not news. The release below is deliberately
-        # silent, so claim -> release -> claim used to leave "your ticket is
-        # now being handled" on the timeline twice with nothing between them,
-        # and it repeated for as long as an agent kept clicking the owner
-        # dropdown. Each repeat also moved the requester's clock and floated
-        # the ticket to the top of their list. A sentence anybody can inflate
-        # by clicking is not a sentence worth sending.
-        #
-        # Decided from what the requester was last told rather than from a
-        # flag, which is what covers the doors either side of this one. A
-        # reopen writes REOPENED, a resolve writes its own line, and an agent
-        # correcting the status by hand writes another, so the pick-up after
-        # any of those does announce itself again. In each of those cases the
-        # ticket really did stop being handled and the requester was told so.
-        # Only the silent release leaves the earlier sentence standing.
-        tell_the_requester = (
-            picked_up_from_the_pool
-            and _last_system_message(ticket) != system_messages.TICKET_NOW_HANDLED
-        )
-
-        if tell_the_requester:
-            _add_message(
-                ticket,
-                message_type=TicketMessageType.SYSTEM,
-                # Says what changed, never who took it. Naming the agent to
-                # the requester is what DEC-017 rules out.
-                body=system_messages.TICKET_NOW_HANDLED,
-            )
         log_audit_event(
             actor=actor,
             entity_type=AUDIT_ENTITY_TYPE,
@@ -699,23 +650,23 @@ def _assign_one(ticket, *, actor, assignee) -> None:
         if picked_up_from_the_pool:
             _touch(
                 ticket,
-                # False on a re-claim the requester was not told about, for
-                # the same reason the message was skipped: their clock is
-                # what orders their own list, and nothing was added to their
-                # timeline to justify moving it. The status they read is
-                # still corrected.
-                user_visible=tell_the_requester,
+                # False because nothing lands on their timeline (C-05, see the
+                # docstring). Their clock is what orders their own list and
+                # sets "Last updated", and moving it with nothing new to read
+                # is what _touch exists to prevent. The status they read is
+                # still corrected, and that is the whole of what they are
+                # told.
+                user_visible=False,
                 assignee=assignee,
                 status=TicketStatus.IN_PROGRESS,
             )
         elif handed_back_to_the_pool:
-            # Silent, unlike the pick-up above, and the asymmetry is on
-            # purpose. "Your ticket is now being handled" is a promise worth
-            # making. "Nobody is on it just now" is not a sentence to send a
-            # fourteen-year-old, and floating the ticket to the top of their
-            # list would put it in front of them twice. The status on their
-            # page is corrected either way, and the audit row written just
-            # above is the support-side record of the release.
+            # Silent, like the pick-up above. "Nobody is on it just now" is
+            # not a sentence to send a fourteen-year-old, and floating the
+            # ticket to the top of their list would put it in front of them
+            # for something there is nothing to read about. The status on
+            # their page is corrected either way, and the audit row written
+            # just above is the support-side record of the release.
             #
             # awaiting_support_since is deliberately untouched, as it is on
             # every ownership change: the overdue clock started when the ball

@@ -17,8 +17,10 @@ from django.db.models import Count, Q
 import re
 from datetime import datetime, time, timedelta, timezone as dt_timezone
 
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.http import content_disposition_header
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -48,6 +50,7 @@ from .serializers_admin import (
     TicketPatchSerializer,
 )
 from .services import analytics as analytics_service
+from .services import export as export_service
 from .services import lifecycle
 from .services.paging import (
     after_cursor,
@@ -57,7 +60,7 @@ from .services.paging import (
     snapshot_from,
     stamp,
 )
-from .services.attachments import stored_attachments, ticket_files
+from .services.attachments import open_for_download, stored_attachments, ticket_files
 from .services.queue import (
     apply_filters,
     database_id,
@@ -268,6 +271,36 @@ def _detail(ticket, *, overdue):
     }
 
 
+# The query parameters the queue filters on, and the only list of them. The
+# table and the export both read their filters through here, so a filter added
+# for one is a filter the other honours.
+QUEUE_FILTERS = ("region", "status", "category", "assignee", "priority", "search")
+
+
+def _queue_filters(request):
+    return {name: request.query_params.get(name) for name in QUEUE_FILTERS}
+
+
+def _queue_tickets(filters, as_of):
+    """The queue as it stood at ``as_of``: its filters, members and order.
+
+    One function behind both the table and the export (C-09). The export is
+    "that table, as a file", and the only way to keep that true while filters
+    and exclusions change is for there to be no second copy to keep in step.
+    """
+    # Ticket.objects, not live_tickets(): as_at() decides membership at
+    # the snapshot instant, and a ticket deleted mid-walk has to stay in
+    # the set until somebody opens it.
+    # See services/paging.py for the measurement that established this.
+    return as_at(
+        apply_filters(
+            Ticket.objects.select_related("created_by", "assignee"), **filters
+        ),
+        as_of,
+        activity_field="support_updated_at",
+    )
+
+
 def _get_ticket_or_none(ticket_id):
     return (
         live_tickets()
@@ -313,23 +346,7 @@ class TicketQueueView(APIView):
         # onto the page just read. So a request without a cursor is a fresh look
         # whatever else it carries.
         as_of = snapshot_from(request) if cursor is not None else timezone.now()
-        # Ticket.objects, not live_tickets(): as_at() decides membership at
-        # the snapshot instant, and a ticket deleted mid-walk has to stay in
-        # the set until somebody opens it.
-        # See services/paging.py for the measurement that established this.
-        queryset = as_at(
-            apply_filters(
-                Ticket.objects.select_related("created_by", "assignee"),
-                region=request.query_params.get("region"),
-                status=request.query_params.get("status"),
-                category=request.query_params.get("category"),
-                assignee=request.query_params.get("assignee"),
-                priority=request.query_params.get("priority"),
-                search=request.query_params.get("search"),
-            ),
-            as_of,
-            activity_field="support_updated_at",
-        )
+        queryset = _queue_tickets(_queue_filters(request), as_of)
 
         total = queryset.count()
         # A cursor continues a walk; its absence starts one. Choosing a page
@@ -363,6 +380,69 @@ class TicketQueueView(APIView):
                 ),
             },
         })
+
+
+class TicketQueueExportView(APIView):
+    """The queue as an Excel file: every ticket the current filters match.
+
+    Client item C-09. Same gate as the queue itself: whoever can read the
+    table can take it away, and admins are in that set already.
+
+    Always a fresh look at the moment of the request. The paging parameters
+    the table sends (page, limit, asOf, after) are not read, because they
+    choose which slice of the queue is on screen, and the export is all of it.
+    """
+
+    permission_classes = SUPPORT_PERMISSIONS
+    # No HEAD. Django answers HEAD by running get() and dropping the body, so
+    # a HEAD here would build the file and record an export that sent nothing.
+    # The audit row has to mean a file left, and nothing needs HEAD on this.
+    http_method_names = ["get", "options"]
+
+    def get(self, request):
+        filters = _queue_filters(request)
+        now = timezone.now()
+        tickets = list(_queue_tickets(filters, now))
+        flagged = overdue_ids(tickets, now)
+        # The table's own row builder, so every cell is the value the table
+        # would show for that ticket rather than a second reading of the model.
+        rows = [_queue_row(t, overdue=t.pk in flagged) for t in tickets]
+        zone = export_service.export_zone(getattr(request.user, "timezone", None))
+        payload = export_service.queue_workbook(rows, zone=zone)
+
+        # Recorded because this is the one action here that takes students'
+        # names, regions and words off the platform, and it leaves no other
+        # trace. Written after the file is built, so a failed build records
+        # nothing; and before it is sent, so a sent file is always recorded.
+        #
+        # Not under entity_type "ticket": the ticket Audit page lists those
+        # and renders entity_id as a link to that ticket, and there is no
+        # ticket here to link to. entity_id is the exporter, because the field
+        # cannot be null and actor_user is SET_NULL, so it is what still says
+        # whose export this was after the account is gone. Ticket numbers
+        # rather than ids for the same reason: a purged ticket's id means
+        # nothing, and its number is what anyone holding the file would read.
+        log_audit_event(
+            actor=request.user,
+            entity_type="ticket_export",
+            entity_id=request.user.pk,
+            action=AuditLog.ActionChoices.EXPORT,
+            before_state=None,
+            after_state={
+                "filters": {name: value for name, value in filters.items() if value},
+                "rowCount": len(rows),
+                "ticketNumbers": [row["ticketNumber"] for row in rows],
+            },
+        )
+
+        response = HttpResponse(payload, content_type=export_service.XLSX)
+        # The exporter's date, in the same zone as the times inside: a Sydney
+        # admin exporting at 9am should not get a file named for yesterday.
+        response["Content-Disposition"] = content_disposition_header(
+            as_attachment=True,
+            filename=f"tickets-{now.astimezone(zone).date().isoformat()}.xlsx",
+        )
+        return response
 
 
 class TicketSummaryView(APIView):
@@ -779,9 +859,14 @@ class TicketAdminAttachmentDownloadView(APIView):
         ).first()
         if attachment is None:
             return _not_found("Attachment")
+        # Opened first for the reason given in the requester's view: a file
+        # storage has lost is the same 404 as a row that is not there.
+        stored = open_for_download(attachment, ticket_id=ticket_id)
+        if stored is None:
+            return _not_found("Attachment")
         return serve_managed_file(
             resolve_url=ticket_files.resolve_url,
-            open_file=ticket_files.open,
+            open_file=lambda _key: stored,
             storage_key=attachment.storage_key,
             filename=attachment.original_filename,
             mime_type=attachment.mime_type,

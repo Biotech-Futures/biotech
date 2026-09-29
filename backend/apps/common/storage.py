@@ -27,6 +27,23 @@ except ImportError:  # pragma: no cover - only raised when deps are missing.
 else:
     AzureStorage = _REAL_AZURE_STORAGE
 
+try:
+    from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+except ImportError:  # pragma: no cover - only raised when deps are missing.
+    class _AzureNotFound(Exception):
+        pass
+
+
+class StoredFileMissing(Exception):
+    """Storage has nothing under a key that a database row still points at."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        # The backend's own name for it: "BlobNotFound" and "ContainerNotFound"
+        # from Azure, "FileNotFoundError" from local disk. Never the key, which
+        # ends in the uploader's own file name.
+        self.reason = reason
+
 
 class _BaseAzureContainerStorage(AzureStorage):
     container_setting_name = ""
@@ -261,6 +278,30 @@ class ManagedFileService:
 
     def open(self, storage_key: str, mode: str = "rb"):
         return self._storage().open(storage_key, mode)
+
+    def open_present(self, storage_key: str, mode: str = "rb"):
+        """open(), plus proof that the file is there, before anything is sent.
+
+        Raises StoredFileMissing when storage has nothing under the key. Every
+        other failure propagates untouched: a permission error or an Azure
+        outage is not "missing" and has to reach the caller as a 500.
+        """
+        try:
+            handle = self.open(storage_key, mode)
+            # Local storage opens eagerly, so a missing file has raised by now.
+            # django-storages' AzureStorageFile does not: open() makes no
+            # network call, and the blob is downloaded on the first touch of
+            # .file. Left to FileResponse, that touch is the hasattr(..., "seek")
+            # in its set_headers(), outside any try around open(), which is how
+            # a missing blob became a 500. Touching it here costs nothing extra:
+            # it is the one download the response would have made, into a local
+            # spool the response then streams from.
+            handle.file
+        except FileNotFoundError as exc:
+            raise StoredFileMissing(type(exc).__name__) from exc
+        except _AzureNotFound as exc:
+            raise StoredFileMissing(str(getattr(exc, "error_code", type(exc).__name__))) from exc
+        return handle
 
 
 def serve_managed_file(

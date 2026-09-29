@@ -357,8 +357,21 @@ AUTH_EMAIL_DISPATCH_SYNC = config(
 EMAIL_FROM_ADDRESS = "info@biotechfutures.org"
 DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{EMAIL_FROM_ADDRESS}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-# Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
+# Inbound mailbox users write to. Automated mail still goes out from
+# EMAIL_FROM_ADDRESS, with one exception below.
 SUPPORT_EMAIL = "support@biotechfutures.org"
+# The exception: the three emails about a support enquiry go out from
+# SUPPORT_EMAIL, because the client asked for enquiry mail to come from
+# support@ and not info@ (apps/tickets/services/emails.py). Nothing else
+# moves; login codes, announcements and the rest keep DEFAULT_FROM_EMAIL.
+#
+# No second SMTP account for this, unlike connect@ below. The client confirmed
+# on Slack that support@ is an alias of the info@ mailbox, so the same
+# EMAIL_HOST_USER login may send as it. If that alias is ever removed, expect
+# the relay to refuse these sends, and nothing raises when it does: the only
+# trace is an auth_email.send_failed log line (plus an internal note on the
+# ticket for the resolution email). Check the logs after changing either one.
+TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
 # transactional account, so it can live under its own 3000/day send quota and

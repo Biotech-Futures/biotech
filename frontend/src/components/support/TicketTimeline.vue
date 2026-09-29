@@ -5,13 +5,13 @@
            telling its own story, not somebody speaking. -->
       <p v-if="message.messageType === 'system'" class="timeline__system">
         {{ message.body }}
-        <time :datetime="message.createdAt">{{ formatLongDateAU(message.createdAt) }}</time>
+        <time :datetime="message.createdAt">{{ formatLongDateTimeAU(message.createdAt) }}</time>
       </p>
 
       <div v-else class="timeline__bubble">
         <p class="timeline__meta">
           <span class="timeline__author">{{ message.author || 'You' }}</span>
-          <time :datetime="message.createdAt">{{ formatLongDateAU(message.createdAt) }}</time>
+          <time :datetime="message.createdAt">{{ formatLongDateTimeAU(message.createdAt) }}</time>
         </p>
         <p class="timeline__body">{{ message.body }}</p>
 
@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { formatLongDateAU } from '@/utils/date'
+import { formatLongDateTimeAU } from '@/utils/date'
 import {
   attachmentErrorMessage,
   downloadTicketAttachment,
@@ -144,7 +144,9 @@ function rowClass(message: TicketMessage) {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  /* Close enough that consecutive lines read as one exchange, the way a
+     messaging app stacks them, rather than as a list of separate cards. */
+  gap: 0.5rem;
 }
 
 :root[data-theme="dark"] .timeline {
@@ -168,10 +170,20 @@ function rowClass(message: TicketMessage) {
   justify-content: center;
 }
 
+/* Shaped after the messaging apps students already use; Instagram and
+   Messenger were the references for client item C-07. The thread has a
+   column of its own, narrower than the page (TicketDetailPage.vue sets it),
+   and a bubble may fill 85% of that column. The two numbers were measured
+   together in Chromium at 1280px: a short reply used to sit 454px across from
+   the short message above it and now sits 190px across, and a long message is
+   626px wide where it was 608px. 75% was tried first and made every long
+   bubble narrower than before at every width measured (375 to 1440px), the
+   opposite of what was asked for. The corner nearest the speaker is tucked
+   in so each side still says whose it is at a glance. */
 .timeline__bubble {
-  max-width: min(38rem, 82%);
+  max-width: 85%;
   padding: 0.75rem 1rem;
-  border-radius: 10px;
+  border-radius: 18px;
   border: 1px solid var(--border-light);
   background: var(--surface-elevated);
 }
@@ -179,11 +191,21 @@ function rowClass(message: TicketMessage) {
 .timeline__row--mine .timeline__bubble {
   background: var(--light-green);
   border-color: transparent;
+  border-bottom-right-radius: 6px;
 }
 
+.timeline__row--support .timeline__bubble {
+  border-bottom-left-radius: 6px;
+}
+
+/* Wraps whole pieces onto a second line. With the time in it the stamp is
+   long enough that a name and a stamp outgrow a bubble on a phone, and
+   without wrap the two squeeze side by side and the date splits across
+   lines. */
 .timeline__meta {
   display: flex;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.6rem;
   align-items: baseline;
   margin: 0 0 0.3rem 0;
   font-size: 0.78rem;
@@ -216,8 +238,13 @@ function rowClass(message: TicketMessage) {
 
 /* No opacity on the date. Fading muted text by a quarter puts whatever it is
    sitting on back into the mix: 0.75 took this from 5.29:1 down to 3.19:1,
-   which undid the colour above. The space already separates it. */
+   which undid the colour above. The space already separates it.
+   inline-block so that a note too long for one line moves the whole stamp to
+   the next line instead of leaving "24" at the end of one and "September
+   2026, 3:37 pm" on the next. Not nowrap: on a screen narrower than the stamp
+   it can still wrap inside itself rather than push the page sideways. */
 .timeline__system time {
+  display: inline-block;
   margin-left: 0.5rem;
 }
 
