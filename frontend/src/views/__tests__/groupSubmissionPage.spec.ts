@@ -466,70 +466,91 @@ describe('a reopened entry', () => {
 })
 
 describe('a closed deadline', () => {
-  const summary = () => wrapper!.find('[data-testid="closed-summary"]')
-
-  it('replaces the form with a plain notice when nothing was submitted', async () => {
+  it('refuses editing in the page, not only on the server', async () => {
     await mountPage(buildDetail({ isOpen: false, submission: null }))
-
-    expect(wrapper!.findAll('textarea')).toHaveLength(0)
-    expect(wrapper!.find('input').exists()).toBe(false)
-    expect(wrapper!.find('.submission-steps').exists()).toBe(false)
-    expect(summary().text()).toContain('Nothing was submitted for your team')
+    const boxes = wrapper!.findAll('textarea')
+    expect(boxes.length).toBeGreaterThan(0)
+    boxes.forEach((box) => expect(box.attributes('disabled')).toBeDefined())
+    expect(wrapper!.find('#project-title').attributes('disabled')).toBeDefined()
   })
 
-  it('does not offer submit, steps or uploads at all', async () => {
+  it('does not offer submit or uploads at all', async () => {
     await mountPage(
       buildDetail({ isOpen: false, submission: { answers: ANSWERED, poster: POSTER } }),
     )
+    await goToLastStep()
     expect(buttonNamed(/^Submit$/)).toBeUndefined()
     expect(buttonNamed(/^(Upload|Replace|Remove)$/)).toBeUndefined()
-    expect(wrapper!.find('.submission-actions').exists()).toBe(false)
   })
 
-  it('shows a submitted entry as read-only text and links', async () => {
+  it('shuts the preview of a file that was never uploaded', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('disabled')).toBeDefined()
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(false)
+
+    await toggle.trigger('click')
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(false)
+  })
+
+  it('keeps the preview of an uploaded file available once closed', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(true)
+  })
+
+  it('leaves an empty preview open while uploads are still possible', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="toggle-poster-preview"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('hides an empty prototype link once it can no longer be edited', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#prototype-url').exists()).toBe(false)
+  })
+
+  it('still shows a prototype link that was given', async () => {
     const detail = submittedDetail()
     detail.deadline.is_open = false
     detail.submission!.submitted_prototype_url = 'https://example.com/demo'
     await mountPage(detail)
 
-    const text = summary().text()
-    expect(text).toContain(QUESTIONS[0].prompt)
-    expect(text).toContain(ANSWERED.solution_purpose)
-    expect(summary().find(`a[href="https://example.com/demo"]`).exists()).toBe(true)
-    expect(text).toContain('poster.pdf')
-    expect(text).not.toContain('It was not submitted')
+    const link = wrapper!.find('#prototype-url')
+    expect((link.element as HTMLInputElement).value).toBe('https://example.com/demo')
+    expect(link.attributes('disabled')).toBeDefined()
   })
 
-  it('labels a draft that was never submitted', async () => {
-    await mountPage(
-      buildDetail({ isOpen: false, submission: { stage: 'in_progress', answers: { solution_purpose: 'Half done.' } } }),
-    )
+  it('keeps the empty link box while the entry is editable', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
 
-    const text = summary().text()
-    expect(text).toContain('It was not submitted')
-    expect(text).toContain('Half done.')
-    expect(text).toContain('Not answered')
-    expect(text).toContain('No files were attached')
+    expect(wrapper!.find('#prototype-url').exists()).toBe(true)
   })
 
-  it('never links a prototype address that is not a web link', async () => {
-    const detail = submittedDetail()
-    detail.deadline.is_open = false
-    detail.submission!.submitted_prototype_url = 'javascript:alert(1)'
-    await mountPage(detail)
 
-    expect(summary().find('a[href^="javascript"]').exists()).toBe(false)
-  })
+
 
   it('brings the form back when an extension reopens the entry', async () => {
     await mountPage(buildDetail({ isOpen: false, submission: null }))
-    expect(summary().exists()).toBe(true)
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeDefined()
 
     fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
     window.dispatchEvent(new Event('focus'))
     await flushPromises()
 
-    expect(summary().exists()).toBe(false)
     expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
     expect(buttonNamed(/^Submit$/)).toBeTruthy()
   })
@@ -538,7 +559,7 @@ describe('a closed deadline', () => {
 describe('a deadline changed while the page is open', () => {
   it('reopens a closed page when the window regains focus', async () => {
     await mountPage(buildDetail({ isOpen: false, submission: null }))
-    expect(wrapper!.find('textarea').exists()).toBe(false)
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeDefined()
 
     fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
     window.dispatchEvent(new Event('focus'))
@@ -624,10 +645,12 @@ describe('dropping a file onto a slot', () => {
     expect(wrapper!.find('.submission-message').text()).toContain('The limit is')
   })
 
-  it('removes the drop zones once submissions are closed', async () => {
+  it('ignores a drop once submissions are closed', async () => {
     await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
 
-    expect(wrapper!.find('[data-testid="drop-poster"]').exists()).toBe(false)
+    await drop('poster', pdf())
+    await flushPromises()
+
     expect(uploadSubmissionFile).not.toHaveBeenCalled()
   })
 
@@ -1145,9 +1168,7 @@ describe('which copy of the entry is shown', () => {
 
   it('shows what was submitted once the window has closed', async () => {
     await mountPage(midRevision(false))
-    const text = wrapper!.find('[data-testid="closed-summary"]').text()
-    expect(text).toContain('SUBMITTED.')
-    expect(text).not.toContain('DRAFT.')
+    expect(wrapper!.findAll('textarea')[0].element.value).toBe('SUBMITTED.')
   })
 
   it('shows the submitted project title once the window has closed', async () => {
@@ -1155,18 +1176,16 @@ describe('which copy of the entry is shown', () => {
     detail.submission!.project_title = 'Draft title'
     detail.submission!.submitted_project_title = 'Submitted title'
     await mountPage(detail)
-    const text = wrapper!.find('[data-testid="closed-summary"]').text()
 
-    expect(text).toContain('Submitted title')
-    expect(text).not.toContain('Draft title')
+    expect((wrapper!.find('#project-title').element as HTMLInputElement).value).toBe('Submitted title')
   })
 
   it('shows the submitted poster once the window has closed', async () => {
     await mountPage(midRevision(false))
-    const text = wrapper!.find('[data-testid="closed-summary"]').text()
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
 
-    expect(text).toContain('submitted.pdf')
-    expect(text).not.toContain('draft.pdf')
+    expect(wrapper!.find('.submission-file').text()).toContain('submitted.pdf')
   })
 })
 

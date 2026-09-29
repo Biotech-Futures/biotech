@@ -96,7 +96,7 @@
         </button>
       </div>
 
-      <nav v-if="isOpen" class="submission-steps" aria-label="Submission sections">
+      <nav class="submission-steps" aria-label="Submission sections">
         <button
           v-for="(tab, index) in TABS"
           :key="tab.key"
@@ -113,7 +113,7 @@
       </nav>
 
       <!-- 1. Short-answer questions -->
-      <section v-if="isOpen" v-show="activeTab === 'questions'" class="card">
+      <section v-show="activeTab === 'questions'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
@@ -163,7 +163,7 @@
       </section>
 
       <!-- 2. Poster -->
-      <section v-if="isOpen" v-show="activeTab === 'poster'" class="card">
+      <section v-show="activeTab === 'poster'" class="card">
         <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">
@@ -239,20 +239,21 @@
         </div>
 
         <!-- Checks the slot too, since hidden steps stay in the DOM. -->
-        <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.poster }">
+        <article class="preview-panel" :class="{ 'is-collapsed': isFolded('poster') }">
           <div class="preview-header">
             <h2 class="preview-title">
               <button
                 type="button"
                 class="preview-toggle"
-                :aria-expanded="!previewCollapsed.poster"
+                :aria-expanded="!isFolded('poster')"
                 aria-controls="poster-preview-body"
                 data-testid="toggle-poster-preview"
+                :disabled="isPreviewShut('poster')"
                 @click="togglePreview('poster')"
               >
                 <i
                   class="fas preview-toggle__chevron"
-                  :class="previewCollapsed.poster ? 'fa-chevron-right' : 'fa-chevron-down'"
+                  :class="isFolded('poster') ? 'fa-chevron-right' : 'fa-chevron-down'"
                   aria-hidden="true"
                 ></i>
                 Preview
@@ -271,7 +272,7 @@
           </div>
 
           <!-- Hidden rather than destroyed, so reopening does not refetch the document. -->
-          <div v-show="!previewCollapsed.poster" id="poster-preview-body">
+          <div v-show="!isFolded('poster')" id="poster-preview-body">
             <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
               <p>Preparing preview…</p>
             </div>
@@ -291,7 +292,7 @@
       </section>
 
       <!-- 3. Additional materials -->
-      <div v-if="isOpen" v-show="activeTab === 'extras'">
+      <div v-show="activeTab === 'extras'">
         <section class="card">
           <header v-if="sectionHeading || sectionBody" class="section-head">
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
@@ -350,20 +351,21 @@
             </div>
           </div>
 
-          <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.report }">
+          <article class="preview-panel" :class="{ 'is-collapsed': isFolded('report') }">
             <div class="preview-header">
               <h2 class="preview-title">
                 <button
                   type="button"
                   class="preview-toggle"
-                  :aria-expanded="!previewCollapsed.report"
+                  :aria-expanded="!isFolded('report')"
                   aria-controls="report-preview-body"
                   data-testid="toggle-report-preview"
-                  @click="togglePreview('report')"
+                  :disabled="isPreviewShut('report')"
+                @click="togglePreview('report')"
                 >
                   <i
                     class="fas preview-toggle__chevron"
-                    :class="previewCollapsed.report ? 'fa-chevron-right' : 'fa-chevron-down'"
+                    :class="isFolded('report') ? 'fa-chevron-right' : 'fa-chevron-down'"
                     aria-hidden="true"
                   ></i>
                   Preview
@@ -380,7 +382,7 @@
               </a>
             </div>
 
-            <div v-show="!previewCollapsed.report" id="report-preview-body">
+            <div v-show="!isFolded('report')" id="report-preview-body">
               <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
                 <p>Preparing preview…</p>
               </div>
@@ -455,7 +457,7 @@
             </div>
           </div>
 
-          <div class="submission-field">
+          <div v-if="isEditable || prototypeUrl" class="submission-field">
             <label class="field-label" for="prototype-url">Prototype link</label>
             <input
               id="prototype-url"
@@ -469,50 +471,8 @@
         </section>
       </div>
 
-      <!-- Once closed, what the team has on record replaces the form. -->
-      <section v-if="!isOpen" class="card closed-summary" data-testid="closed-summary">
-        <p v-if="stage === 'not_started'" class="closed-summary__empty">
-          Nothing was submitted for your team. If your team is given an extension,
-          this page reopens for editing.
-        </p>
-        <template v-else>
-          <p v-if="!detail.submission?.is_submitted" class="closed-summary__note">
-            This is your team's saved draft. It was not submitted.
-          </p>
 
-          <h2 class="card-title">Short answer questions</h2>
-          <dl class="closed-summary__answers">
-            <div class="closed-summary__answer">
-              <dt class="submission-label">Project title</dt>
-              <dd v-if="recordedProjectTitle.trim()">{{ recordedProjectTitle }}</dd>
-              <dd v-else class="submission-muted">Not given</dd>
-            </div>
-            <div v-for="question in questions" :key="question.key" class="closed-summary__answer">
-              <dt class="submission-label">{{ question.prompt }}</dt>
-              <dd v-if="recordedAnswers[question.key]?.trim()">{{ recordedAnswers[question.key] }}</dd>
-              <dd v-else class="submission-muted">Not answered</dd>
-            </div>
-          </dl>
-
-          <h2 class="card-title closed-summary__files-title">Files</h2>
-          <ul v-if="recordedFiles.length || recordedPrototypeUrl" class="closed-summary__files">
-            <li v-for="item in recordedFiles" :key="item.slot">
-              <span class="closed-summary__file-label">{{ item.label }}</span>
-              <a :href="item.href" target="_blank" rel="noopener noreferrer">{{ item.file.name }}</a>
-              <span class="submission-muted"> ({{ formatSize(item.file.size) }})</span>
-            </li>
-            <li v-if="recordedPrototypeUrl">
-              <span class="closed-summary__file-label">Prototype link</span>
-              <a :href="recordedPrototypeUrl" target="_blank" rel="noopener noreferrer">
-                {{ recordedPrototypeUrl }}
-              </a>
-            </li>
-          </ul>
-          <p v-else class="submission-muted">No files were attached.</p>
-        </template>
-      </section>
-
-      <div v-if="isOpen" class="submission-actions">
+      <div class="submission-actions">
 
         <span
           v-if="isEditable"
@@ -732,7 +692,17 @@ const previewCollapsed = reactive<Record<'poster' | 'report', boolean>>({
   report: false,
 })
 
+/** Nothing can be uploaded any more and nothing was, so there is nothing to preview. */
+function isPreviewShut(slot: 'poster' | 'report') {
+  return !isEditable.value && !storedFile(slot)
+}
+
+function isFolded(slot: 'poster' | 'report') {
+  return previewCollapsed[slot] || isPreviewShut(slot)
+}
+
 function togglePreview(slot: 'poster' | 'report') {
+  if (isPreviewShut(slot)) return
   previewCollapsed[slot] = !previewCollapsed[slot]
 }
 
@@ -748,40 +718,12 @@ const stage = computed<SubmissionStage>(
   () => detail.value?.submission?.stage ?? 'not_started'
 )
 
-// Read from the server copy, so the closed view never shows unsaved typing as recorded.
 const recordedProjectTitle = computed(() => {
   const submission = detail.value?.submission
   return (
     (showsSubmittedCopy.value ? submission?.submitted_project_title : submission?.project_title) ?? ''
   )
 })
-
-const recordedAnswers = computed<Record<string, string>>(() => {
-  const submission = detail.value?.submission
-  return (showsSubmittedCopy.value ? submission?.submitted_answers : submission?.answers) ?? {}
-})
-
-const recordedPrototypeUrl = computed(() => {
-  const submission = detail.value?.submission
-  const url =
-    (showsSubmittedCopy.value ? submission?.submitted_prototype_url : submission?.prototype_url) ?? ''
-  return /^https?:\/\//i.test(url) ? url : ''
-})
-
-const SLOT_LABELS: Record<SubmissionSlot, string> = {
-  poster: 'Poster',
-  report: 'Scientific report',
-  prototype: 'Prototype',
-}
-
-const recordedFiles = computed(() =>
-  (['poster', 'report', 'prototype'] as SubmissionSlot[]).flatMap((slot) => {
-    const file = storedFile(slot)
-    if (!file) return []
-    const href = slot === 'prototype' ? downloadUrl(slot) : previewUrlFor(slot)
-    return [{ slot, label: SLOT_LABELS[slot], file, href }]
-  })
-)
 
 const CLOSED = 'Submissions are closed.'
 
@@ -1797,54 +1739,6 @@ onBeforeUnmount(() => {
   padding-top: 0;
 }
 
-.closed-summary__empty,
-.closed-summary__note {
-  margin: 0;
-  color: var(--body-text);
-}
-
-.closed-summary__note {
-  margin-bottom: 1.25rem;
-  color: var(--muted);
-}
-
-.closed-summary__answers {
-  margin: 0 0 1.5rem;
-}
-
-.closed-summary__answer {
-  margin-bottom: 1.25rem;
-}
-
-.closed-summary__answer dd {
-  margin: 0.35rem 0 0;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  color: var(--body-text);
-}
-
-.closed-summary__files-title {
-  margin-top: 0.5rem;
-}
-
-.closed-summary__files {
-  display: grid;
-  gap: 0.6rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.closed-summary__files a {
-  overflow-wrap: anywhere;
-}
-
-.closed-summary__file-label {
-  display: inline-block;
-  min-width: 9rem;
-  font-weight: 600;
-  color: var(--body-text);
-}
 
 .content-area.is-dragging-file .preview-frame {
   pointer-events: none;
@@ -1928,6 +1822,11 @@ onBeforeUnmount(() => {
   font: inherit;
   color: inherit;
   cursor: pointer;
+}
+
+.preview-toggle:disabled {
+  cursor: default;
+  color: var(--muted);
 }
 
 .preview-toggle:focus-visible {
