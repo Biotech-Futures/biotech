@@ -6,14 +6,13 @@ before ``MarksRelease.released_at`` is set, supervisors get 403.
 """
 from __future__ import annotations
 
-from datetime import date
-
 from django.db import transaction
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.group_members import GroupMembership
+from apps.submissions.services import current_cohort
 from apps.users.models import StudentProfile
 
 from ..models import GradingJob
@@ -40,7 +39,7 @@ class SupervisorGradesView(APIView):
     permission_classes = [permissions.IsAuthenticated, MarksReleased]
 
     def get(self, request):
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
         students = _supervised_students(request.user)
 
         # Resolve each student's active group once; a student in no group
@@ -89,7 +88,7 @@ class SupervisorDownloadView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        year = int(request.data.get("year") or date.today().year)
+        year = int(request.data.get("year") or current_cohort())
         students = _supervised_students(request.user)
         if not students.exists():
             return Response(

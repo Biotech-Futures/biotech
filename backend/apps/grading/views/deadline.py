@@ -80,7 +80,7 @@ class GroupExtensionDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def delete(self, request, group_id: int):
-        content.remove_group_extension(group_id)
+        content.remove_group_extension(group_id, revoked_by=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

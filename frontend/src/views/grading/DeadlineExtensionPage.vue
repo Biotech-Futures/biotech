@@ -5,13 +5,15 @@
         <h3 class="card-title">Extend Deadline</h3>
       </div>
       <p class="extensions__hint">
-        Search by the group's name or ID to extend their deadline. Times are in your local
+        Search by the group's name to extend their deadline. Times are in your local
         timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
         keeps accepting for the grace hours after it.
       </p>
-      <form class="extensions__form" @submit.prevent="save">
+      <!-- Granting is the Grant button only: Enter in a field (e.g. the
+           search box) must never grant an extension. -->
+      <form class="extensions__form" @submit.prevent>
         <label class="extensions__field extensions__field--group">
-          <span>Group</span>
+          <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
         <label class="extensions__field">
@@ -34,19 +36,20 @@
             class="extensions__input extensions__input--grace"
           />
         </label>
-        <label class="extensions__field extensions__field--grow">
+        <label class="extensions__field extensions__field--reason">
           <span>Reason (optional)</span>
-          <input
+          <textarea
             v-model="reason"
-            type="text"
+            rows="3"
             placeholder="e.g. school closure"
-            class="extensions__input"
-          />
+            class="extensions__input extensions__input--reason"
+          ></textarea>
         </label>
         <button
-          type="submit"
+          type="button"
           class="btn btn-primary btn-sm"
           :disabled="isSaving || !groupQuery || !untilLocal"
+          @click="save"
         >
           {{ isSaving ? 'Saving…' : 'Grant' }}
         </button>
@@ -56,9 +59,7 @@
     </section>
 
     <section class="card">
-      <div class="card-header">
-        <h3 class="card-title">Current Extensions</h3>
-      </div>
+      <h3 class="extensions__section-title">Current Extensions</h3>
       <p v-if="isLoading" class="extensions__hint">Loading…</p>
       <div v-else-if="loadError" class="extensions__load-error">
         <p>Failed to load. {{ loadError }}</p>
@@ -68,46 +69,122 @@
         <table class="extensions__table">
           <thead>
             <tr>
-              <th>ID</th>
               <th>Group</th>
-              <th>Extended until</th>
+              <th>Extension</th>
+              <th>Added</th>
               <th>Grace</th>
-              <th>Reason</th>
+              <th>Status</th>
               <th>Granted by</th>
+              <th>Revoked by</th>
               <th class="extensions__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="extensions.length === 0">
-              <td colspan="7" class="extensions__empty">No extensions granted.</td>
+              <td colspan="8" class="extensions__empty">No extensions granted.</td>
             </tr>
-            <tr v-for="e in extensions" :key="e.group_id">
-              <td class="extensions__muted">#{{ e.group_id }}</td>
-              <td class="extensions__cell--strong">{{ e.group_name }}</td>
-              <td>{{ new Date(e.extended_until).toLocaleString() }}</td>
-              <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
-              <td>{{ e.reason || '—' }}</td>
-              <td>{{ e.granted_by ?? '—' }}</td>
-              <td class="extensions__cell--right">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="isSaving"
-                  @click="revoke(e.group_id)"
-                >
-                  Revoke
-                </button>
-              </td>
-            </tr>
+            <template v-for="e in extensions" :key="e.id">
+              <tr :class="{ 'extensions__row--with-reason': e.reason }">
+                <td class="extensions__cell--strong">{{ e.group_name }}</td>
+                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
+                <!-- Past the normal deadline, grace aside: "1d 18h". -->
+                <td>{{ e.added ?? '—' }}</td>
+                <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
+                <td>
+                  <span :class="`extensions__status--${extensionStatus(e).state}`">
+                    {{ extensionStatus(e).label }}
+                  </span>
+                </td>
+                <td>{{ e.granted_by ?? '—' }}</td>
+                <td>{{ e.revoked_by ?? '—' }}</td>
+                <td class="extensions__cell--right">
+                  <span v-if="e.revoked_at" class="extensions__muted">Revoked</span>
+                  <!-- Past its grace period there's nothing left to revoke. -->
+                  <span v-else-if="extensionStatus(e).state === 'expired'" class="extensions__muted">
+                    Expired
+                  </span>
+                  <button
+                    v-else
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="isSaving"
+                    @click="pendingRevoke = e"
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+              <!-- The reason gets a full-width row of its own so multi-line
+                   text can wrap; the pair reads as one record. -->
+              <tr v-if="e.reason" class="extensions__reason-row">
+                <td colspan="8">
+                  <span class="extensions__muted">Reason:</span> {{ e.reason }}
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
     </section>
+
+    <div v-if="overwriteWarning" class="extensions__overlay" @click.self="overwriteWarning = null">
+      <div
+        class="extensions__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Extension already exists"
+      >
+        <h4 class="extensions__dialog-title">This group already has an extension</h4>
+        <p class="extensions__dialog-body">
+          <strong>{{ overwriteWarning.groupName }}</strong> is already extended until
+          <strong>{{ overwriteWarning.until }}</strong>. Granting a new extension replaces
+          the current one.
+        </p>
+        <div class="extensions__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="overwriteWarning = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving"
+            @click="performSave(overwriteWarning.id)"
+          >
+            {{ isSaving ? 'Saving…' : 'Replace extension' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="pendingRevoke" class="extensions__overlay" @click.self="pendingRevoke = null">
+      <div class="extensions__dialog" role="dialog" aria-modal="true" aria-label="Revoke extension">
+        <h4 class="extensions__dialog-title">Revoke this extension?</h4>
+        <p class="extensions__dialog-body">
+          <strong>{{ pendingRevoke.group_name }}</strong> is extended until
+          <strong>{{ untilLabel(pendingRevoke.extended_until) }}</strong>. Revoking it puts the
+          group back on the standard submission deadline.
+        </p>
+        <div class="extensions__dialog-actions">
+          <button type="button" class="btn btn-outline btn-sm" @click="pendingRevoke = null">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving"
+            @click="revoke(pendingRevoke.group_id)"
+          >
+            {{ isSaving ? 'Revoking…' : 'Revoke extension' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchGroupExtensions,
   fetchSubmissionDeadline,
@@ -125,14 +202,37 @@ const extensions = ref<GroupExtension[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const savedMessage = ref('')
+const { message: savedMessage, show: flashSaved } = useFlashMessage()
 const isSaving = ref(false)
 
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
-const untilLocal = ref('')
-const graceHours = ref(0)
+// Defaults to today at 23:59 — extensions are almost always end-of-day,
+// so the admin only has to adjust the date.
+const defaultUntilLocal = () => {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
+}
+const untilLocal = ref(defaultUntilLocal())
+const graceHours = ref(24)
 const reason = ref('')
+
+// Active until the extended date; In grace while the extension's own grace
+// hours still accept; Expired after that — mirroring the deadline card.
+const extensionStatus = (e: {
+  extended_until: string
+  grace_hours: number
+  revoked_at: string | null
+}) => {
+  if (e.revoked_at) return { state: 'expired', label: 'Revoked' }
+  const until = new Date(e.extended_until).getTime()
+  const graceEnd = until + (e.grace_hours || 0) * 3_600_000
+  const now = Date.now()
+  if (now <= until) return { state: 'active', label: 'Active' }
+  if (now <= graceEnd) return { state: 'grace', label: 'In grace' }
+  return { state: 'expired', label: 'Expired' }
+}
 
 // Picker floor: the calendar refuses anything at or before the current
 // deadline (an earlier "extension" would shorten the team's window). The
@@ -165,29 +265,56 @@ const load = async () => {
   }
 }
 
+// Warning shown when the picked group already has an active extension —
+// granting again replaces it, so the admin must confirm on purpose.
+const overwriteWarning = ref<{ id: number; groupName: string; until: string } | null>(null)
+
 const save = async () => {
   actionError.value = ''
   savedMessage.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    actionError.value = 'No group matches that name or ID.'
+    actionError.value = 'No group matches that name.'
     return
   }
+  const existing = extensions.value.find((e) => e.group_id === id && !e.revoked_at)
+  if (existing) {
+    overwriteWarning.value = {
+      id,
+      groupName: existing.group_name,
+      until: `${new Date(existing.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(existing.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    }
+    return
+  }
+  await performSave(id)
+}
+
+const performSave = async (id: number) => {
   isSaving.value = true
   try {
     const iso = new Date(untilLocal.value).toISOString()
     await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
-    savedMessage.value = 'Extension granted.'
+    flashSaved('Extension granted.')
     groupQuery.value = ''
-    untilLocal.value = ''
-    graceHours.value = 0
+    untilLocal.value = defaultUntilLocal()
+    graceHours.value = 24
     reason.value = ''
     await load()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isSaving.value = false
+    overwriteWarning.value = null
   }
+}
+
+// Revoke asks first: the row's button opens the popup, its confirm revokes.
+const pendingRevoke = ref<GroupExtension | null>(null)
+
+// "05/11/26 13:00", the same format as the table's Extension column.
+const untilLabel = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
 }
 
 const revoke = async (id: number) => {
@@ -196,12 +323,12 @@ const revoke = async (id: number) => {
   isSaving.value = true
   try {
     await removeGroupExtension(id)
-    savedMessage.value = 'Extension revoked.'
     await load()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     isSaving.value = false
+    pendingRevoke.value = null
   }
 }
 
@@ -212,6 +339,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* A section heading, as "Email Details" on Notify Finalists. */
+.extensions__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
 .extensions {
   display: flex;
   flex-direction: column;
@@ -239,9 +373,31 @@ onMounted(() => {
   color: var(--charcoal);
 }
 
-.extensions__field--grow {
-  flex: 1;
-  min-width: 14rem;
+.extensions__status--active {
+  color: var(--dark-green);
+  font-weight: 600;
+}
+
+/* Same yellow as the deadline card's grace state. */
+.extensions__status--grace {
+  color: #eab308;
+  font-weight: 600;
+}
+
+.extensions__status--expired {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Full row of its own, below the other fields. */
+.extensions__field--reason {
+  flex-basis: 100%;
+}
+
+.extensions__input--reason {
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: inherit;
 }
 
 .extensions__input {
@@ -318,6 +474,19 @@ onMounted(() => {
   border-bottom: none;
 }
 
+/* A data row followed by its reason row reads as one record: no divider
+   between the pair — the border after the reason row separates records. */
+.extensions__row--with-reason td {
+  border-bottom: none;
+}
+
+.extensions__reason-row td {
+  white-space: normal;
+  font-size: 0.85rem;
+  padding-top: 0;
+  padding-left: 1.5rem;
+}
+
 .extensions__empty {
   text-align: center;
   color: var(--text-muted);
@@ -334,5 +503,43 @@ onMounted(() => {
 
 .extensions__muted {
   color: var(--text-muted);
+}
+
+/* Replace-extension warning — same treatment as the deadline confirm. */
+.extensions__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.extensions__dialog {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  padding: 1.25rem 1.5rem;
+  max-width: 26rem;
+  width: 100%;
+}
+
+.extensions__dialog-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.extensions__dialog-body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--charcoal);
+}
+
+.extensions__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 </style>

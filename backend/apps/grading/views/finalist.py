@@ -4,28 +4,126 @@ Admins mark the top ~30 groups as finalists after marking closes. Flagging is
 idempotent — re-POSTing an already-flagged group updates ``flagged_at`` and
 optionally re-fires the notification. The ``notified`` bool on the flag lets
 the notification path avoid spamming groups when admins toggle repeatedly.
-
-Notification is env-gated by ``GRADING_FINALIST_EMAIL_ENABLED`` so local dev
-never accidentally emails real people; toggle explicitly per environment.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import permissions, status
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
+from apps.services.email_branding import LOGO_CID, logo_data_uri
 
-from ..models import FinalistFlag, Grade, Rubric, SubmissionComponent
+from ..models import (
+    FinalistEmailSettings,
+    FinalistFlag,
+    Grade,
+    GroupMarkingCategories,
+    Rubric,
+    SubmissionComponent,
+)
 from ..permissions import IsGrader
-from ..services import content
-from ..services.finalist_notify import notify_finalist
+from ..services import content, test_email
+from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
+from ..services.xlsx import _format_product_category, _format_solution_category
+
+MISSING_DETAILS = (
+    "Set the Symposium date, confirm-by date, slides due date and registration "
+    "link before sending."
+)
+PAST_DATES = "The email's dates can't be before today. Update them before sending."
+
+
+class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FinalistEmailSettings
+        fields = ["symposium_date", "confirm_by", "slides_due", "registration_url"]
+
+    def validate(self, attrs):
+        # A date can't be set to a day before today. One saved earlier that
+        # has since passed may stay while other details are edited; sending
+        # is what refuses it.
+        today = symposium_today()
+        errors = {}
+        for name in FinalistEmailSettings.DATE_FIELDS:
+            day = attrs.get(name)
+            if day and day < today and day != getattr(self.instance, name, None):
+                errors[name] = "Can't be before today."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class FinalistEmailSettingsView(APIView):
+    """GET/PATCH /api/v1/grading/finalists/email/ — the dates and link the
+    finalist email gives teams. Also says whether the email is complete."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    @staticmethod
+    def _payload(details: FinalistEmailSettings) -> dict:
+        today = symposium_today()
+        return {
+            **FinalistEmailSettingsSerializer(details).data,
+            "complete": details.is_complete,
+            # Sydney's today: the earliest the dates may be, and which saved
+            # ones are already before it.
+            "today": today,
+            "dates_in_past": details.dates_before(today),
+        }
+
+    def get(self, request):
+        return Response(self._payload(FinalistEmailSettings.load()))
+
+    def patch(self, request):
+        details = FinalistEmailSettings.load()
+        serializer = FinalistEmailSettingsSerializer(details, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(self._payload(details))
+
+
+class FinalistEmailPreviewView(APIView):
+    """POST /api/v1/grading/finalists/email/preview/ — the email exactly as
+    a finalist would get it, for the details in the body (unsaved edits) or
+    the saved ones. Addressed to ``recipient``'s team (a person picked in
+    Send Test Email), else the first finalist team not yet notified."""
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def post(self, request):
+        details = FinalistEmailSettings.load()
+        serializer = FinalistEmailSettingsSerializer(details, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        # Show the edits without saving them.
+        for field, value in serializer.validated_data.items():
+            setattr(details, field, value)
+        recipient = request.data.get("recipient")
+        if recipient:
+            try:
+                rendered, group_name, _files = test_email.preview("finalist", str(recipient), request.data)
+            except test_email.TestEmailError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+            return Response({"subject": rendered.subject, "group_name": group_name, "html": html})
+        flag = (
+            FinalistFlag.objects.select_related("group")
+            .order_by("notified", "group__group_name")
+            .first()
+        )
+        group_name = flag.group.group_name if flag else "Team name"
+        # An admin's edited wording shows here too, as it would be sent.
+        rendered = render_finalist_email(group_name, details)
+        # A browser has no cid: part to resolve, so the logo goes in inline.
+        html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+        return Response({"subject": rendered.subject, "group_name": group_name, "html": html})
 
 
 class FinalistListView(APIView):
@@ -41,9 +139,22 @@ class FinalistListView(APIView):
         return full_name or user.email
 
     def get(self, request):
-        flags = (
+        flags = list(
             FinalistFlag.objects.select_related("group", "flagged_by", "notified_by")
             .order_by("group__group_name")
+        )
+        # Students on each team who have an address to be emailed at.
+        students = dict(
+            GroupMembership.objects.filter(
+                group_id__in=[f.group_id for f in flags],
+                left_at__isnull=True,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                user__is_active=True,
+            )
+            .exclude(user__email="")
+            .values("group_id")
+            .annotate(n=Count("user_id", distinct=True))
+            .values_list("group_id", "n")
         )
         return Response({
             "finalists": [
@@ -55,6 +166,7 @@ class FinalistListView(APIView):
                     "notified": f.notified,
                     "notified_at": f.notified_at,
                     "notified_by": self._user_name(f.notified_by),
+                    "students": students.get(f.group_id, 0),
                 }
                 for f in flags
             ]
@@ -74,6 +186,10 @@ class FinalistCandidatesView(APIView):
              "marks": {"SAQ": "12.50" | null, ...},   # sum of scored marks
              "total": "31.00" | null,                  # sum across components
              "markers": ["Ada Grader", ...],           # deduped, latest first
+             "incomplete": ["REPORT", ...],            # entered, not fully marked
+             "project_title": "",                      # no title is kept yet
+             "project_category": "Health and Medicine" | "",
+             "solution_category": "App" | "",
              "is_finalist": bool}
           ]
         }
@@ -110,22 +226,31 @@ class FinalistCandidatesView(APIView):
         entries = content.submission_entries()
         group_by_submission = {e.submission_id: e.group_id for e in entries}
 
-        # One (submitted_at, is_late) per group — shared by all its entries.
-        submit_meta = {e.group_id: (e.submitted_at, e.is_late) for e in entries}
+        # One submitted_at per group — shared by all its entries.
+        submit_meta = {e.group_id: e.submitted_at for e in entries}
         deadlines = content.group_deadline_map(list(submit_meta)) if submit_meta else {}
 
         # One submission id spans an entry's components, so totals must split
         # by the criterion's component or every column would show the same sum.
+        mark_rows = list(
+            Grade.objects.filter(mark__isnull=False)
+            .values("submission_id", "criterion__rubric__component_id")
+            .annotate(total=Sum("mark"), scored=Count("id"))
+        )
         totals = {
             (row["submission_id"], row["criterion__rubric__component_id"]): row["total"]
-            for row in Grade.objects.filter(mark__isnull=False)
-            .values("submission_id", "criterion__rubric__component_id")
-            .annotate(total=Sum("mark"))
+            for row in mark_rows
+        }
+        # How many criteria of each part are scored, to spot parts still being marked.
+        scored = {
+            (row["submission_id"], row["criterion__rubric__component_id"]): row["scored"]
+            for row in mark_rows
         }
 
         # "SAQ 1" / "POSTER 3" labels: rubric position per criterion, prefixed
         # with the component code since this table spans several components.
         criterion_labels: dict[int, tuple[str, int, int]] = {}
+        criteria_count: dict[str, int] = {}
         for component_index, component in enumerate(components):
             rubric = (
                 Rubric.objects.filter(component=component, active=True)
@@ -136,6 +261,7 @@ class FinalistCandidatesView(APIView):
                 continue
             for i, criterion in enumerate(rubric.criteria.all(), start=1):
                 criterion_labels[criterion.id] = (component.code, component_index, i)
+            criteria_count[component.code] = len(rubric.criteria.all())
 
         markers_by_group: dict[int, list[str]] = {}
         criterion_markers_by_group: dict[int, list[dict]] = {}
@@ -178,22 +304,36 @@ class FinalistCandidatesView(APIView):
             marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        # The categories picked on the marking key.
+        categories = {
+            c.group_id: c
+            for c in GroupMarkingCategories.objects.filter(group_id__in=[g["id"] for g in groups])
+        }
         submitted_group_ids = {e.group_id for e in entries}
+        # Parts a team handed in that still have unscored criteria (including
+        # parts nobody has started), so the table can flag them apart from
+        # parts never sent.
+        incomplete_codes: dict[int, set[str]] = {}
+        for e in entries:
+            if scored.get((e.submission_id, e.component_id), 0) < criteria_count.get(
+                e.component_code, 0
+            ):
+                incomplete_codes.setdefault(e.group_id, set()).add(e.component_code)
 
         rows = []
         for g in groups:
             marks = marks_by_group.get(g["id"], {})
             overall = sum(marks.values()) if marks else None
-            submitted_at, is_late = submit_meta.get(g["id"], (None, False))
-            late_by = None
-            if is_late and submitted_at is not None:
-                closes_at = deadlines.get(g["id"])
-                if closes_at is not None and submitted_at > closes_at:
-                    late_by = content.late_by_label(submitted_at - closes_at)
-                else:
-                    # is_late was recorded at submit; if the deadline has been
-                    # edited since, say "late" without inventing a duration.
-                    late_by = ""
+            submitted_at = submit_meta.get(g["id"])
+            closes_at = deadlines.get(g["id"])
+            # Derived from times, not the stored flag — matches the component
+            # tables, and entries recorded before the flag worked display right.
+            is_late = (
+                submitted_at is not None
+                and closes_at is not None
+                and submitted_at > closes_at
+            )
+            late_by = content.late_by_label(submitted_at - closes_at) if is_late else None
             rows.append({
                 "group_id": g["id"],
                 "group_name": g["group_name"],
@@ -209,8 +349,15 @@ class FinalistCandidatesView(APIView):
                 "markers": markers_by_group.get(g["id"], []),
                 # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
+                # No project title is kept anywhere yet, so it stays blank.
+                "project_title": "",
+                "project_category": _format_product_category(categories.get(g["id"])),
+                "solution_category": _format_solution_category(categories.get(g["id"])),
                 "is_finalist": g["id"] in finalist_ids,
                 "has_submission": g["id"] in submitted_group_ids,
+                "incomplete": [
+                    c.code for c in components if c.code in incomplete_codes.get(g["id"], ())
+                ],
             })
         rows.sort(
             key=lambda r: (
@@ -233,14 +380,19 @@ class FinalistNotifyAllView(APIView):
     Optional body ``{"group_ids": [1, 2, ...]}`` restricts the send to those
     groups; omitted or empty means every un-notified finalist.
 
-    ``notify_finalist`` is a no-op per flag when it was already notified or
-    when ``GRADING_FINALIST_EMAIL_ENABLED`` is off, so this is safe to press
+    Refused until every email detail is set. ``notify_finalist`` is a no-op
+    per flag when it was already notified, so this is safe to press
     repeatedly.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def post(self, request):
+        details = FinalistEmailSettings.load()
+        if not details.is_complete:
+            return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
+        if details.dates_before(symposium_today()):
+            return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
         flags = FinalistFlag.objects.select_related("group").filter(notified=False)
         group_ids = request.data.get("group_ids")
         if group_ids:
@@ -250,7 +402,9 @@ class FinalistNotifyAllView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             flags = flags.filter(group_id__in=group_ids)
-        sent = sum(1 for flag in flags if notify_finalist(flag, actor=request.user))
+        sent = sum(
+            1 for flag in flags if notify_finalist(flag, actor=request.user, details=details)
+        )
         return Response({
             "sent": sent,
             "pending": FinalistFlag.objects.filter(notified=False).count(),

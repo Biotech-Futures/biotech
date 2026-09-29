@@ -18,6 +18,7 @@ from django.core.files.storage import default_storage
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from apps.submissions.services import current_cohort
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,7 +29,7 @@ from ..models import GradingJob, SubmissionComponent
 from ..permissions import IsGrader
 from ..services import content
 from ..services.dispatch import dispatch_job
-from ..services.zip import build_submissions_zip, zip_filename
+from ..services.zip import _COMPONENT_LABELS, _safe, build_submissions_zip
 
 
 class GroupDownloadView(APIView):
@@ -45,10 +46,14 @@ class GroupDownloadView(APIView):
             component_code=None if component_code == "all" else component_code,
         )
 
-        payload = build_submissions_zip(entries)
-        prefix = f"group-{group.id}" + ("" if component_code == "all" else f"-{component_code}")
+        payload = build_submissions_zip(entries, group_folder=False)
+        # Named year + group name, with
+        # the component label appended for single-component downloads.
+        name = f"{current_cohort()}_{_safe(group.group_name)}"
+        if component_code != "all":
+            name += f"_{_COMPONENT_LABELS.get(component_code, component_code)}"
         response = HttpResponse(payload, content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{zip_filename(prefix)}"'
+        response["Content-Disposition"] = f'attachment; filename="{name}.zip"'
         return response
 
 
@@ -97,6 +102,27 @@ class ComponentDownloadView(APIView):
                 "component_code": component.code,
                 "group_ids": group_ids,
             },
+            created_by=request.user,
+        )
+        dispatch_job(job)
+        return Response({"job_id": job.id}, status=status.HTTP_202_ACCEPTED)
+
+
+class AllSubmissionsDownloadView(APIView):
+    """POST /api/v1/grading/download-all/
+
+    Async export of every group's submitted entry across all components,
+    with the full <group>/<component>/ folder structure. Same job/polling
+    contract as ComponentDownloadView: 202 with ``{"job_id": <int>}``.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsGrader]
+
+    def post(self, request):
+        job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_PENDING,
+            params={"kind": "all_zip"},
             created_by=request.user,
         )
         dispatch_job(job)

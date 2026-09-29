@@ -1,9 +1,4 @@
-"""Tests for the submit / reopen / resubmit lifecycle.
-
-The case that matters most is a team reopening their entry and then not
-finishing: the version they submitted must survive untouched, because on
-deadline day the alternative is a team losing a complete entry.
-"""
+"""Tests for the submit, reopen and resubmit lifecycle."""
 from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -56,7 +51,6 @@ class SubmissionLifecycleTests(TestCase):
         self.submit_url = reverse("group-submission-submit", kwargs={"group_id": self.group.id})
         self.reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
 
-    # ------------------------------------------------------------- helpers
     def _file_url(self, slot):
         return reverse(
             "group-submission-file", kwargs={"group_id": self.group.id, "slot": slot}
@@ -73,7 +67,6 @@ class SubmissionLifecycleTests(TestCase):
     def _submission(self):
         return Submission.objects.get(group=self.group)
 
-    # -------------------------------------------------------------- states
     def test_a_new_entry_is_in_progress(self):
         self.client.put(self.detail_url, {"answers": self._answers()}, format="json")
 
@@ -101,7 +94,6 @@ class SubmissionLifecycleTests(TestCase):
         self.client.put(self.detail_url, {"answers": self._answers()}, format="json")
         self.assertEqual(self.client.post(self.reopen_url, {}, format="json").status_code, 400)
 
-    # --------------------------------------------------------------- locking
     def test_a_locked_entry_refuses_edits(self):
         self._fill_and_submit()
 
@@ -118,7 +110,6 @@ class SubmissionLifecycleTests(TestCase):
         self.assertEqual(self._submission().submitted_answers, self._answers("Original answer."))
 
     def test_a_locked_entry_can_still_be_read(self):
-        # Locking editing must not hide a team's own work from them.
         self._fill_and_submit()
 
         response = self.client.get(self.detail_url)
@@ -131,12 +122,10 @@ class SubmissionLifecycleTests(TestCase):
         self._fill_and_submit()
         self.assertEqual(self.client.post(self.submit_url, {}, format="json").status_code, 409)
 
-    # ------------------------------------------------- the abandoned revision
     def test_an_abandoned_revision_leaves_the_submitted_copy_intact(self):
         self._fill_and_submit("Original answer.", "original.pdf")
         original_key = self._submission().submitted_poster["storage_key"]
 
-        # Reopen, change everything, then never submit again.
         self.client.post(self.reopen_url, {}, format="json")
         self.client.put(self.detail_url, {"answers": self._answers("Half-written.")}, format="json")
         self.client.post(
@@ -144,13 +133,10 @@ class SubmissionLifecycleTests(TestCase):
         )
 
         submission = self._submission()
-        # The draft has moved on...
         self.assertEqual(submission.answers, self._answers("Half-written."))
         self.assertEqual(submission.poster["name"], "replacement.pdf")
-        # ...but what was submitted has not.
         self.assertEqual(submission.submitted_answers, self._answers("Original answer."))
         self.assertEqual(submission.submitted_poster["name"], "original.pdf")
-        # And the submitted file itself still exists to be downloaded.
         self.assertTrue(submission_file_service("poster").exists(original_key))
 
     def test_removing_a_file_during_a_revision_keeps_the_submitted_one(self):
@@ -180,7 +166,6 @@ class SubmissionLifecycleTests(TestCase):
         self.assertEqual(submission.submitted_answers, self._answers("Revised."))
         self.assertEqual(submission.submitted_poster["name"], "revised.pdf")
         self.assertTrue(submission.is_locked)
-        # The superseded file is only cleaned up now that it is genuinely unused.
         self.assertFalse(submission_file_service("poster").exists(original_key))
 
     def test_only_one_submission_record_exists_throughout(self):
@@ -193,14 +178,6 @@ class SubmissionLifecycleTests(TestCase):
 
 
 class SubmissionStageTests(TestCase):
-    """The four stages an entry moves through, said without the deadline.
-
-    Stage is deliberately blind to whether submissions are still open: that is
-    a fact about the competition, not about this entry. Keeping them apart is
-    what lets a caller say "submitted, and the window has closed" without
-    inventing a fifth stage for it.
-    """
-
     def setUp(self):
         self.group = Groups.objects.create(group_name="BTF-STAGE")
 
@@ -258,8 +235,6 @@ class SubmissionStageTests(TestCase):
         self.assertEqual(submission.stage, "revising")
 
     def test_a_revising_entry_still_counts_as_submitted(self):
-        # The distinction the old two-value status could not express: work is
-        # under way *and* there is a completed entry on record.
         submission = Submission.objects.create(
             group=self.group, answers={"solution_purpose": "Something."}
         )

@@ -1,13 +1,4 @@
-"""Tests for two teammates editing one entry at the same time.
-
-A submission is a shared document: several students on a team can have the
-portal open at once, and auto-save fires without anyone pressing anything. The
-behaviour that matters is that work on *different* questions never collides,
-because that is what teams actually do — they split the questions up.
-
-Editing the *same* question is still last-write-wins. That is a deliberate
-accepted limit rather than an oversight: the team can see and resubmit.
-"""
+"""Tests for teammates editing one entry at once; the same question is last-write-wins."""
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -62,7 +53,6 @@ class ConcurrentEditTests(TestCase):
     def _stored(self):
         return Submission.objects.get(group=self.group).answers
 
-    # ------------------------------------------------------------- the fix
     def test_teammates_on_different_questions_do_not_overwrite_each_other(self):
         first, second = self.questions[0].key, self.questions[1].key
 
@@ -77,17 +67,13 @@ class ConcurrentEditTests(TestCase):
         first, second = self.questions[0].key, self.questions[1].key
         self._save(self.ada, {first: "Kept.", second: "Also kept."})
 
-        # A later save mentioning only one question must not clear the other.
         self._save(self.ada, {first: "Edited."})
 
         stored = self._stored()
         self.assertEqual(stored[first], "Edited.")
         self.assertEqual(stored[second], "Also kept.")
 
-    # -------------------------------------------------- the accepted limits
     def test_clearing_an_answer_requires_an_explicit_empty_string(self):
-        # The consequence of merging: omitting a key means "leave it alone", so
-        # an emptied box has to be sent as "". The page does this naturally.
         key = self.questions[0].key
         self._save(self.ada, {key: "Written."})
 
@@ -96,8 +82,6 @@ class ConcurrentEditTests(TestCase):
         self.assertEqual(self._stored()[key], "")
 
     def test_the_same_question_is_still_last_write_wins(self):
-        # The limit accepted in choosing per-question saves over a version
-        # guard: one question, two editors, last write wins.
         key = self.questions[0].key
 
         self._save(self.ada, {key: "Ada's version."})
@@ -106,8 +90,6 @@ class ConcurrentEditTests(TestCase):
         self.assertEqual(self._stored()[key], "Grace's version.")
 
     def test_an_empty_answers_payload_changes_nothing(self):
-        # The page sends only what changed, so a save with nothing to report is
-        # normal rather than an error.
         key = self.questions[0].key
         self._save(self.ada, {key: "Untouched."})
 
@@ -121,28 +103,10 @@ def _pdf(name="poster.pdf"):
     )
 
 
-# Mail is dispatched inline: nothing here tests email, and queueing sends on the
-# shared pool leaks work past the end of the test and into the mailer's own.
+# Sends inline so mail work does not leak past the end of a test.
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
 class ConcurrentSubmitTests(TestCase):
-    """Submitting must not undo a teammate's save that lands at the same moment.
-
-    Submitting freezes a copy of the entry and then writes *every* column back.
-    Read the row without holding a lock and an auto-save committing in between
-    is reverted by that write — and the copy just frozen as "what was
-    submitted" is missing the answer too. Draft saves already take a row lock;
-    the submit path has to take the same one.
-
-    The lock itself cannot be demonstrated here. Locking is what makes two
-    database connections take turns, and the test settings run SQLite, which
-    has no row locking at all — under it ``select_for_update`` is silently a
-    no-op, so a test that tried to interleave two writers would pass whether or
-    not the lock existed. Postgres, which production runs, is where it bites.
-
-    So the lock is pinned structurally instead: the first test asserts the row
-    is claimed for update, and would fail if someone removed that. The others
-    cover the consequences that *are* observable without concurrency.
-    """
+    """SQLite has no row locks, so the submit lock is asserted structurally rather than raced."""
 
     def setUp(self):
         reset_managed_storage_caches()
@@ -212,8 +176,6 @@ class ConcurrentSubmitTests(TestCase):
         )
 
     def test_the_frozen_copy_carries_an_answer_saved_moments_earlier(self):
-        # The snapshot has to reflect what is committed at the instant of
-        # submitting, not whatever the request happened to read first.
         client = self._make_submittable(self.ada)
         key = SubmissionQuestion.active().first().key
         self._client_for(self.grace).put(
@@ -224,15 +186,11 @@ class ConcurrentSubmitTests(TestCase):
 
         submission = Submission.objects.get(group=self.group)
         self.assertEqual(submission.submitted_answers[key], "Grace's late edit.")
-        # The live draft must agree with the frozen copy, not revert behind it.
         self.assertEqual(submission.answers[key], "Grace's late edit.")
 
     def test_a_second_submit_is_refused_rather_than_recorded_twice(self):
-        # Two teammates pressing Submit together: the second is a mistake, not a
-        # no-op, and must not send a second confirmation email either.
         client = self._make_submittable(self.ada)
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
-        # One message per student on the team, so the count is the team size.
         after_first = len(mail.outbox)
         self.assertEqual(after_first, 2)
 
@@ -240,5 +198,4 @@ class ConcurrentSubmitTests(TestCase):
 
         self.assertEqual(second.status_code, 409)
         self.assertEqual(second.data["code"], "submission_locked")
-        # The team is not told twice that their entry was received.
         self.assertEqual(len(mail.outbox), after_first)

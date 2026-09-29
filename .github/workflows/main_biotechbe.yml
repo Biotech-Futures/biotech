@@ -43,9 +43,10 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: ./backend
-        # Run tests under tests/ package + in-app tests for users and resources.
-        # Skips matching/tests/ (pytest-format, requires separate runner).
-        run: coverage run manage.py test tests apps.users apps.resources --settings=config.settings_test --noinput
+        # All test suites live under backend/tests/ (mirror layout per app), so the
+        # single `tests` label discovers everything. Keep new tests in that tree —
+        # an in-app tests.py would need its own label here or CI silently skips it.
+        run: coverage run manage.py test tests --settings=config.settings_test --noinput
 
       - name: Enforce coverage threshold (>= 60%)
         working-directory: ./backend

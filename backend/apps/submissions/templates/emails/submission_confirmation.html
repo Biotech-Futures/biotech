@@ -1,8 +1,5 @@
 {% extends "emails/base.html" %}
-{% comment %}
-Wording follows the copy the client supplied; keep in step with the .txt.
-Statuses are "Submitted" or "Not Submitted".
-{% endcomment %}
+{# Keep the wording in step with submission_confirmation.txt. #}
 
 {% block title %}{{ BRAND_NAME }}: Submission received for {{ GROUP_NAME }}{% endblock %}
 
@@ -27,6 +24,7 @@ Statuses are "Submitted" or "Not Submitted".
               <p style="margin:26px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.4; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
                 Required components
               </p>
+              {% if SHOW_MERGE_TAGS %}<div>{{ REQUIRED_COMPONENTS_LIST }}</div>{% else %}
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:8px;">
                 <tr>
                   <td style="padding:6px 20px;">
@@ -54,6 +52,7 @@ Statuses are "Submitted" or "Not Submitted".
                   </td>
                 </tr>
               </table>
+              {% endif %}
               <p style="margin:10px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.6;">
                 Both the Poster and SAQs are required for your submission to be considered complete.
               </p>
@@ -61,6 +60,7 @@ Statuses are "Submitted" or "Not Submitted".
               <p style="margin:26px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.4; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
                 Optional components
               </p>
+              {% if SHOW_MERGE_TAGS %}<div>{{ OPTIONAL_COMPONENTS_LIST }}</div>{% else %}
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:8px;">
                 <tr>
                   <td style="padding:6px 20px;">
@@ -88,6 +88,7 @@ Statuses are "Submitted" or "Not Submitted".
                   </td>
                 </tr>
               </table>
+              {% endif %}
               <p style="margin:10px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.6;">
                 The Scientific Report and Prototype are optional and will not affect whether your
                 submission is considered complete.

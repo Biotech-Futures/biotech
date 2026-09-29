@@ -1,16 +1,10 @@
-"""Tests for the poster format checks.
-
-The PDFs here are built by hand rather than fetched, so each test states the
-one property it is about — a page size, a rotation, an image, a line of text —
-and nothing else varies between them.
-
-The sizes are real. 643 x 915 points is the exact size of the programme's own
-PowerPoint file. Page size is no longer checked at all, so these sizes now
-serve to prove that none of them is refused.
-"""
+"""Tests for the poster format checks, using minimal hand-built PDFs."""
 from django.test import SimpleTestCase
 
 from apps.submissions.poster_checks import (
+    A_SERIES_MM,
+    A_SERIES_SIZE,
+    POINTS_PER_MM,
     PORTRAIT,
     SCHOOL_LOGO,
     SINGLE_PAGE,
@@ -21,10 +15,15 @@ from apps.submissions.poster_checks import (
 
 
 # Points, at 72 to the inch.
-A2 = (1190.55, 1683.78)          # 420mm x 594mm — what the programme asks for
-INSTRUCTION_DECK = (643.0, 915.0)  # the programme's PowerPoint file
-A4 = (595.28, 841.89)            # 210mm x 297mm — right shape, wrong size
-US_LETTER = (612.0, 792.0)       # the nearest wrong shape by accident
+A2 = (1190.55, 1683.78)          # 420mm x 594mm
+INSTRUCTION_DECK = (643.0, 915.0)  # 227mm x 323mm
+A4 = (595.28, 841.89)            # 210mm x 297mm
+US_LETTER = (612.0, 792.0)       # 216mm x 279mm
+POSTER_18_BY_24 = (1296.0, 1728.0)  # 18in x 24in
+
+
+def _mm(short, long):
+    return (short * POINTS_PER_MM, long * POINTS_PER_MM)
 
 
 def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
@@ -51,8 +50,13 @@ def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
 
         body = b""
         if text:
-            escaped = text.replace("(", r"\(").replace(")", r"\)")
-            body = f"BT /F1 12 Tf 40 40 Td ({escaped}) Tj ET".encode()
+            # A list draws each item as a separate text box, as a poster's title block does.
+            runs = [text] if isinstance(text, str) else text
+            escaped = [run.replace("(", r"\(").replace(")", r"\)") for run in runs]
+            body = " ".join(
+                f"BT /F1 12 Tf 40 {40 + 14 * (len(escaped) - 1 - i)} Td ({run}) Tj ET"
+                for i, run in enumerate(escaped)
+            ).encode()
         objects[cid] = (
             b"<< /Length " + str(len(body)).encode() + b" >>\nstream\n" + body + b"\nendstream"
         )
@@ -76,12 +80,7 @@ def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
 
 
 def _build_pdf_with_image(width, height, *, x, y, w, h, text="") -> bytes:
-    """A one-page PDF with a single 1x1 image placed at a given rectangle.
-
-    The image itself is meaningless — one grey pixel. What is under test is
-    where it lands, which is decided entirely by the matrix in the content
-    stream, so a real picture would only make the fixture bigger.
-    """
+    """A one-page PDF with a single 1x1 image placed at the given rectangle."""
     img = bytes([0x80])  # one mid-grey 8-bit pixel
     body = f"q {w:.2f} 0 0 {h:.2f} {x:.2f} {y:.2f} cm /Im0 Do Q".encode()
     if text:
@@ -138,19 +137,40 @@ class PosterShapeTests(SimpleTestCase):
     def test_a2_is_accepted(self):
         self.assertEqual(_check(_build_pdf(*A2)).blocking, [])
 
-    def test_any_portrait_page_size_is_accepted(self):
-        # The client confirmed the A2 requirement is not strict. A4, US Letter
-        # and the programme's own instruction deck were all refused on size
-        # until then; students are pointed at the template instead.
-        for size in (A4, US_LETTER, INSTRUCTION_DECK):
-            with self.subTest(size=size):
-                self.assertEqual(_check(_build_pdf(*size)).blocking, [])
+    def test_every_a_series_size_is_accepted(self):
+        for name, dims in A_SERIES_MM.items():
+            with self.subTest(size=name):
+                self.assertEqual(_check(_build_pdf(*_mm(*dims))).blocking, [])
 
-    def test_landscape_is_still_refused(self):
-        # Orientation is a separate requirement and still enforced.
+    def test_every_a_series_size_passes_the_size_check(self):
+        for name, dims in A_SERIES_MM.items():
+            with self.subTest(size=name):
+                self.assertNotIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(*dims))).warnings))
+
+    def test_non_metric_sizes_are_accepted_with_a_warning(self):
+        for size in (US_LETTER, POSTER_18_BY_24, INSTRUCTION_DECK, _mm(190.5, 275.1)):
+            with self.subTest(size=size):
+                result = _check(_build_pdf(*size))
+                self.assertEqual(result.blocking, [])
+                self.assertIn(A_SERIES_SIZE, _codes(result.warnings))
+
+    def test_a_size_a_few_millimetres_out_passes_the_size_check(self):
+        self.assertNotIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(420, 592))).warnings))
+
+    def test_a_size_beyond_the_tolerance_is_warned_about(self):
+        result = _check(_build_pdf(*_mm(420, 588)))
+
+        self.assertIn(A_SERIES_SIZE, _codes(result.warnings))
+
+    def test_the_size_warning_states_the_size_in_millimetres(self):
+        (check,) = [c for c in _check(_build_pdf(*US_LETTER)).warnings if c.code == A_SERIES_SIZE]
+
+        self.assertIn("216 × 279 mm", check.message)
+
+    def test_landscape_a2_is_refused_for_orientation_not_size(self):
         result = _check(_build_pdf(A2[1], A2[0]))
 
-        self.assertIn(PORTRAIT, _codes(result.blocking))
+        self.assertEqual(_codes(result.blocking), {PORTRAIT})
 
     def test_more_than_one_page_is_refused(self):
         result = _check(_build_pdf(*A2, pages=2))
@@ -158,8 +178,6 @@ class PosterShapeTests(SimpleTestCase):
         self.assertIn(SINGLE_PAGE, _codes(result.blocking))
 
     def test_a_rotated_page_is_judged_as_it_is_displayed(self):
-        # A landscape box turned 90 degrees displays as portrait; reading the box
-        # alone would refuse a poster that looks correct to its author.
         result = _check(_build_pdf(A2[1], A2[0], rotate=90))
 
         self.assertEqual(result.blocking, [])
@@ -189,10 +207,14 @@ class PosterContentTests(SimpleTestCase):
         self.assertIn(SUPERVISOR_EMAIL, _codes(result.warnings))
 
     def test_one_team_code_is_not_found_inside_another(self):
-        # BTF1 must not be satisfied by a poster that only says BTF12.
         result = _check(_build_pdf(*A2, text="BTF12 project"), team_code="BTF1")
 
         self.assertIn(TEAM_CODE, _codes(result.warnings))
+
+    def test_a_team_code_in_its_own_text_run_is_found(self):
+        result = _check(_build_pdf(*A2, text=["2026", "BTF1", "Our Project"]), team_code="BTF1")
+
+        self.assertNotIn(TEAM_CODE, _codes(result.warnings))
 
     def test_a_lowercase_team_code_still_counts(self):
         result = _check(_build_pdf(*A2, text="btf1 - a@b.com"), team_code="BTF1")
@@ -200,19 +222,15 @@ class PosterContentTests(SimpleTestCase):
         self.assertNotIn(TEAM_CODE, _codes(result.warnings))
 
     def test_a_poster_with_no_text_layer_is_not_warned_about_at_all(self):
-        # Flattened to an image, there is nothing to search. A wall of warnings
-        # that are all wrong teaches students to ignore the right ones.
         result = _check(_build_pdf(*A2))
 
         self.assertFalse(result.has_text)
         self.assertEqual(result.warnings, [])
-        self.assertEqual(result.content, [])
+        self.assertFalse(_codes(result.content) & {TEAM_CODE, SUPERVISOR_EMAIL})
 
 
 class UnreadablePosterTests(SimpleTestCase):
     def test_a_file_that_cannot_be_parsed_is_allowed_through(self):
-        # Refusing a poster at the deadline because our reader gave up is worse
-        # than accepting one a marker opens by hand. Recorded, not blocked.
         result = _check(b"%PDF-1.4\nnot really a pdf\n%%EOF\n")
 
         self.assertTrue(result.unreadable)
@@ -228,7 +246,6 @@ class UnreadablePosterTests(SimpleTestCase):
 
 
 class SchoolLogoTests(SimpleTestCase):
-    # A2 is 1190.55 x 1683.78 points.
     W, H = A2
 
     def _logo_at(self, x, y, w, h, text="BTF1 a@b.edu.au"):
@@ -237,7 +254,6 @@ class SchoolLogoTests(SimpleTestCase):
         )
 
     def test_a_logo_in_the_top_left_passes(self):
-        # 60pt square, 40pt in from the left, near the top edge.
         result = self._logo_at(40, self.H - 100, 60, 60)
 
         self.assertNotIn(SCHOOL_LOGO, _codes(result.warnings))
@@ -253,15 +269,11 @@ class SchoolLogoTests(SimpleTestCase):
         self.assertIn(SCHOOL_LOGO, _codes(result.warnings))
 
     def test_a_full_page_background_is_not_mistaken_for_a_logo(self):
-        # Its top-left corner is exactly where a logo would be; only its size
-        # tells the two apart.
         result = self._logo_at(0, 0, self.W, self.H)
 
         self.assertIn(SCHOOL_LOGO, _codes(result.warnings))
 
     def test_a_poster_with_no_images_says_nothing_either_way(self):
-        # A logo placed as vector artwork leaves no image behind. Reporting it
-        # missing would be confidently wrong about a poster that has one.
         result = _check(_build_pdf(*A2, text="BTF1 a@b.edu.au"))
 
         codes = {check.code for check in result.content}
@@ -272,7 +284,7 @@ class SupervisorEmailPlacementTests(SimpleTestCase):
     W, H = A2
 
     def test_an_email_at_the_foot_passes(self):
-        # The text helper draws at y=40, which is the bottom of the page.
+        # _build_pdf draws text at y=40, the foot of the page.
         result = _check(_build_pdf(*A2, text="BTF1 supervisor@school.edu.au"))
 
         self.assertNotIn(SUPERVISOR_EMAIL, _codes(result.warnings))

@@ -101,7 +101,7 @@ class ConfirmStudentAssignmentsTests(TestCase):
         created = Groups.objects.exclude(
             id__in=[self.group_one.id, self.group_two.id]
         ).order_by("id")
-        self.assertEqual([group.group_name for group in created], ["BTF1", "BTF2"])
+        self.assertEqual([group.group_name for group in created], ["BTF01", "BTF02"])
 
     def test_synthetic_group_steps_over_a_hand_named_squatter(self):
         Groups.objects.create(group_name="BTF5")
@@ -118,7 +118,7 @@ class ConfirmStudentAssignmentsTests(TestCase):
         )
 
         group = Groups.objects.get(groupmembership__user=self.students[0])
-        self.assertEqual(group.group_name, "BTF6")
+        self.assertEqual(group.group_name, "BTF06")
 
     def test_auto_name_failure_aborts_without_dropping_memberships(self):
         GroupMembership.objects.create(

@@ -12,8 +12,7 @@ from .models import (
 @admin.register(SubmissionInstruction)
 class SubmissionInstructionAdmin(admin.ModelAdmin):
     list_display = ("section", "updated_at")
-    # The three sections are fixed by the form's structure, so they are seeded
-    # rather than created by hand and the section itself cannot be changed.
+    # Sections are seeded and fixed; only their wording is editable.
     readonly_fields = ("section", "updated_at")
 
     def has_add_permission(self, request):
@@ -30,8 +29,7 @@ class SubmissionQuestionAdmin(admin.ModelAdmin):
     list_display_links = ("key",)
 
     def get_readonly_fields(self, request, obj=None):
-        # Answers are filed under the key, so changing it would orphan every
-        # answer already written. New questions still choose their own.
+        # Answers are stored under the key, so it cannot change once created.
         return ("key",) if obj else ()
 
 
@@ -56,8 +54,6 @@ class SubmissionAdmin(admin.ModelAdmin):
     search_fields = ("group__group_name",)
     readonly_fields = ("created_at", "updated_at")
 
-    # Without this the changelist runs one extra query per row to fetch the
-    # group name shown in list_display.
     list_select_related = ("group",)
 
     @admin.display(boolean=True, description="Submitted")
@@ -66,12 +62,7 @@ class SubmissionAdmin(admin.ModelAdmin):
 
     @admin.display(description="Poster format")
     def poster_flags(self, obj):
-        """What the format checks found, for someone scanning the list.
-
-        Reads the submitted copy in preference to the working one so the column
-        describes the poster on record rather than one uploaded during a
-        revision that was never finished.
-        """
+        """Format check summary, preferring the submitted poster over a draft one."""
         flag = obj.submitted_poster_checks or obj.poster_checks
         if not flag:
             return "—"
@@ -79,7 +70,5 @@ class SubmissionAdmin(admin.ModelAdmin):
             return "Could not read"
         warnings = flag.get("warnings") or []
         if not flag.get("has_text", True):
-            # Worth distinguishing: nothing was found wrong, but nothing could
-            # be checked either, so this is "unknown" rather than "fine".
             return "No text to check"
         return "OK" if not warnings else f"{len(warnings)} warning(s)"

@@ -1,19 +1,38 @@
 """Bulk-mark upload parser + committer.
 
-Accepts an XLSX or CSV that the admin has filled in off-platform and turns it
-into a diff against existing ``Grade`` rows for a given component. The
-canonical column set is intentionally narrow so the parser stays stable when
-the rubric grows or shrinks:
+Accepts an XLSX or CSV in the SAME shape the component export writes, so
+admins can download the sheet, fill it in off-platform, and upload it
+back. Every component uses one shape, one row per group:
 
-    group_id | criterion_id | mark | comment
-             |              |      | (extra columns are ignored, so the
-             |              |      |  human-friendly download can carry
-             |              |      |  group_name / criterion_name for
-             |              |      |  context without breaking parse)
+    year | group_name | type | [q1 | q2 | …]
+         | r1_mark | r1_comment | r2_mark | r2_comment | …
+         | overall_comment | [product_category | category_of_solution]
 
-The client is expected to eventually send their own template — this format is
-the sensible default from the plan. When their template arrives, only the
-column mapping in :func:`_iter_rows` needs to change.
+``type`` must match the component's label ("SAQs", "Poster", …) so a sheet
+can't land in the wrong component tab. ``rN`` maps to the component's
+active-rubric criteria in (order, id) order, the same ordering the export
+writes. The SAQ export's ``qN`` answer columns are informational, accepted
+but never parsed. ``product_category`` / ``category_of_solution`` (written
+by the SAQ export) update the group's marking key selections, parsed back
+from the export's own formatting: known options by name, anything else as
+the Other text ("Health and Medicine, Wearables" / "App").
+
+Rules:
+    * Missing required headers fail the file: ``year``, ``group_name``,
+      ``type`` and every ``rN_mark``/``rN_comment`` of the rubric.
+      Unrecognised extra columns are simply ignored.
+    * ``year`` must be the current challenge year (``current_cohort``) on
+      every row. The team is the one with that name among the year's teams
+      that submitted this component; a name no such team has, or one that
+      two of them share, is refused rather than guessed.
+    * ``overall_comment`` and the two category columns are optional —
+      omitting one leaves what it would set alone.
+    * A PRESENT but blank mark+comment pair where no Grade exists is
+      skipped — sparsely-filled sheets never create empty grades.
+    * A present-but-blank cell where a Grade DOES exist clears it: the
+      sheet is the truth for every cell it carries.
+    * ``overall_comment`` updates the group's :class:`ComponentFeedback`
+      for this component under the same rules.
 """
 from __future__ import annotations
 
@@ -26,11 +45,92 @@ from typing import Iterable
 from django.db import transaction
 from openpyxl import load_workbook
 
-from ..models import Grade, RubricCriterion
+from ..models import (
+    ComponentFeedback,
+    Grade,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
+)
+from apps.groups.models.groups import Groups
+from apps.submissions.services import current_cohort
+
 from .content import submission_entries
 
 
-REQUIRED_COLUMNS = ("group_id", "criterion_id", "mark", "comment")
+WIDE_REQUIRED_COLUMNS = ("year", "group_name", "type")
+
+# Friendly ``type`` labels, matching what the export writes.
+TYPE_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PROTOTYPE": "Prototype"}
+
+
+def _accepted_types(component_code: str) -> set[str]:
+    """Lower-cased ``type`` values accepted for a wide-shape sheet.
+
+    Only the exact label the export writes ("Poster", …), compared
+    case-insensitively — a bare "POSTER" is rejected as a wrong type.
+    """
+    return {TYPE_LABELS.get(component_code, component_code).lower()}
+
+
+def _fmt_mark(value: Decimal) -> str:
+    """'5.00' -> '5', '7.50' -> '7.5' — for human-readable range hints."""
+    s = str(value)
+    return s.rstrip("0").rstrip(".") if "." in s else s
+
+
+# The marking key's fixed options — mirrors PRODUCT_OPTIONS /
+# SOLUTION_OPTIONS in frontend MarkingCategories.vue. Sheet values are
+# matched case-insensitively to these; anything unrecognised lands in
+# "Other" so no value the sheet carries can become invisible in the UI.
+PRODUCT_CATEGORY_OPTIONS = [
+    "Health and Medicine",
+    "Sustainable Environment",
+    "Emerging Technologies",
+    "Regulation Ethics",
+]
+SOLUTION_CATEGORY_OPTIONS = ["Product/Device", "Technique/Method", "Treatment"]
+_PRODUCT_BY_LOWER = {o.lower(): o for o in PRODUCT_CATEGORY_OPTIONS}
+_SOLUTION_BY_LOWER = {o.lower(): o for o in SOLUTION_CATEGORY_OPTIONS}
+
+
+def _parse_product_category(value: str) -> tuple[list[str], str]:
+    """Inverse of the export's formatting: "Health and Medicine, Wearables"
+    -> (["Health and Medicine", "Other"], "Wearables"). Known options match
+    by name, a bare "Other" ticks Other alone, and anything else becomes the
+    Other text."""
+    labels: list[str] = []
+    others: list[str] = []
+    for part in (p.strip() for p in str(value or "").split(",")):
+        if not part:
+            continue
+        if part.lower() == "other":
+            if "Other" not in labels:
+                labels.append("Other")
+        elif part.lower() in _PRODUCT_BY_LOWER:
+            canonical = _PRODUCT_BY_LOWER[part.lower()]
+            if canonical not in labels:
+                labels.append(canonical)
+        else:
+            others.append(part)
+    other = ", ".join(o for o in others if o)
+    if other and "Other" not in labels:
+        labels.append("Other")
+    return labels, other
+
+
+def _parse_solution_category(value: str) -> tuple[str, str]:
+    """Inverse of the export's formatting: "App" -> ("Other", "App"). A known
+    option matches by name, a bare "Other" picks Other alone, and anything
+    else becomes the Other text."""
+    s = str(value or "").strip()
+    if not s:
+        return "", ""
+    if s.lower() == "other":
+        return "Other", ""
+    if s.lower() in _SOLUTION_BY_LOWER:
+        return _SOLUTION_BY_LOWER[s.lower()], ""
+    return "Other", s
 
 
 @dataclass
@@ -38,13 +138,20 @@ class UploadDiff:
     creates: list[dict] = field(default_factory=list)
     updates: list[dict] = field(default_factory=list)
     unchanged: list[dict] = field(default_factory=list)
+    overall_comments: list[dict] = field(default_factory=list)
+    marking_categories: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
+    # Categorised validation report for the preview dialog: header problems,
+    # sheet type, bad group rows, bad mark cells. See parse_marks_upload.
+    checks: dict = field(default_factory=dict)
 
     def summary(self) -> dict:
         return {
             "creates": len(self.creates),
             "updates": len(self.updates),
             "unchanged": len(self.unchanged),
+            "overall_comments": len(self.overall_comments),
+            "marking_categories": len(self.marking_categories),
             "errors": len(self.errors),
         }
 
@@ -53,7 +160,10 @@ class UploadDiff:
             "creates": self.creates,
             "updates": self.updates,
             "unchanged": self.unchanged,
+            "overall_comments": self.overall_comments,
+            "marking_categories": self.marking_categories,
             "errors": self.errors,
+            "checks": self.checks,
             "summary": self.summary(),
         }
 
@@ -100,10 +210,14 @@ def _iter_rows(file, filename: str) -> Iterable[tuple[int, dict]]:
 
 
 def _parse_int(value: str) -> int | None:
+    """A whole number, including one a spreadsheet wrote as "2026.0"."""
     try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
+        number = Decimal(str(value).strip())
+    except InvalidOperation:
         return None
+    if not number.is_finite() or number != number.to_integral_value():
+        return None
+    return int(number)
 
 
 def _parse_mark(value: str) -> tuple[Decimal | None, str | None]:
@@ -125,104 +239,266 @@ def parse_marks_upload(file, filename: str, component_code: str) -> UploadDiff:
 
     Pure read — no database writes. Callers use ``dry_run`` semantics: show
     the diff to the admin, get confirmation, then re-parse + commit in one
-    transaction via :func:`commit_marks_upload`.
+    transaction via :func:`commit_marks_upload`. Every component uses the
+    one-row-per-group shape described in the module docstring.
     """
-    diff = UploadDiff()
+    return _parse_wide_upload(file, filename, component_code)
 
-    # Preload all valid criterion IDs for this component (rubric.year is not
-    # constrained here — bulk uploads could target an older year to correct
-    # historical grades; validating structure but not year keeps that path open).
-    valid_criteria = {
-        c.id: c for c in RubricCriterion.objects.filter(
-            rubric__component__code=component_code,
-        ).select_related("rubric")
+
+def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
+    """One row per group: ``type`` column, ``rN_mark``/``rN_comment`` per
+    criterion, then the optional group-level columns."""
+    diff = UploadDiff()
+    diff.checks = {
+        "missing_headers": [],
+        "expected_type": TYPE_LABELS.get(component_code, component_code),
+        "found_type": None,
+        "type_ok": True,
+        # The sheet's year column check, reported like the type check.
+        "expected_year": None,
+        "found_year": None,
+        "year_ok": True,
+        "bad_group_rows": [],
+        "bad_marks": [],
     }
-    if not valid_criteria:
+
+    component = SubmissionComponent.objects.filter(code=component_code).first()
+    if component is None:
+        diff.errors.append({"row": 0, "message": f"unknown component {component_code}"})
+        return diff
+
+    # Position -> criterion, in the same (order, id) ordering the export
+    # writes its rN_mark / rN_comment columns in.
+    ordered_criteria = list(
+        RubricCriterion.objects.filter(
+            rubric__component__code=component_code, rubric__active=True
+        ).order_by("order", "id")
+    )
+    if not ordered_criteria:
         diff.errors.append({"row": 0, "message": f"no rubric criteria exist for component {component_code}"})
         return diff
 
-    # Groups with submitted content for this component -> their entry's
-    # submission id (the Grade anchor; one id spans the whole entry).
-    submissions_by_group = {
-        e.group_id: e.submission_id
-        for e in submission_entries(component_code=component_code)
-    }
+    entries = list(submission_entries(component_code=component_code))
+    submissions_by_group = {e.group_id: e.submission_id for e in entries}
+    names_by_group = {e.group_id: e.group_name for e in entries}
+    # Rows name their team; only this challenge year's teams can be named.
+    challenge_year = current_cohort()
+    diff.checks["expected_year"] = challenge_year
+    this_years_teams = set(
+        Groups.objects.filter(id__in=submissions_by_group, year=challenge_year).values_list(
+            "id", flat=True
+        )
+    )
+    groups_by_name: dict[str, list[int]] = {}
+    for gid in this_years_teams:
+        groups_by_name.setdefault(names_by_group[gid].strip(), []).append(gid)
+    label = TYPE_LABELS.get(component_code, component_code)
     grades_by_pair: dict[tuple[int, int], Grade] = {
         (g.submission.group_id, g.criterion_id): g
         for g in Grade.objects.filter(
             criterion__rubric__component__code=component_code,
         ).select_related("submission", "criterion")
     }
+    feedback_by_group = {
+        row["group_id"]: row["comment"]
+        for row in ComponentFeedback.objects.filter(component=component).values(
+            "group_id", "comment"
+        )
+    }
+    categories_by_group = {
+        c.group_id: c
+        for c in GroupMarkingCategories.objects.filter(group_id__in=submissions_by_group)
+    }
 
-    seen_pairs: set[tuple[int, int]] = set()
+    seen_groups: set[int] = set()
+    header_checked = False
 
     for row_num, row in _iter_rows(file, filename):
-        missing = [c for c in REQUIRED_COLUMNS if c not in row]
-        if missing:
-            diff.errors.append({"row": row_num, "message": f"missing columns: {', '.join(missing)}"})
-            continue
+        if not header_checked:
+            header_checked = True
+            # Missing means MISSING: only required headers the sheet lacks
+            # are reported. Unrecognised extra columns are ignored. Every
+            # rubric position's mark/comment pair is required.
+            required = list(WIDE_REQUIRED_COLUMNS)
+            for i in range(1, len(ordered_criteria) + 1):
+                required += [f"r{i}_mark", f"r{i}_comment"]
+            problems = [c for c in required if c not in row]
+            if "type" in row:
+                diff.checks["found_type"] = (row.get("type") or "").strip() or None
+            if "year" in row:
+                diff.checks["found_year"] = (row.get("year") or "").strip() or None
+            if problems:
+                diff.checks["missing_headers"] = problems
+                diff.errors.append({
+                    "row": 1,
+                    "message": f"missing column header(s): {', '.join(problems)}",
+                })
+                return diff
 
-        group_id = _parse_int(row["group_id"])
-        criterion_id = _parse_int(row["criterion_id"])
-        if group_id is None or criterion_id is None:
-            diff.errors.append({"row": row_num, "message": "group_id and criterion_id must be integers"})
-            continue
-
-        pair = (group_id, criterion_id)
-        if pair in seen_pairs:
-            diff.errors.append({"row": row_num, "message": f"duplicate (group_id={group_id}, criterion_id={criterion_id})"})
-            continue
-        seen_pairs.add(pair)
-
-        criterion = valid_criteria.get(criterion_id)
-        if criterion is None:
-            diff.errors.append({"row": row_num, "message": f"criterion {criterion_id} does not belong to component {component_code}"})
-            continue
-
-        submission_id = submissions_by_group.get(group_id)
-        if submission_id is None:
-            diff.errors.append({"row": row_num, "message": f"group {group_id} has no {component_code} submission to grade"})
-            continue
-
-        mark, err = _parse_mark(row.get("mark", ""))
-        if err:
-            diff.errors.append({"row": row_num, "message": err})
-            continue
-        if mark is not None and mark > criterion.max_mark:
-            diff.errors.append({"row": row_num, "message": f"mark {mark} exceeds max_mark {criterion.max_mark}"})
-            continue
-        if mark is not None and mark < Decimal("0"):
-            diff.errors.append({"row": row_num, "message": f"mark {mark} is negative"})
-            continue
-
-        comment = row.get("comment", "") or ""
-        existing = grades_by_pair.get(pair)
-        entry = {
-            "row": row_num,
-            "group_id": group_id,
-            "criterion_id": criterion_id,
-            "submission_id": submission_id,
-            "mark": str(mark) if mark is not None else None,
-            "comment": comment,
-        }
-        if existing is None:
-            diff.creates.append(entry)
-        elif existing.mark == mark and (existing.comment or "") == comment:
-            diff.unchanged.append({**entry, "grade_id": existing.id})
-        else:
-            diff.updates.append({
-                **entry,
-                "grade_id": existing.id,
-                "old_mark": str(existing.mark) if existing.mark is not None else None,
-                "old_comment": existing.comment or "",
+        row_type = (row.get("type") or "").strip()
+        if row_type.lower() not in _accepted_types(component_code):
+            if diff.checks["type_ok"]:
+                diff.checks["type_ok"] = False
+                diff.checks["found_type"] = row_type or None
+            diff.errors.append({
+                "row": row_num,
+                "message": f"type {row_type!r} does not match component {component_code}",
             })
+            continue
+
+        def refuse(reason: str, message: str) -> None:
+            diff.checks["bad_group_rows"].append({"row": row_num, "reason": reason})
+            diff.errors.append({"row": row_num, "message": message})
+
+        raw_year = (row.get("year") or "").strip()
+        if _parse_int(raw_year) != challenge_year:
+            if diff.checks["year_ok"]:
+                diff.checks["year_ok"] = False
+                diff.checks["found_year"] = raw_year or None
+            diff.errors.append({
+                "row": row_num,
+                "message": f"year {raw_year!r} is not {challenge_year}, the current challenge year",
+            })
+            continue
+
+        given_name = (row.get("group_name") or "").strip()
+        matches = groups_by_name.get(given_name, [])
+        if not given_name:
+            refuse("group_name is blank", "group_name is blank")
+            continue
+        if not matches:
+            refuse(
+                f"no {label} submission from {given_name!r}",
+                f"no team named {given_name!r} in {challenge_year} has a {label} submission to grade",
+            )
+            continue
+        if len(matches) > 1:
+            refuse(
+                f"{len(matches)} teams are named {given_name!r}",
+                f"{len(matches)} teams in {challenge_year} are named {given_name!r}, so this row "
+                "cannot be matched to one; rename one of them",
+            )
+            continue
+        group_id = matches[0]
+        submission_id = submissions_by_group[group_id]
+
+        if group_id in seen_groups:
+            refuse(f"duplicate of {given_name!r}", f"duplicate row for {given_name!r}")
+            continue
+        seen_groups.add(group_id)
+
+        for i, criterion in enumerate(ordered_criteria, start=1):
+            range_hint = f"should be 0 to {_fmt_mark(criterion.max_mark)}"
+            mark, err = _parse_mark(row.get(f"r{i}_mark", ""))
+            if err:
+                diff.checks["bad_marks"].append({"row": row_num, "column": f"r{i}_mark", "hint": "not a number"})
+                diff.errors.append({"row": row_num, "message": f"r{i}_mark: {err}"})
+                continue
+            if mark is not None and (mark < Decimal("0") or mark > criterion.max_mark):
+                diff.checks["bad_marks"].append({"row": row_num, "column": f"r{i}_mark", "hint": range_hint})
+                diff.errors.append({"row": row_num, "message": f"r{i}_mark {mark} {range_hint}"})
+                continue
+
+            comment = row.get(f"r{i}_comment", "") or ""
+            existing = grades_by_pair.get((group_id, criterion.id))
+            if existing is None and mark is None and not comment:
+                # Nothing there, nothing given — not a "clear", just untouched.
+                continue
+
+            entry = {
+                "row": row_num,
+                "group_id": group_id,
+                "criterion_id": criterion.id,
+                "submission_id": submission_id,
+                "mark": str(mark) if mark is not None else None,
+                "comment": comment,
+            }
+            if existing is None:
+                diff.creates.append(entry)
+            elif existing.mark == mark and (existing.comment or "") == comment:
+                diff.unchanged.append({**entry, "grade_id": existing.id})
+            else:
+                # Name the sheet columns whose values actually differ, so the
+                # preview can say what an overwrite touches.
+                changed_columns = []
+                if existing.mark != mark:
+                    changed_columns.append(f"r{i}_mark")
+                if (existing.comment or "") != comment:
+                    changed_columns.append(f"r{i}_comment")
+                diff.updates.append({
+                    **entry,
+                    "grade_id": existing.id,
+                    "group_name": names_by_group.get(group_id),
+                    "columns": changed_columns,
+                    "old_mark": str(existing.mark) if existing.mark is not None else None,
+                    "old_comment": existing.comment or "",
+                })
+
+        # Only when the column exists — its absence means "don't touch".
+        if "overall_comment" in row:
+            new_comment = row.get("overall_comment", "") or ""
+            if new_comment != (feedback_by_group.get(group_id) or ""):
+                diff.overall_comments.append({
+                    "row": row_num,
+                    "group_id": group_id,
+                    "group_name": names_by_group.get(group_id),
+                    "component_id": component.id,
+                    "comment": new_comment,
+                    "old_comment": feedback_by_group.get(group_id) or "",
+                })
+
+        # Marking key selections, only when their columns exist. A
+        # column-absent half keeps its stored value.
+        if "product_category" in row or "category_of_solution" in row:
+            stored = categories_by_group.get(group_id)
+            old = (
+                list(stored.product_categories or []) if stored else [],
+                (stored.product_category_other or "") if stored else "",
+                (stored.solution_category or "") if stored else "",
+                (stored.solution_category_other or "") if stored else "",
+            )
+            new_products, new_product_other, new_solution, new_solution_other = old
+            if "product_category" in row:
+                new_products, new_product_other = _parse_product_category(
+                    row.get("product_category", "")
+                )
+            if "category_of_solution" in row:
+                new_solution, new_solution_other = _parse_solution_category(
+                    row.get("category_of_solution", "")
+                )
+            # Product categories are a set: the same boxes in another order
+            # are no change.
+            columns = []
+            if (sorted(new_products), new_product_other) != (sorted(old[0]), old[1]):
+                columns.append("product_category")
+            if (new_solution, new_solution_other) != (old[2], old[3]):
+                columns.append("category_of_solution")
+            if columns:
+                # A column whose stored value was not blank is overwritten
+                # (replaced or cleared); otherwise it is written for the first time.
+                had_value = {
+                    "product_category": bool(old[0] or old[1]),
+                    "category_of_solution": bool(old[2] or old[3]),
+                }
+                diff.marking_categories.append({
+                    "row": row_num,
+                    "group_id": group_id,
+                    "group_name": names_by_group.get(group_id),
+                    "columns": columns,
+                    "overwritten_columns": [c for c in columns if had_value[c]],
+                    "product_categories": new_products,
+                    "product_category_other": new_product_other,
+                    "solution_category": new_solution,
+                    "solution_category_other": new_solution_other,
+                })
 
     return diff
 
 
 @transaction.atomic
 def commit_marks_upload(diff: UploadDiff, *, user) -> dict:
-    """Apply the ``creates`` and ``updates`` from a validated diff.
+    """Apply the ``creates``, ``updates`` and ``overall_comments`` from a
+    validated diff.
 
     Callers must pre-check ``diff.errors`` is empty — the endpoint refuses to
     commit anything if any row failed validation, so partial imports can't
@@ -238,6 +514,25 @@ def commit_marks_upload(diff: UploadDiff, *, user) -> dict:
                 "mark": Decimal(entry["mark"]) if entry["mark"] is not None else None,
                 "comment": entry["comment"] or "",
                 "graded_by": user,
+            },
+        )
+        written += 1
+    for entry in diff.overall_comments:
+        ComponentFeedback.objects.update_or_create(
+            group_id=entry["group_id"],
+            component_id=entry["component_id"],
+            defaults={"comment": entry["comment"], "updated_by": user},
+        )
+        written += 1
+    for entry in diff.marking_categories:
+        GroupMarkingCategories.objects.update_or_create(
+            group_id=entry["group_id"],
+            defaults={
+                "product_categories": entry["product_categories"],
+                "product_category_other": entry["product_category_other"],
+                "solution_category": entry["solution_category"],
+                "solution_category_other": entry["solution_category_other"],
+                "updated_by": user,
             },
         )
         written += 1

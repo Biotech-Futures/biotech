@@ -8,123 +8,7 @@
     <div class="dashboard-page-inner">
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      <div v-if="isLoading" class="dashboard-loading-skeleton" role="status" aria-live="polite">
-        <span class="sr-only">Loading dashboard...</span>
-
-        <section class="dashboard-hero-shell">
-          <div class="dashboard-hero-card dashboard-skeleton-hero">
-            <div class="dashboard-skeleton-hero-copy">
-              <div class="dashboard-skeleton-block dashboard-skeleton-eyebrow"></div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-title"></div>
-              <div class="dashboard-skeleton-chip-row">
-                <div
-                  v-for="item in 3"
-                  :key="`hero-chip-${item}`"
-                  class="dashboard-skeleton-block dashboard-skeleton-chip"
-                ></div>
-              </div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
-              <div
-                class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
-              ></div>
-            </div>
-
-            <div class="dashboard-skeleton-calendar">
-              <div class="dashboard-skeleton-calendar-head">
-                <div class="dashboard-skeleton-block dashboard-skeleton-calendar-title"></div>
-                <div class="dashboard-skeleton-block dashboard-skeleton-calendar-nav"></div>
-              </div>
-              <div class="dashboard-skeleton-calendar-grid">
-                <div
-                  v-for="item in 35"
-                  :key="`calendar-day-${item}`"
-                  class="dashboard-skeleton-block dashboard-skeleton-calendar-day"
-                ></div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="dashboard-section">
-          <div class="dashboard-section-grid summary-grid">
-            <article
-              v-for="item in 4"
-              :key="`summary-${item}`"
-              class="summary-card dashboard-skeleton-card"
-            >
-              <div class="dashboard-skeleton-card-top">
-                <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
-                <div class="dashboard-skeleton-block dashboard-skeleton-label"></div>
-              </div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-metric"></div>
-              <div
-                class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"
-              ></div>
-            </article>
-          </div>
-        </section>
-
-        <section class="dashboard-section">
-          <article class="surface-card dashboard-skeleton-progress">
-            <div class="dashboard-skeleton-section-head">
-              <div>
-                <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
-                <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
-              </div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-select"></div>
-            </div>
-            <div class="dashboard-skeleton-progress-body">
-              <div class="dashboard-skeleton-block dashboard-skeleton-ring"></div>
-              <div class="dashboard-skeleton-progress-rows">
-                <div
-                  v-for="item in 4"
-                  :key="`progress-row-${item}`"
-                  class="dashboard-skeleton-progress-row"
-                >
-                  <div class="dashboard-skeleton-block dashboard-skeleton-row-label"></div>
-                  <div class="dashboard-skeleton-block dashboard-skeleton-row-value"></div>
-                </div>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section class="dashboard-section">
-          <div class="dashboard-section-grid two-col-layout">
-            <article
-              v-for="panel in 2"
-              :key="`panel-${panel}`"
-              class="surface-card dashboard-skeleton-panel"
-            >
-              <div class="dashboard-skeleton-section-head">
-                <div>
-                  <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
-                  <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
-                </div>
-                <div class="dashboard-skeleton-block dashboard-skeleton-link"></div>
-              </div>
-              <div class="dashboard-skeleton-list">
-                <div
-                  v-for="row in 3"
-                  :key="`panel-${panel}-row-${row}`"
-                  class="dashboard-skeleton-list-row"
-                >
-                  <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
-                  <div class="dashboard-skeleton-list-copy">
-                    <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
-                    <div
-                      class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </article>
-          </div>
-        </section>
-      </div>
-
-      <template v-else>
-        <section class="dashboard-welcome-header">
+      <section class="dashboard-welcome-header">
           <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
         </section>
 
@@ -139,16 +23,46 @@
                   and opportunities across the program.
                 </p>
 
-                <div class="hero-highlight-wrap">
-                  <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
-                    {{ item.label }}
-                  </span>
+                <div class="hero-highlight-wrap" role="status" aria-live="polite">
+                  <template v-if="highlightsLoading">
+                    <span
+                      v-for="item in 3"
+                      :key="`highlight-skeleton-${item}`"
+                      class="status-pill dashboard-highlight-skeleton"
+                    >
+                      <span class="dashboard-skeleton-chip"></span>
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
+                      {{ item.label }}
+                    </span>
+                  </template>
                 </div>
               </div>
               <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
 
-          <div class="dashboard-hero-groups">
+          <div v-if="groupsLoading" class="dashboard-hero-groups" role="status" aria-live="polite">
+            <div class="surface-card-header">
+              <p class="surface-kicker">Groups</p>
+              <h3 class="surface-card-title">Loading groups...</h3>
+            </div>
+            <div class="groups-grid dashboard-hero-groups-grid">
+              <div
+                v-for="item in 3"
+                :key="`group-skeleton-${item}`"
+                class="group-skeleton-card"
+              >
+                <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+                <div
+                  class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="dashboard-hero-groups">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Groups</p>
@@ -217,22 +131,36 @@
 
         <section class="dashboard-section">
           <div class="dashboard-section-grid summary-grid">
-            <article
-              v-for="item in summaryWidgets"
-              :key="item.key"
-              class="summary-card interactive-surface"
-              :class="getAccentClass(item.accent)"
-            >
-              <div class="summary-card-top">
-                <div class="summary-icon-wrap">
-                  <i :class="item.icon"></i>
+            <template v-for="item in summarySkeletonItems" :key="`summary-skeleton-${item}`">
+              <article class="summary-card dashboard-skeleton-card" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-card-top">
+                  <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                  <div class="dashboard-skeleton-block dashboard-skeleton-label"></div>
                 </div>
-                <span class="summary-label">{{ item.title }}</span>
-              </div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-metric"></div>
+                <div
+                  class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"
+                ></div>
+              </article>
+            </template>
 
-              <div class="summary-card-value">{{ item.value }}</div>
-              <div class="summary-card-subtext">{{ item.subtext }}</div>
-            </article>
+            <template v-for="item in summaryWidgets" :key="item.key">
+              <article
+                v-if="!summaryLoading"
+                class="summary-card interactive-surface"
+                :class="getAccentClass(item.accent)"
+              >
+                <div class="summary-card-top">
+                  <div class="summary-icon-wrap">
+                    <i :class="item.icon"></i>
+                  </div>
+                  <span class="summary-label">{{ item.title }}</span>
+                </div>
+
+                <div class="summary-card-value">{{ item.value }}</div>
+                <div class="summary-card-subtext">{{ item.subtext }}</div>
+              </article>
+            </template>
           </div>
         </section>
 
@@ -248,39 +176,65 @@
                 <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
               </div>
 
-              <div v-if="nextEvent" class="event-detail-card">
-                <div class="event-date-badge">
-                  <span class="event-date-day">{{ nextEventDateParts.day }}</span>
-                  <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
+              <div v-if="eventsLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-card-top">
+                  <div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
+                  </div>
                 </div>
-
-                <div class="event-content">
-                  <div class="event-title">{{ nextEvent.title }}</div>
-
-                  <div class="event-meta-row">
-                    <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
-                    <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
-                  </div>
-
-                  <div class="event-meta-row location-row">
-                    <span
-                      ><i class="fas fa-location-dot"></i
-                      >{{ nextEvent.location || 'Location TBC' }}</span
-                    >
-                  </div>
-
-                  <div class="event-actions">
-                    <RouterLink to="/events" class="primary-chip">
-                      {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
-                    </RouterLink>
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`event-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                      <div
+                        class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                      ></div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div v-else class="empty-state">
-                <i class="fas fa-calendar-xmark"></i>
-                <p>No upcoming event is available yet.</p>
-              </div>
+              <template v-else>
+                <div v-if="nextEvent" class="event-detail-card">
+                  <div class="event-date-badge">
+                    <span class="event-date-day">{{ nextEventDateParts.day }}</span>
+                    <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
+                  </div>
+
+                  <div class="event-content">
+                    <div class="event-title">{{ nextEvent.title }}</div>
+
+                    <div class="event-meta-row">
+                      <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
+                      <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
+                    </div>
+
+                    <div class="event-meta-row location-row">
+                      <span
+                        ><i class="fas fa-location-dot"></i
+                        >{{ nextEvent.location || 'Location TBC' }}</span
+                      >
+                    </div>
+
+                    <div class="event-actions">
+                      <RouterLink to="/events" class="primary-chip">
+                        {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
+                      </RouterLink>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-else class="empty-state">
+                  <i class="fas fa-calendar-xmark"></i>
+                  <p>No upcoming event is available yet.</p>
+                </div>
+              </template>
             </article>
 
             <article class="surface-card interactive-surface">
@@ -293,40 +247,66 @@
                 <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
               </div>
 
-              <div v-if="announcementsPreview.length" class="list-stack">
-                <RouterLink
-                  v-for="announcement in announcementsPreview"
-                  :key="announcement.id || getAnnouncementTitle(announcement)"
-                  to="/announcements"
-                  class="list-row premium-row"
-                >
-                  <div class="list-row-icon announcement-icon">
-                    <i class="fas fa-bullhorn"></i>
+              <div v-if="announcementsLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-card-top">
+                  <div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
                   </div>
+                </div>
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`announcement-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                      <div
+                        class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                  <div class="list-row-content">
-                    <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
-
-                    <div class="list-row-meta">
-                      {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+              <template v-else>
+                <div v-if="announcementsPreview.length" class="list-stack">
+                  <RouterLink
+                    v-for="announcement in announcementsPreview"
+                    :key="announcement.id || getAnnouncementTitle(announcement)"
+                    to="/announcements"
+                    class="list-row premium-row"
+                  >
+                    <div class="list-row-icon announcement-icon">
+                      <i class="fas fa-bullhorn"></i>
                     </div>
 
-                    <div
-                      class="list-row-description dashboard-announcement-body"
-                      v-html="getAnnouncementPreviewHtml(announcement)"
-                    ></div>
-                  </div>
+                    <div class="list-row-content">
+                      <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
-                  <div class="list-row-tail">
-                    <i class="fas fa-chevron-right"></i>
-                  </div>
-                </RouterLink>
-              </div>
+                      <div class="list-row-meta">
+                        {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+                      </div>
 
-              <div v-else class="empty-state">
-                <i class="fas fa-bell-slash"></i>
-                <p>No recent announcements are available yet.</p>
-              </div>
+                      <div
+                        class="list-row-description dashboard-announcement-body"
+                        v-html="getAnnouncementPreviewHtml(announcement)"
+                      ></div>
+                    </div>
+
+                    <div class="list-row-tail">
+                      <i class="fas fa-chevron-right"></i>
+                    </div>
+                  </RouterLink>
+                </div>
+
+                <div v-else class="empty-state">
+                  <i class="fas fa-bell-slash"></i>
+                  <p>No recent announcements are available yet.</p>
+                </div>
+              </template>
             </article>
           </div>
         </section>
@@ -342,38 +322,63 @@
                 <RouterLink to="/resources" class="surface-link">View all</RouterLink>
               </div>
 
-              <div v-if="resourcesPreview.length" class="resource-grid">
-                <RouterLink
-                  v-for="resource in resourcesPreview"
-                  :key="resource.id || getResourceTitle(resource)"
-                  :to="resource.id ? '/resources/' + resource.id : '/resources'"
-                  class="resource-card-link"
-                >
-                  <div class="resource-card-surface interactive-surface">
-                    <div class="resource-icon">
-                      <i :class="getResourceIcon(resource.type)"></i>
-                    </div>
-
-                    <div class="resource-content">
-                      <div class="resource-title">{{ getResourceTitle(resource) }}</div>
-
-                      <div class="resource-meta">
-                        {{ getResourceCategory(resource) }} · Updated
-                        {{ getResourceMeta(resource) }}
-                      </div>
+              <div v-if="resourcesLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-card-top">
+                  <div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
+                  </div>
+                </div>
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`resource-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                      <div
+                        class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                      ></div>
                     </div>
                   </div>
-                </RouterLink>
+                </div>
               </div>
 
-              <div v-else class="empty-state">
-                <i class="fas fa-folder-open"></i>
-                <p>No resource is available yet.</p>
-              </div>
+              <template v-else>
+                <div v-if="resourcesPreview.length" class="resource-grid">
+                  <RouterLink
+                    v-for="resource in resourcesPreview"
+                    :key="resource.id || getResourceTitle(resource)"
+                    :to="resource.id ? '/resources/' + resource.id : '/resources'"
+                    class="resource-card-link"
+                  >
+                    <div class="resource-card-surface interactive-surface">
+                      <div class="resource-icon">
+                        <i :class="getResourceIcon(resource.type)"></i>
+                      </div>
+
+                      <div class="resource-content">
+                        <div class="resource-title">{{ getResourceTitle(resource) }}</div>
+
+                        <div class="resource-meta">
+                          {{ getResourceCategory(resource) }} · Updated
+                          {{ getResourceMeta(resource) }}
+                        </div>
+                      </div>
+                    </div>
+                  </RouterLink>
+                </div>
+
+                <div v-else class="empty-state">
+                  <i class="fas fa-folder-open"></i>
+                  <p>No resource is available yet.</p>
+                </div>
+              </template>
             </article>
           </div>
         </section>
-      </template>
     </div>
 
     <div
@@ -448,8 +453,31 @@ const DASHBOARD_ENDPOINTS = {
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`,
 }
 
-const isLoading = ref(true)
+const groupsLoading = ref(true)
+const resourcesLoading = ref(true)
+const announcementsLoading = ref(true)
+const eventsLoading = ref(true)
+const adminLoading = ref(true)
+const progressLoading = ref(true)
+
 const loadError = ref('')
+
+// Progressive rendering gates — each dashboard section reveals itself as its
+// own request completes instead of waiting for the slowest endpoint.
+const highlightsLoading = computed(() =>
+  groupsLoading.value || eventsLoading.value || progressLoading.value || adminLoading.value,
+)
+
+const summaryLoading = computed(() =>
+  groupsLoading.value ||
+  resourcesLoading.value ||
+  announcementsLoading.value ||
+  eventsLoading.value ||
+  adminLoading.value ||
+  progressLoading.value,
+)
+
+const summarySkeletonItems = computed(() => (summaryLoading.value ? 4 : 0))
 
 const groups = ref([])
 const resources = ref([])
@@ -1181,25 +1209,21 @@ async function fetchFirstAvailable(urls, options = {}) {
 }
 
 async function loadDashboardData() {
-  isLoading.value = true
   loadError.value = ''
 
-  try {
-    await Promise.allSettled([
-      loadGroups(),
-      loadResources(),
-      loadAnnouncements(),
-      loadEvents(),
-      loadAdminWorkflow(),
-    ])
-    await loadProgress()
-    loadSummary()
-  } catch (error) {
-    console.error('Dashboard loading error:', error)
-    loadError.value = 'Some live dashboard data could not be loaded.'
-  } finally {
-    isLoading.value = false
-  }
+  // Kick off every request in one batch. Progress depends on the groups
+  // response (membership determines the endpoint), so it awaits the same
+  // in-flight groups promise instead of running in a second serial round.
+  const groupsPromise = loadGroups()
+  await Promise.allSettled([
+    groupsPromise,
+    loadResources(),
+    loadAnnouncements(),
+    loadEvents(),
+    loadAdminWorkflow(),
+    loadProgress(groupsPromise),
+  ])
+  loadSummary()
 }
 
 function loadSummary() {
@@ -1237,6 +1261,8 @@ async function loadGroups() {
     groups.value = groupItems.map((group) => normalizeGroup(group, []))
   } catch {
     groups.value = []
+  } finally {
+    groupsLoading.value = false
   }
 }
 
@@ -1247,6 +1273,8 @@ async function loadResources() {
     resources.value = liveResources.map(normalizeResource)
   } catch {
     resources.value = []
+  } finally {
+    resourcesLoading.value = false
   }
 }
 
@@ -1257,17 +1285,22 @@ async function loadAnnouncements() {
     announcements.value = liveAnnouncements.map(normalizeAnnouncement)
   } catch {
     announcements.value = []
+  } finally {
+    announcementsLoading.value = false
   }
 }
 
 async function loadEvents() {
   try {
-    const countData = await fetchJson(DASHBOARD_ENDPOINTS.eventsCount)
+    // Event count and next-event are independent — fetch them in parallel to
+    // cut one serial round trip from the dashboard's critical path.
+    const [countData, nextEventData] = await Promise.all([
+      fetchJson(DASHBOARD_ENDPOINTS.eventsCount),
+      fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
+        allowNoContent: true,
+      }),
+    ])
     upcomingEventsCount.value = Number(countData?.count ?? 0)
-
-    const nextEventData = await fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
-      allowNoContent: true,
-    })
 
     if (nextEventData) {
       events.value = [normalizeEvent(nextEventData)]
@@ -1298,11 +1331,16 @@ async function loadEvents() {
       upcomingEventsCount.value = 0
       events.value = []
     }
+  } finally {
+    eventsLoading.value = false
   }
 }
 
 async function loadAdminWorkflow() {
-  if (!isAdmin.value) return
+  if (!isAdmin.value) {
+    adminLoading.value = false
+    return
+  }
 
   try {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.adminSummary)
@@ -1321,20 +1359,28 @@ async function loadAdminWorkflow() {
       pendingApprovals: 0,
       draftBulkMessages: 0,
     }
+  } finally {
+    adminLoading.value = false
   }
 }
 
-async function loadProgress() {
-  if (hasNoAssignedMembership.value) {
-    progressSnapshot.value = getEmptyProgressSnapshot()
-    return
-  }
-
+async function loadProgress(groupsPromise) {
   try {
+    // Membership is derived from the groups response — make sure it has
+    // settled before deciding whether to fetch progress at all.
+    await groupsPromise
+
+    if (hasNoAssignedMembership.value) {
+      progressSnapshot.value = getEmptyProgressSnapshot()
+      return
+    }
+
     const data = await fetchJson(getProgressEndpoint())
     progressSnapshot.value = normalizeProgressSnapshot(data)
   } catch {
     progressSnapshot.value = getEmptyProgressSnapshot()
+  } finally {
+    progressLoading.value = false
   }
 }
 
@@ -2913,6 +2959,46 @@ onMounted(async () => {
 .dashboard-skeleton-link {
   width: 84px;
   height: 1.8rem;
+}
+
+/* Progressive sections — the hero / summary / panels reveal themselves as
+   their own request completes, so each gets a compact skeleton instead of a
+   full-page gate. */
+.dashboard-section-skeleton {
+  padding: 0.5rem 0;
+}
+
+.dashboard-highlight-skeleton {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dashboard-highlight-skeleton::before {
+  display: none;
+}
+
+.dashboard-highlight-skeleton .dashboard-skeleton-chip {
+  display: block;
+  margin: 0;
+  width: 118px;
+  height: 1.7rem;
+}
+
+.group-skeleton-card {
+  min-height: 136px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.group-skeleton-card .dashboard-skeleton-line {
+  margin-top: 0.45rem;
 }
 
 .empty-state {

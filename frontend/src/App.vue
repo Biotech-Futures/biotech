@@ -68,11 +68,11 @@
               </RouterLink>
             </li>
 
-            <li class="sidebar-item" v-if="!auth.isAdmin">
+            <li class="sidebar-item">
               <RouterLink
                 to="/groups"
                 class="sidebar-link"
-                :class="{ active: route.path.includes('/groups') }"
+                :class="{ active: route.path.startsWith('/groups') }"
               >
                 <i class="fas fa-users sidebar-icon"></i>
                 <span>Groups</span>
@@ -182,11 +182,29 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
+                    to="/admin/emails"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/emails' }"
+                  >
+                    <span>System Emails</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
                     to="/grading"
                     class="sidebar-sublink"
                     :class="{ active: route.path.startsWith('/grading') }"
                   >
                     <span>Grading</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/management"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/management') }"
+                  >
+                    <span>Management</span>
                   </RouterLink>
                 </li>
               </ul>
@@ -214,7 +232,9 @@
           aria-label="Group switcher"
         >
           <div class="sidebar-group-switcher-header">
-            <span>Groups</span>
+            <label for="sidebar-group-select">Groups</label>
+            <!-- Another group has messages this user hasn't read. -->
+            <span v-if="hasOtherGroupUnread" class="sidebar-group-badge">New</span>
             <i v-if="isLoadingSidebarGroups" class="fas fa-circle-notch fa-spin"></i>
           </div>
 
@@ -228,29 +248,21 @@
             No groups available
           </p>
 
-          <div v-else class="sidebar-group-list">
-            <RouterLink
-              v-for="groupOption in sidebarGroups"
-              :key="groupOption.id"
-              :to="{ name: 'group-detail', params: { id: groupOption.id } }"
-              class="sidebar-group-link"
-              :class="{
-                active: isSidebarGroupActive(groupOption.id),
-                unread: groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
-              }"
-            >
-              <span class="sidebar-group-copy">
-                <span class="sidebar-group-name">{{ groupOption.name }}</span>
-                <small>{{ formatSidebarGroupMeta(groupOption) }}</small>
-              </span>
-              <span
-                v-if="groupOption.hasUnread && !isSidebarGroupActive(groupOption.id)"
-                class="sidebar-group-badge"
-              >
-                New
-              </span>
-            </RouterLink>
-          </div>
+          <!-- One dropdown however many groups there are: an admin's is every
+               group. Picking one opens it. -->
+          <select
+            v-else
+            id="sidebar-group-select"
+            class="sidebar-group-select"
+            :value="activeSidebarGroupId"
+            @change="openSidebarGroup"
+          >
+            <option v-if="!activeSidebarGroupId" value="" disabled>Choose a group</option>
+            <option v-for="groupOption in sidebarGroups" :key="groupOption.id" :value="groupOption.id">
+              {{ groupOption.name
+              }}{{ groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : '' }}
+            </option>
+          </select>
         </section>
       </aside>
 
@@ -328,10 +340,6 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-// The React admin console — same convention the old post-login redirect used:
-// the production domain is the default, overridable per environment.
-const ADMIN_PORTAL_URL =
-  import.meta.env.VITE_ADMIN_FRONTEND_URL || 'https://mentoringadmin.biotechfutures.org'
 const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 
 interface CollectionResponse {
@@ -576,6 +584,9 @@ const loadSidebarGroups = async () => {
   }))
   sidebarGroups.value = groups
   isLoadingSidebarGroups.value = false
+  // An admin's list is every group, and they're in none of them: no unread
+  // dots, and no request per group to work them out.
+  if (auth.isAdmin) return
 
   // N requests (one per group) — defer behind idle so the page is
   // interactive before unread/latest-at indicators light up.
@@ -604,10 +615,21 @@ const handleSidebarGroupRead = (event: Event) => {
   clearSidebarGroupUnread(detail?.groupId)
 }
 
-const formatSidebarGroupMeta = (groupOption: SidebarGroupOption) => {
-  const count = groupOption.memberCount
-  if (count > 0) return `${count} ${count === 1 ? 'member' : 'members'}`
-  return 'Group workspace'
+// The group open now, when it's one of the listed ones.
+const activeSidebarGroupId = computed(() => {
+  const id = String(route.params.id || '')
+  return sidebarGroups.value.some((groupOption) => groupOption.id === id) ? id : ''
+})
+
+const hasOtherGroupUnread = computed(() =>
+  sidebarGroups.value.some(
+    (groupOption) => groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
+  ),
+)
+
+const openSidebarGroup = (event: Event) => {
+  const id = (event.target as HTMLSelectElement).value
+  if (id) void router.push({ name: 'group-detail', params: { id } })
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -1219,74 +1241,33 @@ select {
   text-transform: uppercase;
 }
 
-.sidebar-group-list {
-  display: grid;
-  gap: 0.25rem;
-  max-height: min(360px, 42vh);
-  overflow-y: auto;
+/* The header's own weight and case, whatever a label would bring. */
+.sidebar-group-switcher-header label {
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
-.sidebar-group-link {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem;
-  min-height: 52px;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid transparent;
+.sidebar-group-switcher-header .sidebar-group-badge {
+  margin-right: auto;
+}
+
+.sidebar-group-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
+  background: var(--surface-elevated);
   color: var(--charcoal);
-  text-decoration: none;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.sidebar-group-link:hover {
-  border-color: var(--line-mid);
-  background: #f4f8f6;
-  color: var(--dark-green);
-}
-
-.sidebar-group-link.active {
-  border-color: rgba(35, 70, 59, 0.2);
-  background: var(--light-green);
-  color: var(--dark-green);
-}
-
-.sidebar-group-link.unread {
-  border-color: rgba(61, 106, 91, 0.24);
-  background: #eef7f2;
-}
-
-.sidebar-group-copy {
-  min-width: 0;
-  display: grid;
-  gap: 0.12rem;
-}
-
-.sidebar-group-name {
-  overflow: hidden;
-  color: inherit;
+  font-family: inherit;
   font-size: 0.88rem;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-group-link.unread .sidebar-group-name {
-  font-weight: 800;
-}
-
-.sidebar-group-copy small {
-  overflow: hidden;
-  color: #6c757d;
-  font-size: 0.72rem;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sidebar-group-select:focus {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 1px;
 }
 
 .sidebar-group-badge {
@@ -1586,19 +1567,6 @@ select {
     margin-top: 0.75rem;
     padding: 0.75rem 0 0;
     border-top: 1px solid var(--border-light);
-  }
-
-  .sidebar-group-list {
-    display: flex;
-    gap: 0.5rem;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 0.15rem;
-  }
-
-  .sidebar-group-link {
-    flex: 0 0 min(220px, 78vw);
   }
 
   .main-content {

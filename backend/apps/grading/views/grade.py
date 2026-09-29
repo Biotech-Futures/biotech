@@ -129,14 +129,35 @@ class GradeBulkView(APIView):
                 defaults={"comment": comment, "updated_by": request.user},
             )
 
+        # Preload existing grades so untouched criteria don't get phantom
+        # rows and unchanged ones don't get a re-stamped graded_by — the
+        # form sends the whole rubric, but only real edits are marking
+        # actions (same rule as the bulk upload).
+        existing_grades = {
+            (g.submission_id, g.criterion_id): g
+            for g in Grade.objects.filter(
+                submission_id__in={i["submission"] for i in items},
+                criterion_id__in=criterion_ids,
+            )
+        }
+
         saved = []
         for item in items:
+            mark = item.get("mark")
+            comment = item.get("comment", "") or ""
+            existing = existing_grades.get((item["submission"], item["criterion"]))
+            if existing is None and mark is None and not comment:
+                # Nothing there, nothing given — an untouched criterion.
+                continue
+            if existing is not None and existing.mark == mark and (existing.comment or "") == comment:
+                saved.append(existing)  # unchanged — keep the original attribution
+                continue
             grade, _ = Grade.objects.update_or_create(
                 submission_id=item["submission"],
                 criterion_id=item["criterion"],
                 defaults={
-                    "mark": item.get("mark"),
-                    "comment": item.get("comment", ""),
+                    "mark": mark,
+                    "comment": comment,
                     "graded_by": request.user,
                 },
             )

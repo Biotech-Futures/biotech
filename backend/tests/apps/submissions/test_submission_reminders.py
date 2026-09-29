@@ -1,10 +1,4 @@
-"""Who gets a submission reminder, and who does not.
-
-The rules being pinned here are the ones a team would notice if they were
-wrong: being chased after they have finished, being written to twice in a day,
-being told the wrong closing date, or — the quietest failure of the four —
-never being written to at all because they had not started.
-"""
+"""Tests for who receives a submission reminder, and when."""
 from datetime import timedelta
 
 from django.core import mail
@@ -31,7 +25,7 @@ class ReminderTests(TestCase):
     def setUp(self):
         self.role = Roles.objects.create(role_name="student")
         install_question_set()
-        # Announced in eight days, so the reminder window opens tomorrow.
+        # Eight days out, so the reminder window opens tomorrow.
         self.deadline = Deadline.objects.create(
             closes_at=timezone.now() + timedelta(days=8), is_active=True
         )
@@ -49,7 +43,6 @@ class ReminderTests(TestCase):
         return group
 
     def _inside_window(self):
-        """A moment three days before the announced deadline."""
         return self.deadline.closes_at - timedelta(days=3)
 
     def _complete(self, group):
@@ -63,10 +56,7 @@ class ReminderTests(TestCase):
     def _names_due(self, now):
         return {group.group_name for group, _, _ in teams_due(now)}
 
-    # ------------------------------------------------------------- who is due
     def test_a_team_that_never_started_is_reminded(self):
-        # The quietest failure available: these teams have no submission row, so
-        # querying submissions would skip exactly those most needing a reminder.
         self._team("BTF-NOTHING")
 
         self.assertIn("BTF-NOTHING", self._names_due(self._inside_window()))
@@ -88,12 +78,9 @@ class ReminderTests(TestCase):
     def test_nobody_is_reminded_before_the_final_week(self):
         self._team("BTF-EARLY")
 
-        # Eight days out, which is one day before the window opens.
         self.assertEqual(self._names_due(timezone.now()), set())
 
     def test_nobody_is_reminded_once_the_deadline_has_passed(self):
-        # Reminders stop at the announced time, not when writes stop: the grace
-        # period is unpublished, and an email inside it would announce it.
         self._team("BTF-LATE")
 
         after = self.deadline.closes_at + timedelta(minutes=1)
@@ -107,10 +94,7 @@ class ReminderTests(TestCase):
         self.assertEqual(result["sent"], 0)
         self.assertEqual(len(mail.outbox), 0)
 
-    # ------------------------------------------------------------ extensions
     def test_an_extended_team_is_reminded_against_their_own_deadline(self):
-        # Their week runs from the date they were granted, not the one the
-        # programme published, so at this moment they are not yet due.
         group = self._team("BTF-EXTENDED")
         GroupExtension.objects.create(
             group=group, extended_until=timezone.now() + timedelta(days=30)
@@ -129,7 +113,6 @@ class ReminderTests(TestCase):
         expected = timezone.localtime(extended_until).strftime("%A")
         self.assertIn(expected, mail.outbox[0].body)
 
-    # --------------------------------------------------------- sending once
     def test_a_team_is_written_to_once_a_day_however_often_the_job_runs(self):
         self._team("BTF-DAILY")
         moment = self._inside_window()
@@ -143,7 +126,6 @@ class ReminderTests(TestCase):
         group = self._team("BTF-DAILY")
         send_due_reminders(self._inside_window())
 
-        # Move the record back a day, as tomorrow's run would find it.
         SubmissionReminder.objects.filter(group=group).update(
             last_sent_on=timezone.localdate(self._inside_window()) - timedelta(days=1)
         )
@@ -160,10 +142,7 @@ class ReminderTests(TestCase):
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(SubmissionReminder.objects.exists())
 
-    # ------------------------------------------------------------- contents
     def test_the_email_names_the_required_components_the_right_way_round(self):
-        # The client's copy had these the other way around, contradicting their
-        # confirmation email. This pins the correction.
         self._team("BTF-COPY")
 
         send_due_reminders(self._inside_window())
@@ -200,8 +179,6 @@ class ReminderTests(TestCase):
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False, SUBMISSION_REMINDER_TOKEN="s3cret")
 class ReminderTriggerEndpointTests(TestCase):
-    """The scheduler's way in. Guarded by a shared secret, not a session."""
-
     def setUp(self):
         from django.urls import reverse
 
@@ -223,8 +200,6 @@ class ReminderTriggerEndpointTests(TestCase):
 
     @override_settings(SUBMISSION_REMINDER_TOKEN="")
     def test_an_unconfigured_trigger_refuses_rather_than_standing_open(self):
-        # The dangerous failure would be a deploy that forgot the secret and
-        # left an endpoint anyone could use to email every team.
         response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="")
 
         self.assertEqual(response.status_code, 503)
@@ -232,8 +207,6 @@ class ReminderTriggerEndpointTests(TestCase):
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
 class IndividualDeliveryTests(TestCase):
-    """One message per student, not one message listing the whole team."""
-
     def setUp(self):
         self.role = Roles.objects.create(role_name="student")
         install_question_set()
@@ -263,8 +236,6 @@ class IndividualDeliveryTests(TestCase):
         )
 
     def test_no_student_can_see_a_teammates_address(self):
-        # These are school students; one team's roster is not something the
-        # programme should be handing out in a To: line.
         send_due_reminders()
 
         for message in mail.outbox:
@@ -281,8 +252,6 @@ class IndividualDeliveryTests(TestCase):
         self.assertEqual(len(bodies), 1, "students were sent differing text")
 
     def test_one_bad_address_does_not_cost_the_rest_of_the_team_their_copy(self):
-        # The reason for sending separately: a server rejects a message, not a
-        # recipient, so one typo used to mean nobody heard anything.
         from unittest.mock import patch
 
         real_send = mail.EmailMessage.send
@@ -305,5 +274,4 @@ class IndividualDeliveryTests(TestCase):
             result = send_due_reminders()
 
         self.assertEqual(result["failed"], 1)
-        # Nothing recorded, so the next run does not treat them as done.
         self.assertFalse(SubmissionReminder.objects.exists())

@@ -7,7 +7,7 @@
     <div v-if="open" class="bulk-upload__overlay" @click.self="closeDialog">
       <div class="bulk-upload__dialog" role="dialog" aria-modal="true" aria-label="Upload marks">
         <div class="bulk-upload__head">
-          <h3 class="bulk-upload__title">Upload marks — {{ code }}</h3>
+          <h3 class="bulk-upload__title">Upload marks for {{ typeLabel }}</h3>
           <button
             type="button"
             class="bulk-upload__close"
@@ -19,10 +19,35 @@
         </div>
 
         <p class="bulk-upload__desc">
-          XLSX or CSV with columns: <code>group_id</code>, <code>criterion_id</code>,
-          <code>mark</code>, <code>comment</code>. Extra columns are ignored.
+          .xlsx or .csv in the export's shape (one row per group)<br />
+          <code>year</code>, <code>group_name</code>, <code>type</code>,<br />
+          <template v-if="code === 'SAQ'">
+            Then <code>q1</code>, <code>q2</code> … (the answers, not read on upload),<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion,<br />
+            Then <code>overall_comment</code>, <code>product_category</code> and
+            <code>category_of_solution</code>
+          </template>
+          <template v-else>
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
+            <code>overall_comment</code>
+          </template>
+        </p>
+        <p class="bulk-upload__desc">
+          Column headers must match exactly.<br />
+          Value of <code>year</code> is <code>{{ shownYear }}</code> for all rows<br />
+          Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
+          <template v-if="code === 'SAQ'">
+            Items in <code>product_category</code> are split on commas<br />
+          </template>
+          Extra columns and rows are ignored.
         </p>
 
+        <div class="bulk-upload__file-row">
+          <button type="button" class="bulk-upload__file-btn" @click="fileInput?.click()">
+            Browse…
+          </button>
+          <span class="bulk-upload__file-name">{{ file?.name || 'No file selected.' }}</span>
+        </div>
         <input
           ref="fileInput"
           type="file"
@@ -32,57 +57,73 @@
         />
 
         <p v-if="requestError" class="bulk-upload__request-error">{{ requestError }}</p>
+        <p v-if="busy === 'preview'" class="bulk-upload__desc">Previewing…</p>
 
         <div v-if="preview" class="bulk-upload__preview">
-          <div class="bulk-upload__badges">
-            <span class="bulk-upload__badge bulk-upload__badge--creates">
-              creates <strong>{{ preview.summary.creates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--updates">
-              updates <strong>{{ preview.summary.updates }}</strong>
-            </span>
-            <span class="bulk-upload__badge bulk-upload__badge--muted">
-              unchanged <strong>{{ preview.summary.unchanged }}</strong>
-            </span>
-            <span
-              class="bulk-upload__badge"
-              :class="preview.summary.errors > 0 ? 'bulk-upload__badge--errors' : 'bulk-upload__badge--muted'"
-            >
-              errors <strong>{{ preview.summary.errors }}</strong>
-            </span>
-          </div>
+          <ul v-if="preview.checks" class="bulk-upload__checks">
+            <li>
+              Missing Column Header(s):
+              <span :class="checkClass(!preview.checks.missing_headers.length)">
+                {{ checkHeaderText }}
+              </span>
+            </li>
+            <!-- A failed header check stops parsing, so the checks below
+                 never ran — hide them rather than show a misleading None. -->
+            <template v-if="!preview.checks.missing_headers.length">
+              <!-- The sheet's year column check, then its teams, then its type. -->
+              <li v-if="preview.checks.year_ok !== undefined">
+                Year:
+                <span :class="checkClass(preview.checks.year_ok)">{{ checkYearText }}</span>
+              </li>
+              <!-- Only when a row's team can't be matched; nothing to say otherwise. -->
+              <li v-if="preview.checks.bad_group_rows.length">
+                Incorrect group details:
+                <span class="bulk-upload__check--bad">{{ checkGroupText }}</span>
+              </li>
+              <li v-if="preview.checks.type_ok !== undefined">
+                Type:
+                <span :class="checkClass(preview.checks.type_ok)">{{ checkTypeText }}</span>
+              </li>
+              <!-- Rows failing an earlier check skip the later validations,
+                   so hide those lines rather than show a misleading None. -->
+              <template
+                v-if="preview.checks.type_ok !== false && preview.checks.year_ok !== false"
+              >
+              <li v-if="!preview.checks.bad_group_rows.length">
+                Incorrect mark format:
+                <span :class="checkClass(!preview.checks.bad_marks.length)">
+                  {{ checkMarkText }}
+                </span>
+              </li>
+              <template
+                v-if="!preview.checks.bad_group_rows.length && !preview.checks.bad_marks.length"
+              >
+                <li class="bulk-upload__check-gap">
+                  Overwriting Existing Records:
+                  <!-- Amber only when something is actually overwritten;
+                       a harmless 0 gets the checks' ok green. -->
+                  <strong
+                    :class="
+                      overwriteGroupCount > 0
+                        ? 'bulk-upload__count--overwrite'
+                        : 'bulk-upload__check--ok'
+                    "
+                    >{{ overwriteGroupCount }}</strong
+                  >{{
+                    groupsSuffix(preview.updates, overallCommentOverwrites, categoryOverwrites)
+                  }}
+                </li>
+                <li>
+                  Writing New Records: <strong>{{ newGroupCount }}</strong>
+                </li>
+              </template>
+              </template>
+            </template>
+          </ul>
 
-          <div v-if="preview.errors.length" class="bulk-upload__errors">
-            <table>
-              <thead>
-                <tr>
-                  <th class="bulk-upload__row-col">Row</th>
-                  <th>Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(e, i) in preview.errors" :key="i">
-                  <td class="bulk-upload__row-col">{{ e.row }}</td>
-                  <td>{{ e.message }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <p v-if="preview.summary.errors > 0" class="bulk-upload__fix-hint">
-            Fix the errors and re-upload before applying.
-          </p>
         </div>
 
         <div class="bulk-upload__footer">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="!file || busy !== 'idle'"
-            @click="doPreview"
-          >
-            {{ busy === 'preview' ? 'Previewing…' : 'Preview' }}
-          </button>
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -98,20 +139,41 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { bulkUploadMarks, type BulkUploadResponse } from '@/utils/gradingAPI'
+import { computed, ref } from 'vue'
+import {
+  bulkUploadMarks,
+  challengeYear,
+  fetchSubmissionDeadline,
+  type SubmissionDeadline,
+  type BulkUploadCategoryEntry,
+  type BulkUploadOverallCommentEntry,
+  type BulkUploadResponse,
+  type BulkUploadRowEntry
+} from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
-// Two-step flow:
-//   1. Pick a file → dry_run=true → diff summary + errors table.
+// Flow:
+//   1. Pick a file → previews automatically (dry_run=true) → diff summary +
+//      errors table. Re-previewing (e.g. after a failed request) = picking
+//      the file again; onFileChange keeps that possible for the same file.
 //   2. If no errors, "Apply" → dry_run=false → emit + close.
 // Single dialog rather than a wizard: fewer clicks, admin can swap the file
-// and re-preview in place. The backend re-parses on apply so the committed
+// and it re-previews in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
 const props = defineProps<{ code: string }>()
 
+// Friendly type labels, matching the sheet's `type` column values.
+const TYPE_LABELS: Record<string, string> = {
+  SAQ: 'SAQs',
+  POSTER: 'Poster',
+  REPORT: 'Report',
+  PROTOTYPE: 'Prototype'
+}
+const typeLabel = computed(() => TYPE_LABELS[props.code] ?? props.code)
+
 const emit = defineEmits<{
-  applied: [written: number]
+  // Groups overwritten and groups written new, counted like the preview.
+  applied: [counts: { overwritten: number; created: number }]
 }>()
 
 const open = ref(false)
@@ -121,16 +183,153 @@ const requestError = ref('')
 const busy = ref<'idle' | 'preview' | 'apply'>('idle')
 const fileInput = ref<HTMLInputElement | null>(null)
 
+// The year every row must carry: the current challenge year. The preview's
+// answer from the server wins once there is one; until then it is worked out
+// from the deadline the same way.
+const deadline = ref<SubmissionDeadline | null>(null)
+const shownYear = computed(
+  () => preview.value?.checks?.expected_year ?? challengeYear(deadline.value)
+)
+
+// The four preview report lines, from the parser's categorised checks.
+const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-upload__check--bad')
+
+const checkHeaderText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
+})
+
+const checkTypeText = computed(() => {
+  const c = preview.value?.checks
+  if (!c || c.type_ok === undefined) return ''
+  return c.type_ok ? c.expected_type : `${c.found_type || 'missing'} (should be ${c.expected_type})`
+})
+
+const checkYearText = computed(() => {
+  const c = preview.value?.checks
+  if (!c || c.year_ok === undefined) return ''
+  return c.year_ok
+    ? String(c.expected_year)
+    : `${c.found_year || 'missing'} (should be ${c.expected_year})`
+})
+
+const checkGroupText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_group_rows.length) return 'None'
+  return c.bad_group_rows.map((g) => `row ${g.row} (${g.reason})`).join(', ')
+})
+
+const checkMarkText = computed(() => {
+  const c = preview.value?.checks
+  if (!c) return ''
+  if (!c.bad_marks.length) return 'None'
+  return c.bad_marks.map((m) => `row ${m.row} in ${m.column} (${m.hint})`).join(', ')
+})
+
+// Overall comments a sheet changes. Replacing or clearing a stored comment
+// is an overwrite (a blank cell in an older export wipes it); writing one
+// where none was stored is a new record.
+const commentOverwrites = (r: BulkUploadResponse) =>
+  (r.overall_comments ?? []).filter((e) => e.old_comment !== '')
+
+// Category changes likewise: replacing or clearing a group's stored
+// categories is an overwrite; setting them for the first time is new.
+const categoryChangeOverwrites = (r: BulkUploadResponse) =>
+  (r.marking_categories ?? []).filter((e) => (e.overwritten_columns ?? []).length > 0)
+
+// Group-level counts, shared by the preview and the applied summary — a
+// "record" is one group's marks: a group touching any existing grade,
+// overall comment or category is an overwrite, and the rest of the
+// recognized groups are written as new.
+const overwritingGroupIds = (r: BulkUploadResponse) =>
+  new Set([
+    ...r.updates.map((e) => e.group_id),
+    ...commentOverwrites(r).map((e) => e.group_id),
+    ...categoryChangeOverwrites(r).map((e) => e.group_id)
+  ])
+
+// Groups that actually write something new — created grades, new overall
+// comments or first-time marking-key categories. Unchanged groups write
+// nothing, so an untouched re-upload reports 0 of both kinds; a group
+// already counted as overwriting is not double counted here.
+const newGroupIds = (r: BulkUploadResponse) => {
+  const overwriting = overwritingGroupIds(r)
+  return new Set(
+    [
+      ...r.creates.map((e) => e.group_id),
+      ...(r.overall_comments ?? []).filter((e) => e.old_comment === '').map((e) => e.group_id),
+      ...(r.marking_categories ?? []).map((e) => e.group_id)
+    ].filter((id) => !overwriting.has(id))
+  )
+}
+
+const overallCommentOverwrites = computed(() =>
+  preview.value ? commentOverwrites(preview.value) : []
+)
+const categoryOverwrites = computed(() =>
+  preview.value ? categoryChangeOverwrites(preview.value) : []
+)
+const overwriteGroupCount = computed(() =>
+  preview.value ? overwritingGroupIds(preview.value).size : 0
+)
+const newGroupCount = computed(() => (preview.value ? newGroupIds(preview.value).size : 0))
+
+// "(BTF1 [r3_mark, r3_comment, r4_mark, overall_comment, product_category], …)"
+// — one listing per overwritten group, in sheet order, naming each
+// overwritten cell by its sheet column, then overall_comment and the category
+// columns when those are overwritten too. Sits beside the overwrite count.
+const groupsSuffix = (
+  entries: BulkUploadRowEntry[],
+  comments: BulkUploadOverallCommentEntry[] = [],
+  categories: BulkUploadCategoryEntry[] = []
+) => {
+  if (!entries.length && !comments.length && !categories.length) return ''
+  const byGroup = new Map<number, { row: number; label: string; columns: string[] }>()
+  const groupInfo = (groupId: number, row: number, name?: string | null) => {
+    const info = byGroup.get(groupId) ?? {
+      row,
+      label: name || `group_id ${groupId}`,
+      columns: []
+    }
+    info.row = Math.min(info.row, row)
+    byGroup.set(groupId, info)
+    return info
+  }
+  for (const e of entries) {
+    groupInfo(e.group_id, e.row, e.group_name).columns.push(...(e.columns ?? []))
+  }
+  // The sheet's last columns, so they close the group's listing.
+  for (const c of comments) {
+    groupInfo(c.group_id, c.row, c.group_name).columns.push('overall_comment')
+  }
+  for (const c of categories) {
+    groupInfo(c.group_id, c.row, c.group_name).columns.push(...(c.overwritten_columns ?? []))
+  }
+  return ` (${[...byGroup.values()]
+    .sort((a, b) => a.row - b.row)
+    .map(({ label, columns }) => (columns.length ? `${label} [${columns.join(', ')}]` : label))
+    .join(', ')})`
+}
+
 const reset = () => {
   file.value = null
   preview.value = null
   requestError.value = ''
   busy.value = 'idle'
+  // Clear the hidden native input too, so picking the same file again
+  // still fires a change event.
+  if (fileInput.value) fileInput.value.value = ''
 }
 
 const openDialog = () => {
   reset()
   open.value = true
+  // Best-effort: without it the calendar year stands in.
+  fetchSubmissionDeadline()
+    .then((r) => (deadline.value = r.deadline))
+    .catch(() => {})
 }
 
 const closeDialog = () => {
@@ -141,8 +340,15 @@ const closeDialog = () => {
 
 const onFileChange = () => {
   file.value = fileInput.value?.files?.[0] ?? null
+  // Clear the native input now that the File is captured — browsers skip
+  // the change event when the same file is re-picked, and re-picking is
+  // the only way to retry a failed preview.
+  if (fileInput.value) fileInput.value.value = ''
   preview.value = null
   requestError.value = ''
+  // Preview immediately — the dry run gates Apply anyway, so make the
+  // admin's next click Apply, not Preview.
+  if (file.value) void doPreview()
 }
 
 const doPreview = async () => {
@@ -167,7 +373,12 @@ const doApply = async () => {
     const data = await bulkUploadMarks(props.code, file.value, false)
     busy.value = 'idle'
     open.value = false
-    emit('applied', data.written ?? 0)
+    // The apply response carries the diff re-parsed at commit time, so the
+    // counts describe what was actually written.
+    emit('applied', {
+      overwritten: overwritingGroupIds(data).size,
+      created: newGroupIds(data).size
+    })
     reset()
   } catch (err) {
     busy.value = 'idle'
@@ -241,8 +452,40 @@ const doApply = async () => {
   font-size: 0.82rem;
 }
 
+/* Custom file picker matching the Document Setup page: the native input is
+   hidden because its "No file selected" text is part of the same clickable
+   control — only our button should open the dialog. */
 .bulk-upload__file {
-  font-size: 0.9rem;
+  display: none;
+}
+
+.bulk-upload__file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bulk-upload__file-btn {
+  background-color: transparent;
+  color: var(--dark-green);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.84rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.bulk-upload__file-btn:hover {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
+}
+
+.bulk-upload__file-name {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .bulk-upload__request-error {
@@ -257,82 +500,34 @@ const doApply = async () => {
   gap: 0.5rem;
 }
 
-.bulk-upload__badges {
+.bulk-upload__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.bulk-upload__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border-radius: 6px;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.8rem;
-}
-
-.bulk-upload__badge--creates {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-}
-
-.bulk-upload__badge--updates {
-  background: color-mix(in srgb, var(--warning) 22%, transparent);
-  color: #8a6100;
-}
-
-.bulk-upload__badge--errors {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-}
-
-.bulk-upload__badge--muted {
-  background: var(--bg-light);
-  color: var(--text-muted);
-}
-
-.bulk-upload__errors {
-  max-height: 12rem;
-  overflow: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-}
-
-.bulk-upload__errors table {
-  width: 100%;
-  border-collapse: collapse;
+  flex-direction: column;
+  gap: 0.25rem;
   font-size: 0.85rem;
 }
 
-.bulk-upload__errors th,
-.bulk-upload__errors td {
-  text-align: left;
-  padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid var(--border-light);
+/* Blank line between the validation checks and the record counts. */
+.bulk-upload__check-gap {
+  margin-top: 0.65rem;
 }
 
-.bulk-upload__errors thead th {
-  background: var(--bg-light);
-  color: var(--text-muted);
+.bulk-upload__check--ok {
+  color: var(--dark-green);
   font-weight: 600;
-  position: sticky;
-  top: 0;
 }
 
-.bulk-upload__errors tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.bulk-upload__row-col {
-  width: 5rem;
-  font-family: monospace;
-}
-
-.bulk-upload__fix-hint {
+.bulk-upload__check--bad {
   color: var(--danger);
-  font-size: 0.8rem;
-  margin: 0;
+  font-weight: 600;
+}
+
+/* Overwrites are the risky half of an apply — flag the count in amber. */
+.bulk-upload__count--overwrite {
+  color: #eab308;
 }
 
 .bulk-upload__footer {

@@ -1,9 +1,4 @@
-"""Per-slot rules for the three submission attachments.
-
-Slots are fixed by the competition: a poster, an optional scientific report,
-and an optional prototype. The first two must be PDFs; the third is
-deliberately open-ended.
-"""
+"""Validation rules for the poster, report and prototype attachments."""
 from __future__ import annotations
 
 from django.conf import settings
@@ -31,19 +26,13 @@ SLOT_LABELS = {
 _PDF_EXTENSIONS = ("pdf",)
 _PDF_MIME_TYPES = ("application/pdf",)
 
-# Every PDF begins with this. Some exporters emit a BOM or whitespace first,
-# so the first kilobyte is searched rather than only the opening bytes.
+# Searched for in the first kilobyte, since some exporters write a BOM first.
 _PDF_MAGIC = b"%PDF-"
 _PDF_MAGIC_SEARCH_BYTES = 1024
 
 
 def _looks_like_pdf(uploaded_file) -> bool:
-    """True when the file's *contents* actually start as a PDF.
-
-    Extension and declared content type are both supplied by the client and
-    are trivially faked — renaming ``notes.txt`` to ``poster.pdf`` passes both.
-    Reading the file itself is the only check that means anything.
-    """
+    """Whether the file's contents are a PDF; its name and declared type can be faked."""
     read = getattr(uploaded_file, "read", None)
     seek = getattr(uploaded_file, "seek", None)
     if read is None or seek is None:
@@ -54,7 +43,6 @@ def _looks_like_pdf(uploaded_file) -> bool:
     except Exception:
         return False
     finally:
-        # Always rewind: whatever we do next has to read from the start.
         try:
             seek(0)
         except Exception:
@@ -63,27 +51,17 @@ def _looks_like_pdf(uploaded_file) -> bool:
 
 
 def max_size_for(slot: str) -> int:
-    """Upload ceiling for one slot.
-
-    The PDF slots are held to a tighter limit than the prototype, which may
-    legitimately be an archive, a CAD model or a video.
-    """
     if slot in PDF_SLOTS:
         return settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE
     return settings.SUBMISSION_FILE_MAX_UPLOAD_SIZE
 
 
 def max_sizes() -> dict:
-    """Per-slot ceilings, published so the page can state and pre-check them."""
     return {slot: max_size_for(slot) for slot in SLOTS}
 
 
 def validate_submission_file(uploaded_file, slot: str):
-    """Validate one upload against the rules for its slot.
-
-    Raises ``serializers.ValidationError`` with a message meant to be shown to
-    the student, since a rejected upload needs to say what to do about it.
-    """
+    """Raise a student-facing ValidationError if the upload breaks its slot's rules."""
     if slot not in SLOTS:
         raise serializers.ValidationError(f"Unknown attachment slot '{slot}'.")
 
@@ -105,7 +83,7 @@ def validate_submission_file(uploaded_file, slot: str):
             )
         return uploaded_file
 
-    # Prototype: anything a team might plausibly build, minus executables.
+    # The prototype accepts any type except executables.
     return validate_unrestricted_upload(
         uploaded_file,
         max_size=max_size,
