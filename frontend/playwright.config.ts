@@ -2,16 +2,31 @@ import process from 'node:process'
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Where the two apps are. The ticket suite drives BOTH frontends (a student
- * in the portal, an agent in the admin app), so it needs two origins. When
- * E2E_PORTAL_URL is set the harness has already started every server it
- * wants tested (portal, admin app, backend) and Playwright must not start
- * its own; the webServer block below switches off accordingly.
+ * Where the app is. The ticket suite drives both sides of support through
+ * the one Vue portal: a student in the Support Centre and a support agent in
+ * the portal's own ticket queue (/admin/tickets). The React admin app used to
+ * be the agent's side; it is being retired and nothing here drives it.
+ *
+ * When E2E_PORTAL_URL is set the harness has already started every server it
+ * wants tested (the portal and the backend it talks to) and Playwright must
+ * not start its own; the webServer block below switches off accordingly.
+ * E2E_API_URL is that backend, which the specs call directly to check what
+ * was (and was not) written. It has to be the same origin the portal was
+ * built against (VITE_API_BASE_URL), or the two would be looking at
+ * different databases.
  */
 export const PORTAL_URL =
   process.env.E2E_PORTAL_URL ??
   (process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173')
-export const ADMIN_URL = process.env.E2E_ADMIN_URL ?? 'http://localhost:3000'
+export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:8000'
+
+/**
+ * A Chromium to launch instead of the build this Playwright version pins.
+ * For machines where that build is not installed and cannot be (no network,
+ * or an older cache): point it at any Chrome for Testing binary in
+ * ~/Library/Caches/ms-playwright. Unset, Playwright uses its own.
+ */
+const CHROMIUM_PATH = process.env.E2E_CHROMIUM_PATH || undefined
 
 /**
  * Read environment variables from file.
@@ -51,8 +66,10 @@ export default defineConfig({
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
 
-    /* Only on CI systems run the tests headless */
-    headless: !!process.env.CI,
+    /* Headless on CI and under the harness (E2E_PORTAL_URL): a harness run
+     * must not open windows on the desktop of whoever started it. Pass
+     * --headed to watch one. */
+    headless: !!process.env.CI || !!process.env.E2E_PORTAL_URL,
   },
 
   /* Configure projects for major browsers */
@@ -61,6 +78,7 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
+        ...(CHROMIUM_PATH ? { launchOptions: { executablePath: CHROMIUM_PATH } } : {}),
       },
     },
     {
