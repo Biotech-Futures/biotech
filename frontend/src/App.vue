@@ -3,7 +3,7 @@
     <header class="header" v-if="!isLoginPage">
       <div class="header-content">
         <div class="logo-section">
-          <RouterLink to="/dashboard" class="logo">
+          <RouterLink :to="logoTarget" class="logo">
             <div class="logo-icon">
               <img :src="logo" :alt="BRAND_NAME" />
             </div>
@@ -57,69 +57,89 @@
       <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
-            <li class="sidebar-item">
-              <RouterLink
-                to="/dashboard"
-                class="sidebar-link"
-                :class="{ active: route.path === '/dashboard' }"
-              >
-                <i class="fas fa-home sidebar-icon"></i>
-                <span>Home</span>
-              </RouterLink>
-            </li>
+            <!-- Member pages. A support agent who is not an admin gets the
+                 queue and nothing else; the guard sends them back from these
+                 anyway, so offering the links would only be a detour. -->
+            <template v-if="!auth.isSupportOnly">
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/dashboard"
+                  class="sidebar-link"
+                  :class="{ active: route.path === '/dashboard' }"
+                >
+                  <i class="fas fa-home sidebar-icon"></i>
+                  <span>Home</span>
+                </RouterLink>
+              </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/groups"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/groups') }"
-              >
-                <i class="fas fa-users sidebar-icon"></i>
-                <span>Groups</span>
-              </RouterLink>
-            </li>
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/groups"
+                  class="sidebar-link"
+                  :class="{ active: route.path.startsWith('/groups') }"
+                >
+                  <i class="fas fa-users sidebar-icon"></i>
+                  <span>Groups</span>
+                </RouterLink>
+              </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/events"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/events') }"
-              >
-                <i class="fas fa-calendar sidebar-icon"></i>
-                <span>Events</span>
-              </RouterLink>
-            </li>
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/events"
+                  class="sidebar-link"
+                  :class="{ active: route.path.startsWith('/events') }"
+                >
+                  <i class="fas fa-calendar sidebar-icon"></i>
+                  <span>Events</span>
+                </RouterLink>
+              </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/announcements"
-                class="sidebar-link"
-                :class="{ active: route.path === '/announcements' }"
-              >
-                <i class="fas fa-bullhorn sidebar-icon"></i>
-                <span>Announcements</span>
-              </RouterLink>
-            </li>
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/announcements"
+                  class="sidebar-link"
+                  :class="{ active: route.path === '/announcements' }"
+                >
+                  <i class="fas fa-bullhorn sidebar-icon"></i>
+                  <span>Announcements</span>
+                </RouterLink>
+              </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/resources"
-                class="sidebar-link"
-                :class="{ active: route.path === '/resources' }"
-              >
-                <i class="fas fa-book sidebar-icon"></i>
-                <span>Resources</span>
-              </RouterLink>
-            </li>
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/resources"
+                  class="sidebar-link"
+                  :class="{ active: route.path === '/resources' }"
+                >
+                  <i class="fas fa-book sidebar-icon"></i>
+                  <span>Resources</span>
+                </RouterLink>
+              </li>
 
-            <li class="sidebar-item">
+              <li class="sidebar-item">
+                <RouterLink
+                  to="/support"
+                  class="sidebar-link"
+                  :class="{ active: route.path.startsWith('/support') }"
+                >
+                  <i class="fas fa-life-ring sidebar-icon"></i>
+                  <span>Support</span>
+                </RouterLink>
+              </li>
+            </template>
+
+            <!-- The agent side of support tickets, on the server's isSupport
+                 flag: admins, support agents and anyone granted access on the
+                 roster. One entry point for all of them, so it is not also an
+                 Admin sub-item. -->
+            <li class="sidebar-item" v-if="auth.canWorkTickets">
               <RouterLink
-                to="/support"
+                to="/admin/tickets"
                 class="sidebar-link"
-                :class="{ active: route.path.startsWith('/support') }"
+                :class="{ active: route.path.startsWith('/admin/tickets') }"
               >
-                <i class="fas fa-life-ring sidebar-icon"></i>
-                <span>Support</span>
+                <i class="fas fa-headset sidebar-icon"></i>
+                <span>Support queue</span>
               </RouterLink>
             </li>
 
@@ -160,6 +180,18 @@
                     :class="{ active: route.path === '/admin/users' }"
                   >
                     <span>Users</span>
+                  </RouterLink>
+                </li>
+                <!-- Admin-only, and deliberately not beside Support queue: a
+                     support agent must not be offered the screen that grants
+                     the role (adminweb Nav.tsx). -->
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/admin/support-agents"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/admin/support-agents' }"
+                  >
+                    <span>Support agents</span>
                   </RouterLink>
                 </li>
                 <li class="sidebar-subitem">
@@ -332,6 +364,7 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { landingPath } from '@/utils/landing'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 
@@ -383,8 +416,13 @@ const isLoginPage = computed(() =>
   ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
+// A support-only account's start page is the queue (or the page explaining
+// why it has none), not the member dashboard it cannot open.
+const logoTarget = computed(() => (auth.isSupportOnly ? landingPath(auth) : '/dashboard'))
+// Support-only accounts belong to no group and cannot open /groups; skipping
+// the switcher also skips its group list and per-group unread requests.
 const showSidebarGroupSwitcher = computed(
-  () => !isLoginPage.value && route.path.startsWith('/groups'),
+  () => !isLoginPage.value && !auth.isSupportOnly && route.path.startsWith('/groups'),
 )
 
 const sidebarGroups = ref<SidebarGroupOption[]>([])

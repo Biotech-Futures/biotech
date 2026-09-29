@@ -59,6 +59,12 @@ const router = createRouter({
 })
 
 import { useAuthStore } from '../stores/auth'
+import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
+
+// Pages a support-only account may open besides the ticket routes: its own
+// profile (the timezone prompt after sign-in sends people there) and the page
+// that explains a missing queue grant.
+const SUPPORT_ONLY_EXTRA_PATHS = ['/profile', SUPPORT_ACCESS_PATH]
 
 router.beforeEach((to, from, next) => {
 
@@ -68,6 +74,9 @@ router.beforeEach((to, from, next) => {
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
+  // meta.requiresSupport sits on the /admin/tickets parent and Vue Router
+  // merges it into every child's meta, so this covers the whole section.
+  const isTicketRoute = to.meta.requiresSupport === true
 
   if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
@@ -76,22 +85,40 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next('/dashboard')
+    next(landingPath(auth))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     next('/login')
 
+  } else if (isTicketRoute && !auth.canWorkTickets) {
+    // Queue access is the server's isSupport flag, not the role: a student
+    // goes home, a role-support account without access goes to the page that
+    // says why.
+    next(landingPath(auth))
+
+  } else if (
+    auth.isSupportOnly &&
+    !isPublicPath &&
+    !isTicketRoute &&
+    !SUPPORT_ONLY_EXTRA_PATHS.includes(to.path) &&
+    !to.path.startsWith('/auth/')
+  ) {
+    // A support agent who is not an admin gets the queue and nothing else.
+    // Hiding the rest is a courtesy, not the control: the member and admin
+    // endpoints refuse them at the server (adminweb Nav.tsx). The /auth
+    // clause is load-bearing: an agent who still owes a password is sent to
+    // /auth/set-password by the rules above, and without it this rule would
+    // send them straight back to the landing, which sends them there again.
+    next(landingPath(auth))
+
   } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {
-    // Admin-only routes are off-limits to non-admins; send members home.
-    next('/dashboard')
+    // Admin-only routes are off-limits to non-admins; send them to their own
+    // start page (members home, a support agent to the queue).
+    next(landingPath(auth))
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
-    if (auth.mustChangePassword) {
-      next(passwordSetupPath)
-      return
-    }
-
-    next(auth.isAdmin ? '/admin' : '/dashboard')
+    // landingPath() answers the set-password case first, as this branch did.
+    next(landingPath(auth))
   } else {
     next()
   }

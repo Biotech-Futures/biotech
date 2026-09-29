@@ -17,6 +17,8 @@ describe('redirectAfterLogin for admins', () => {
     const auth = {
       isAdmin: true,
       mustChangePassword: false,
+      isSupportOnly: false,
+      canWorkTickets: true,
       user: { id: 1, timezone: 'UTC' }
     }
 
@@ -33,6 +35,8 @@ describe('redirectAfterLogin for admins', () => {
     const auth = {
       isAdmin: false,
       mustChangePassword: false,
+      isSupportOnly: false,
+      canWorkTickets: false,
       timeZone: 'UTC',
       user: { id: 2, timezone: 'UTC' }
     }

@@ -1,9 +1,8 @@
 import type { Router } from 'vue-router'
 import { formatTimeZoneLabel, getBrowserTimeZone, normalizeTimeZone } from '@/utils/date'
+import { landingPath, type LandingAuth } from '@/utils/landing'
 
-interface AdminAwareAuth {
-  isAdmin: boolean
-  mustChangePassword: boolean
+interface AdminAwareAuth extends LandingAuth {
   timeZone?: string
   user?: {
     id?: number | string
@@ -31,24 +30,20 @@ const shouldPromptForTimezoneMismatch = (auth: AdminAwareAuth) => {
 }
 
 export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) => {
-  if (auth.mustChangePassword) {
-    await router.replace('/auth/set-password')
-    return
-  }
+  const target = landingPath(auth)
 
-  if (auth.isAdmin) {
-    await router.replace('/admin')
-    return
-  }
-
+  // Never asked of admins or of someone who still has to set a password
+  // (shouldPromptForTimezoneMismatch returns early for both). Everyone else,
+  // support agents included, may be; /profile stays open to a support-only
+  // account for this reason.
   if (shouldPromptForTimezoneMismatch(auth)) {
     await router.replace('/profile')
     return
   }
 
   try {
-    await router.replace('/dashboard')
+    await router.replace(target)
   } catch {
-    window.location.href = '/#/dashboard'
+    window.location.href = `/#${target}`
   }
 }

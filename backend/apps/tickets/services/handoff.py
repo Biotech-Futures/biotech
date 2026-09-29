@@ -81,7 +81,11 @@ def _evidence_body(ticket, *, message, verdict, text_snapshot, group, sender) ->
 
     group_name = getattr(group, "group_name", "") or "Unknown group"
     group_id = getattr(group, "pk", None)
-    admin_base = getattr(settings, "ADMIN_FRONTEND_BASE_URL", "").rstrip("/")
+    # The portal, not the admin app: the agent side of the queue moved into
+    # the Vue portal, and the admin app's host goes when that app does. A
+    # link written into a ticket outlives every deploy, so it has to point
+    # somewhere that stays.
+    portal_base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
 
     lines = [
         "A message was flagged by automated screening.",
@@ -98,8 +102,10 @@ def _evidence_body(ticket, *, message, verdict, text_snapshot, group, sender) ->
         "Review it here:",
         # The queue page opens the detail as a slide-over panel rather than
         # its own route, so this link only works if that panel honours
-        # ?ticket=<id>. W7 owns that.
-        f"1. This ticket: {admin_base}/tickets?ticket={ticket.pk}",
+        # ?ticket=<id>. Hash routing, like every other portal link we send
+        # (emails._ticket_url): without the "#" the portal's router never
+        # sees the path and sends the agent to its login page instead.
+        f"1. This ticket: {portal_base}/#/admin/tickets?ticket={ticket.pk}",
         # Group messages are a modal inside the admin groups list and have no
         # address of their own, so this half is directions rather than a link.
         f"2. The conversation: Admin → Groups → {group_name} "
