@@ -34,6 +34,7 @@ export interface PosterChecks {
 }
 
 export interface SubmissionRecord {
+  project_title: string
   answers: Record<string, string>
   poster: StoredFile | null
   poster_checks: PosterChecks | null
@@ -41,6 +42,7 @@ export interface SubmissionRecord {
   prototype: StoredFile | null
   prototype_url: string
   /** The submitted copy, unchanged while a revision is in progress. */
+  submitted_project_title: string
   submitted_answers: Record<string, string> | null
   submitted_poster: StoredFile | null
   submitted_poster_checks: PosterChecks | null
@@ -83,6 +85,7 @@ export interface SubmissionWriteResult {
 }
 
 export interface SaveDraftPayload {
+  project_title?: string
   answers?: Record<string, string>
   prototype_url?: string
 }

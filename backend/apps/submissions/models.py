@@ -183,6 +183,8 @@ class Submission(models.Model):
     # Stored, since a grace window can put submitting in a different year.
     cohort = models.PositiveIntegerField(default=_default_cohort, db_index=True)
 
+    project_title = models.CharField(max_length=150, blank=True)
+
     # Keyed by question key.
     answers = models.JSONField(default=dict, blank=True)
 
@@ -196,6 +198,7 @@ class Submission(models.Model):
     poster_checks = models.JSONField(null=True, blank=True)
 
     # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
+    submitted_project_title = models.CharField(max_length=150, blank=True)
     submitted_answers = models.JSONField(null=True, blank=True)
     submitted_poster = models.JSONField(null=True, blank=True)
     submitted_poster_checks = models.JSONField(null=True, blank=True)
@@ -241,6 +244,8 @@ class Submission(models.Model):
 
     @property
     def has_content(self) -> bool:
+        if self.project_title.strip():
+            return True
         if any(str(value).strip() for value in (self.answers or {}).values()):
             return True
         if self.prototype_url:
@@ -256,6 +261,7 @@ class Submission(models.Model):
 
     def snapshot(self, user):
         """Copy the working entry into the submitted set."""
+        self.submitted_project_title = self.project_title
         self.submitted_answers = dict(self.answers or {})
         for slot in self.FILE_SLOTS:
             setattr(self, f"submitted_{slot}", getattr(self, slot))

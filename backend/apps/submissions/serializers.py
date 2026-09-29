@@ -22,12 +22,14 @@ class SubmissionSerializer(serializers.ModelSerializer):
         model = Submission
         fields = [
             "cohort",
+            "project_title",
             "answers",
             "poster",
             "poster_checks",
             "report",
             "prototype",
             "prototype_url",
+            "submitted_project_title",
             "submitted_answers",
             "submitted_poster",
             "submitted_poster_checks",
@@ -54,8 +56,9 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
 
 class SubmissionDraftSerializer(serializers.Serializer):
-    """Answers and the prototype link; files have their own endpoint."""
+    """Title, answers and the prototype link; files have their own endpoint."""
 
+    project_title = serializers.CharField(max_length=150, required=False, allow_blank=True)
     answers = serializers.DictField(
         child=serializers.CharField(allow_blank=True, trim_whitespace=False),
         required=False,

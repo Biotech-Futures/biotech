@@ -25,6 +25,7 @@ from .errors import (
     NotSubmittedYet,
     PosterFormatRejected,
     PosterRequired,
+    ProjectTitleRequired,
     RequiredAnswersMissing,
     SubmissionLocked,
     SubmissionsClosed,
@@ -140,6 +141,8 @@ class GroupSubmissionView(APIView):
             )
             _require_unlocked(submission)
 
+            if "project_title" in data:
+                submission.project_title = data["project_title"]
             if "answers" in data:
                 # Merged, not replaced, so teammates on different questions do not collide.
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
@@ -298,6 +301,9 @@ class GroupSubmissionSubmitView(APIView):
 
             if not submission.poster:
                 raise PosterRequired()
+
+            if not submission.project_title.strip():
+                raise ProjectTitleRequired()
 
             # Enforced only at submit, so a half-finished draft can still be saved.
             missing = missing_required_answers(submission)

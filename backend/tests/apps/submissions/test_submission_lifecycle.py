@@ -60,7 +60,9 @@ class SubmissionLifecycleTests(TestCase):
         return {q.key: text for q in SubmissionQuestion.active()}
 
     def _fill_and_submit(self, text="Original answer.", poster_name="original.pdf"):
-        self.client.put(self.detail_url, {"answers": self._answers(text)}, format="json")
+        self.client.put(
+            self.detail_url, {"project_title": "Our Project", "answers": self._answers(text)}, format="json"
+        )
         self.client.post(self._file_url("poster"), {"file": _pdf(poster_name)}, format="multipart")
         return self.client.post(self.submit_url, {}, format="json")
 
