@@ -50,6 +50,63 @@ def _looks_like_pdf(uploaded_file) -> bool:
     return bool(head) and _PDF_MAGIC in head
 
 
+FINALIST_MAX_UPLOAD_SIZE = getattr(settings, "SUBMISSION_FINALIST_MAX_UPLOAD_SIZE", 25 * 1024 * 1024)
+
+# The file's first bytes must match its extension; the declared type is not trusted.
+_OLE_MAGIC = bytes.fromhex("D0CF11E0A1B11AE1")
+_ZIP_MAGIC = b"PK\x03\x04"
+
+
+def _head(uploaded_file, size: int) -> bytes:
+    try:
+        uploaded_file.seek(0)
+        return uploaded_file.read(size) or b""
+    except Exception:
+        return b""
+    finally:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+
+
+def _is_pptx(uploaded_file) -> bool:
+    import zipfile
+
+    if not _head(uploaded_file, 4).startswith(_ZIP_MAGIC):
+        return False
+    try:
+        with zipfile.ZipFile(uploaded_file) as archive:
+            return "ppt/presentation.xml" in archive.namelist()
+    except Exception:
+        return False
+    finally:
+        uploaded_file.seek(0)
+
+
+def validate_presentation_file(uploaded_file):
+    """A PDF, PPT or PPTX within the finalist size limit, checked by content."""
+    size = getattr(uploaded_file, "size", 0) or 0
+    if size > FINALIST_MAX_UPLOAD_SIZE:
+        raise serializers.ValidationError(
+            f"The presentation is larger than {FINALIST_MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
+        )
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    extension = name.rsplit(".", 1)[-1] if "." in name else ""
+    checks = {
+        "pdf": lambda f: _looks_like_pdf(f),
+        "pptx": _is_pptx,
+        "ppt": lambda f: _head(f, 8) == _OLE_MAGIC,
+    }
+    if extension not in checks:
+        raise serializers.ValidationError("The presentation must be a PDF or PowerPoint file.")
+    if not checks[extension](uploaded_file):
+        raise serializers.ValidationError(
+            f"The file is named like a .{extension} but its contents are not."
+        )
+    return uploaded_file
+
+
 def max_size_for(slot: str) -> int:
     if slot in PDF_SLOTS:
         return settings.SUBMISSION_PDF_MAX_UPLOAD_SIZE

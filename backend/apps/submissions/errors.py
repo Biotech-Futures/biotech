@@ -41,6 +41,24 @@ class ProjectTitleRequired(APIException):
     default_code = "project_title_required"
 
 
+class NotAFinalist(APIException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "This team is not in the finalist round."
+    default_code = "not_a_finalist"
+
+
+class AvailabilityRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Choose at least one session your team can attend."
+    default_code = "availability_required"
+
+
+class PresentationRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "A presentation must be uploaded before the entry can be submitted."
+    default_code = "presentation_required"
+
+
 class RequiredAnswersMissing(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Some required questions have not been answered."

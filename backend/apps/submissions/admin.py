@@ -2,6 +2,9 @@ from django.contrib import admin
 
 from .models import (
     Deadline,
+    FinalistDeadline,
+    FinalistEntry,
+    FinalistSession,
     GroupExtension,
     Submission,
     SubmissionInstruction,
@@ -72,3 +75,30 @@ class SubmissionAdmin(admin.ModelAdmin):
         if not flag.get("has_text", True):
             return "No text to check"
         return "OK" if not warnings else f"{len(warnings)} warning(s)"
+
+
+# Stopgap until the admin portal manages the finalist round.
+@admin.register(FinalistDeadline)
+class FinalistDeadlineAdmin(admin.ModelAdmin):
+    list_display = ("closes_at", "is_active", "set_by", "created_at")
+    list_filter = ("is_active",)
+
+
+@admin.register(FinalistSession)
+class FinalistSessionAdmin(admin.ModelAdmin):
+    list_display = ("order", "label", "is_active")
+    list_editable = ("label", "is_active")
+    list_display_links = ("order",)
+
+
+@admin.register(FinalistEntry)
+class FinalistEntryAdmin(admin.ModelAdmin):
+    list_display = ("group", "is_submitted", "submitted_at", "updated_at")
+    search_fields = ("group__group_name",)
+    readonly_fields = ("created_at", "updated_at")
+    list_select_related = ("group",)
+
+    @admin.display(boolean=True, description="Submitted")
+    def is_submitted(self, obj):
+        return obj.is_submitted
+

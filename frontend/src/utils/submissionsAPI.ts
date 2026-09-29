@@ -90,7 +90,7 @@ export interface SaveDraftPayload {
   prototype_url?: string
 }
 
-async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = String(options.method || 'GET').toUpperCase()
   const isFormData = options.body instanceof FormData
   const includeCSRF = !['GET', 'HEAD', 'OPTIONS'].includes(method)
@@ -153,12 +153,21 @@ export function reopenEntry(groupId: number | string) {
 }
 
 /** Uses XMLHttpRequest because fetch cannot report upload progress. */
-export async function uploadSubmissionFile(
+export function uploadSubmissionFile(
   groupId: number | string,
   slot: SubmissionSlot,
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<SubmissionWriteResult> {
+  return postFileWithProgress<SubmissionWriteResult>(`${base(groupId)}/files/${slot}/`, file, onProgress)
+}
+
+/** Uses XMLHttpRequest because fetch cannot report upload progress. */
+export async function postFileWithProgress<T>(
+  path: string,
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<T> {
   const csrfReady = await ensureCsrfCookie(API_BASE_URL)
   if (!csrfReady) {
     throw new Error('Could not initialize a secure session. Please refresh and try again.')
@@ -173,9 +182,9 @@ export async function uploadSubmissionFile(
     headers: { Accept: 'application/json' }
   })
 
-  return new Promise<SubmissionWriteResult>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const request = new XMLHttpRequest()
-    request.open('POST', `${API_BASE_URL}${base(groupId)}/files/${slot}/`)
+    request.open('POST', `${API_BASE_URL}${path}`)
     request.withCredentials = true
     headers.forEach((value, key) => {
       if (value) request.setRequestHeader(key, value)
@@ -194,7 +203,7 @@ export async function uploadSubmissionFile(
         parsed = null
       }
       if (request.status >= 200 && request.status < 300) {
-        resolve(parsed as SubmissionWriteResult)
+        resolve(parsed as T)
         return
       }
       // Same error shape as the fetch-based calls.
