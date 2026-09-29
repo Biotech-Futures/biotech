@@ -1062,8 +1062,8 @@ describe('handing a batch back to the pool', () => {
   })
 
   it('passes on the transport’s own refusal instead of advising a retry', async () => {
-    // A session that changed hands is refused again on every press, so
-    // "try again" is the one answer that cannot be right. "Nothing was
+    // A session that changed hands needs a reload and a fresh sign-in, so
+    // "try again" is the wrong advice. "Nothing was
     // changed" stays: it is the first thing somebody told their session
     // changed hands wants to know.
     const { TicketSessionError } = await import('@/utils/ticketTransport')

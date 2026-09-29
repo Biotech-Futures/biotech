@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useAuthStore } from '@/stores/auth'
-import { adminPost } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
-import { getCSRFToken, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
-import { setEventRsvp } from '@/utils/eventsAPI'
+import { getCSRFToken, resetCsrfToken } from '@/utils/csrf'
 import {
   TicketSessionError,
   fetchBlob,
@@ -20,14 +18,12 @@ import {
  * The ticket transport against a pretend backend, with the REAL csrf.ts.
  *
  * supportAPI.spec.ts stubs csrf.ts with an ensureCsrfCookie that never fetches
- * and never fills the cache, so every case there is a warm cache. That is why
- * the takeover guard passed all its tests while T01 was open: the defect is a
- * token fetched after somebody else signed in, and a stub that never fetches
- * cannot hand one out. Here nothing in csrf.ts is replaced. The cache is its real module state, a
- * cold cache is `resetCsrfToken()`, and a warm one is `setCsrfToken(...)`, the
- * same call the login flow makes (stores/auth.ts).
+ * and never fills the cache. Here nothing in csrf.ts is replaced. The cache is
+ * its real module state, and every case starts with it empty
+ * (`resetCsrfToken()`), as a page that has just loaded does.
  *
- * The backend below models the two facts T01 is made of, and nothing else:
+ * The backend below models the two facts the stale-session guard is about,
+ * and nothing else:
  *   - one cookie jar per browser, so a sign-in in any tab changes whose
  *     session every tab's next request carries;
  *   - login() rotates the CSRF secret, so a token fetched before a sign-in is
@@ -39,10 +35,13 @@ import {
  * audit row names whoever owns the session, and whose answer is the file. A
  * GET to it is refused with a 405, as the export view refuses one.
  *
+ * The guard only runs when the token a write carries is older than somebody
+ * else's sign-in. A write whose token was fetched after that sign-in goes out
+ * under the other person (T01). The owner ruled that out of scope on
+ * 2026-09-29 (see send in ticketTransport.ts), so no case here covers it.
+ *
  * Tokens are unique across the whole file, as Django's are (it masks the
- * secret afresh on every fetch). The transport keeps track of which token it
- * has checked, and a later case must not inherit an earlier case's check by
- * being handed the same string.
+ * secret afresh on every fetch).
  */
 let backends = 0
 
@@ -58,16 +57,10 @@ function fakeBackend() {
     seen: [] as string[],
     // Writes the server accepted, and whose name they went under.
     filed: [] as Array<{ path: string; by: number | null }>,
-    // "Somebody signs in right after the server answered this", once.
-    afterCsrf: null as null | (() => void),
-    afterMe: null as null | (() => void),
     // /users/me/ failing for a reason of its own (a gateway in the way).
     meFailsWith: null as null | number,
     // /services/csrf/ down, so no token can be had.
     csrfDown: false,
-    // While set, /users/me/ holds its answer until the promise settles: a
-    // slow answer, so a second write can start while the first one waits.
-    meHeldUntil: null as null | Promise<void>,
     signIn(userId: number) {
       server.sessionUser = userId
       server.secret += 1
@@ -90,11 +83,7 @@ function fakeBackend() {
 
     if (url.pathname === '/services/csrf/') {
       if (server.csrfDown) return new Response('down', { status: 503 })
-      const answer = json({ csrfToken: server.token() })
-      const hook = server.afterCsrf
-      server.afterCsrf = null
-      hook?.()
-      return answer
+      return json({ csrfToken: server.token() })
     }
     if (url.pathname === '/api/v1/users/me/') {
       if (server.meFailsWith !== null) {
@@ -102,18 +91,13 @@ function fakeBackend() {
           status: server.meFailsWith
         })
       }
-      if (server.meHeldUntil) await server.meHeldUntil
       if (server.sessionUser === null) {
         return json(
           { error: 'Authentication credentials were not provided.', code: 'not_authenticated' },
           403
         )
       }
-      const answer = json({ id: server.sessionUser, email: `user${server.sessionUser}@x.test` })
-      const hook = server.afterMe
-      server.afterMe = null
-      hook?.()
-      return answer
+      return json({ id: server.sessionUser, email: `user${server.sessionUser}@x.test` })
     }
     if (method === 'GET') {
       if (url.pathname === EXPORT_PATH) {
@@ -147,22 +131,6 @@ function sendReply() {
   })
 }
 
-// Lets pending fetches and their continuations run until `done` holds.
-async function until(done: () => boolean) {
-  for (let turn = 0; turn < 50 && !done(); turn += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  }
-  expect(done()).toBe(true)
-}
-
-// How a write ended, in words a test can compare.
-function outcome(write: Promise<unknown>): Promise<string> {
-  return write.then(
-    () => 'sent',
-    (error: unknown) => (error instanceof TicketSessionError ? 'refused' : `failed: ${error}`)
-  )
-}
-
 function signInThisTabAs(userId: number | null) {
   const auth = useAuthStore()
   auth.user =
@@ -187,270 +155,10 @@ afterEach(() => {
   resetCsrfToken()
 })
 
-describe('the first write after the page loaded (a cold cache, T01)', () => {
-  it('is never sent once /users/me/ says somebody else owns the session', async () => {
-    // The page loaded as 7. Then somebody signed in as 99 in another tab of
-    // the same browser, and nobody reloaded this one. Before the fix the token
-    // fetch handed this tab 99's valid token and the reply was filed as 99's.
-    const { server } = backend
-    server.signIn(99)
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    // The write itself never left the browser.
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('is sent exactly once when it is still the same person', async () => {
-    const { server } = backend
-
-    await expect(sendReply()).resolves.toEqual({ filedUnder: 7 })
-
-    expect(server.filed).toEqual([{ path: REPLY_PATH, by: 7 }])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`
-    ])
-  })
-
-  it('asks who is signed in once per page load, not once per write', async () => {
-    // The cost of the fix after a page load: one GET, on the first write only.
-    // The second write carries the token that was just checked and goes
-    // straight out, exactly as before.
-    const { server } = backend
-
-    await sendReply()
-    await sendReply()
-
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      `POST ${REPLY_PATH}`
-    ])
-    expect(server.filed).toEqual([
-      { path: REPLY_PATH, by: 7 },
-      { path: REPLY_PATH, by: 7 }
-    ])
-  })
-
-  it('refuses the second press of Send as well as the first', async () => {
-    // The check that refused the first attempt fetched a token for 99's
-    // session to do it, a valid one. Pressing Send again is exactly what
-    // somebody does after a refusal, and that click must not go out on 99's
-    // token: T01 again, one click later. The refusal empties the cache, so
-    // the second attempt fetches afresh and is asked about in turn.
-    const { server } = backend
-    server.signIn(99)
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    expect(getCSRFToken()).toBeNull()
-  })
-
-  it('refuses when this tab does not know who it is', async () => {
-    // Unknown identity is not a match. There is nobody to compare /users/me/
-    // with, so nothing can vouch for the session the token belongs to.
-    const { server } = backend
-    signInThisTabAs(null)
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/'])
-  })
-
-  it('refuses when /users/me/ answers with a failure instead of a person', async () => {
-    // "Cannot confirm" is not "same person". A gateway error on the question
-    // says nothing about whose session the token belongs to, and the session
-    // may well be somebody else's by now: sending would be a guess.
-    const { server } = backend
-    server.signIn(99)
-    server.meFailsWith = 502
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('refuses when /users/me/ says nobody is signed in', async () => {
-    // Signed out in another tab: /users/me/ answers 403 not_authenticated.
-    // Nobody this tab could be is on the session, so the write does not go.
-    const { server } = backend
-    server.sessionUser = null
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('catches a sign-in that lands between the token fetch and the check, before sending', async () => {
-    // The token this tab just fetched is 7's, and a moment later 99 signs in.
-    // The check sees 99 and the write never goes out. Without the check the
-    // write would still be refused, but only after it had been sent: the
-    // rotated token 403s and the stale-token branch catches it. The assertion
-    // on `seen` is what tells the two apart.
-    const { server } = backend
-    server.afterCsrf = () => server.signIn(99)
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('catches a sign-in that lands after the check, through the stale-token branch', async () => {
-    // The last ordering. /users/me/ said 7, then 99 signed in before the write
-    // went out. The token fetched for 7 is now rotated, so the write is
-    // refused as a stale CSRF token, and the branch below the send asks again
-    // and does not replay it.
-    const { server } = backend
-    server.afterMe = () => server.signIn(99)
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/'
-    ])
-  })
-
-  it('sends the token it checked, not one put in the cache while it asked', async () => {
-    // /users/me/ said 7. Before the write leaves, 99 signs in and some other
-    // module refills the shared cache with a token for 99's session. The
-    // write must carry the token that was checked, which the sign-in has
-    // rotated, so it 403s and is refused. Reading the cache at send time
-    // instead would pick up 99's valid token and file the reply as 99's.
-    const { server } = backend
-    server.afterMe = () => {
-      server.signIn(99)
-      setCsrfToken(server.token())
-    }
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/'
-    ])
-  })
-
-  it('judges by who this tab was before the token fetch started', async () => {
-    // Defence in depth, the same shape as the 403-window case in
-    // supportAPI.spec.ts. This tab's own identity changes while the token is
-    // being fetched. The person who pressed Send was 7, so 99's session must
-    // not carry the write.
-    const { server } = backend
-    server.afterCsrf = () => {
-      server.signIn(99)
-      signInThisTabAs(99)
-    }
-
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('says why it refused in a way the agent pages can tell from a fault', async () => {
-    backend.server.signIn(99)
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    // The requester's sentence, byte for byte what supportAPI.ts always threw.
-    expect((error as Error).message).toBe(
-      'You appear to be signed in as someone else now — this can happen if you ' +
-        'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
-    )
-  })
-})
-
-describe('two writes started together on a cold cache', () => {
-  // The first write fetched a token and is still waiting for /users/me/ to
-  // answer. The second starts in that window: a double click, or a reply and
-  // a status change sent together. The cache is not empty any more, but the
-  // token in it is one nobody has checked yet.
-  function holdTheAnswer() {
-    let release!: () => void
-    backend.server.meHeldUntil = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    return () => {
-      backend.server.meHeldUntil = null
-      release()
-    }
-  }
-
-  it('sends neither once somebody else owns the session', async () => {
-    const { server } = backend
-    server.signIn(99)
-    const release = holdTheAnswer()
-
-    const first = outcome(sendReply())
-    await until(() => server.seen.includes('GET /api/v1/users/me/'))
-    const second = outcome(sendReply())
-    await until(() => server.seen.length === 3)
-    release()
-
-    expect([await first, await second]).toEqual(['refused', 'refused'])
-    expect(server.filed).toEqual([])
-    // The second write asked too, instead of going out on 99's token.
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      'GET /api/v1/users/me/'
-    ])
-  })
-
-  it('sends both, each once, when it is still the same person', async () => {
-    const { server } = backend
-    const release = holdTheAnswer()
-
-    const first = outcome(sendReply())
-    await until(() => server.seen.includes('GET /api/v1/users/me/'))
-    const second = outcome(sendReply())
-    await until(() => server.seen.length === 3)
-    release()
-
-    expect([await first, await second]).toEqual(['sent', 'sent'])
-    expect(server.filed).toEqual([
-      { path: REPLY_PATH, by: 7 },
-      { path: REPLY_PATH, by: 7 }
-    ])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      `POST ${REPLY_PATH}`
-    ])
-  })
-})
-
-describe('a write on a token this module has already checked (unchanged from before the fix)', () => {
-  // This page has already written once since it loaded, so the token in the
-  // cache is the one the transport asked /users/me/ about. That first write
-  // is made for real here; then the server's log is cleared.
+describe('a write whose token went stale (the guard that predates the port)', () => {
+  // This page has already written once since it loaded, so the cache holds a
+  // token fetched before anything below happens. That first write is made for
+  // real here; then the server's log is cleared.
   beforeEach(async () => {
     await sendReply()
     backend.server.seen = []
@@ -481,8 +189,8 @@ describe('a write on a token this module has already checked (unchanged from bef
       `POST ${REPLY_PATH}`
     ])
 
-    // The fresh token was checked on the way, so the next write goes
-    // straight out on it.
+    // The fresh token stays in the cache, so the next write goes straight
+    // out on it.
     server.seen = []
     await expect(sendReply()).resolves.toEqual({ filedUnder: 7 })
     expect(server.seen).toEqual([`POST ${REPLY_PATH}`])
@@ -508,9 +216,8 @@ describe('a write on a token this module has already checked (unchanged from bef
 
     const error = await sendReply().catch((caught: unknown) => caught)
 
-    // The same refusal as on the cold path, so the agent pages show their
-    // sentence for it rather than "try again". This branch is how a takeover
-    // is refused for anybody who has already written since the page loaded.
+    // The refusal the agent pages show their own sentence for, rather than
+    // "try again". This branch is how a takeover is refused.
     expect(error).toBeInstanceOf(TicketSessionError)
     expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(server.filed).toEqual([])
@@ -521,17 +228,55 @@ describe('a write on a token this module has already checked (unchanged from bef
     ])
   })
 
-  it('refuses the second press of Send as well, instead of using the token it just fetched', async () => {
-    // The refusal above fetched a fresh token to ask its question, and that
-    // token is 99's and valid. The same trap as on the cold path, closed the
-    // same way.
+  it('says why it refused in a way the agent pages can tell from a fault', async () => {
+    backend.server.signIn(99)
+
+    const error = await sendReply().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
+    // The requester's sentence, byte for byte what supportAPI.ts always threw.
+    expect((error as Error).message).toBe(
+      'You appear to be signed in as someone else now — this can happen if you ' +
+        'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
+    )
+  })
+
+  it('refuses when /users/me/ answers with a failure instead of a person', async () => {
+    // "Cannot confirm" is not "same person". A gateway error on the question
+    // says nothing about whose session the fresh token belongs to, and the
+    // session may well be somebody else's by now: sending again would be a
+    // guess.
     const { server } = backend
     server.signIn(99)
+    server.meFailsWith = 502
 
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
+    const error = await sendReply().catch((caught: unknown) => caught)
 
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
     expect(server.filed).toEqual([])
+    expect(server.seen).toEqual([
+      `POST ${REPLY_PATH}`,
+      'GET /services/csrf/',
+      'GET /api/v1/users/me/'
+    ])
+  })
+
+  it('refuses when this tab does not know who it is', async () => {
+    // Unknown identity is not a match, even when the session is in fact still
+    // 7's. There is nobody to compare /users/me/ with, so it is not asked,
+    // and nothing is sent again.
+    const { server } = backend
+    server.signIn(7)
+    signInThisTabAs(null)
+
+    const error = await sendReply().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
+    expect(server.filed).toEqual([])
+    expect(server.seen).toEqual([`POST ${REPLY_PATH}`, 'GET /services/csrf/'])
   })
 
   it('does not treat a 403 that is not about CSRF as a stale token', async () => {
@@ -554,122 +299,10 @@ describe('a write on a token this module has already checked (unchanged from bef
   })
 })
 
-describe('a write on a token this module has not checked (T01, the other way in)', () => {
-  // The cache is warm, but nothing here asked who the token belongs to. Two
-  // ways that happens mid-session: this tab signed in (stores/auth.ts caches
-  // the login response's token), or some other module fetched a token into
-  // an empty cache. Every other module that writes does that for whoever owns
-  // the session at the time, and none of them asks who that is.
-
-  it("asks once about the login response's token, then goes straight out", async () => {
-    const { server } = backend
-    setCsrfToken(server.token())
-
-    await sendReply()
-    await sendReply()
-
-    expect(server.seen).toEqual([
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      `POST ${REPLY_PATH}`
-    ])
-    expect(server.filed).toEqual([
-      { path: REPLY_PATH, by: 7 },
-      { path: REPLY_PATH, by: 7 }
-    ])
-  })
-
-  it('never sends a write on a token a Team 1 admin page fetched after somebody else signed in', async () => {
-    // The page loaded as 7 and has not written yet. 99 signs in in another
-    // tab. The admin saves a note on the People page first (Team 1's
-    // adminAPI.ts, the real one): it fetches a token for the session as it is
-    // now, 99's, and its own write goes out under 99, which is Team 1's code
-    // and not this module's to stop. That token is now in the shared cache.
-    // Before this check the next ticket write went straight out on it and
-    // was filed as 99's.
-    const { server } = backend
-    server.signIn(99)
-    await adminPost('/users/5/notes/', { body: 'Called them back.' })
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([{ path: '/api/v1/admin/users/5/notes/', by: 99 }])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'POST /api/v1/admin/users/5/notes/',
-      'GET /api/v1/users/me/'
-    ])
-  })
-
-  it('never sends a write on a token a student page fetched after somebody else signed in', async () => {
-    // The same on the requester's side: an event RSVP (eventsAPI.ts, the real
-    // one) fills the cache for 99, then the student replies on a ticket.
-    const { server } = backend
-    server.signIn(99)
-    await setEventRsvp(3, 'accepted')
-
-    const error = await requestJson('/api/v1/tickets/11/messages/', {
-      method: 'POST',
-      body: ticketFormData({ body: 'Still broken.' })
-    }).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([{ path: '/events/v1/3/rsvp/', by: 99 }])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'POST /events/v1/3/rsvp/',
-      'GET /api/v1/users/me/'
-    ])
-  })
-
-  it('never sends on such a token after an earlier write was checked, either', async () => {
-    // Mid-shift. The agent has written once, so one token has been checked.
-    // 99 signs in; the next reply is refused, which empties the cache. The
-    // agent saves a note on a Team 1 page, which fetches a token for 99, and
-    // comes back to reply again. Having checked a token before is no reason
-    // to trust a different one now.
-    const { server } = backend
-    await sendReply()
-    server.signIn(99)
-    await expect(sendReply()).rejects.toThrow(/signed in as someone else/i)
-    await adminPost('/users/5/notes/', { body: 'Called them back.' })
-    server.seen = []
-
-    const error = await sendReply().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(server.filed).toEqual([
-      { path: REPLY_PATH, by: 7 },
-      { path: '/api/v1/admin/users/5/notes/', by: 99 }
-    ])
-    expect(server.seen).toEqual(['GET /api/v1/users/me/'])
-  })
-
-  it('asks once about a token another module fetched for the same person, then sends', async () => {
-    // The price of the check when nothing is wrong: one GET.
-    const { server } = backend
-    await adminPost('/users/5/notes/', { body: 'Called them back.' })
-
-    await expect(sendReply()).resolves.toEqual({ filedUnder: 7 })
-
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'POST /api/v1/admin/users/5/notes/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`
-    ])
-    expect(server.filed).toEqual([
-      { path: '/api/v1/admin/users/5/notes/', by: 7 },
-      { path: REPLY_PATH, by: 7 }
-    ])
-  })
-})
-
 describe('reads', () => {
   it('never fetch a token or ask who is signed in', async () => {
     // GETs carry no CSRF token and are not guarded. That is unchanged: the
-    // consequence T01 is about is a write filed under the wrong name.
+    // consequence the guard is about is a write filed under the wrong name.
     const { server } = backend
 
     await expect(requestJson('/api/v1/admin/tickets/summary/')).resolves.toEqual({ readAs: 7 })
@@ -690,9 +323,9 @@ describe('what every request carries and how failures read', () => {
 
     const acceptOf = (call: number) =>
       new Headers(backend.fetchMock.mock.calls[call][1]?.headers).get('Accept')
-    // calls: summary, csrf (made by csrf.ts), me, the reply
+    // calls: summary, csrf (made by csrf.ts), the reply
     expect(acceptOf(0)).toBe('application/json')
-    expect(acceptOf(3)).toBe('application/json')
+    expect(acceptOf(2)).toBe('application/json')
   })
 
   it('sends the session cookie', async () => {
@@ -821,9 +454,8 @@ describe('fetchBlob', () => {
 describe('requestBlob: a write whose answer is a file (the queue export)', () => {
   // The export changes no ticket, but the server records it under whoever
   // owns the session, so it is a POST that needs the token. It goes through
-  // the same path as a reply. The page loaded as 7. Every case below is about
-  // whether an export can go out on a session that is not 7's, and whether it
-  // costs anything more than a reply when nothing is wrong.
+  // the same path as a reply and gets the same stale-token guard. The page
+  // loaded as 7.
   const EXPORT_BODY = '{"status":"open"}'
 
   function exportQueue() {
@@ -842,11 +474,33 @@ describe('requestBlob: a write whose answer is a file (the queue export)', () =>
       .map(([, init]) => init as RequestInit)
   }
 
-  it('is never sent once /users/me/ says somebody else owns the session', async () => {
-    // 99 signed in on another tab of the same browser. As a GET the export
-    // went straight out and the audit row said 99 took the file.
+  it('is sent exactly once, as a POST carrying the token, when it is still the same person', async () => {
     const { server } = backend
+
+    const { blob, filename } = await exportQueue()
+
+    expect(blob.size).toBe(2)
+    expect(filename).toBe('tickets-2026-09-29.xlsx')
+    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
+    expect(server.seen).toEqual(['GET /services/csrf/', `POST ${EXPORT_PATH}`])
+    const [init] = exportCalls()
+    expect(init.body).toBe(EXPORT_BODY)
+    const headers = new Headers(init.headers)
+    expect(headers.get('X-CSRFToken')).toBe(server.token())
+    expect(headers.get('Content-Type')).toBe('application/json')
+    expect(headers.get('Accept')).toBe('application/json')
+    expect(init.credentials).toBe('include')
+  })
+
+  it('is refused, not replayed, once somebody else signed in since its token was fetched', async () => {
+    // The page has written once, so its token is from before the takeover.
+    // 99 signs in, which rotates it. The server refuses the POST as a stale
+    // token, and the transport asks who is signed in and stops.
+    const { server } = backend
+    await sendReply()
     server.signIn(99)
+    server.seen = []
+    server.filed = []
 
     const error = await exportQueue().catch((caught: unknown) => caught)
 
@@ -859,96 +513,7 @@ describe('requestBlob: a write whose answer is a file (the queue export)', () =>
         'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
     )
     expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('is never sent when /users/me/ answers with a failure instead of a person', async () => {
-    // "Cannot confirm" is not "same person". Sending here would be a guess,
-    // and this session is in fact 99's.
-    const { server } = backend
-    server.signIn(99)
-    server.meFailsWith = 502
-
-    const error = await exportQueue().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/', 'GET /api/v1/users/me/'])
-  })
-
-  it('is never sent when this tab does not know who it is', async () => {
-    // Nobody to compare /users/me/ with, so nothing is asked and nothing goes.
-    const { server } = backend
-    signInThisTabAs(null)
-
-    const error = await exportQueue().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual(['GET /services/csrf/'])
-  })
-
-  it('is sent exactly once, as a POST carrying the checked token, when it is still the same person', async () => {
-    const { server } = backend
-
-    const { blob, filename } = await exportQueue()
-
-    expect(blob.size).toBe(2)
-    expect(filename).toBe('tickets-2026-09-29.xlsx')
-    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
     expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${EXPORT_PATH}`
-    ])
-    const [init] = exportCalls()
-    expect(init.body).toBe(EXPORT_BODY)
-    const headers = new Headers(init.headers)
-    expect(headers.get('X-CSRFToken')).toBe(server.token())
-    expect(headers.get('Content-Type')).toBe('application/json')
-    expect(headers.get('Accept')).toBe('application/json')
-    expect(init.credentials).toBe('include')
-  })
-
-  it('goes straight out on a token a reply already checked, and a reply on one it checked', async () => {
-    // One rule for both. The token the reply's check vouched for is good for
-    // the export, and the other way round: no second check of its own.
-    const { server } = backend
-    await sendReply()
-    await exportQueue()
-    await sendReply()
-
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
-      `POST ${REPLY_PATH}`,
-      `POST ${EXPORT_PATH}`,
-      `POST ${REPLY_PATH}`
-    ])
-    expect(server.filed).toEqual([
-      { path: REPLY_PATH, by: 7 },
-      { path: EXPORT_PATH, by: 7 },
-      { path: REPLY_PATH, by: 7 }
-    ])
-  })
-
-  it('is refused, not replayed, when somebody else signs in after the check', async () => {
-    // The window the GET version left open. /users/me/ said 7, then 99 signed
-    // in before the export landed. The token that was checked is rotated, so
-    // the server refuses the POST, and the transport asks again and stops.
-    const { server } = backend
-    server.afterMe = () => server.signIn(99)
-
-    const error = await exportQueue().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    expect(server.filed).toEqual([])
-    expect(server.seen).toEqual([
-      'GET /services/csrf/',
-      'GET /api/v1/users/me/',
       `POST ${EXPORT_PATH}`,
       'GET /services/csrf/',
       'GET /api/v1/users/me/'
@@ -980,9 +545,11 @@ describe('requestBlob: a write whose answer is a file (the queue export)', () =>
   it("judges by this tab's own memory, not by what the other tab wrote to localStorage", async () => {
     // Signing in on the other tab writes the new person to localStorage,
     // which every tab shares. Compared with /users/me/, that would be 99
-    // against 99, and the export would go out under 99.
+    // against 99, and the export would be sent again under 99.
     const { server } = backend
+    await sendReply()
     server.signIn(99)
+    server.filed = []
     localStorage.setItem('auth.user', JSON.stringify({ id: 99 }))
 
     try {
@@ -995,28 +562,8 @@ describe('requestBlob: a write whose answer is a file (the queue export)', () =>
     }
   })
 
-  it('judges by who this tab was when Export was pressed, not when the answer came back', async () => {
-    // This tab signs out and back in as 99 while /users/me/ is still on its
-    // way. The person who pressed Export was 7, and the session is 99's.
-    const { server } = backend
-    let release!: () => void
-    server.meHeldUntil = new Promise<void>((resolve) => {
-      release = resolve
-    })
-
-    const result = outcome(exportQueue())
-    await until(() => server.seen.includes('GET /api/v1/users/me/'))
-    server.signIn(99)
-    signInThisTabAs(99)
-    server.meHeldUntil = null
-    release()
-
-    expect(await result).toBe('refused')
-    expect(server.filed).toEqual([])
-  })
-
   it("reads a failure with no message of its own as the caller's sentence", async () => {
-    // Checked and sent, then the build fails with Django's own error page.
+    // Sent, then the build fails with Django's own error page.
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {

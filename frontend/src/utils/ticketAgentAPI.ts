@@ -166,9 +166,10 @@ export async function bulkAssignTickets(
  * backend takes it as a write and checks its CSRF token. Here it goes out
  * through the transport's write path (requestBlob in ticketTransport.ts),
  * with the token and the same "is this still the same person" check a reply
- * gets. A session that now belongs to somebody else is refused with the
- * same TicketSessionError, and ticketRefusalReason already turns that into
- * the sentence the queue page shows.
+ * gets. When its token went stale because the session now belongs to
+ * somebody else, it is refused with the same TicketSessionError, and
+ * ticketRefusalReason already turns that into the sentence the queue page
+ * shows. The check has the known gap described at send in ticketTransport.ts.
  */
 export async function exportTickets(
   filters: TicketFilters = {}
@@ -444,8 +445,9 @@ function sessionRefusal(error: TicketSessionError): string {
  *  The transport's own refusals come through too (TicketSessionError: the
  *  session now belongs to somebody else, or no secure session could be set
  *  up). In React those surfaced as the bare CSRF 403 and got the standing
- *  sentence; here pressing the button again is refused again, every time, so
- *  "try again" is the one answer that cannot be right.
+ *  sentence. "Try again" is the wrong advice for them: what fixes it is a
+ *  reload and a fresh sign-in, and a second press would go out on the new
+ *  session's token (the accepted gap described in ticketTransport.ts).
  */
 export function ticketRefusalReason(error: unknown): string | undefined {
   if (error instanceof TicketSessionError) return sessionRefusal(error)

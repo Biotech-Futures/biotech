@@ -52,8 +52,8 @@ export type RejectedBatch = {
  *  for the agent, and the standing sentence would point them the wrong way.
  *
  *  Passed on: the transport's own refusals (the session changed hands, no
- *  secure session could be set up), where the next press is refused the same
- *  way, and the server's permission refusal ("You do not have support
+ *  secure session could be set up), where a reload and a fresh sign-in is
+ *  the fix and pressing again is not, and the server's permission refusal ("You do not have support
  *  privileges."), where the fault is the agent's own access, not the person
  *  they picked. React showed neither (U2 GAP-06).
  *

@@ -258,7 +258,7 @@ const rejectedSentence = computed(() => {
     : 'Could not assign the selected tickets. Nothing was changed.'
   // The refusal's own words when it has some for the agent (the session
   // changed hands, their own access was withdrawn): the advice below is
-  // wrong for those, and pressing again is refused again.
+  // wrong for those, because pressing again is not what fixes them.
   if (rejected.reason) return `${what} ${rejected.reason}`
   // Nobody was picked when the batch went back to the pool, so the advice
   // below is about a person who does not exist and reads as a second,

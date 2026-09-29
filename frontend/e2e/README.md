@@ -18,11 +18,13 @@ What it covers:
    resolve, and a student reply reopens it.
 4. Export to Excel: a real `.xlsx` of what the current filters match.
 5. A student who opens the queue is sent to their own start page.
-6. T01 in a real browser: two tabs in one browser, tab B signs out the
-   student and signs in as the agent, and tab A's next write is refused with
-   the "signed in as someone else" sentence. Three orderings (never reloaded,
-   reloaded before the takeover, after a write of its own). Each one also
-   checks through the API that nothing was filed under the agent.
+6. The stale-session guard that predates the port, in a real browser: two
+   tabs in one browser, tab B signs out the student and signs in as the
+   agent, and tab A's next write is refused with the "signed in as someone
+   else" sentence. Two orderings (never reloaded, after a write of its own).
+   Each one also checks through the API that nothing was filed under the
+   agent. A tab reloaded before the takeover is not refused (T01); the owner
+   ruled that out of scope on 2026-09-29, so it is not tested.
 
 ## What must be running first
 
@@ -70,15 +72,15 @@ Without `E2E_PORTAL_URL`, Playwright falls back to the scaffold behaviour:
 it starts the portal dev server itself on 5173 and only `vue.spec.ts` can
 pass, because nothing started a backend. `tickets.spec.ts` skips itself.
 
-## Why separate browser contexts, and why not in T01
+## Why separate browser contexts, and why not in the stale-session tests
 
 Every persona gets its own context (its own cookie jar). The portal and the
 backend are on different ports of one host, and cookies ignore ports, so in
 one shared context the agent's sign-in would silently replace the student's
 session and every "the student sees X" after it would be testing the agent.
 
-The T01 tests do exactly that on purpose: two tabs, one context, which is two
-people taking turns at one computer.
+The stale-session tests do exactly that on purpose: two tabs, one context,
+which is two people taking turns at one computer.
 
 ## The accounts
 

@@ -37,12 +37,12 @@ import type { TicketFilters } from '@/utils/ticketAgentSchema'
  * body the backend reads, and parses a response shaped like the one the view
  * really sends (backend/apps/tickets/views_admin.py).
  *
- * The CSRF cache starts warm, as it is after signing in. The transport asks
- * /users/me/ about a token before the first write that carries it (the queue
- * export is one of those writes); the stub below answers that, and the token
- * fetch, and keeps both out of `sent`, so a write is one entry in `sent`. The
- * takeover check has its own suite (ticketTransport.spec.ts); the T01 cases
- * here only prove the agent writes and the export go through it at all.
+ * The CSRF cache starts warm, as it is after signing in, so a write goes
+ * straight out. The stub below answers the token fetch and /users/me/ (which
+ * the transport asks when a write comes back as a stale token) and keeps both
+ * out of `sent`, so a write is one entry in `sent`. The stale-session guard
+ * has its own suite (ticketTransport.spec.ts); the cases here only prove the
+ * agent writes go through it at all.
  */
 
 type Sent = { method: string; url: string; headers: Headers; body: BodyInit | null | undefined }
@@ -50,11 +50,8 @@ type Sent = { method: string; url: string; headers: Headers; body: BodyInit | nu
 let sent: Sent[] = []
 let answers: Response[] = []
 let meId = 7
-// /users/me/ failing with this status instead of naming anybody.
-let meFailsWith: number | null = null
-// Django hands out a differently masked token on every fetch. The transport
-// keeps track of which token it has checked, so no two fetches here may hand
-// out the same string either, or one case would inherit another's check.
+// Django hands out a differently masked token on every fetch, and so does
+// this stub.
 let tokenFetches = 0
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -75,9 +72,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {})
     return json({ csrfToken: `fresh-token-${tokenFetches}` })
   }
   if (path === '/api/v1/users/me/') {
-    return meFailsWith === null
-      ? json({ id: meId })
-      : new Response('<html><body>Bad Gateway</body></html>', { status: meFailsWith })
+    return json({ id: meId })
   }
   sent.push({
     method: String(init.method ?? 'GET').toUpperCase(),
@@ -104,7 +99,6 @@ beforeEach(() => {
   sent = []
   answers = []
   meId = 7
-  meFailsWith = null
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
   setActivePinia(createPinia())
@@ -401,50 +395,30 @@ describe('exporting the queue (C-09)', () => {
   })
 
   // The export view writes an audit row naming whoever owns the session, so
-  // the export is a write and goes through the takeover check like one. The
-  // cases below start from a cold cache, so the token is one the transport
-  // has not checked. The rest of the rule is in ticketTransport.spec.ts.
-  it('asks who is signed in about a new token, then sends the export exactly once', async () => {
-    resetCsrfToken()
-    answer(xlsx())
-
-    await exportTickets({ status: 'open' })
-
-    expect(everyPath()).toEqual([
-      '/services/csrf/',
-      '/api/v1/users/me/',
-      '/api/v1/admin/tickets/export/'
-    ])
-    expect(sent).toHaveLength(1)
-    expect(last().headers.get('X-CSRFToken')).toBe(`fresh-token-${tokenFetches}`)
-  })
-
-  it("is never sent once the session is somebody else's, and the page has a sentence for it", async () => {
-    resetCsrfToken()
+  // the export is a write and goes through the stale-session guard like one.
+  // The rest of the rule is in ticketTransport.spec.ts.
+  it("is refused, not sent again, once its token went stale on somebody else's session, and the page has a sentence for it", async () => {
     meId = 99
+    answer(json({ error: 'CSRF Failed: CSRF token incorrect.', code: 'permission_denied' }, 403))
 
     const error = await exportTickets({ status: 'open' }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
     expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
-    expect(sent).toEqual([])
-    expect(everyPath()).toEqual(['/services/csrf/', '/api/v1/users/me/'])
+    // Sent once, refused as a stale token, never replayed.
+    expect(sent.map((request) => `${request.method} ${request.url}`)).toEqual([
+      'POST http://localhost:8000/api/v1/admin/tickets/export/'
+    ])
+    expect(everyPath()).toEqual([
+      '/api/v1/admin/tickets/export/',
+      '/services/csrf/',
+      '/api/v1/users/me/'
+    ])
     // What the queue page puts in its alert (useTicketQueue's exportQueue).
     expect(ticketRefusalReason(error)).toBe(
       'You appear to be signed in as someone else now. This can happen if you signed in to ' +
         'another BIOTech page in the same browser. Please reload and sign in again.'
     )
-  })
-
-  it('is never sent when /users/me/ cannot say who is signed in', async () => {
-    resetCsrfToken()
-    meFailsWith = 502
-
-    const error = await exportTickets().catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(TicketSessionError)
-    expect(sent).toEqual([])
-    expect(everyPath()).toEqual(['/services/csrf/', '/api/v1/users/me/'])
   })
 
   it('saves the file under its name', async () => {
@@ -622,8 +596,8 @@ describe('downloading an attachment', () => {
   })
 
   it('does not ask who is signed in first, because a download records nothing', async () => {
-    // Unlike the export. Even with the session now somebody else's, the one
-    // request is the download itself.
+    // Even with the session now somebody else's, the one request is the
+    // download itself.
     meId = 99
     answer(new Response('%PDF-1.4', { status: 200 }))
 
@@ -919,12 +893,13 @@ describe('reading a refused ticket write', () => {
   })
 })
 
-describe('every agent write goes through the takeover check (T01)', () => {
+describe('every agent write goes through the stale-session guard', () => {
   // The agent endpoints live under /api/v1/admin/, where adminAPI.ts's
-  // adminRequest would reach them without either guard. This is the case that
-  // tells the two apart: a cold cache, and somebody else signed in since the
-  // page loaded. Through the ticket transport the write never leaves the
-  // browser; through adminRequest it would be filed under that person.
+  // adminRequest would reach them without the guard. This is the case that
+  // tells the two apart: the page's token went stale because somebody else
+  // signed in since. Through the ticket transport the write is refused, not
+  // sent again, with a sentence the pages show; through adminRequest it would
+  // come back as a bare CSRF 403 and the page's own "try again".
   const WRITES: Array<[string, () => Promise<unknown>]> = [
     ['a status change', () => updateTicket(42, { status: 'resolved' })],
     ['a reply', () => sendTicketMessage(42, { messageType: 'support_reply', body: 'Done.' })],
@@ -942,14 +917,15 @@ describe('every agent write goes through the takeover check (T01)', () => {
     'another BIOTech page in the same browser. Please reload and sign in again.'
 
   for (const [name, write] of WRITES) {
-    it(`never sends ${name} once the session is somebody else's`, async () => {
-      resetCsrfToken()
+    it(`does not send ${name} again once its token went stale on somebody else's session`, async () => {
       meId = 99
+      answer(json({ error: 'CSRF Failed: CSRF token incorrect.', code: 'permission_denied' }, 403))
 
       const error = await write().catch((caught: unknown) => caught)
 
       expect(error).toBeInstanceOf(TicketSessionError)
-      expect(sent).toEqual([])
+      // Sent once, refused as a stale token, never replayed.
+      expect(sent).toHaveLength(1)
       // And the pages have a sentence to show for it, not "try again".
       expect(ticketRefusalReason(error)).toBe(REFUSAL)
       expect(serverMessage(error)).toBe(REFUSAL)
@@ -961,8 +937,7 @@ describe('every agent write goes through the takeover check (T01)', () => {
     // token is one the server accepted for this agent. Somebody else signs in,
     // the token is rotated, the next write comes back as a stale CSRF token,
     // and the branch that handles that asks who is signed in and refuses. The
-    // page must get the same sentence as on the first write, not its own
-    // "try again".
+    // page must get the agents' sentence, not its own "try again".
     answer(ok(DETAIL, 201))
     await sendTicketMessage(42, { messageType: 'internal_note', body: 'Checked the logs.' })
     meId = 99

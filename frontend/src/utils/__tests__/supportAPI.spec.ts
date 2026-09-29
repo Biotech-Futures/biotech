@@ -22,26 +22,8 @@ import {
 // instead of the code. Measured: with the old stub, deleting the real
 // `Accept: application/json` from downloadTicketAttachment left all 32 tests
 // in this file green.
-//
-// The cache is warm in every case in this file, which it always implicitly
-// was: this ensureCsrfCookie never fetches anything. getCSRFToken says so out
-// loud now that the transport asks. The cold cache (T01) cannot be expressed
-// with a stub like this one; ticketTransport.spec.ts runs the real csrf.ts.
-//
-// Warm with a token the transport has not checked yet, which is what the
-// cache holds right after signing in. So the first write in a case asks
-// /users/me/ before it goes out (T01), and the cases below answer that. A new
-// token for every case, as Django's are: the transport remembers the token it
-// last checked, and a case must not inherit the one before it.
-const csrfCache = { token: '' }
-let csrfCases = 0
-beforeEach(() => {
-  csrfCases += 1
-  csrfCache.token = `warm-token-${csrfCases}`
-})
 vi.mock('@/utils/csrf', () => ({
   ensureCsrfCookie: () => Promise.resolve(true),
-  getCSRFToken: () => csrfCache.token,
   buildSessionHeaders: (options: { headers?: HeadersInit } = {}) =>
     new Headers(options.headers ?? {}),
   resetCsrfToken: () => {}
@@ -181,7 +163,6 @@ describe('talking to the backend', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    tabUser.value = null
   })
 
   it('unwraps the {msg, data} envelope so callers never see it', async () => {
@@ -243,12 +224,7 @@ describe('talking to the backend', () => {
   })
 
   it('sends attachments repeated under one key, which is what the backend reads', async () => {
-    tabUser.value = { id: 7 }
-    // First /users/me/, because the token is one the transport has not
-    // checked yet (see the csrf stub above); then the write.
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 7 }) })
-      .mockResolvedValue(jsonResponse({ msg: 'ok', data: { id: 1 } }))
+    fetchMock.mockResolvedValue(jsonResponse({ msg: 'ok', data: { id: 1 } }))
 
     await submitTicket({
       category: 'account_access',
@@ -261,9 +237,7 @@ describe('talking to the backend', () => {
       ]
     })
 
-    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8000/api/v1/users/me/')
-    expect(fetchMock.mock.calls[1][0]).toBe('http://localhost:8000/api/v1/tickets/')
-    const body = fetchMock.mock.calls[1][1].body as FormData
+    const body = fetchMock.mock.calls[0][1].body as FormData
     // getlist("files") on the server side depends on this being repeated
     // rather than files[0] / files[1].
     expect(body.getAll('files')).toHaveLength(2)
@@ -323,22 +297,11 @@ describe('the CSRF retry guard', () => {
     vi.unstubAllGlobals()
   })
 
-  // Every case starts with /users/me/ saying 7: the stub's token is one the
-  // transport has not checked yet (see the csrf stub at the top), so it asks
-  // once before the first attempt goes out. The guard below is what happens
-  // after that, when the token turns out to have been rotated in flight.
-  const meSays = (id: number) => ({ ok: true, json: () => Promise.resolve({ id }) })
-  const urls = (fetchMock: ReturnType<typeof vi.fn>) =>
-    fetchMock.mock.calls.map(([url]) => String(url))
-  const ME = 'http://localhost:8000/api/v1/users/me/'
-  const SUBMIT = 'http://localhost:8000/api/v1/tickets/'
-
   it('retries once when the session still belongs to this tab', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(meSays(7))
       .mockResolvedValueOnce(csrf403)
-      .mockResolvedValueOnce(meSays(7))
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 7 }) })
       .mockResolvedValueOnce(
         jsonResponse({ msg: 'ok', data: { id: 1, ticketNumber: 'SUP-1' } })
       )
@@ -346,8 +309,8 @@ describe('the CSRF retry guard', () => {
 
     await submitTicket({ category: 'account_access', subject: 's', body: 'b', priority: 'normal' })
 
-    // check, first attempt, identity check, replay
-    expect(urls(fetchMock)).toEqual([ME, SUBMIT, ME, SUBMIT])
+    // first attempt, identity check, replay
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('judges by who this tab was when the request went out', async () => {
@@ -356,36 +319,34 @@ describe('the CSRF retry guard', () => {
     // person against the new person and agree.
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(meSays(7))
       .mockImplementationOnce(() => {
         tabUser.value = { id: 99 } // this tab changed hands mid-flight
         return Promise.resolve(csrf403)
       })
-      .mockResolvedValueOnce(meSays(99))
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 99 }) })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(
       submitTicket({ category: 'account_access', subject: 's', body: 'b', priority: 'normal' })
     ).rejects.toThrow(/signed in as someone else/i)
 
-    expect(urls(fetchMock)).toEqual([ME, SUBMIT, ME])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('refuses to retry once somebody else owns the session', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(meSays(7))
       .mockResolvedValueOnce(csrf403)
       // /users/me/ now answers with the other person
-      .mockResolvedValueOnce(meSays(99))
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 99 }) })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(
       submitTicket({ category: 'account_access', subject: 's', body: 'b', priority: 'normal' })
     ).rejects.toThrow(/signed in as someone else/i)
 
-    // Never replayed: a fourth call would have been the write.
-    expect(urls(fetchMock)).toEqual([ME, SUBMIT, ME])
+    // Never replayed: the third call would have been the write.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
 

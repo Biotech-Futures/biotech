@@ -21,8 +21,8 @@ import { inflateRawSync } from 'node:zlib'
  * to one backend, and cookies ignore ports, so in one shared context the
  * agent's sign-in would silently replace the student's session and every
  * "the student sees X" after it would be testing the agent. The one place
- * that sharing is the point is the T01 block at the bottom, which puts two
- * tabs in ONE context on purpose.
+ * that sharing is the point is the stale-session block at the bottom, which
+ * puts two tabs in ONE context on purpose.
  *
  * Requires (started by the harness, see e2e/README.md):
  *   - the backend, on a scratch database seeded with `seed_e2e`
@@ -104,7 +104,8 @@ async function persona(browser: Browser, label: string) {
   const context = await browser.newContext()
   openContexts.push(context)
   let extra = 0
-  // Tabs opened later in the same context (the T01 tests) are tracked too.
+  // Tabs opened later in the same context (the stale-session tests) are
+  // tracked too.
   context.on('page', (page) => {
     if (!tracked.some((entry) => entry.page === page)) track(page, `${label}-tab${++extra}`)
   })
@@ -205,7 +206,8 @@ const MEMBER_PAGES = ['Home', 'Groups', 'Events', 'Announcements', 'Resources', 
 
 async function openSupportCentre(page: Page) {
   // Through the sidebar, not page.goto: a client-side move keeps the page's
-  // module state, which is what "without reloading" means in the T01 tests.
+  // module state, which is what "without reloading" means in the
+  // stale-session tests.
   await sidebarLink(page, 'Support').click()
   await expect(page).toHaveURL(/#\/support$/)
   await expect(page.getByRole('heading', { name: 'Support Centre' })).toBeVisible()
@@ -546,31 +548,32 @@ test.describe('support tickets, both sides in the portal', () => {
 })
 
 /**
- * T01 in a real browser: two tabs, one cookie jar.
+ * The stale-session guard that predates the port, in a real browser: two
+ * tabs, one cookie jar.
  *
  * Tab A is the student's. Tab B, in the SAME context, signs the student out
  * and signs in as the agent, so the session tab A's page is still using now
  * belongs to somebody else. Tab A still shows the student's page and still
  * believes it is the student (its store is its own memory). Anything it sends
- * now would be filed under the agent's name, so the transport must refuse it
- * with the requester's sentence, and the backend must hold nothing new under
- * the agent.
+ * now would be filed under the agent's name. Its token is older than the
+ * agent's sign-in, which rotated it, so the write comes back as a stale CSRF
+ * token; the transport's 403 branch (send in ticketTransport.ts) then asks
+ * who is signed in and must refuse the write with the requester's sentence.
+ * The backend must hold nothing new under the agent.
  *
- * Three orderings, because the transport has two guards and they cover
- * different ones (ticketTransport.ts requestJson). Measured by switching each
- * guard off in turn (2026-09-29):
- *  - reloaded before the takeover: the cache is empty, and the token the
- *    write fetches for itself is valid for the agent's session. Only the
- *    check before sending stops it; without that check the enquiry was
- *    filed under the agent. This is T01 proper.
- *  - after a write of its own went through: the token is one the transport
- *    has already checked, the takeover rotates it, and only the 403 branch
- *    stops it.
+ * Two orderings, both with a token from before the takeover:
  *  - never reloaded: the cache still holds the token from tab A's own
- *    sign-in. Either guard stops it (the check first, the 403 branch if the
- *    check is gone); with both gone the enquiry was filed under the agent.
+ *    sign-in.
+ *  - after a write of its own went through: the cache holds the token that
+ *    write used.
+ *
+ * Not covered, by decision: a tab reloaded before the takeover (T01). Its
+ * cache is empty, the token its first write fetches is valid for the
+ * agent's session, and the enquiry is filed under the agent. The owner ruled
+ * that out of scope on 2026-09-29 as too edge-case; see send in
+ * ticketTransport.ts.
  */
-test.describe('T01: a tab whose session changed hands is refused', () => {
+test.describe('the stale-session guard that predates the port: a tab whose session changed hands is refused', () => {
   test.skip(!process.env.E2E_PORTAL_URL, 'needs the harness (E2E_PORTAL_URL); see e2e/README.md')
   test.describe.configure({ timeout: 120_000 })
 
@@ -624,33 +627,18 @@ test.describe('T01: a tab whose session changed hands is refused', () => {
     // that was loaded before the takeover.
     await expect(tabA).toHaveURL(/#\/support$/)
 
-    const subject = uniqueSubject('T01 warm')
-    await submitEnquiryAndExpectRefusal(tabA, subject)
-    await nothingFiledUnderTheAgent(context, subject)
-  })
-
-  test('tab A, reloaded before the takeover, is refused a new enquiry', async ({ browser }) => {
-    const { context, page: tabA } = await signInAsStudentToSupportCentre(browser, 'tabA-student')
-    // A cold cache: the reload empties the CSRF token and everything the
-    // transport had checked, while the session is still the student's.
-    await tabA.reload()
-    await expect(tabA.getByRole('heading', { name: 'How can we help?' })).toBeVisible()
-    await expect(tabA.getByText(/My support tickets/)).toBeVisible()
-
-    await agentTakesOverIn(context)
-
-    const subject = uniqueSubject('T01 cold')
+    const subject = uniqueSubject('Takeover never reloaded')
     await submitEnquiryAndExpectRefusal(tabA, subject)
     await nothingFiledUnderTheAgent(context, subject)
   })
 
   test('tab A, after a write of its own went through, is refused a reply', async ({ browser }) => {
     const { context, page: tabA } = await signInAsStudentToSupportCentre(browser, 'tabA-student')
-    const ticket = await raiseEnquiry(tabA, uniqueSubject('T01 checked'))
+    const ticket = await raiseEnquiry(tabA, uniqueSubject('Takeover after a write'))
 
     await agentTakesOverIn(context)
 
-    const reply = `T01 reply that must not be filed ${Date.now()}`
+    const reply = `Takeover reply that must not be filed ${Date.now()}`
     await tabA.getByLabel('Your reply').fill(reply)
     await tabA.getByRole('button', { name: 'Send reply' }).click()
     await expect(tabA.locator('.reply__error')).toHaveText(SIGNED_IN_AS_SOMEONE_ELSE)
