@@ -37,6 +37,7 @@ from .nonfinalist import (
 )
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
+from .group_results import GroupResultsCertificateView, GroupResultsSummaryView, GroupResultsView
 from .presentation import (
     PresentationAllocationView,
     PresentationResponsesView,
@@ -90,6 +91,9 @@ __all__ = [
     "GroupExtensionListView",
     "GroupCategoriesView",
     "GroupMarkingView",
+    "GroupResultsCertificateView",
+    "GroupResultsSummaryView",
+    "GroupResultsView",
     "MarksReleaseView",
     "SubmissionDeadlineView",
     "MyCertificateView",

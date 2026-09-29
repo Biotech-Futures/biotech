@@ -100,7 +100,6 @@
                 </span>
                 <template v-else>{{ group.name }}</template>
               </h2>
-              <p class="gd-subtitle">{{ groupSubtitle }}</p>
               <div v-if="groupMetaItems.length" class="gd-meta-row">
                 <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
               </div>
@@ -111,6 +110,8 @@
             </div>
           </div>
           <div class="gd-head-actions">
+            <!-- "1 member - Group since 24 Sept 2026", beside the Members button. -->
+            <p class="gd-subtitle gd-subtitle--beside-members">{{ groupSubtitle }}</p>
             <button
               type="button"
               class="group-members-btn"
@@ -2455,8 +2456,10 @@ const loadGroupOptions = async () => {
 const switchGroup = (event) => {
   const id = event.target.value
   if (!id || id === routeGroupId.value) return
-  // Stays on Submission when that's the section open.
-  const name = route.name === 'group-submission' ? 'group-submission' : 'group-detail'
+  // Stays on the section open (Submission, Finalist or Results).
+  const name = ['group-submission', 'group-finalist', 'group-results'].includes(String(route.name))
+    ? String(route.name)
+    : 'group-detail'
   void router.push({ name, params: { id } })
 }
 
@@ -6149,10 +6152,18 @@ onBeforeUnmount(() => {
 }
 .gd-head-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.35rem;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
   min-width: 180px;
+}
+
+/* The member count and start date, to the left of the Members button. */
+.gd-head-actions .gd-subtitle--beside-members {
+  margin: 0;
+  text-align: right;
 }
 .group-members-btn {
   display: inline-flex;

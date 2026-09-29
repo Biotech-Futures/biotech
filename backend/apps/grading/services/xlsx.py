@@ -192,9 +192,10 @@ _TEAM_SHEET_WIDTHS = {
 def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set[str]) -> bytes:
     """The marks spreadsheet a supervisor's results email carries: one row
     per team, one column per name in ``columns`` (the marks summary's own
-    field names, e.g. TeamCode, PM1, SM4), filled from ``rows``: each
-    team's marks summary fields. The ``numeric`` columns hold marks and are
-    written as numbers; a mark not given stays blank.
+    field names, e.g. TeamCode, PM1, PosterComment1, SM4), filled from
+    ``rows``: each team's marks summary fields. The ``numeric`` columns hold
+    marks and are written as numbers; a mark not given stays blank. Text
+    columns and comments are widened and wrap.
     """
     wb = Workbook()
     ws = wb.active
@@ -211,8 +212,10 @@ def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set
     ws.freeze_panes = "B2"
     wrapped = set()
     for index, column in enumerate(columns, start=1):
-        if column in _TEAM_SHEET_WIDTHS:
-            ws.column_dimensions[get_column_letter(index)].width = _TEAM_SHEET_WIDTHS[column]
+        # A mark's comment wraps in a fixed width, as on the SAQ sheet.
+        width = _TEAM_SHEET_WIDTHS.get(column) or (COMMENT_COLUMN_WIDTH if "Comment" in column else None)
+        if width:
+            ws.column_dimensions[get_column_letter(index)].width = width
             wrapped.add(index)
     for row in ws.iter_rows(min_row=2):
         for cell in row:

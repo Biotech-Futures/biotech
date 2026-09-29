@@ -87,6 +87,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/finalist', name: 'group-finalist', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/results', name: 'group-results', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
   { path: '/submission', redirect: '/groups' },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },

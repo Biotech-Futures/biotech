@@ -84,9 +84,9 @@ const mountPage = async (detail: FinalistDetail) => {
   const stub = { template: '<div />' }
   const router = createRouter({
     history: createWebHashHistory(),
-    routes: [{ path: '/groups/:id/submission', name: 'group-submission', component: stub }],
+    routes: [{ path: '/groups/:id/finalist', name: 'group-finalist', component: stub }],
   })
-  await router.push('/groups/1/submission')
+  await router.push('/groups/1/finalist')
   await router.isReady()
   wrapper = mount(FinalistPage, { attachTo: document.body, global: { plugins: [router, pinia] } })
   await flushPromises()
@@ -127,9 +127,9 @@ describe('layout', () => {
     fetchFinalist.mockResolvedValue(buildDetail(null))
     const router = createRouter({
       history: createWebHashHistory(),
-      routes: [{ path: '/groups/:id/submission', name: 'group-submission', component: { template: '<div />' } }],
+      routes: [{ path: '/groups/:id/finalist', name: 'group-finalist', component: { template: '<div />' } }],
     })
-    await router.push('/groups/1/submission')
+    await router.push('/groups/1/finalist')
     await router.isReady()
     wrapper = mount(FinalistPage, {
       global: { plugins: [router, pinia] },

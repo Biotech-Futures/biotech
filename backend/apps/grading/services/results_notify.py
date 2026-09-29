@@ -106,8 +106,10 @@ _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 _MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
 # The supervisor's marks spreadsheet: one row per group, in the marks
-# summary's own field names, so the two always agree, and one total:
-# MTotal, the Poster and SAQ marks together (the summary's CombinedTotal).
+# summary's own field names, so the two always agree. Each mark is followed
+# by its comment (PM1, PosterComment1, PM2 ...; SM1,
+# ShortAnswerQuestionComment1 ...), then one total: MTotal, the Poster and
+# SAQ marks together (the summary's CombinedTotal).
 MARKS_SHEET_MARKS = [
     *(f"PM{i}" for i in range(1, 11)),
     *(f"SM{i}" for i in range(1, 5)),
@@ -120,7 +122,9 @@ MARKS_SHEET_COLUMNS = [
     "ProjectTitle",
     "ProjectCategory",
     "SolutionCategory",
-    *MARKS_SHEET_MARKS,
+    *(name for i in range(1, 11) for name in (f"PM{i}", f"PosterComment{i}")),
+    *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
+    "MTotal",
 ]
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

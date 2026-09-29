@@ -13,6 +13,7 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -222,6 +223,7 @@ class ResultsEmailTests(_GradingFixture):
             rubric=Rubric.objects.create(component=report, year=2026, active=True),
             name="Structure", max_mark=Decimal("5.00"), order=10,
         )
+        Grade.objects.filter(criterion=self.poster_c1).update(comment="Bold, clear layout.")
         self._send_all("supervisors")
         year = self.group.year
         files = _files(mail.outbox[0])
@@ -236,15 +238,17 @@ class ResultsEmailTests(_GradingFixture):
             "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
         )
 
-        # One row per group, in the marks summary's own field names.
+        # One row per group, in the marks summary's own field names: each mark
+        # followed by its comment, then the total.
         sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
         self.assertEqual(rows[0], [
             "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
-            "PM1", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "PM10",
-            "SM1", "SM2", "SM3", "SM4",
+            *(name for i in range(1, 11) for name in (f"PM{i}", f"PosterComment{i}")),
+            *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
             "MTotal",
         ])
+        self.assertEqual(rows[0][6:10], ["PM1", "PosterComment1", "PM2", "PosterComment2"])
         self.assertEqual(len(rows), 2)
         row = dict(zip(rows[0], rows[1]))
         self.assertEqual(
@@ -253,6 +257,14 @@ class ResultsEmailTests(_GradingFixture):
         )
         # The design mark is poster criterion 1; content is SAQ 1, clarity (SAQ 2) unmarked.
         self.assertEqual((row["PM1"], row["PM2"], row["SM1"], row["SM2"]), (6.5, None, 8, None))
+        # A comment sits beside its mark; one not given stays blank.
+        self.assertEqual(
+            (row["PosterComment1"], row["ShortAnswerQuestionComment1"]), ("Bold, clear layout.", None)
+        )
+        # Comments are wide and wrap.
+        comment_letter = get_column_letter(rows[0].index("PosterComment1") + 1)
+        self.assertEqual(sheet.column_dimensions[comment_letter].width, 30)
+        self.assertTrue(sheet[f"{comment_letter}2"].alignment.wrap_text)
         # One total: the Poster and SAQ marks together.
         self.assertEqual(row["MTotal"], 14.5)
 
@@ -440,7 +452,7 @@ class ResultsEmailTests(_GradingFixture):
         )
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
         self.assertEqual(rows[0][:6], ["TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory"])
-        self.assertEqual(rows[0][-2:], ["SM4", "MTotal"])
+        self.assertEqual(rows[0][-3:], ["SM4", "ShortAnswerQuestionComment4", "MTotal"])
         teams = [dict(zip(rows[0], row)) for row in rows[1:]]
         self.assertEqual(sorted(t["TeamCode"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
         self.assertEqual({t["TeamCode"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")

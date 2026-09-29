@@ -1445,72 +1445,14 @@ describe('as a section of the group page', () => {
 })
 
 describe('the Finalist step', () => {
-  const finalist = () => fetchFinalist.mockResolvedValue({})
-
-  it('is not offered to a group that is not a finalist', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-
-    expect(buttonNamed(/Finalist/)).toBeUndefined()
-  })
-
-  it('is added as the last step for a finalist group', async () => {
-    finalist()
+  // The finalist round has a section of its own on the group page.
+  it('is not a step of the entry, even for a finalist group', async () => {
+    fetchFinalist.mockResolvedValue({})
     await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
 
     const labels = wrapper!.findAll('.submission-step__label').map((label) => label.text())
-    expect(labels).toEqual(['Questions', 'Poster', 'Additional materials', 'Finalist'])
-  })
-
-  it('hands over to the finalist round, hiding the main status and actions', async () => {
-    finalist()
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-
-    await buttonNamed(/Finalist/)!.trigger('click')
-    await flushPromises()
-
-    expect(wrapper!.find('[data-testid="finalist-stub"]').exists()).toBe(true)
-    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(true)
-    expect(wrapper!.find('.status-line').exists()).toBe(false)
-    expect(wrapper!.find('.submission-actions').isVisible()).toBe(false)
-    expect(wrapper!.find('[data-testid="finalist-stub"] .submission-steps').exists()).toBe(true)
-  })
-
-  it('returns to the main entry from the step strip', async () => {
-    finalist()
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-    await buttonNamed(/Finalist/)!.trigger('click')
-    await flushPromises()
-
-    await buttonNamed(/Poster/)!.trigger('click')
-    await flushPromises()
-
-    expect(wrapper!.find('.status-line').exists()).toBe(true)
-    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(false)
-  })
-
-  it('opens on the Finalist step once the main round has closed', async () => {
-    finalist()
-    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
-
-    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(true)
-  })
-
-  it('appears without a reload once the team is made a finalist', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    expect(labels).toEqual(['Questions', 'Poster', 'Additional materials'])
     expect(buttonNamed(/Finalist/)).toBeUndefined()
-
-    fetchFinalist.mockResolvedValue({})
-    window.dispatchEvent(new Event('focus'))
-    await flushPromises()
-
-    expect(buttonNamed(/Finalist/)).toBeTruthy()
-  })
-
-  it('opens on the main entry while the main round is open', async () => {
-    finalist()
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-
-    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
   })
 })
 

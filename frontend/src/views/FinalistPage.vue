@@ -617,13 +617,13 @@ async function refreshDeadline() {
 }
 
 function onPageVisible() {
-  if (document.visibilityState === 'visible' && route.name === 'group-submission') refreshDeadline()
+  if (document.visibilityState === 'visible' && route.name === 'group-finalist') refreshDeadline()
 }
 
 watch(
   () => route.name,
   (name, previous) => {
-    if (name === 'group-submission' && previous && previous !== name) refreshDeadline()
+    if (name === 'group-finalist' && previous && previous !== name) refreshDeadline()
   }
 )
 
