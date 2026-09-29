@@ -9,9 +9,9 @@ from rest_framework.test import APIClient
 from apps.events.models import Events
 from apps.groups.models import Groups
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
-from apps.users.models import AdminScope
+from apps.users.models import AdminScope, StudentProfile
 from apps.groups.models import Countries, CountryStates
-from apps.resources.models import Roles
+from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
 
 
@@ -483,6 +483,44 @@ class MePatchPrivilegeEscalationTests(TestCase):
         )
 
 
+class StudentProfileDashboardFieldsTests(TestCase):
+    def test_me_exposes_guardian_email_and_permission_timestamp(self):
+        client = APIClient()
+        student = User.objects.create_user(
+            email="dashboard-student@test.com",
+            password="StudentPass123",
+            first_name="Dashboard",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        student_role = Roles.objects.create(role_name=ROLE_STUDENT)
+        RoleAssignmentHistory.objects.create(
+            user=student,
+            role=student_role,
+            valid_from=timezone.now(),
+        )
+        granted_at = timezone.now()
+        StudentProfile.objects.create(
+            user=student,
+            pg_first_name="Grace",
+            pg_last_name="Guardian",
+            pg_email="guardian@test.com",
+            school_name="Dashboard High",
+            year_lvl="10",
+            parent_guardian_flag=True,
+            has_join_permission=True,
+            joinperm_granted_at=granted_at,
+        )
+
+        client.force_authenticate(user=student)
+        response = client.get(reverse("MeListHTMLView"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pg_email"], "guardian@test.com")
+        self.assertTrue(response.data["join_perm"])
+        self.assertIsNotNone(response.data["joinperm_granted_at"])
+
+
 class ReceiveJoinPermissionTokenTests(TestCase):
     """The legacy ``AllowAny`` on ``ReceiveJoinPermissionView`` let any anonymous
     caller flip ``has_join_permission`` for any student email — CONSOLIDATED 1.2.
@@ -782,4 +820,3 @@ class SupervisedStudentsViewTests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 403)
-
