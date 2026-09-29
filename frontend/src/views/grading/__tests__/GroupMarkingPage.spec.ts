@@ -140,7 +140,7 @@ const block = (code: string, over: Record<string, unknown> = {}) => ({
 })
 
 const markingPayload = (components: unknown[]) => ({
-  group: { id: 3, group_name: 'Alpha Team' },
+  group: { id: 3, group_name: 'Alpha Team', project_title: 'Plant Sensors' },
   year: 2026,
   components
 })
@@ -213,6 +213,13 @@ describe('the combined SAQs & Poster view', () => {
     expect(wrapper.find('.group-marking__title').text()).toContain('Alpha Team')
     // The heading shows the group name alone — no id.
     expect(wrapper.find('.group-marking__title').text()).not.toContain('#')
+    // The title the team submitted: its own line after the heading and
+    // search, before the Marker line.
+    const title = wrapper.find('.group-marking__project-title')
+    expect(title.text()).toBe('Title: Plant Sensors')
+    expect(title.element.previousElementSibling?.classList.contains('group-marking__header')).toBe(true)
+    const html = wrapper.html()
+    expect(html.indexOf('group-marking__project-title')).toBeLessThan(html.indexOf('Marker:'))
     const active = wrapper.find('[role="tab"][aria-selected="true"]')
     expect(active.text()).toBe('SAQs & Poster')
     // Both previews and both rubric forms render.

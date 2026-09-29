@@ -322,8 +322,8 @@ def marks_release_fields(context: dict) -> dict:
     its mark and its comment: poster to PosterRubric1 / PM1 / PosterComment1
     .. 10, SAQ to ShortAnswerQuestionRubric1 / SM1 /
     ShortAnswerQuestionComment1 .. 4. PosterOverallComment and
-    ShortAnswerQuestionOverallComment are the overall comments. Fields we
-    don't model (project title) render blank.
+    ShortAnswerQuestionOverallComment are the overall comments.
+    ProjectTitle is the title the team submitted; blank when it gave none.
     """
     by_code = {c.get("code"): c for c in context.get("components", [])}
 
@@ -389,8 +389,8 @@ def certificate_fields(context: dict) -> dict:
         # one uploaded before {{Name}} doesn't print a blank name.
         "FirstName": context.get("first_name", ""),
         "LastName": context.get("last_name", ""),
-        # No project-title field in the data model yet; the group name is the
-        # closest identity we hold for the team's project.
+        # The title the team submitted; the group name for an entry made
+        # before titles were asked for.
         "ProjectTitle": context.get("project_title") or context.get("group_name", ""),
         "Director1Name": context.get("director_1_name", ""),
         "Director2Name": context.get("director_2_name", ""),
@@ -785,12 +785,21 @@ def _team_details(group) -> dict:
     }
 
 
+def project_title(group) -> str:
+    """The title the team submitted with its entry; "" when it gave none
+    (an entry made before titles were asked for, or none yet)."""
+    from .content import submitted_titles
+
+    return submitted_titles([group.id]).get(group.id, "")
+
+
 def marks_summary_context(group, year: int, components: list[dict]) -> dict:
     settings = GradingSettings.load()
     # The marker's selections, written the same way the SAQ export writes them.
     categories = GroupMarkingCategories.objects.filter(group=group).first()
     return {
         "group_name": group.group_name,
+        "project_title": project_title(group),
         "year": year,
         "components": components,
         "project_category": _format_product_category(categories),
@@ -812,6 +821,7 @@ def certificate_context(
     year: int,
     first_name: str = "",
     last_name: str = "",
+    project_title: str = "",
 ) -> dict:
     settings = GradingSettings.load()
     if not first_name and student_full_name:
@@ -823,6 +833,8 @@ def certificate_context(
         "first_name": first_name,
         "last_name": last_name,
         "group_name": group_name,
+        # The team's submitted title (see ``project_title``).
+        "project_title": project_title,
         "year": year,
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",

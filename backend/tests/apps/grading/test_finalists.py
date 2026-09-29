@@ -229,7 +229,7 @@ class FinalistToggleTests(_GradingFixture):
         self.assertTrue(row["is_late"])
         self.assertEqual(row["late_by"], "3h 12m")
 
-    def test_candidates_carry_the_marking_key_categories(self):
+    def test_candidates_carry_the_submitted_title_and_marking_key_categories(self):
         from apps.grading.models import GroupMarkingCategories
 
         GroupMarkingCategories.objects.create(
@@ -248,8 +248,16 @@ class FinalistToggleTests(_GradingFixture):
         team = rows[self.group.id]
         self.assertEqual(team["project_category"], "Health and Medicine, Wearables")
         self.assertEqual(team["solution_category"], "App")
-        # No project title is kept anywhere yet.
         self.assertEqual(team["project_title"], "")
+        # The title the team submitted, not one typed since.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant Sensors", project_title="A Later Draft"
+        )
+        rows = {
+            row["group_id"]: row
+            for row in self.client.get(reverse("grading:finalist-candidates")).json()["rows"]
+        }
+        self.assertEqual(rows[self.group.id]["project_title"], "Plant Sensors")
         # A group with nothing picked reads blank.
         self.assertEqual(rows[bare.id]["project_category"], "")
         self.assertEqual(rows[bare.id]["solution_category"], "")
@@ -278,13 +286,17 @@ class FinalistToggleTests(_GradingFixture):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["group_id"], self.group.id)
 
-    def test_list_counts_each_teams_students(self):
+    def test_list_counts_each_teams_students_mentors_and_supervisors(self):
         from django.contrib.auth import get_user_model
         from django.utils import timezone
 
         User = get_user_model()
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
-        for n, (role, left) in enumerate((("student", None), ("student", None), ("student", timezone.now()), ("mentor", None))):
+        members = (
+            ("student", None), ("student", None), ("student", timezone.now()),
+            ("mentor", None), ("supervisor", None), ("supervisor", None),
+        )
+        for n, (role, left) in enumerate(members):
             member = User.objects.create_user(email=f"m{n}@example.com", password="pw12345!")
             GroupMembership.objects.create(
                 group=self.group, user=member, membership_role=role,
@@ -292,8 +304,26 @@ class FinalistToggleTests(_GradingFixture):
             )
         self.client.force_authenticate(self.staff)
         rows = self.client.get(reverse("grading:finalist-list")).json()["finalists"]
-        # Two current students; the one who left and the mentor don't count.
         self.assertEqual(rows[0]["students"], 2)
+        # People and emails, by role: current members only, so not the
+        # student who left; nobody's emailed until the team is notified.
+        counts = self.client.get(reverse("grading:finalist-list")).json()["counts"]
+        self.assertEqual(counts["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+        self.assertEqual(counts["mentors"], {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}})
+        self.assertEqual(counts["supervisors"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+
+    def test_a_mentor_on_two_finalist_teams_counts_once_with_two_emails(self):
+        from django.contrib.auth import get_user_model
+
+        mentor = get_user_model().objects.create_user(email="mo@example.com", password="pw12345!")
+        other = Groups.objects.create(group_name="BTF-OTHER")
+        for team, notified in ((self.group, True), (other, False)):
+            FinalistFlag.objects.create(group=team, flagged_by=self.staff, notified=notified)
+            GroupMembership.objects.create(group=team, user=mentor, membership_role="mentor")
+        self.client.force_authenticate(self.staff)
+        counts = self.client.get(reverse("grading:finalist-list")).json()["counts"]
+        # One mentor, emailed with the notified team; one of their two emails.
+        self.assertEqual(counts["mentors"], {"total": 1, "emailed": 1, "times": {"total": 2, "emailed": 1}})
 
     def test_notify_flag_marks_notified_when_recipients_exist(self):
         from django.core import mail

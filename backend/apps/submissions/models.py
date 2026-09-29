@@ -280,3 +280,100 @@ class Submission(models.Model):
             if key:
                 keys.add(key)
         return keys
+
+
+class FinalistDeadline(models.Model):
+    """Closing time for the finalist round, separate from the main deadline.
+
+    Not used for now: the finalist round stays open. Kept so a deadline can
+    come back without recreating the table.
+    """
+
+    closes_at = models.DateTimeField()
+    # Only the active row is consulted; past rows are kept on record.
+    is_active = models.BooleanField(default=True)
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_deadlines_set",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "submission_finalist_deadline"
+        verbose_name = "Finalist deadline"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Finalist deadline closing {self.closes_at:%Y-%m-%d %H:%M} UTC"
+
+
+class FinalistEntry(models.Model):
+    """A finalist team's presentation, as it works on it and submits it.
+
+    The times it can present are each student's own answer, kept with the
+    Finalist Presentation tab's times (grading's PresentationAvailability);
+    the submitted slides are also kept for that tab (grading's FinalistSlides).
+    """
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_entry",
+    )
+    # Each file is {"storage_key", "name", "mime", "size"}.
+    presentation = models.JSONField(null=True, blank=True)
+
+    # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
+    submitted_presentation = models.JSONField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_entries_submitted",
+    )
+    # Later than submitted_at means the team is editing again.
+    reopened_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "submission_finalist_entry"
+        verbose_name = "Finalist entry"
+        verbose_name_plural = "Finalist entries"
+
+    def __str__(self):
+        return f"{self.group} ({self.stage})"
+
+    @property
+    def is_submitted(self) -> bool:
+        return self.submitted_at is not None
+
+    @property
+    def is_locked(self) -> bool:
+        if self.submitted_at is None:
+            return False
+        return self.reopened_at is None or self.reopened_at <= self.submitted_at
+
+    @property
+    def stage(self) -> str:
+        if self.submitted_at is None:
+            # A student's answer counts as the team having started.
+            has_content = bool(self.presentation) or self.group.presentation_availability.filter(
+                slots__isnull=False
+            ).exists()
+            return STAGE_IN_PROGRESS if has_content else STAGE_NOT_STARTED
+        return STAGE_SUBMITTED if self.is_locked else STAGE_REVISING
+
+    def snapshot(self, user):
+        """Copy the working entry into the submitted set."""
+        self.submitted_presentation = self.presentation
+        self.submitted_at = timezone.now()
+        self.submitted_by = user
+        self.reopened_at = None
+

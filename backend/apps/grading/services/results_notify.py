@@ -64,6 +64,7 @@ from .docx import (
     certificate_context,
     marks_release_fields,
     marks_summary_context,
+    project_title,
     render_certificate_data,
     render_marks_summary_data,
     render_mentor_certificate_data,
@@ -362,6 +363,7 @@ class Documents:
         context = certificate_context(
             _person_name(student), team.group_name, self.year,
             first_name=student.first_name, last_name=student.last_name,
+            project_title=project_title(team),
         )
         return render_certificate_data(self._template("certificate_template"), context, self._signatures())
 
@@ -369,6 +371,7 @@ class Documents:
         context = certificate_context(
             _person_name(mentor), team.group_name, self.year,
             first_name=mentor.first_name, last_name=mentor.last_name,
+            project_title=project_title(team),
         )
         return render_mentor_certificate_data(
             self._template("mentor_certificate_template"), context, self._signatures()
@@ -405,9 +408,9 @@ def _certificates(docs: Documents, students) -> list[ResultsFile]:
 
 # Made-up groups for the sample spreadsheet on Release Results.
 _SAMPLE_GROUPS = (
-    ("Jane Doe, John Roe, Ann Lee", "Dr Sample Mentor"),
-    ("Mia Park, Noah Diaz", "Dr Second Mentor"),
-    ("Liam Ross, Emma Hart, Jack Wong, Zoe Kim", "Ms Third Mentor"),
+    ("Jane Doe, John Roe, Ann Lee", "Dr Sample Mentor", "Sample Soil Sensor"),
+    ("Mia Park, Noah Diaz", "Dr Second Mentor", "Sample Water Filter"),
+    ("Liam Ross, Emma Hart, Jack Wong, Zoe Kim", "Ms Third Mentor", "Sample Smart Bandage"),
 )
 
 
@@ -431,11 +434,12 @@ def sample_marks_sheet(year: int) -> bytes:
     marked against the real rubric's criteria and maximums, as Document
     Setup's test render fills the marks summary."""
     rows = []
-    for n, (students, mentors) in enumerate(_SAMPLE_GROUPS, start=1):
+    for n, (students, mentors, title) in enumerate(_SAMPLE_GROUPS, start=1):
         context = sample_marks_summary_context()
         context.update(
             # Short, like a real team code, to fit its column.
             group_name=f"SAMPLE{n}",
+            project_title=title,
             students=students,
             mentors=mentors,
             components=_sample_components(year, shift=n - 1),

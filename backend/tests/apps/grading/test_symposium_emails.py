@@ -102,7 +102,7 @@ class NonFinalistEmailTests(_GradingFixture):
         self.assertEqual(results[-1]["emailed"], 4)
         self.assertEqual(results[-1]["teams"], {"total": 1, "emailed": 1})
         # The count is of students; mentors and supervisors get it too.
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2})
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}})
         self.assertTrue(NonFinalistEmail.objects.filter(group=self.group).exists())
 
     def test_a_second_send_emails_nobody_again(self):
@@ -132,7 +132,7 @@ class NonFinalistEmailTests(_GradingFixture):
                 self.assertLogs("apps.grading.services.symposium_emails", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0})
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
         self.assertFalse(NonFinalistEmail.objects.filter(group=self.group).exists())
 
         # The next press reaches the team again.
@@ -162,9 +162,12 @@ class NonFinalistEmailTests(_GradingFixture):
 
     def test_the_tab_shows_who_it_is_for(self):
         r = self.client.get(reverse("grading:nonfinalist-email"))
+        # The student who left isn't counted.
         self.assertEqual(r.json(), {
             "teams": {"total": 1, "emailed": 0},
-            "students": {"total": 2, "emailed": 0},
+            "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
+            "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
         })
 
@@ -223,11 +226,32 @@ class NonSubmissionEmailTests(_GradingFixture):
 
     def test_the_section_counts_teams_that_did_not_submit(self):
         r = self.client.get(reverse("grading:nonsubmission-email"))
+        # Not the mentor of the group that never entered.
         self.assertEqual(r.json(), {
             "teams": {"total": 2, "emailed": 0},
-            "students": {"total": 2, "emailed": 0},
+            "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
+            "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
         })
+
+    def test_everyone_counts_as_emailed_once_their_team_is(self):
+        self._send_all()
+        r = self.client.get(reverse("grading:nonsubmission-email")).json()
+        self.assertEqual(
+            (r["students"], r["mentors"], r["supervisors"]),
+            ({"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}}, {"total": 1, "emailed": 1, "times": {"total": 1, "emailed": 1}}, {"total": 1, "emailed": 1, "times": {"total": 1, "emailed": 1}}),
+        )
+
+    def test_a_mentor_on_two_teams_is_one_person_emailed_twice(self):
+        # The team that saved a draft shares its supervisor with the other.
+        sue = GroupMembership.objects.get(user__email="sue@example.com").user
+        GroupMembership.objects.create(group=self.draft, user=sue, membership_role="supervisor")
+        r = self.client.get(reverse("grading:nonsubmission-email")).json()
+        self.assertEqual(r["supervisors"], {"total": 1, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+        self._send_all()
+        r = self.client.get(reverse("grading:nonsubmission-email")).json()
+        self.assertEqual(r["supervisors"], {"total": 1, "emailed": 1, "times": {"total": 2, "emailed": 2}})
 
     def test_every_current_member_of_a_team_that_did_not_submit_gets_it(self):
         results = self._send_all()
@@ -246,7 +270,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
 
         self.assertEqual(results[-1]["teams"], {"total": 2, "emailed": 2})
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2})
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}})
         self.assertEqual(NonSubmissionEmail.objects.count(), 2)
         # The two emails are recorded apart.
         self.assertFalse(NonFinalistEmail.objects.exists())

@@ -9226,7 +9226,8 @@ onBeforeUnmount(() => {
 }
 
 .gd-head-left {
-  padding-left: 0.35rem;
+  /* Keeps the group's picture clear of the card's left edge. */
+  padding-left: 0.85rem;
 }
 
 .gd-title {
@@ -9292,9 +9293,13 @@ onBeforeUnmount(() => {
 
 @media (min-width: 1181px) {
   .group-detail {
+    /* Tasks and the Discussion Board are never shorter than this. */
+    --group-panes-min-height: 520px;
     height: calc(100vh - 64px - 2rem);
-    min-height: 0;
-    overflow: hidden;
+    /* A short window scrolls the page rather than squashing them: room for
+       their minimum plus the group's card, the section tabs and the gaps. */
+    min-height: calc(var(--group-panes-min-height) + 13rem);
+    overflow: visible;
   }
 
   .group-hero-card {
@@ -9303,7 +9308,8 @@ onBeforeUnmount(() => {
 
   .split {
     flex: 1 1 auto;
-    min-height: 0;
+    /* Taller windows still stretch them to the bottom. */
+    min-height: var(--group-panes-min-height);
     height: auto;
     max-height: none;
   }

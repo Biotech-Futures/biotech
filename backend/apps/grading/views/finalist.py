@@ -17,7 +17,6 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 
@@ -32,6 +31,7 @@ from ..models import (
 from ..permissions import IsGrader
 from ..services import content, test_email
 from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
+from ..services.symposium_emails import member_ids, role_counts
 from ..services.xlsx import _format_product_category, _format_solution_category
 
 MISSING_DETAILS = (
@@ -143,19 +143,9 @@ class FinalistListView(APIView):
             FinalistFlag.objects.select_related("group", "flagged_by", "notified_by")
             .order_by("group__group_name")
         )
-        # Students on each team who have an address to be emailed at.
-        students = dict(
-            GroupMembership.objects.filter(
-                group_id__in=[f.group_id for f in flags],
-                left_at__isnull=True,
-                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-                user__is_active=True,
-            )
-            .exclude(user__email="")
-            .values("group_id")
-            .annotate(n=Count("user_id", distinct=True))
-            .values_list("group_id", "n")
-        )
+        # Students, mentors and supervisors on each team who have an address
+        # to be emailed at.
+        members = member_ids(f.group_id for f in flags)
         return Response({
             "finalists": [
                 {
@@ -166,10 +156,15 @@ class FinalistListView(APIView):
                     "notified": f.notified,
                     "notified_at": f.notified_at,
                     "notified_by": self._user_name(f.notified_by),
-                    "students": students.get(f.group_id, 0),
+                    "students": len(members["students"].get(f.group_id, ())),
                 }
                 for f in flags
-            ]
+            ],
+            # Everyone due the email and emailed, by role; a notified team's
+            # members count as emailed (see ``role_counts``).
+            "counts": role_counts(
+                members, [f.group_id for f in flags], {f.group_id for f in flags if f.notified}
+            ),
         })
 
 
@@ -187,7 +182,7 @@ class FinalistCandidatesView(APIView):
              "total": "31.00" | null,                  # sum across components
              "markers": ["Ada Grader", ...],           # deduped, latest first
              "incomplete": ["REPORT", ...],            # entered, not fully marked
-             "project_title": "",                      # no title is kept yet
+             "project_title": "Plant Sensors" | "",    # as submitted
              "project_category": "Health and Medicine" | "",
              "solution_category": "App" | "",
              "is_finalist": bool}
@@ -304,6 +299,8 @@ class FinalistCandidatesView(APIView):
             marks_by_group.setdefault(group_id, {})[code] = total
 
         finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        # The title each team submitted, as the entry being marked has it.
+        titles = content.submitted_titles(g["id"] for g in groups)
         # The categories picked on the marking key.
         categories = {
             c.group_id: c
@@ -349,8 +346,7 @@ class FinalistCandidatesView(APIView):
                 "markers": markers_by_group.get(g["id"], []),
                 # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
-                # No project title is kept anywhere yet, so it stays blank.
-                "project_title": "",
+                "project_title": titles.get(g["id"]) or "",
                 "project_category": _format_product_category(categories.get(g["id"])),
                 "solution_category": _format_solution_category(categories.get(g["id"])),
                 "is_finalist": g["id"] in finalist_ids,

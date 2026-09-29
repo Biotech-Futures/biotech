@@ -25,6 +25,20 @@ vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
   }
 })
 
+const fetchFinalist = vi.fn()
+vi.mock('@/utils/finalistAPI', () => ({
+  fetchFinalist: (...args: unknown[]) => fetchFinalist(...args),
+}))
+
+vi.mock('@/views/FinalistPage.vue', () => ({
+  __esModule: true,
+  default: {
+    name: 'FinalistPageStub',
+    props: ['previousLabel'],
+    template: '<div data-testid="finalist-stub"><slot name="steps" /></div>',
+  },
+}))
+
 // Imported after the mock is registered so the component picks up the stubs.
 const GroupSubmissionPage = (await import('../GroupSubmissionPage.vue')).default
 
@@ -165,6 +179,7 @@ beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
   vi.clearAllMocks()
+  fetchFinalist.mockRejectedValue(Object.assign(new Error('Not a finalist'), { status: 403 }))
   vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
   // jsdom has no scrollTo; stubbed to keep test output readable.
   vi.stubGlobal('scrollTo', vi.fn())
@@ -1428,3 +1443,74 @@ describe('as a section of the group page', () => {
     expect(buttonNamed(/^Submit$/)).toBeTruthy()
   })
 })
+
+describe('the Finalist step', () => {
+  const finalist = () => fetchFinalist.mockResolvedValue({})
+
+  it('is not offered to a group that is not a finalist', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(buttonNamed(/Finalist/)).toBeUndefined()
+  })
+
+  it('is added as the last step for a finalist group', async () => {
+    finalist()
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    const labels = wrapper!.findAll('.submission-step__label').map((label) => label.text())
+    expect(labels).toEqual(['Questions', 'Poster', 'Additional materials', 'Finalist'])
+  })
+
+  it('hands over to the finalist round, hiding the main status and actions', async () => {
+    finalist()
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    await buttonNamed(/Finalist/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="finalist-stub"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(true)
+    expect(wrapper!.find('.status-line').exists()).toBe(false)
+    expect(wrapper!.find('.submission-actions').isVisible()).toBe(false)
+    expect(wrapper!.find('[data-testid="finalist-stub"] .submission-steps').exists()).toBe(true)
+  })
+
+  it('returns to the main entry from the step strip', async () => {
+    finalist()
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await buttonNamed(/Finalist/)!.trigger('click')
+    await flushPromises()
+
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.status-line').exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(false)
+  })
+
+  it('opens on the Finalist step once the main round has closed', async () => {
+    finalist()
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('[data-testid="finalist-step"]').isVisible()).toBe(true)
+  })
+
+  it('appears without a reload once the team is made a finalist', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    expect(buttonNamed(/Finalist/)).toBeUndefined()
+
+    fetchFinalist.mockResolvedValue({})
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect(buttonNamed(/Finalist/)).toBeTruthy()
+  })
+
+  it('opens on the main entry while the main round is open', async () => {
+    finalist()
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+  })
+})
+

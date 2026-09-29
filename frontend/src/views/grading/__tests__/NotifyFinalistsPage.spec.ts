@@ -49,6 +49,14 @@ const finalist = (group_id: number, over: Record<string, unknown> = {}) => ({
   ...over
 })
 
+// Everyone the finalist email goes to, by role: people emailed, and the
+// emails that makes ("times"), as the server counts them.
+const COUNTS = {
+  students: { total: 6, emailed: 3, times: { total: 6, emailed: 3 } },
+  mentors: { total: 1, emailed: 1, times: { total: 2, emailed: 1 } },
+  supervisors: { total: 2, emailed: 1, times: { total: 3, emailed: 1 } }
+}
+
 const mountPage = async () => {
   const wrapper = mount(NotifyFinalistsPage, { global: { stubs: { teleport: true } } })
   await flushPromises()
@@ -72,7 +80,8 @@ beforeEach(() => {
         notified_at: '2026-09-10T00:00:00Z',
         notified_by: 'Ada Admin'
       })
-    ]
+    ],
+    counts: COUNTS
   })
 })
 
@@ -101,7 +110,7 @@ describe('the finalist roster', () => {
   })
 
   it('says so when no finalists exist yet', async () => {
-    listMock.mockResolvedValue({ finalists: [] })
+    listMock.mockResolvedValue({ finalists: [], counts: COUNTS })
     const wrapper = await mountPage()
     expect(wrapper.find('.notify-finalists__empty').text()).toBe('No finalists yet.')
     expect(wrapper.find('.notify-finalists__status').exists()).toBe(false)
@@ -112,13 +121,18 @@ describe('the finalist roster', () => {
     const status = wrapper.find('.notify-finalists__status')
     expect(status.text()).toBe('Emails are not sent to every group member')
     expect(status.classes()).toContain('notify-finalists__status--warn')
-    // One of the two teams (3 students each) is notified.
-    expect(wrapper.find('.notify-finalists__counts').text()).toBe('Students: 3 of 6 emailed')
+    // People, and for mentors and supervisors the emails that makes: the
+    // mentor is on both teams, one of them notified.
+    expect(wrapper.find('.notify-finalists__counts').text()).toBe(
+      'Students: 3 of 6 emailed · Mentors: 1 of 1 emailed (Times 1 of 2) · ' +
+        'Supervisors: 1 of 2 emailed (Times 1 of 3)'
+    )
   })
 
   it('says every member was emailed once all teams are notified', async () => {
     listMock.mockResolvedValue({
-      finalists: [finalist(1, { notified: true, notified_at: '2026-09-10T00:00:00Z' })]
+      finalists: [finalist(1, { notified: true, notified_at: '2026-09-10T00:00:00Z' })],
+      counts: COUNTS
     })
     const wrapper = await mountPage()
     const status = wrapper.find('.notify-finalists__status')

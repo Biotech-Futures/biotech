@@ -75,8 +75,12 @@
         {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
       </p>
       <!-- A notified team is one where every member got the email. -->
-      <p v-if="finalists.length" class="notify-finalists__counts">
-        Students: {{ studentsEmailed }} of {{ studentsTotal }} emailed
+      <p v-if="finalists.length && list" class="notify-finalists__counts">
+        Students: {{ list.counts.students.emailed }} of {{ list.counts.students.total }} emailed ·
+        Mentors: {{ list.counts.mentors.emailed }} of {{ list.counts.mentors.total }} emailed
+        (Times {{ list.counts.mentors.times.emailed }} of {{ list.counts.mentors.times.total }}) ·
+        Supervisors: {{ list.counts.supervisors.emailed }} of {{ list.counts.supervisors.total }} emailed
+        (Times {{ list.counts.supervisors.times.emailed }} of {{ list.counts.supervisors.times.total }})
       </p>
       <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
       <div class="notify-finalists__email-actions">
@@ -263,10 +267,7 @@ const sendingMode = ref<'all' | 'selected' | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
 const allNotified = computed(() => finalists.value.every((f) => f.notified))
-const studentsTotal = computed(() => finalists.value.reduce((n, f) => n + f.students, 0))
-const studentsEmailed = computed(() =>
-  finalists.value.reduce((n, f) => n + (f.notified ? f.students : 0), 0)
-)
+
 
 // Teams ticked in the Notify column. Empty selection = email all un-notified.
 const selectedIds = ref(new Set<number>())

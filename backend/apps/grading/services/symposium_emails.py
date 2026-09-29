@@ -96,6 +96,55 @@ NONSUBMISSION = TeamEmail("nonsubmission_notice", NonSubmissionEmail, _nonsubmis
 # --- who gets it ---------------------------------------------------------------
 
 
+# The members counted on the email tabs, by the key the page shows them under.
+COUNTED_ROLES = {
+    "students": _STUDENT_ROLE,
+    "mentors": GroupMembership.MembershipRoleChoices.MENTOR,
+    "supervisors": GroupMembership.MembershipRoleChoices.SUPERVISOR,
+}
+
+
+def member_ids(group_ids) -> dict[str, dict[int, set[int]]]:
+    """Each group's current members with an address, by role:
+    ``{"students": {group_id: {user_id, ...}}, "mentors": ..., "supervisors": ...}``."""
+    key_of = {role: key for key, role in COUNTED_ROLES.items()}
+    members: dict[str, dict[int, set[int]]] = {key: {} for key in COUNTED_ROLES}
+    rows = (
+        GroupMembership.objects.filter(
+            group_id__in=list(group_ids),
+            left_at__isnull=True,
+            membership_role__in=list(key_of),
+            user__is_active=True,
+        )
+        .exclude(user__email="")
+        .values_list("group_id", "membership_role", "user_id")
+    )
+    for group_id, role, user_id in rows:
+        members[key_of[role]].setdefault(group_id, set()).add(user_id)
+    return members
+
+
+def role_counts(members: dict, team_ids, emailed_ids) -> dict:
+    """For each role, how many people are due the email and how many have
+    had it (at least once), and how many emails that is: someone on several
+    teams gets one per team, so "times" can be more than the people.
+
+    ``{"mentors": {"total", "emailed", "times": {"total", "emailed"}}, ...}``
+    """
+    team_ids = list(team_ids)
+    counts = {}
+    for key in COUNTED_ROLES:
+        per_team = members.get(key, {})
+        due = [per_team.get(team_id, set()) for team_id in team_ids]
+        sent = [per_team.get(team_id, set()) for team_id in team_ids if team_id in emailed_ids]
+        counts[key] = {
+            "total": len(set().union(*due)),
+            "emailed": len(set().union(*sent)),
+            "times": {"total": sum(map(len, due)), "emailed": sum(map(len, sent))},
+        }
+    return counts
+
+
 @dataclass
 class TeamAudience:
     """Teams due an email, who on each gets it, and which teams already have
@@ -103,16 +152,16 @@ class TeamAudience:
 
     teams: list = field(default_factory=list)
     recipients: dict = field(default_factory=dict)
-    students: dict = field(default_factory=dict)
+    # Members with an address, by role then team (see ``member_ids``).
+    members: dict = field(default_factory=dict)
     emailed: set = field(default_factory=set)
 
     def counts(self) -> dict:
+        """Teams, and each role's people, due the email and emailed; a team's
+        members count as emailed once the team is (see ``role_counts``)."""
         return {
             "teams": {"total": len(self.teams), "emailed": len(self.emailed)},
-            "students": {
-                "total": sum(self.students.get(t.id, 0) for t in self.teams),
-                "emailed": sum(self.students.get(t.id, 0) for t in self.teams if t.id in self.emailed),
-            },
+            **role_counts(self.members, (t.id for t in self.teams), self.emailed),
         }
 
 
@@ -124,21 +173,11 @@ def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
     # A team with nobody to email can't be emailed; it isn't counted.
     teams = [team for team in teams if recipients[team.id]]
 
-    # Students with an address, for the page's count; mentors and supervisors
-    # get the email too.
-    students: dict[int, set] = {}
-    for group_id, user_id in GroupMembership.objects.filter(
-        group__in=teams,
-        left_at__isnull=True,
-        membership_role=_STUDENT_ROLE,
-        user__is_active=True,
-    ).exclude(user__email="").values_list("group_id", "user_id"):
-        students.setdefault(group_id, set()).add(user_id)
-
     return TeamAudience(
         teams=teams,
         recipients={team.id: recipients[team.id] for team in teams},
-        students={group_id: len(ids) for group_id, ids in students.items()},
+        # For the page's counts of students, mentors and supervisors.
+        members=member_ids(team.id for team in teams),
         emailed=set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True)),
     )
 
