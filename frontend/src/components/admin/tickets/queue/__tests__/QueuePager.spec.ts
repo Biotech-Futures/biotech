@@ -139,12 +139,156 @@ describe('the rows-per-page control', () => {
     expect(sizes()).toEqual([100])
   })
 
-  it('holds still while a page is loading', () => {
-    show({ disabled: true })
+  it('holds still while a page is loading, marked busy rather than disabled', async () => {
+    // Disabled would drop keyboard focus to the top of the document in a
+    // browser (jsdom does not do that part, so the attribute is what is
+    // pinned). Marked, every control keeps focus and ignores the press.
+    show({ pageSize: 10, disabled: true })
 
-    expect((control().element as HTMLInputElement).disabled).toBe(true)
-    expect(
-      wrapper!.findAll<HTMLButtonElement>('button').every((b) => b.element.disabled)
-    ).toBe(true)
+    const box = control().element as HTMLInputElement
+    const buttons = wrapper!.findAll<HTMLButtonElement>('button')
+    expect(buttons.map((b) => b.text())).toEqual(['Presets', 'Previous', '1', '2', '3', 'Next'])
+    for (const b of buttons) {
+      expect(b.attributes('disabled')).toBeUndefined()
+      expect(b.attributes('aria-disabled')).toBe('true')
+    }
+    expect(box.disabled).toBe(false)
+    expect(box.readOnly).toBe(true)
+    expect(control().attributes('aria-disabled')).toBe('true')
+
+    for (const b of buttons) await b.trigger('click')
+    await control().setValue('33')
+    await control().trigger('keydown', { key: 'Enter' })
+    await control().trigger('blur')
+
+    expect(wrapper!.emitted('page-change')).toBeUndefined()
+    expect(sizes()).toEqual([])
+    expect(control().element.tagName).toBe('INPUT')
+  })
+
+  it('ignores a pick from the dropdown while a page loads, and goes on naming the size in force', async () => {
+    show({ pageSize: 25, disabled: true })
+
+    expect(control().attributes('aria-disabled')).toBe('true')
+    expect((control().element as HTMLSelectElement).disabled).toBe(false)
+    await control().setValue('100')
+
+    expect(sizes()).toEqual([])
+    expect((control().element as HTMLSelectElement).value).toBe('25')
+  })
+
+  it('takes presses again once the page is in', async () => {
+    show({ pageSize: 25, disabled: true })
+    await wrapper!.setProps({ disabled: false })
+
+    expect(wrapper!.findAll('[aria-disabled]').map((el) => el.text())).toEqual(['Previous'])
+    await control().setValue('50')
+
+    expect(sizes()).toEqual([50])
+  })
+})
+
+describe('where focus goes when the rows-per-page control changes shape', () => {
+  // jsdom, like a browser, moves focus to <body> when the element that had it
+  // is removed. Each swap below removes the focused element.
+  function presets() {
+    return wrapper!.findAll<HTMLButtonElement>('button').find((b) => b.text() === 'Presets')!
+  }
+
+  it('hands focus to the dropdown when a typed preset swaps the box out', async () => {
+    // The queue opens on 10, in the box. Typing 25 and pressing Enter is the
+    // everyday way to get here, and the page then feeds the control 25.
+    show({ pageSize: 10 })
+    ;(control().element as HTMLInputElement).focus()
+
+    await control().setValue('25')
+    await control().trigger('keydown', { key: 'Enter' })
+    expect(sizes()).toEqual([25])
+    await wrapper!.setProps({ pageSize: 25 })
+    await flushPromises()
+
+    expect(control().element.tagName).toBe('SELECT')
+    expect(document.activeElement).toBe(control().element)
+  })
+
+  it('hands focus to the dropdown when Presets is pressed', async () => {
+    show({ pageSize: 10 })
+    presets().element.focus()
+
+    await presets().trigger('click')
+    await wrapper!.setProps({ pageSize: 25 })
+    await flushPromises()
+
+    expect(sizes()).toEqual([25])
+    expect(control().element.tagName).toBe('SELECT')
+    expect(document.activeElement).toBe(control().element)
+  })
+
+  it('hands focus to the dropdown from Presets when the size was a preset already', async () => {
+    // Custom picked from the dropdown and left alone: nothing to send.
+    show({ pageSize: 25 })
+    await control().setValue('custom')
+    await flushPromises()
+    presets().element.focus()
+
+    await presets().trigger('click')
+    await flushPromises()
+
+    expect(sizes()).toEqual([])
+    expect(document.activeElement).toBe(control().element)
+  })
+
+  it('leaves focus where it is when the swap happens while the agent is elsewhere', async () => {
+    show({ pageSize: 10 })
+    const next = wrapper!.findAll<HTMLButtonElement>('button').find((b) => b.text() === 'Next')!
+    next.element.focus()
+
+    await wrapper!.setProps({ pageSize: 25 })
+    await flushPromises()
+
+    expect(control().element.tagName).toBe('SELECT')
+    expect(document.activeElement).toBe(next.element)
+  })
+})
+
+describe('the footer’s buttons at the ends of the queue', () => {
+  function byText(text: string) {
+    return wrapper!.findAll<HTMLButtonElement>('button').find((b) => b.text() === text)!
+  }
+
+  it('marks Previous on the first page, keeps it focusable, and ignores a press', async () => {
+    show({ page: 1, totalPages: 3 })
+    const previous = byText('Previous')
+    previous.element.focus()
+
+    await previous.trigger('click')
+
+    expect(previous.attributes('disabled')).toBeUndefined()
+    expect(previous.attributes('aria-disabled')).toBe('true')
+    expect(byText('Next').attributes('aria-disabled')).toBeUndefined()
+    expect(wrapper!.emitted('page-change')).toBeUndefined()
+    expect(document.activeElement).toBe(previous.element)
+  })
+
+  it('marks Next on the last page, keeps it focusable, and ignores a press', async () => {
+    // Walking to the end with Next is how an agent gets here, with focus on
+    // Next the whole way.
+    show({ page: 3, totalPages: 3 })
+    const next = byText('Next')
+    next.element.focus()
+
+    await next.trigger('click')
+
+    expect(next.attributes('disabled')).toBeUndefined()
+    expect(next.attributes('aria-disabled')).toBe('true')
+    expect(byText('Previous').attributes('aria-disabled')).toBeUndefined()
+    expect(wrapper!.emitted('page-change')).toBeUndefined()
+    expect(document.activeElement).toBe(next.element)
+  })
+
+  it('does not dim the page being read, only a busy footer', () => {
+    show({ page: 2, totalPages: 3 })
+
+    expect(wrapper!.get('button[aria-current="page"]').attributes('aria-disabled')).toBeUndefined()
   })
 })

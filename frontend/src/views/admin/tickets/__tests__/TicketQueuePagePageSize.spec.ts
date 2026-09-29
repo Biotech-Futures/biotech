@@ -150,6 +150,8 @@ async function mountPage() {
   setActivePinia(createPinia())
   useAuthStore().loginWithUser(pureAgent as never)
   wrapper = mount(TicketQueuePage, {
+    // Attached, so the footer's controls can hold focus.
+    attachTo: document.body,
     global: { stubs: { TicketDetailPanel: true } }
   })
   await flushPromises()
@@ -283,7 +285,7 @@ describe('walking a queue deeper than the server will serve a page of', () => {
     const nextOpen: boolean[] = []
     for (let i = 1; i <= expected; i++) {
       walk.push(footer())
-      nextOpen.push(!next().element.disabled)
+      nextOpen.push(next().attributes('aria-disabled') !== 'true')
       if (i < expected) {
         await next().trigger('click')
         await flushPromises()
@@ -333,24 +335,72 @@ describe('the floor the walk’s frozen total needs', () => {
     // ceil(5/10) = 1, but the reader is standing on page 2 with more behind
     // it, so the floor has to carry the count to 3.
     expect(footer()).toBe('Page 2 of 3')
-    expect(next().element.disabled).toBe(false)
+    expect(next().attributes('aria-disabled')).toBeUndefined()
   })
 })
 
 describe('the footer while a page is loading', () => {
-  it('holds every control still until the answer is in', async () => {
+  it('holds every control still until the answer is in, without taking focus off it', async () => {
+    // Marked with aria-disabled, not disabled: disabling the Next that was
+    // just pressed drops keyboard focus to the top of the document in a
+    // browser. jsdom does not do that part, so the attribute is pinned too.
     queueState = { total: 25, rowCap: Infinity }
     await mountPage()
     vi.mocked(fetchTicketQueue).mockImplementation(() => new Promise(() => {}))
 
+    next().element.focus()
     await next().trigger('click')
     await flushPromises()
 
     expect(footer()).toBe('Page 2 of 2')
     const nav = w().get('nav[aria-label="Pagination"]').findAll<HTMLButtonElement>('button')
-    expect(nav.every((b) => b.element.disabled)).toBe(true)
     expect(
-      (w().get('[aria-label="Rows per page"]').element as HTMLInputElement).disabled
-    ).toBe(true)
+      nav.map((b) => [b.text(), b.attributes('aria-disabled'), b.attributes('disabled')])
+    ).toEqual([
+      ['Previous', 'true', undefined],
+      ['1', 'true', undefined],
+      ['2', 'true', undefined],
+      ['Next', 'true', undefined]
+    ])
+    const box = w().get('[aria-label="Rows per page"]')
+    expect(box.attributes('aria-disabled')).toBe('true')
+    expect((box.element as HTMLInputElement).disabled).toBe(false)
+    expect(document.activeElement).toBe(next().element)
+  })
+
+  it('asks for nothing when the marked controls are pressed', async () => {
+    queueState = { total: 25, rowCap: Infinity }
+    await mountPage()
+    // Counted on the mock itself: the hanging answer below replaces the
+    // implementation that writes `asked`.
+    const requests = () => vi.mocked(fetchTicketQueue).mock.calls.length
+    vi.mocked(fetchTicketQueue).mockImplementation(() => new Promise(() => {}))
+    await next().trigger('click')
+    await flushPromises()
+    const before = requests()
+    expect(before).toBeGreaterThan(0)
+
+    await w().get('button[aria-label="Go to page 1"]').trigger('click')
+    await setRowsPerPage(50)
+
+    expect(requests()).toBe(before)
+  })
+
+  it('reads one page when a typed size is applied twice in one tick', async () => {
+    // Enter applies the size, and so does the box losing focus. Both land
+    // before the control has re-rendered as busy, so the page itself has to
+    // see that a page is already on its way.
+    queueState = { total: 25, rowCap: Infinity }
+    await mountPage()
+    const before = asked.length
+    const box = w().get('input[aria-label="Rows per page"]').element as HTMLInputElement
+
+    box.value = '33'
+    box.dispatchEvent(new Event('input'))
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    box.dispatchEvent(new FocusEvent('blur'))
+    await flushPromises()
+
+    expect(asked.slice(before)).toEqual([{ page: 1, limit: 33 }])
   })
 })

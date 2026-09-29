@@ -575,7 +575,9 @@ describe('TicketAuditPage', () => {
     auditMock.mockResolvedValue(page([]))
     await open()
 
-    expect(view().find('h1').text()).toBe('Ticket audit')
+    // An h2, not a second h1: TicketsSection's h1 is the page's only one.
+    expect(view().find('h1').exists()).toBe(false)
+    expect(view().find('h2').text()).toBe('Ticket audit')
     expect(view().find('.ticket-audit__subtitle').text()).toBe(
       'Every recorded action, including deletions. A deleted ticket keeps its record here after it has left the queue.'
     )

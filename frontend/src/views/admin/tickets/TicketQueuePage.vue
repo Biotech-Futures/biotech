@@ -1,9 +1,9 @@
 <template>
   <div class="ticket-queue">
-    <!-- An h1 inside the section's own h1, like the audit and analytics tabs:
-         TicketsSection.spec.ts reads both. -->
+    <!-- An h2: the page's one h1 is the section shell's "Support queue"
+         (TicketsSection.vue), and this tab sits under it. -->
     <header class="ticket-queue__header">
-      <h1 class="ticket-queue__title">Ticket queue</h1>
+      <h2 class="ticket-queue__title">Ticket queue</h2>
       <p class="ticket-queue__subtitle">
         Enquiries from across the platform, most recently active first.
       </p>
@@ -48,11 +48,14 @@
       <!-- Client item C-09 (Will, 2026-09-19): "from the admin perspective,
            some export function. If we wanted just to export that table."
            Every ticket the filters above match, not only the page on screen;
-           the page and the walk stay out of it (useTicketQueue exportQueue). -->
+           the page and the walk stay out of it (useTicketQueue exportQueue).
+           aria-disabled while it runs, not disabled: disabling the button
+           that was just pressed drops keyboard focus to the top of the
+           document. exportQueue ignores a press while one is running. -->
       <button
         type="button"
         class="btn btn-outline btn-sm ticket-queue__export"
-        :disabled="q.exporting.value"
+        :aria-disabled="q.exporting.value ? 'true' : undefined"
         @click="q.exportQueue"
       >
         <i class="fas fa-file-excel" aria-hidden="true"></i>
@@ -87,18 +90,28 @@
         :assignees-loading="q.assigneesPending.value"
         :pending="q.bulkPending.value"
         @clear="q.clearSelection"
-        @assign="q.assignSelected"
+        @assign="assignSelected"
       />
       <p v-if="q.bulkRejected.value" class="ticket-queue__alert" role="alert">
         {{ rejectedSentence }}
       </p>
     </template>
 
+    <!-- What a batch that went through did. React said nothing on success
+         (U2 GAP-07), and the bar that held the pressed button, with its own
+         live count, goes with the selection. The region is always in the
+         page, empty until there is something to say: a live region added
+         together with its text is often not read out. Screen-reader text
+         only, because on screen the bar going and the rows changing already
+         say it. It lives as long as the partial-failure line below. -->
+    <p class="sr-only" role="status">{{ assignedSentence }}</p>
+
     <p v-if="q.bulkFailures.value.length" class="ticket-queue__alert" role="alert">
       {{ partialFailureSentence }}
     </p>
 
     <QueueTable
+      ref="queueTable"
       :tickets="q.tickets.value"
       :loading="q.queueLoading.value"
       :failed="q.queueFailed.value"
@@ -126,7 +139,7 @@
       v-if="openTicketId !== null"
       :ticket-id="openTicketId"
       :can-delete="auth.isTicketAdmin"
-      @close="closeTicket"
+      @close="onPanelClose"
       @changed="q.refresh"
       @deleted="onDeleted"
     />
@@ -134,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TicketDetailPanel from '@/components/admin/tickets/detail/TicketDetailPanel.vue'
@@ -157,8 +170,19 @@ const auth = useAuthStore()
 // in a URL goes stale, and the walk (useTicketQueue) is what holds a place.
 const q = useTicketQueue()
 
+const queueTable = useTemplateRef<InstanceType<typeof QueueTable>>('queueTable')
+
 // Only `?ticket=` lives in the URL, and only a plain positive integer counts.
 const openTicketId = computed(() => ticketIdFromQuery(route.query.ticket))
+
+// Focus that was on a control this page has just taken away (the browser puts
+// it on <body>, the top of the document) goes to the table instead, so a
+// keyboard or screen-reader user carries on from the queue rather than from
+// the top of the page. Focus that is anywhere else is left where it is.
+function catchDroppedFocus() {
+  const active = document.activeElement
+  if (active === null || active === document.body) queueTable.value?.focus()
+}
 
 // `replace`, as React did: opening and closing a ticket does not add history,
 // so Back leaves the queue rather than stepping through every ticket opened.
@@ -169,7 +193,19 @@ function openTicket(id: number) {
 function closeTicket() {
   const rest = { ...route.query }
   delete rest.ticket
-  void router.replace({ query: rest })
+  return router.replace({ query: rest })
+}
+
+// The panel hands focus back to the row button that opened it as it goes, but
+// only when that button is still in the page. Often it is not: a quiet
+// refresh after the agent assigned or resolved the ticket drops its row from
+// an Unassigned or status filter, and a panel opened from a pasted link or an
+// audit link had no opener here at all. By the tick after the panel has gone,
+// its own hand-back has happened or has not.
+async function onPanelClose() {
+  await closeTicket()
+  await nextTick()
+  catchDroppedFocus()
 }
 
 // A delete can finish after the panel that started it is gone: Back takes
@@ -177,10 +213,24 @@ function closeTicket() {
 // opened another ticket by the time it lands. Closing unconditionally would
 // shut that other ticket's panel, so only the ticket that was deleted closes.
 // The row is forgotten and the queue reloaded either way.
-function onDeleted(id: number) {
+//
+// Here the panel hands focus back while the deleted ticket's row is still on
+// screen, and the refresh then removes that row, button and all. So the
+// catch waits for the refresh.
+async function onDeleted(id: number) {
   q.forgetTicket(id)
-  if (openTicketId.value === id) closeTicket()
-  q.refresh()
+  if (openTicketId.value === id) void closeTicket()
+  await q.refresh()
+  await nextTick()
+  catchDroppedFocus()
+}
+
+// A batch that went through takes the bulk bar away, and the Assign button
+// that had focus with it.
+async function assignSelected(assigneeId: number | null) {
+  if (!(await q.assignSelected(assigneeId))) return
+  await nextTick()
+  catchDroppedFocus()
 }
 
 // Spread, not the card's filter on its own: applyFilters replaces the whole
@@ -216,6 +266,21 @@ const rejectedSentence = computed(() => {
   return toThePool
     ? `${what} Try again.`
     : `${what} Check that the person you picked can still work the queue, then try again.`
+})
+
+// The tickets that went, and to whom, in one short sentence. The ones that
+// failed are the partial-failure line's business; when none went, that line
+// says everything and this one stays quiet.
+const assignedSentence = computed(() => {
+  const result = q.bulkResult.value
+  if (!result) return ''
+  const done = result.results.filter((r) => r.ok).length
+  if (done === 0) return ''
+  const tickets = `${done} ticket${done === 1 ? '' : 's'}`
+  const to = q.bulkAssigneeId.value
+  if (to === null) return `${tickets} handed back to the pool.`
+  const person = q.assignees.value.find((p) => p.id === to)
+  return person ? `${tickets} assigned to ${person.name}.` : `${tickets} assigned.`
 })
 
 const partialFailureSentence = computed(() => {
@@ -255,6 +320,17 @@ const partialFailureSentence = computed(() => {
   --ticket-queue-danger: var(--danger);
 }
 
+/* The global focus ring is --dark-green, which the dark theme does not
+   redefine: 2.79:1 on the dark card, and less on the row and bulk-bar
+   washes, under the 3:1 a focus indicator needs. Every control on the page,
+   the queue components' own included (hence :deep), takes the mint the
+   audit, analytics and detail panel rings use: 6.13:1 on the card. The
+   panel is teleported out of this element and keeps its own rule. Checked
+   by queueContrast.spec.ts. */
+:root[data-theme='dark'] .ticket-queue :deep(:focus-visible) {
+  outline-color: var(--mint-green);
+}
+
 .ticket-queue__title {
   margin: 0 0 0.25rem;
   font-size: 1.75rem;
@@ -280,6 +356,18 @@ const partialFailureSentence = computed(() => {
 :root[data-theme='dark'] .ticket-queue__export,
 :root[data-theme='dark'] .ticket-queue__export:hover {
   color: var(--mint-green);
+}
+
+/* main.css dims a .btn and drops its hover only for :disabled. The same
+   look for the marked button, which stays focusable. */
+.ticket-queue__export[aria-disabled='true'],
+.ticket-queue__export[aria-disabled='true']:hover {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background-color: transparent;
+  border-color: var(--border-light);
+  transform: none;
+  box-shadow: none;
 }
 
 .ticket-queue__alert {

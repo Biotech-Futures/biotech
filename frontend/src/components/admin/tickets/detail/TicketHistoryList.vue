@@ -1,13 +1,14 @@
 <template>
   <section class="ticket-history" :aria-labelledby="headingId">
-    <h3 :id="headingId" class="ticket-history__heading">History</h3>
+    <!-- tabindex="-1" so Try again can hand focus here: see retry. -->
+    <h3 :id="headingId" ref="headingEl" class="ticket-history__heading" tabindex="-1">History</h3>
 
     <!-- T08: the React list printed "Nothing recorded yet." when the request
          failed, which is false, and with retries off it never recovered. A
          failure says so and offers another go. -->
     <div v-if="state === 'failed'" class="ticket-history__failed">
       <p class="ticket-history__error" role="alert">The history could not be loaded.</p>
-      <button type="button" class="ticket-history__retry" @click="emit('retry')">Try again</button>
+      <button type="button" class="ticket-history__retry" @click="retry">Try again</button>
     </div>
     <p v-else-if="entries === null" class="ticket-history__quiet">Loading…</p>
     <!-- The same AuditLog rows the audit page lists, for one ticket instead
@@ -32,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { useId } from 'vue'
+import { nextTick, ref, useId } from 'vue'
 
 import {
   auditActionLabel,
@@ -51,6 +52,22 @@ defineProps<{
 const emit = defineEmits<{ retry: [] }>()
 
 const headingId = useId()
+const headingEl = ref<HTMLElement | null>(null)
+
+// Try again is gone as soon as it is pressed: the panel starts the read
+// again, and "Loading…" takes the button's place. Focus would go with it, to
+// the page body and out of the modal panel. It goes to the History heading
+// instead, which stays through every state: from there the list that comes
+// back is next in reading order, and a second failure is announced by its
+// role="alert". Only when the button really has gone, so a parent that did
+// not start a new read leaves focus where it was. The same care as the
+// assignee list's Try again in TicketDetailPanel.vue.
+async function retry(event: MouseEvent) {
+  const pressed = event.currentTarget as HTMLElement
+  emit('retry')
+  await nextTick()
+  if (!pressed.isConnected) headingEl.value?.focus()
+}
 </script>
 
 <style scoped>

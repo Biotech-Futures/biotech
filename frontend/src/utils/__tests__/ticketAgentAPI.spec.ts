@@ -38,11 +38,11 @@ import type { TicketFilters } from '@/utils/ticketAgentSchema'
  * really sends (backend/apps/tickets/views_admin.py).
  *
  * The CSRF cache starts warm, as it is after signing in. The transport asks
- * /users/me/ about a token before the first write that carries it; the stub
- * below answers that, and the token fetch, and keeps both out of `sent`, so a
- * write is one entry in `sent`. The takeover check has its own suite
- * (ticketTransport.spec.ts); the T01 cases here only prove the agent writes
- * go through it at all.
+ * /users/me/ about a token before the first write that carries it, and before
+ * every queue export; the stub below answers that, and the token fetch, and
+ * keeps both out of `sent`, so a write is one entry in `sent`. The takeover
+ * check has its own suite (ticketTransport.spec.ts); the T01 cases here only
+ * prove the agent writes and the export go through it at all.
  */
 
 type Sent = { method: string; url: string; headers: Headers; body: BodyInit | null | undefined }
@@ -50,6 +50,8 @@ type Sent = { method: string; url: string; headers: Headers; body: BodyInit | nu
 let sent: Sent[] = []
 let answers: Response[] = []
 let meId = 7
+// /users/me/ failing with this status instead of naming anybody.
+let meFailsWith: number | null = null
 // Django hands out a differently masked token on every fetch. The transport
 // keeps track of which token it has checked, so no two fetches here may hand
 // out the same string either, or one case would inherit another's check.
@@ -72,7 +74,11 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {})
     tokenFetches += 1
     return json({ csrfToken: `fresh-token-${tokenFetches}` })
   }
-  if (path === '/api/v1/users/me/') return json({ id: meId })
+  if (path === '/api/v1/users/me/') {
+    return meFailsWith === null
+      ? json({ id: meId })
+      : new Response('<html><body>Bad Gateway</body></html>', { status: meFailsWith })
+  }
   sent.push({
     method: String(init.method ?? 'GET').toUpperCase(),
     url,
@@ -85,6 +91,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {})
 })
 
 const last = () => sent[sent.length - 1]
+// Every request that left, the token fetch and /users/me/ included.
+const everyPath = () => fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)
 const jsonBody = () => JSON.parse(String(last().body))
 const formEntries = () =>
   [...(last().body as FormData).entries()].map(([key, value]) => [
@@ -96,6 +104,7 @@ beforeEach(() => {
   sent = []
   answers = []
   meId = 7
+  meFailsWith = null
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
   setActivePinia(createPinia())
@@ -380,6 +389,42 @@ describe('exporting the queue (C-09)', () => {
     expect(ticketRefusalReason(error)).toBe('assignee must be an integer.')
   })
 
+  // The export view writes an audit row naming whoever owns the session, so
+  // an export from a tab whose session has changed hands is refused the way
+  // a write is. The rest of the rule is in ticketTransport.spec.ts.
+  it('asks who is signed in first, then sends the export exactly once', async () => {
+    answer(xlsx())
+
+    await exportTickets({ status: 'open' })
+
+    expect(everyPath()).toEqual(['/api/v1/users/me/', '/api/v1/admin/tickets/export/'])
+    expect(sent).toHaveLength(1)
+  })
+
+  it("is never sent once the session is somebody else's, and the page has a sentence for it", async () => {
+    meId = 99
+
+    const error = await exportTickets({ status: 'open' }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect(sent).toEqual([])
+    // What the queue page puts in its alert (useTicketQueue's exportQueue).
+    expect(ticketRefusalReason(error)).toBe(
+      'You appear to be signed in as someone else now. This can happen if you signed in to ' +
+        'another BIOTech page in the same browser. Please reload and sign in again.'
+    )
+  })
+
+  it('is never sent when /users/me/ cannot say who is signed in', async () => {
+    meFailsWith = 502
+
+    const error = await exportTickets().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect(sent).toEqual([])
+    expect(everyPath()).toEqual(['/api/v1/users/me/'])
+  })
+
   it('saves the file under its name', async () => {
     const created: string[] = []
     URL.createObjectURL = vi.fn(() => {
@@ -551,6 +596,18 @@ describe('downloading an attachment', () => {
     expect(last().method).toBe('GET')
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/42/attachments/7/')
     expect(last().headers.get('Accept')).toBe('application/json')
+    expect(clicked.map((link) => link.download)).toEqual(['error.png'])
+  })
+
+  it('does not ask who is signed in first, because a download records nothing', async () => {
+    // Unlike the export. Even with the session now somebody else's, the one
+    // request is the download itself.
+    meId = 99
+    answer(new Response('%PDF-1.4', { status: 200 }))
+
+    await downloadTicketAttachment(42, 7, 'error.png')
+
+    expect(everyPath()).toEqual(['/api/v1/admin/tickets/42/attachments/7/'])
     expect(clicked.map((link) => link.download)).toEqual(['error.png'])
   })
 

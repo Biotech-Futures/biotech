@@ -661,9 +661,9 @@ describe('when the queue cannot be read', () => {
 
     await mountPage()
 
-    expect(w().get('[role="status"]').text()).toBe('Loading the queue…')
+    expect(w().get('.queue-table [role="status"]').text()).toBe('Loading the queue…')
     expect(text()).not.toMatch(/no tickets match/i)
-    expect(button('Next').element.disabled).toBe(true)
+    expect(button('Next').attributes('aria-disabled')).toBe('true')
   })
 })
 
@@ -727,7 +727,7 @@ describe('an answer that arrives late', () => {
     finishOld(firstPage())
     await flushPromises()
 
-    expect(w().get('[role="status"]').text()).toBe('Loading the queue…')
+    expect(w().get('.queue-table [role="status"]').text()).toBe('Loading the queue…')
     expect(text()).not.toMatch(/no tickets match/i)
   })
 })
@@ -1193,6 +1193,127 @@ describe('a bulk assign that goes through', () => {
 
     expect(button('Assigning…').element.disabled).toBe(true)
     expect(button('Clear selection').element.disabled).toBe(true)
+  })
+})
+
+describe('the status line after a bulk assign', () => {
+  // The bar that held the pressed button goes with the selection, and its
+  // live count with it, so this line is what a screen reader hears.
+  function status() {
+    return w().get('p.sr-only[role="status"]')
+  }
+
+  it('says who the batch went to, in a line that was on the page before it', async () => {
+    // A live region added together with its text is often not read out, so
+    // the same element has to be there, empty, before the batch is sent.
+    firstPageItems = [ROW, { ...ROW, id: 2, ticketNumber: 'SUP-2026-00002' }]
+    bulkMock.mockResolvedValue({
+      results: [
+        { ticketId: 1, ok: true },
+        { ticketId: 2, ok: true }
+      ]
+    })
+    await mountPage()
+    const before = status().element
+    expect(status().text()).toBe('')
+
+    await selectRow('SUP-2026-00001')
+    await selectRow('SUP-2026-00002')
+    await assignTo('9')
+
+    expect(status().element).toBe(before)
+    expect(status().text()).toBe('2 tickets assigned to Sam Reid.')
+  })
+
+  it('says how many went back to the pool', async () => {
+    await mountPage()
+    await selectRow()
+
+    await assignTo('__unassigned__')
+
+    expect(status().text()).toBe('1 ticket handed back to the pool.')
+  })
+
+  it('counts only the tickets that went when some of the batch failed', async () => {
+    firstPageItems = [ROW, { ...ROW, id: 2, ticketNumber: 'SUP-2026-00002' }]
+    bulkMock.mockResolvedValue({
+      results: [
+        { ticketId: 1, ok: false, error: 'not found' },
+        { ticketId: 2, ok: true }
+      ]
+    })
+    await mountPage()
+    await w().get('input[aria-label="Select every ticket on this page"]').setValue(true)
+
+    await assignTo('9')
+
+    expect(status().text()).toBe('1 ticket assigned to Sam Reid.')
+    expect(alerts()[0]).toMatch(/^1 of 2 could not be assigned: SUP-2026-00001 \(not found\)\./)
+  })
+
+  it('stays quiet when none of the batch went, leaving that to the failure line', async () => {
+    bulkMock.mockResolvedValue({ results: [{ ticketId: 1, ok: false, error: 'not found' }] })
+    await mountPage()
+    await selectRow()
+
+    await assignTo('9')
+
+    expect(status().text()).toBe('')
+    expect(alerts()[0]).toMatch(/^1 of 1 could not be assigned/)
+  })
+
+  it('stays quiet when the batch was refused', async () => {
+    bulkMock.mockRejectedValue(fault(400))
+    await mountPage()
+    await selectRow()
+
+    await assignTo('9')
+
+    expect(status().text()).toBe('')
+  })
+
+  it('empties as soon as the next batch is sent, so the same sentence is read again', async () => {
+    bulkMock.mockResolvedValueOnce({ results: [{ ticketId: 1, ok: true }] })
+    bulkMock.mockImplementationOnce(() => new Promise(() => {}))
+    await mountPage()
+    await selectRow()
+    await assignTo('9')
+    expect(status().text()).toBe('1 ticket assigned to Sam Reid.')
+
+    await selectRow()
+    await assignTo('9')
+
+    expect(status().text()).toBe('')
+  })
+
+  it('goes with the partial-failure line when the next selection is cleared', async () => {
+    await mountPage()
+    await selectRow()
+    await assignTo('9')
+
+    await selectRow()
+    await click('Clear selection')
+
+    expect(status().text()).toBe('')
+  })
+})
+
+describe('the footer', () => {
+  it('reads one page when Next is pressed twice in one tick', async () => {
+    // The footer is marked busy with aria-disabled, which only lands on the
+    // next render. The second press reached the page asking for the page the
+    // first had just asked for, which reads as a jump: a fresh read without
+    // the walk, replacing the one the first press started.
+    await mountPage()
+    const before = asked.length
+
+    const next = button('Next').element
+    next.click()
+    next.click()
+    await flushPromises()
+
+    expect(asked.slice(before)).toEqual([{ page: 2, limit: 10, filters: {}, walk: WALK }])
+    expect(text()).toMatch(/Nothing left on this page/)
   })
 })
 
@@ -1699,7 +1820,7 @@ describe('Export to Excel (C-09)', () => {
   })
 
   it('cannot be started twice while one is running', async () => {
-    // Two presses in one tick, before the disabled attribute has rendered:
+    // Two presses in one tick, before the button has re-rendered as busy:
     // the guard has to read live state.
     exportMock.mockImplementation(() => new Promise(() => {}))
     await mountPage()
@@ -1712,17 +1833,27 @@ describe('Export to Excel (C-09)', () => {
     expect(exportMock).toHaveBeenCalledTimes(1)
   })
 
-  it('says it is running and is disabled until it finishes', async () => {
+  it('says it is running and is marked busy, not disabled, until it finishes', async () => {
+    // Disabled would drop keyboard focus from the button just pressed to the
+    // top of the document in a browser (jsdom does not do that part, so the
+    // attribute is pinned). Marked, it keeps focus and ignores a press.
     let finish: (file: typeof FILE) => void = () => {}
     exportMock.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
     await mountPage()
+    button('Export to Excel').element.focus()
 
     await click('Export to Excel')
-    expect(button(/Exporting…/).element.disabled).toBe(true)
+    const busy = button(/Exporting…/)
+    expect(busy.attributes('aria-disabled')).toBe('true')
+    expect(busy.attributes('disabled')).toBeUndefined()
+    expect(document.activeElement).toBe(busy.element)
+    await click(/Exporting…/)
+    expect(exportMock).toHaveBeenCalledTimes(1)
 
     finish(FILE)
     await flushPromises()
-    expect(button('Export to Excel').element.disabled).toBe(false)
+    expect(button('Export to Excel').attributes('aria-disabled')).toBeUndefined()
+    expect(document.activeElement).toBe(button('Export to Excel').element)
   })
 
   it('says so when the export fails', async () => {
@@ -1733,7 +1864,7 @@ describe('Export to Excel (C-09)', () => {
 
     expect(alerts()).toEqual(['Could not export the tickets. Please try again.'])
     expect(saveMock).not.toHaveBeenCalled()
-    expect(button('Export to Excel').element.disabled).toBe(false)
+    expect(button('Export to Excel').attributes('aria-disabled')).toBeUndefined()
   })
 
   it('takes the last failure down when the next export works', async () => {

@@ -1,9 +1,9 @@
 <template>
   <section class="ticket-audit" aria-labelledby="ticket-audit-title">
     <header class="ticket-audit__head">
-      <!-- An h1 although the section shell above already has one, because
-           TicketsSection.spec.ts pins every tab page's title as an h1. -->
-      <h1 id="ticket-audit-title" class="ticket-audit__title">Ticket audit</h1>
+      <!-- An h2: the section shell above (TicketsSection.vue) holds the
+           page's only h1, and this names the tab inside it. -->
+      <h2 id="ticket-audit-title" class="ticket-audit__title">Ticket audit</h2>
       <p class="ticket-audit__subtitle">
         Every recorded action, including deletions. A deleted ticket keeps its record here after it
         has left the queue.

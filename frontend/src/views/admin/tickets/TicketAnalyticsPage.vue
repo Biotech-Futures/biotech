@@ -1,10 +1,11 @@
 <template>
   <div class="ticket-analytics">
     <header>
-      <!-- An h1 as in React and as TicketsSection.spec.ts expects of every
-           child page: the shell's own h1 names the section, this one the
-           page inside it. -->
-      <h1 class="ticket-analytics__title">Ticket analytics</h1>
+      <!-- An h2, not the h1 React had: the section shell above
+           (TicketsSection.vue) holds the page's only h1 and names the
+           section, this names the tab inside it. The card titles below are
+           h3 and the chart titles h4, one level under each. -->
+      <h2 class="ticket-analytics__title">Ticket analytics</h2>
       <p class="ticket-analytics__subtitle">
         Dates are read as UTC, the same rule the ticket numbering uses. A window that starts on
         1 March opens at 11am Sydney time.
@@ -67,28 +68,28 @@
 
     <div v-if="data" class="ticket-analytics__grid">
       <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-demand">
-        <h2 id="ticket-analytics-demand" class="ticket-analytics__card-title">
+        <h3 id="ticket-analytics-demand" class="ticket-analytics__card-title">
           Demand · what help is being requested?
-        </h2>
+        </h3>
         <StatTile
           label="Tickets raised"
           :value="String(data.demand.volume)"
           hint="In the selected window"
         />
         <div>
-          <h3 class="ticket-analytics__chart-title">By category</h3>
+          <h4 class="ticket-analytics__chart-title">By category</h4>
           <MeasureBars label="By category" :rows="categoryRows" />
         </div>
         <div>
-          <h3 class="ticket-analytics__chart-title">By channel</h3>
+          <h4 class="ticket-analytics__chart-title">By channel</h4>
           <MeasureBars label="By channel" :rows="channelRows" />
         </div>
       </section>
 
       <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-flow">
-        <h2 id="ticket-analytics-flow" class="ticket-analytics__card-title">
+        <h3 id="ticket-analytics-flow" class="ticket-analytics__card-title">
           Flow · where does work slow down?
-        </h2>
+        </h3>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="Unassigned"
@@ -103,7 +104,7 @@
           />
         </div>
         <div>
-          <h3 class="ticket-analytics__chart-title">Time since anything happened</h3>
+          <h4 class="ticket-analytics__chart-title">Time since anything happened</h4>
           <MeasureBars
             label="Time since anything happened"
             :rows="ageRows"
@@ -114,9 +115,9 @@
       </section>
 
       <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-service">
-        <h2 id="ticket-analytics-service" class="ticket-analytics__card-title">
+        <h3 id="ticket-analytics-service" class="ticket-analytics__card-title">
           Service · how quickly do we respond?
-        </h2>
+        </h3>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="First reply"
@@ -145,9 +146,9 @@
       </section>
 
       <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-quality">
-        <h2 id="ticket-analytics-quality" class="ticket-analytics__card-title">
+        <h3 id="ticket-analytics-quality" class="ticket-analytics__card-title">
           Quality · did the support help?
-        </h2>
+        </h3>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="Resolved"
@@ -174,9 +175,9 @@
         class="ticket-analytics__card ticket-analytics__card--wide"
         aria-labelledby="ticket-analytics-segment"
       >
-        <h2 id="ticket-analytics-segment" class="ticket-analytics__card-title">
+        <h3 id="ticket-analytics-segment" class="ticket-analytics__card-title">
           Broken down by {{ dimensionLabel(dimension).toLowerCase() }}
-        </h2>
+        </h3>
         <!-- Without the roster every bar below falls back to "#11", which is
              the very thing this chart was fixed for, so the reason is put on
              the screen rather than left to be guessed at. Only while the

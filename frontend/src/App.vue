@@ -138,7 +138,7 @@
                 class="sidebar-link"
                 :class="{ active: route.path.startsWith('/admin/tickets') }"
               >
-                <i class="fas fa-headset sidebar-icon"></i>
+                <i class="fas fa-headset sidebar-icon" aria-hidden="true"></i>
                 <span>Support queue</span>
               </RouterLink>
             </li>

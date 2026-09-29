@@ -134,6 +134,10 @@ export function useTicketQueue() {
   const bulkPending = ref(false)
   const bulkRejected = shallowRef<RejectedBatch | null>(null)
   const bulkResult = shallowRef<BulkAssignResult | null>(null)
+  // Who the batch in bulkResult went to (null: back to the pool). Set and
+  // read together with it: the sentence saying a batch went through names
+  // the person.
+  const bulkAssigneeId = ref<number | null>(null)
 
   const exporting = ref(false)
   const exportError = ref('')
@@ -265,6 +269,13 @@ export function useTicketQueue() {
     // it, so an old cursor pulls the following page's rows up into the gap.
     // Do not restore it without measuring both routes. (The backend's
     // services/paging.py docstring still suggests that route; follow this.)
+    //
+    // Ignored while a page is still being read. The footer marks itself
+    // with aria-disabled rather than disabled, so a press still arrives, and
+    // live state rather than the rendered prop is what catches two presses of
+    // Next in one tick: the second would read as a jump back to the page the
+    // first asked for and throw the walk away.
+    if (queueLoading.value) return
     if (next !== page.value + 1) restartWalk()
     page.value = next
     void loadQueue()
@@ -280,6 +291,9 @@ export function useTicketQueue() {
   }
 
   function setPageSize(size: number) {
+    // The same rule as goToPage: the rows-per-page control is marked, not
+    // disabled, while a page is being read.
+    if (queueLoading.value) return
     limit.value = size
     restartWalk()
     page.value = 1
@@ -342,32 +356,40 @@ export function useTicketQueue() {
   // status change moves it between counter cards and can move it in the sort
   // order. The page on screen is re-read under the walk it was read with, so
   // on page two and beyond a ticket just worked leaves that page.
-  function refresh() {
-    void loadQueue({ refresh: true })
-    void loadSummary()
+  //
+  // Settles once both answers are in, for a caller that has to act on the
+  // rows the refresh leaves (the page catching focus a removed row dropped).
+  async function refresh() {
+    await Promise.all([loadQueue({ refresh: true }), loadSummary()])
   }
 
   // null hands the batch back to the pool, which the endpoint has always
   // accepted. One request for the whole batch: the endpoint answers per
   // ticket, so a partly failed batch is still a 200.
-  async function assignSelected(assigneeId: number | null) {
+  //
+  // True when the batch went through, partly failed or not: the selection,
+  // and the bar holding the button that was pressed, are gone then.
+  async function assignSelected(assigneeId: number | null): Promise<boolean> {
     // Reads live state, not a rendered prop: two clicks in one tick must
     // still send one batch.
-    if (bulkPending.value || selectedIds.value.length === 0) return
+    if (bulkPending.value || selectedIds.value.length === 0) return false
     const ticketIds = [...selectedIds.value]
     bulkPending.value = true
     bulkRejected.value = null
     bulkResult.value = null
     try {
       const result = await bulkAssignTickets(ticketIds, assigneeId)
+      bulkAssigneeId.value = assigneeId
       bulkResult.value = result
       // The whole selection goes, failed rows included. The partial-failure
       // message, outside the selection block, is what names the ones to redo.
       selectedIds.value = []
-      refresh()
+      void refresh()
+      return true
     } catch (error) {
       logApiError('Ticket bulk assign', error)
       bulkRejected.value = { assigneeId, reason: batchRefusalReason(error) }
+      return false
     } finally {
       bulkPending.value = false
     }
@@ -405,7 +427,7 @@ export function useTicketQueue() {
       void loadSummary()
       return
     }
-    refresh()
+    void refresh()
   }
 
   onMounted(() => {
@@ -449,6 +471,7 @@ export function useTicketQueue() {
     bulkPending,
     bulkRejected,
     bulkResult,
+    bulkAssigneeId,
     bulkFailures,
     numbersSeen,
     exporting,

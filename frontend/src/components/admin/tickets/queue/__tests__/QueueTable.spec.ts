@@ -136,3 +136,26 @@ describe('the queue table', () => {
     expect(wrapper!.emitted('open')).toBeUndefined()
   })
 })
+
+describe('the table as somewhere for focus to land', () => {
+  // The page sends focus here when the control that had it is taken away
+  // (TicketQueuePageFocus.spec.ts drives those cases end to end).
+  it.each([
+    ['rows on screen', { tickets: [ROW], loading: false }],
+    ['a page still loading', { tickets: [], loading: true }],
+    ['an empty page', { tickets: [], loading: false }]
+  ])('is a named region the page can focus, with %s, and not a Tab stop', (_, state) => {
+    wrapper = mount(QueueTable, {
+      attachTo: document.body,
+      props: { failed: false, selectedIds: [], continuesWalk: false, ...state }
+    })
+
+    const region = wrapper.get('[role="region"]')
+    expect(region.element).toBe(wrapper.element)
+    expect(region.attributes('aria-label')).toBe('Tickets')
+    expect(region.attributes('tabindex')).toBe('-1')
+    ;(wrapper.vm as unknown as { focus: () => void }).focus()
+
+    expect(document.activeElement).toBe(region.element)
+  })
+})

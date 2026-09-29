@@ -710,6 +710,20 @@ describe('what queue access is, and what it is not (RO-09)', () => {
       'Apart from administrators, this page is the only place that shows queue access.'
     )
   })
+
+  it('says revoking here leaves the role alone, and a role change on the People page removes access too', async () => {
+    // The page used to say removing access was only possible here. Saving a
+    // Support account with another role on the People page revokes its
+    // access as well (the backend's role_moved branch), and the People editor
+    // says so. Admin is the exception: an administrator keeps the queue.
+    await mountPage()
+
+    expect(page().text()).toContain("Revoking access here leaves the account's role as it is.")
+    expect(page().text()).toContain(
+      'On the People page, changing a Support account to another role also removes its access, unless the new role is Admin.'
+    )
+    expect(page().text()).not.toContain('only possible from this page')
+  })
 })
 
 describe('revoking (RO-10)', () => {
@@ -878,6 +892,40 @@ describe('revoking (RO-10)', () => {
     finish()
     await flushPromises()
     expect(rowButtons()).toEqual([false, false])
+  })
+
+  describe('when the confirmation opens', () => {
+    // The real Teleport, as in the block below: the stub re-creates the
+    // dialog's buttons on every re-render, which moves focus for a reason a
+    // browser does not have.
+    const realDialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
+
+    it('puts focus on Cancel, not on the button that revokes', async () => {
+      // ConfirmDialog focuses its confirm button, and here that is "Revoke
+      // access". React's AlertDialog focused Cancel.
+      await mountPage(ticketAdmin, { stubTeleport: false })
+      await openRevoke()
+
+      const focused = document.activeElement as HTMLElement
+      expect(realDialog()!.contains(focused)).toBe(true)
+      expect(focused.tagName).toBe('BUTTON')
+      expect(focused.textContent!.trim()).toBe('Cancel')
+    })
+
+    it('so an Enter pressed straight after opening revokes nothing', async () => {
+      // Enter on a focused button presses it. jsdom does not do that for a
+      // key event, so the press is made on whatever has focus, as the key
+      // would be.
+      await mountPage(ticketAdmin, { stubTeleport: false })
+      const revoke = await openRevoke()
+
+      ;(document.activeElement as HTMLButtonElement).click()
+      await flushPromises()
+
+      expect(revokeSupport).not.toHaveBeenCalled()
+      expect(realDialog()).toBeNull()
+      expect(document.activeElement).toBe(revoke.element)
+    })
   })
 
   describe('after a refused revoke, with the dialog still open', () => {

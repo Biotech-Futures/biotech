@@ -131,19 +131,29 @@ describe('TicketAnalyticsPage', () => {
     // The page is organised by the client's own four groups, and each carries
     // the question they wrote above it. Losing the questions would leave a
     // wall of numbers that answers nothing in particular.
-    expect(wrapper!.findAll('h2').map((h2) => h2.text())).toEqual([
+    // h3: one level under the page's own h2 title, which sits under the
+    // section shell's h1.
+    expect(wrapper!.findAll('h3').map((h3) => h3.text())).toEqual([
       'Demand · what help is being requested?',
       'Flow · where does work slow down?',
       'Service · how quickly do we respond?',
       'Quality · did the support help?',
       'Broken down by region'
     ])
+    // And the charts inside the cards one level under those.
+    expect(wrapper!.findAll('h4').map((h4) => h4.text())).toEqual([
+      'By category',
+      'By channel',
+      'Time since anything happened'
+    ])
   })
 
   it('says what the dates mean above the controls', async () => {
     await openPage()
 
-    expect(wrapper!.find('h1').text()).toBe('Ticket analytics')
+    // An h2, not a second h1: TicketsSection's h1 is the page's only one.
+    expect(wrapper!.find('h1').exists()).toBe(false)
+    expect(wrapper!.find('h2').text()).toBe('Ticket analytics')
     expect(wrapper!.find('.ticket-analytics__subtitle').text()).toBe(
       'Dates are read as UTC, the same rule the ticket numbering uses. A window that starts on 1 March opens at 11am Sydney time.'
     )
@@ -481,7 +491,7 @@ describe('TicketAnalyticsPage', () => {
       to: '',
       dimension: 'userType'
     })
-    expect(wrapper!.findAll('h2').at(-1)!.text()).toBe('Broken down by user type')
+    expect(wrapper!.findAll('h3').at(-1)!.text()).toBe('Broken down by user type')
     expect(bars('segment')).toEqual(['mentor:3 tickets'])
   })
 

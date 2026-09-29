@@ -34,6 +34,8 @@ import {
  *     jar belongs to at that moment.
  * A write is "filed" only if it reaches the server with the current token, and
  * it is filed under whoever owns the session then, which is what Django does.
+ * The queue export is filed too, though it is a GET with no token: the export
+ * view records it under whoever owns the session when it lands.
  *
  * Tokens are unique across the whole file, as Django's are (it masks the
  * secret afresh on every fetch). The transport keeps track of which token it
@@ -41,6 +43,8 @@ import {
  * being handed the same string.
  */
 let backends = 0
+
+const EXPORT_PATH = '/api/v1/admin/tickets/export/'
 
 function fakeBackend() {
   backends += 1
@@ -110,6 +114,15 @@ function fakeBackend() {
       return answer
     }
     if (method === 'GET') {
+      // TicketQueueExportView's audit row: no token to check, and the name on
+      // it is whoever owns the session now. Then the file.
+      if (url.pathname === EXPORT_PATH) {
+        server.filed.push({ path: url.pathname, by: server.sessionUser })
+        return new Response('PK', {
+          status: 200,
+          headers: { 'Content-Disposition': 'attachment; filename="tickets-2026-09-29.xlsx"' }
+        })
+      }
       return json({ msg: 'ok', data: { readAs: server.sessionUser } })
     }
     if (new Headers(init.headers).get('X-CSRFToken') !== server.token()) {
@@ -799,6 +812,147 @@ describe('fetchBlob', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).status).toBe(500)
     expect((error as ApiError).message).toBe('We could not download that file.')
+  })
+})
+
+describe('fetchBlob asked to confirm the session (the queue export)', () => {
+  // The export is a GET, so it carries no token, but the server records it
+  // under whoever owns the session. The page loaded as 7. Every case below
+  // is about whether an export can go out on a session that is not 7's.
+  function exportQueue() {
+    return fetchBlob(EXPORT_PATH, 'Could not export the tickets. Please try again.', {
+      confirmSession: true
+    })
+  }
+
+  it('is never sent once /users/me/ says somebody else owns the session', async () => {
+    // 99 signed in on another tab of the same browser. Before the check the
+    // export went straight out and the audit row said 99 took the file.
+    const { server } = backend
+    server.signIn(99)
+
+    const error = await exportQueue().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
+    // The same sentence a refused write carries, so every page that already
+    // words that refusal words this one too.
+    expect((error as Error).message).toBe(
+      'You appear to be signed in as someone else now — this can happen if you ' +
+        'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
+    )
+    expect(server.filed).toEqual([])
+    expect(server.seen).toEqual(['GET /api/v1/users/me/'])
+  })
+
+  it('is never sent when /users/me/ answers with a failure instead of a person', async () => {
+    // "Cannot confirm" is not "same person". Sending here would be a guess,
+    // and this session is in fact 99's.
+    const { server } = backend
+    server.signIn(99)
+    server.meFailsWith = 502
+
+    const error = await exportQueue().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
+    expect(server.filed).toEqual([])
+    expect(server.seen).toEqual(['GET /api/v1/users/me/'])
+  })
+
+  it('is never sent when this tab does not know who it is', async () => {
+    // Nobody to compare /users/me/ with, so nothing is asked and nothing goes.
+    const { server } = backend
+    signInThisTabAs(null)
+
+    const error = await exportQueue().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect(server.filed).toEqual([])
+    expect(server.seen).toEqual([])
+  })
+
+  it('is sent exactly once, after the check, when it is still the same person', async () => {
+    const { server } = backend
+
+    const { blob, filename } = await exportQueue()
+
+    expect(blob.size).toBe(2)
+    expect(filename).toBe('tickets-2026-09-29.xlsx')
+    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
+    expect(server.seen).toEqual(['GET /api/v1/users/me/', `GET ${EXPORT_PATH}`])
+    // Still a read: no token was fetched for it and none went with it.
+    const exportCall = backend.fetchMock.mock.calls[1]
+    expect(new Headers(exportCall[1]?.headers).get('X-CSRFToken')).toBeNull()
+    expect(getCSRFToken()).toBeNull()
+  })
+
+  it('asks again on the next export, since a sign-in has no token here to rotate', async () => {
+    // A write may trust a token it checked earlier: a sign-in since then
+    // rotates it and the write 403s. This GET has nothing like that, so a
+    // check that passed on the last export says nothing about this one.
+    const { server } = backend
+    await exportQueue()
+    server.signIn(99)
+
+    const error = await exportQueue().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TicketSessionError)
+    expect(server.filed).toEqual([{ path: EXPORT_PATH, by: 7 }])
+    expect(server.seen).toEqual([
+      'GET /api/v1/users/me/',
+      `GET ${EXPORT_PATH}`,
+      'GET /api/v1/users/me/'
+    ])
+  })
+
+  it("judges by this tab's own memory, not by what the other tab wrote to localStorage", async () => {
+    // Signing in on the other tab writes the new person to localStorage,
+    // which every tab shares. Compared with /users/me/, that would be 99
+    // against 99, and the export would go out under 99.
+    const { server } = backend
+    server.signIn(99)
+    localStorage.setItem('auth.user', JSON.stringify({ id: 99 }))
+
+    try {
+      const error = await exportQueue().catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(TicketSessionError)
+      expect(server.filed).toEqual([])
+    } finally {
+      localStorage.removeItem('auth.user')
+    }
+  })
+
+  it('judges by who this tab was when Export was pressed, not when the answer came back', async () => {
+    // This tab signs out and back in as 99 while /users/me/ is still on its
+    // way. The person who pressed Export was 7, and the session is 99's.
+    const { server } = backend
+    let release!: () => void
+    server.meHeldUntil = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const result = outcome(exportQueue())
+    await until(() => server.seen.includes('GET /api/v1/users/me/'))
+    server.signIn(99)
+    signInThisTabAs(99)
+    server.meHeldUntil = null
+    release()
+
+    expect(await result).toBe('refused')
+    expect(server.filed).toEqual([])
+  })
+
+  it('is not asked for on a plain download, which the server does not record', async () => {
+    // An attachment download changes nothing and writes no audit row, so it
+    // asks nobody first, even on a session that has changed hands.
+    const { server } = backend
+    server.signIn(99)
+
+    await fetchBlob('/api/v1/admin/tickets/42/attachments/7/', 'Could not download that file.')
+
+    expect(server.seen).toEqual(['GET /api/v1/admin/tickets/42/attachments/7/'])
   })
 })
 

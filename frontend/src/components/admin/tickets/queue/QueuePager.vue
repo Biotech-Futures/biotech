@@ -9,12 +9,17 @@
       <p class="queue-pager__where">Page {{ page }} of {{ totalPages }}</p>
     </div>
 
+    <!-- aria-disabled rather than disabled, as on the audit tab's pager
+         (AuditPager.vue). Pressing Next while a page loads, or Next onto the
+         last page, would otherwise switch off the very button that has
+         focus, and the browser drops focus to the top of the document. The
+         buttons stay focusable and do nothing while they are marked. -->
     <nav class="queue-pager__nav" aria-label="Pagination">
       <button
         type="button"
         class="queue-pager__btn"
-        :disabled="page <= 1 || disabled"
-        @click="emit('page-change', page - 1)"
+        :aria-disabled="page <= 1 || disabled ? 'true' : undefined"
+        @click="go(page - 1, page <= 1)"
       >
         Previous
       </button>
@@ -27,8 +32,8 @@
           :class="{ 'queue-pager__num--current': item === page }"
           :aria-label="`Go to page ${item}`"
           :aria-current="item === page ? 'page' : undefined"
-          :disabled="disabled"
-          @click="emit('page-change', item)"
+          :aria-disabled="disabled ? 'true' : undefined"
+          @click="go(item, false)"
         >
           {{ item }}
         </button>
@@ -36,8 +41,8 @@
       <button
         type="button"
         class="queue-pager__btn"
-        :disabled="page >= totalPages || disabled"
-        @click="emit('page-change', page + 1)"
+        :aria-disabled="page >= totalPages || disabled ? 'true' : undefined"
+        @click="go(page + 1, page >= totalPages)"
       >
         Next
       </button>
@@ -73,6 +78,15 @@ const emit = defineEmits<{
 }>()
 
 const items = computed(() => pageItems(props.page, props.totalPages))
+
+// A marked button ignores the press; Enter and Space arrive here as a click
+// too. The page makes the same check on live state (useTicketQueue
+// goToPage), because two presses in one tick both land before this prop has
+// caught up.
+function go(target: number, atEdge: boolean) {
+  if (atEdge || props.disabled) return
+  emit('page-change', target)
+}
 </script>
 
 <style scoped>
@@ -121,12 +135,12 @@ const items = computed(() => pageItems(props.page, props.totalPages))
 
 /* Background and colour both set, so no global rule can combine into
    green-on-green. */
-.queue-pager__btn:hover:not(:disabled) {
+.queue-pager__btn:hover:not([aria-disabled='true']) {
   background: var(--accent-green-soft);
   color: var(--charcoal);
 }
 
-.queue-pager__btn:disabled {
+.queue-pager__btn[aria-disabled='true'] {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -134,7 +148,7 @@ const items = computed(() => pageItems(props.page, props.totalPages))
 /* Literal #fff on the green, 6.03:1: --white turns near-black in the dark
    theme (2.79:1 here). */
 .queue-pager__num--current,
-.queue-pager__num--current:hover:not(:disabled) {
+.queue-pager__num--current:hover:not([aria-disabled='true']) {
   border-color: var(--dark-green);
   background: var(--dark-green);
   color: #fff;

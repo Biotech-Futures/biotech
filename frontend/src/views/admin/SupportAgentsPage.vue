@@ -22,11 +22,12 @@
             being listed.
           </p>
         </div>
-        <!-- Two ways in, one way out. The client asked for a support agent to
-             be created "similar to how they can currently create a new admin
-             user", and that form lives on the People page, but this is the
-             screen somebody comes to when they think "how do I add a support
-             person?", so the answer has to be here too.
+        <!-- Two ways in (the two ways out are in the comment below). The
+             client asked for a support agent to be created "similar to how
+             they can currently create a new admin user", and that form lives
+             on the People page, but this is the screen somebody comes to when
+             they think "how do I add a support person?", so the answer has to
+             be here too.
 
              A link rather than a second copy of the dialog: the People editor
              already knows which fields each role needs, and a bespoke form
@@ -48,11 +49,20 @@
         </RouterLink>
       </div>
 
+      <!-- And two ways out. This page used to say, as the React one did, that
+           removing access was only possible here. It is not: saving a Support
+           account with another role on the People page revokes its access
+           too (backend services/user.py, the role_moved branch), and
+           AdminUserFormSheet.vue warns about that on the People page. Admin
+           is the exception, because an administrator works the queue without
+           being listed. What stays true is that revoking here never touches
+           the role. -->
       <p class="support-agents__muted support-agents__prose">
         Adding someone here gives an existing account access to the queue. Creating a support agent
         makes a new account that has queue access and nothing else. The button above opens the
-        People page, where the new account needs Support picked as its role. Removing access is only
-        possible from this page.
+        People page, where the new account needs Support picked as its role. Revoking access here
+        leaves the account's role as it is. On the People page, changing a Support account to
+        another role also removes its access, unless the new role is Admin.
       </p>
 
       <!-- Says out loud what an admin would otherwise have to work out by
@@ -84,7 +94,7 @@
 
       <ConfirmDialog
         v-model="revokeOpen"
-        :title="pending ? `Remove ${pending.name} from the support queue?` : ''"
+        :title="revokeTitle"
         :message="revokeMessage"
         confirm-label="Revoke access"
         variant="danger"
@@ -191,6 +201,10 @@ let opener: HTMLElement | null = null
 // reload, so focus must not go back there.
 let revokedOnClose = false
 
+const revokeTitle = computed(() =>
+  pending.value ? `Remove ${pending.value.name} from the support queue?` : ''
+)
+
 function askToRevoke(agent: SupportAgent, from: HTMLElement) {
   // Opening the dialog must not be the action itself.
   pending.value = agent
@@ -253,11 +267,36 @@ async function confirmRevoke() {
   }
 }
 
+/** The confirmation's Cancel button. ConfirmDialog teleports to body and
+ *  exposes no ref, so it is found by the title this page gave it, the way
+ *  TicketDetailPanel.vue finds its "Keep it". */
+function cancelButton(): HTMLButtonElement | null {
+  for (const dialog of Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))) {
+    if (dialog.querySelector('h2')?.textContent?.trim() !== revokeTitle.value) continue
+    const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
+    return buttons.find((button) => button.textContent?.trim() === 'Cancel') ?? null
+  }
+  return null
+}
+
+// The confirmation opens on Cancel, as the React AlertDialog did (Radix
+// focuses its Cancel). ConfirmDialog focuses its confirm button instead, one
+// tick after it opens (ConfirmDialog.vue focusConfirm), and here that is
+// "Revoke access": a second Enter, or a key held down, would revoke straight
+// away. So focus is moved once that has happened: the first tick here
+// resumes before ConfirmDialog's (both wait on the same render), the second
+// after it. The same fix as the delete confirmation in TicketDetailPanel.vue.
+//
 // ConfirmDialog moves focus in but never back. Return it to the Revoke button
 // that opened the dialog; when that row is going (the revoke went through),
 // land on the page heading rather than on the document body.
 watch(revokeOpen, async (isOpen) => {
-  if (isOpen) return
+  if (isOpen) {
+    await nextTick()
+    await nextTick()
+    if (revokeOpen.value) cancelButton()?.focus()
+    return
+  }
   pending.value = null
   revokeError.value = null
   const from = opener
@@ -324,6 +363,17 @@ watch(revokeOpen, async (isOpen) => {
 .support-agents__prose {
   max-width: 42rem;
   font-size: 0.875rem;
+}
+
+/* The global focus ring is --dark-green, which the dark theme does not
+   redefine: 2.79:1 on the --white under the Grant and Revoke buttons, under
+   the 3:1 a focus indicator needs. --mint-green is 6.13:1 there, the colour
+   the audit, analytics and detail rings already use in dark. :deep so it
+   reaches the two components and the table they sit in. It cannot reach the
+   revoke confirmation, which ConfirmDialog teleports to body. Checked by
+   supportAgentsContrast.spec.ts. */
+:root[data-theme='dark'] .support-agents :deep(:focus-visible) {
+  outline-color: var(--mint-green);
 }
 
 /* --dark-green is not redefined in the dark theme and is 3.02:1 on its

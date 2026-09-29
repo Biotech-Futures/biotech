@@ -13,14 +13,19 @@
     <!-- The roster (Support agents) is not a tab here. Everyone who can open
          this section can work the queue, and a support agent must never be
          offered the screen that grants the role (adminweb Nav.tsx). It lives
-         in the Admin block of the sidebar instead. -->
-    <nav class="tickets-section__switcher" role="tablist" aria-label="Support queue sections">
+         in the Admin block of the sidebar instead.
+
+         A labelled nav of links with aria-current, as GradingPage.vue has,
+         and not role="tablist". Each option is a link to another address,
+         and ARIA tabs promise arrow keys and a tab panel that these do not
+         have. RouterLink would set the same aria-current by itself; it is
+         written out so that the attribute and the pill read off one check. -->
+    <nav class="tickets-section__switcher" aria-label="Support queue sections">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.name"
         :to="{ name: tab.name }"
-        role="tab"
-        :aria-selected="route.name === tab.name"
+        :aria-current="route.name === tab.name ? 'page' : undefined"
         class="tickets-section__switch"
         :class="{ active: route.name === tab.name }"
       >
@@ -114,5 +119,13 @@ const tabs = [
   background: var(--dark-green);
   color: #fff;
   box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+}
+
+/* The global focus ring is --dark-green, which the dark theme does not
+   redefine: 2.79:1 on the dark rail, under the 3:1 a focus indicator needs.
+   --mint-green is 6.13:1 there, the colour the audit, analytics and detail
+   rings already use in dark. Checked by ticketsSectionContrast.spec.ts. */
+:root[data-theme='dark'] .tickets-section__switch:focus-visible {
+  outline-color: var(--mint-green);
 }
 </style>

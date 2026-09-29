@@ -153,13 +153,21 @@ export async function bulkAssignTickets(
  * The filename is the server's when Content-Disposition names one (settings.py
  * exposes that header cross-origin), otherwise tickets-YYYY-MM-DD.xlsx on the
  * reader's own calendar. The caller saves it with saveTicketExport.
+ *
+ * A GET, but the one agent read the server records: the export view writes an
+ * audit row under whoever owns the session. So it asks /users/me/ first, on
+ * every export. A session that now belongs to somebody else is refused with
+ * the same TicketSessionError a write gets; fetchBlob in ticketTransport.ts
+ * says what that check does and does not close. ticketRefusalReason already
+ * turns that error into the sentence the queue page shows.
  */
 export async function exportTickets(
   filters: TicketFilters = {}
 ): Promise<{ blob: Blob; filename: string }> {
   const { blob, filename } = await fetchBlob(
     withQuery(`${BASE}/export/`, appendFilters(new URLSearchParams(), filters)),
-    'Could not export the tickets. Please try again.'
+    'Could not export the tickets. Please try again.',
+    { confirmSession: true }
   )
   return { blob, filename: filename ?? `tickets-${localDateStamp(new Date())}.xlsx` }
 }
@@ -270,6 +278,10 @@ export async function deleteTicket(id: number): Promise<number> {
  *
  *  Internal-note attachments are served here too; that is why this is the
  *  admin endpoint and never the requester's.
+ *
+ *  No session check before it, unlike exportTickets. The download view
+ *  changes nothing and writes no audit row, so a download on a session that
+ *  changed hands leaves no record under the wrong name.
  */
 export async function downloadTicketAttachment(
   ticketId: number,

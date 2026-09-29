@@ -324,8 +324,8 @@ describe('opening an attachment', () => {
 
   it('ignores a second click on the file already downloading', async () => {
     // Both clicks are dispatched before anything is awaited, so no re-render
-    // has put `disabled` on the button. What stops the second call is the
-    // guard in the handler, which reads live reactive state.
+    // has marked the button busy. What stops the second call is the guard in
+    // the handler, which reads live reactive state.
     let release: () => void = () => {}
     api.downloadTicketAttachment.mockImplementationOnce(
       () => new Promise<void>((resolve) => (release = resolve))
@@ -341,9 +341,65 @@ describe('opening an attachment', () => {
     expect(api.downloadTicketAttachment).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores a press on a file already marked busy', async () => {
+    // The button is never `disabled` (see the focus test below), so a click
+    // after the re-render reaches the handler too, and the guard is all that
+    // stands between it and a second download.
+    let release: () => void = () => {}
+    api.downloadTicketAttachment.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    const panel = await showing([WITH_FILES])
+
+    await fileButton(panel, 'gone.png').trigger('click')
+    await flushPromises()
+    expect(fileButton(panel, 'gone.png').attributes('aria-disabled')).toBe('true')
+    await fileButton(panel, 'gone.png').trigger('click')
+    release()
+    await flushPromises()
+
+    expect(api.downloadTicketAttachment).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps focus on the file while it downloads: marked busy, not disabled', async () => {
+    // A browser moves focus off a button that becomes disabled, to the page
+    // body, which is outside this modal panel. jsdom does not, so the test
+    // does what the browser would (the HTML "focus fixup" rule) to any
+    // disabled button that has focus. jsdom also ignores blur() on a disabled
+    // element, hence the enable, blur, disable.
+    const focusFixup = () => {
+      const active = document.activeElement
+      if (active instanceof HTMLButtonElement && active.disabled) {
+        active.disabled = false
+        active.blur()
+        active.disabled = true
+      }
+    }
+    let release: () => void = () => {}
+    api.downloadTicketAttachment.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    const panel = await showing([WITH_FILES])
+    const button = fileButton(panel, 'gone.png')
+    ;(button.element as HTMLButtonElement).focus()
+
+    await button.trigger('click')
+    await flushPromises()
+    focusFixup()
+
+    expect(button.attributes('aria-disabled')).toBe('true')
+    expect((button.element as HTMLButtonElement).disabled).toBe(false)
+    expect(document.activeElement).toBe(button.element)
+
+    release()
+    await flushPromises()
+    expect(button.attributes('aria-disabled')).toBeUndefined()
+    expect(document.activeElement).toBe(button.element)
+  })
+
   it('lets the same file be downloaded again once the first one finishes', async () => {
-    // busy has to be cleared in `finally`, or the button is disabled for the
-    // rest of the session after one click.
+    // busy has to be cleared in `finally`, or the button is marked busy, and
+    // ignores every press, for the rest of the session after one click.
     const panel = await showing([WITH_FILES])
 
     await fileButton(panel, 'gone.png').trigger('click')
@@ -352,7 +408,7 @@ describe('opening an attachment', () => {
     await flushPromises()
 
     expect(api.downloadTicketAttachment).toHaveBeenCalledTimes(2)
-    expect((fileButton(panel, 'gone.png').element as HTMLButtonElement).disabled).toBe(false)
+    expect(fileButton(panel, 'gone.png').attributes('aria-disabled')).toBeUndefined()
   })
 
   it('blames only the file that failed, not the one next to it', async () => {

@@ -92,9 +92,12 @@ export const DOWNLOAD_ACCESS_REVOKED =
  *  tests/apps/tickets/test_attachment_streaming.py NOT_FOUND).
  *
  *  So this page cannot tell the two apart, and the sentence has to be true
- *  for both. The scaffold's sentence for a 404 says the ticket or message
- *  "was deleted", which is false for a lost file: nothing was deleted, and
- *  the queue still shows the ticket when the agent reloads it as told.
+ *  for both. The scaffold's first sentence for a 404 said the ticket or
+ *  message "was deleted", which is false for a lost file: nothing was
+ *  deleted, and the queue still shows the ticket when the agent reloads it
+ *  as told. attachmentErrorMessage in utils/ticketAgentAPI.ts has since been
+ *  given this same sentence, so both now cover both causes. The words are
+ *  written out in both files, so change them together.
  *
  *  Keyed on the status alone, like the scaffold. The body is not read: the
  *  earlier version looked for a `{detail}` body to name the lost file, and
@@ -108,9 +111,11 @@ export const DOWNLOAD_NOT_FOUND =
 /** What to say under a file whose download was refused.
  *
  *  The scaffold's attachmentErrorMessage keys on the status alone, as the
- *  React version did. Two of its sentences are untrue for a case that shares
- *  their status, and each of those gets a sentence here that is true for
- *  every case behind it; everything else is the scaffold's. */
+ *  React version did. Its 403 sentence, "Your session has expired", is untrue
+ *  for an agent whose queue access was revoked, which answers the same
+ *  status, so that case gets DOWNLOAD_ACCESS_REVOKED here. Its 404 sentence
+ *  was untrue for a lost file when this was written; it now says the same as
+ *  DOWNLOAD_NOT_FOUND (see above). Everything else is the scaffold's. */
 export function downloadErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 403 && error.code === 'permission_denied') return DOWNLOAD_ACCESS_REVOKED

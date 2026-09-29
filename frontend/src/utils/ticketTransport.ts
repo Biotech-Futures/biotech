@@ -66,7 +66,8 @@ function looksLikeStaleCsrf(status: number, body: string): boolean {
 // of them is safe to retry: the same user's token was rotated (retry), or
 // somebody else signed in and took over the session (do not retry — the write
 // would be filed under their name). It is also asked before a write goes out
-// on a token this module has not checked yet: see requestJson (T01).
+// on a token this module has not checked yet: see requestJson (T01). And
+// before every queue export, the one read the server records: see fetchBlob.
 async function sessionStillBelongsTo(expectedUserId: number | null): Promise<boolean> {
   if (expectedUserId === null) return false
   try {
@@ -258,6 +259,13 @@ export function ticketFormData(fields: Record<string, string>, files: File[] = [
   return form
 }
 
+export type FetchBlobOptions = {
+  // Ask /users/me/ before the GET goes out, and refuse unless the session
+  // still belongs to the person this tab thinks it is. Only for a GET the
+  // server records under whoever sends it. See fetchBlob.
+  confirmSession?: boolean
+}
+
 /**
  * A file endpoint, fetched as bytes. Never followed as a link: see
  * downloadTicketAttachment in supportAPI.ts and ticketAgentAPI.ts for what a
@@ -265,20 +273,67 @@ export function ticketFormData(fields: Record<string, string>, files: File[] = [
  *
  * Reads only. Nothing here sends a CSRF token, so a write must not come
  * through this function.
+ *
+ * One of these reads is recorded all the same: the queue export
+ * (exportTickets in ticketAgentAPI.ts). The export view writes an audit row
+ * naming whoever owns the session when the request lands. Say agent A has
+ * this tab open and B signs in on another tab of the same browser. If A then
+ * presses Export to Excel, the file is built on B's session and the audit
+ * trail says B took it. `confirmSession` applies the rule requestJson applies
+ * to writes. Who this tab is comes from this tab's memory (currentUserId,
+ * never localStorage), read before anything is sent. /users/me/ must name
+ * that same person. A tab that does not know who it is, or an answer that is
+ * not a person, is refused rather than guessed at.
+ *
+ * The export asks every time, not once per page load. A write can trust a
+ * token it checked earlier, because a later sign-in rotates that token and
+ * the write then 403s. This GET carries no token for a sign-in to rotate, and
+ * Django does not check CSRF on a GET anyway, so a check made for an earlier
+ * export says nothing about this one.
+ *
+ * The check leaves one window open. A sign-in that lands after /users/me/ has
+ * answered, and before the export reaches the server, is not seen, and the
+ * export is recorded under the new person. Writes close that same window with
+ * the checked token; a GET has no token to bind. So the window is kept as
+ * short as this side can make it: the request is built before the question
+ * is asked, and nothing else is awaited between the answer and the send. What
+ * is left is about one round trip. Closing it for good is a backend change:
+ * an export sent as a POST would go through requestJson and get the token
+ * check. That change would also stop another site from starting an export
+ * with a plain link or image tag, which nothing on this side can prevent.
+ *
+ * Attachment downloads leave the option off. The download views change
+ * nothing and write no audit row, so there is no record for the wrong name
+ * to land in, and asking first would only cost every download a request.
  */
 export async function fetchBlob(
   path: string,
-  fallback: string
+  fallback: string,
+  { confirmSession = false }: FetchBlobOptions = {}
 ): Promise<{ blob: Blob; filename: string | null }> {
+  // Captured before anything is sent, for the same reason as in requestJson:
+  // the gap between asking and hearing back is when a sign-in would land.
+  const expected = confirmSession ? currentUserId() : null
+
   // Accept: application/json is load-bearing. The backend declares no
   // DEFAULT_RENDERER_CLASSES, so a browser's Accept header negotiates its way
   // to DRF's browsable-API HTML page and the status is all this side could
   // read.
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const url = `${API_BASE_URL}${path}`
+  const init: RequestInit = {
     method: 'GET',
     credentials: 'include',
     headers: buildSessionHeaders({ headers: { Accept: 'application/json' } })
-  })
+  }
+
+  // Unlike a refused write, the token cache is left as it is: this path
+  // fetched no token, so nothing in the cache came from here. A ticket write
+  // is still safe on whatever the cache holds (see requestJson).
+  if (confirmSession && !(await sessionStillBelongsTo(expected))) {
+    throw new TicketSessionError('signed-in-as-someone-else', SIGNED_IN_AS_SOMEONE_ELSE)
+  }
+
+  const response = await fetch(url, init)
 
   if (!response.ok) {
     throw await apiErrorFromResponse(response, fallback)

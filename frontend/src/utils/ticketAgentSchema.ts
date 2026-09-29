@@ -304,7 +304,8 @@ export function auditActionLabel(action: string): string {
  *  The messages on the detail panel are a different question with a different
  *  answer. Those carry TicketMessage.author, which goes null for three
  *  reasons the payload cannot tell apart, so that label stays vague on
- *  purpose. See the comment on MessageRow in the React panel. */
+ *  purpose. See authorLabel in
+ *  components/admin/tickets/detail/ticketDetailText.ts. */
 export function auditActorName(actor: { name: string } | null, afterState: unknown): string {
   if (actor) return actor.name
   const after = (afterState ?? {}) as Record<string, unknown>

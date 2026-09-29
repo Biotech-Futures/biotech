@@ -216,6 +216,26 @@ describe('App sidebar support entries', () => {
     expect(wrapper!.find('#admin-subnav a[href="#/admin/support-agents"]').text()).toBe('Support agents')
   })
 
+  it('names the queue link by its words alone, with the icon hidden from screen readers', async () => {
+    // Font Awesome draws the glyph as text, so an icon left exposed puts a
+    // private-use character at the front of the link's accessible name.
+    useAuthStore().loginWithUser(pureAgent as never)
+    await mountApp({ viewport: 'desktop' })
+
+    const link = wrapper!.get('.sidebar-nav a[href="#/admin/tickets"]')
+    const icons = link.findAll('i')
+    expect(icons.map((icon) => [icon.classes('fa-headset'), icon.attributes('aria-hidden')])).toEqual(
+      [[true, 'true']]
+    )
+    // What a screen reader is left with: the words, and nothing else.
+    const exposed = link
+      .findAll('*')
+      .filter((node) => node.element.closest('[aria-hidden="true"]') === null)
+    expect(exposed.map((node) => [node.element.tagName, node.text()])).toEqual([
+      ['SPAN', 'Support queue']
+    ])
+  })
+
   it('marks Support queue active on every ticket tab', async () => {
     useAuthStore().loginWithUser(pureAgent as never)
     await mountApp({ viewport: 'desktop' })

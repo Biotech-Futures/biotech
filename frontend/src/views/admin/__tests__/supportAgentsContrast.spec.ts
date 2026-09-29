@@ -18,7 +18,8 @@ import ROSTER from '@/components/admin/support-agents/SupportRosterTable.vue?raw
  * (.content-area's --bg-light) in light mode, and --dark-green is under AA on
  * every dark ground. The React page's amber mark (amber-700) was 4.39:1 on
  * the row hover. Each of those is a plausible "tidy-up" that would put the
- * page back under AA.
+ * page back under AA. The same --dark-green is the global focus ring, 2.79:1
+ * on the dark --white, so the ring is measured too, against 3:1.
  */
 const STYLESHEET = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../../../assets/main.css'),
@@ -177,6 +178,49 @@ describe('support agents page colours', () => {
       }
     }
   }
+
+  // The focus ring is not text, so its threshold is the 3:1 a focus indicator
+  // needs. It is drawn 2px outside the control, on whatever is around it: the
+  // heading, the create link and the search box sit on the page; the Grant
+  // buttons on the candidate list's --white; the Revoke buttons in the table,
+  // on --white or on a hovered row.
+  const RING_GROUNDS: [string[], string[]] = [
+    ['--bg-light', '--white', '--light-green'],
+    ['--bg-light', '--white', '--light-green over --white']
+  ]
+
+  // main.css's own ring: the colour at the end of `outline: 2px solid ...`.
+  const globalRing = (dark: boolean) => {
+    const outline = declared(block(STYLESHEET, /(?:^|\n):focus-visible\s*\{([^}]*)\}/), 'outline')!
+    return textColour(outline.split(/\s+/).at(-1)!, dark)
+  }
+
+  // Light has no override and keeps the global ring; dark takes the page's.
+  const ring = (dark: boolean) =>
+    dark
+      ? textColour(
+          declared(
+            block(pageStyle, /:root\[data-theme='dark'\] \.support-agents :deep\(:focus-visible\)\s*\{([^}]*)\}/),
+            'outline-color'
+          )!,
+          true
+        )
+      : globalRing(false)
+
+  for (const dark of [false, true]) {
+    const theme = dark ? 'dark' : 'light'
+    for (const spec of RING_GROUNDS[dark ? 1 : 0]) {
+      it(`${theme}: the focus ring on ${spec} clears 3:1`, () => {
+        expect(contrast(ring(dark), ground(spec, dark))).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('dark: the global ring really does fail on --white, so the override is needed', () => {
+    // 2.79:1. If the theme ever redefines --dark-green this goes red, and the
+    // override can be dropped.
+    expect(contrast(globalRing(true), ground('--white', true))).toBeLessThan(3)
+  })
 
   it('the components paint text only with the page’s measured colours or the theme text', () => {
     // A child reaching for --text-muted or --danger would slip past every

@@ -1,5 +1,10 @@
 <template>
-  <div class="queue-table">
+  <div ref="region" class="queue-table" role="region" aria-label="Tickets" tabindex="-1">
+    <!-- A named region that takes focus from script only (tabindex -1, so
+         it is not a Tab stop). The page sends focus here when the control
+         that had it is taken away: the bulk bar after a batch goes through,
+         or a ticket's row after the panel it opened closes. The region is
+         there in every state below, so it is always somewhere to land. -->
     <p v-if="loading" class="queue-table__state" role="status">Loading the queue…</p>
 
     <!-- Never the empty state: "no tickets match these filters" is a claim
@@ -133,7 +138,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
@@ -157,6 +162,13 @@ const emit = defineEmits<{
   'toggle-all': []
   open: [id: number]
 }>()
+
+const region = useTemplateRef<HTMLDivElement>('region')
+
+defineExpose({
+  /** Put focus on the table as a whole (see the region in the template). */
+  focus: () => region.value?.focus()
+})
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 
@@ -292,8 +304,14 @@ function formatWhen(value: string) {
   cursor: pointer;
 }
 
-.queue-table__row:hover td,
-.queue-table__row--selected td {
+/* The row, not its cells. main.css already paints a hovered row
+   (`tbody tr:hover`), and in the dark theme --light-green is translucent:
+   painted on the cells as well, a hovered row got the wash twice, and the
+   muted text on it fell to 4.30:1. On the row itself, this rule and the
+   global one set the same background on the same element, so there is one
+   wash whichever of them applies. Checked by queueContrast.spec.ts. */
+.queue-table__row:hover,
+.queue-table__row--selected {
   background: var(--light-green);
 }
 

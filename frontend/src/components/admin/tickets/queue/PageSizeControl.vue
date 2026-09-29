@@ -1,6 +1,11 @@
 <template>
   <div class="page-size">
     <span class="page-size__label" aria-hidden="true">Rows per page</span>
+    <!-- aria-disabled rather than disabled while a page loads, as on the
+         pager beside it: disabling the control that has focus drops keyboard
+         focus to the top of the document. Each one stays focusable and does
+         nothing while it is marked; the box is also read-only, so nothing
+         can be typed into it that would then be ignored. -->
     <template v-if="customMode">
       <input
         ref="customBox"
@@ -10,21 +15,29 @@
         :min="MIN_PAGE_SIZE"
         :max="MAX_PAGE_SIZE"
         :value="draft"
-        :disabled="disabled"
+        :readonly="disabled"
+        :aria-disabled="disabled ? 'true' : undefined"
         aria-label="Rows per page"
         @input="draft = ($event.target as HTMLInputElement).value"
         @blur="applyCustom"
         @keydown.enter.prevent="applyCustom"
       />
-      <button type="button" class="page-size__presets" :disabled="disabled" @click="backToPresets">
+      <button
+        ref="presetsButton"
+        type="button"
+        class="page-size__presets"
+        :aria-disabled="disabled ? 'true' : undefined"
+        @click="backToPresets"
+      >
         Presets
       </button>
     </template>
     <select
       v-else
+      ref="presetSelect"
       class="page-size__select"
       :value="String(value)"
-      :disabled="disabled"
+      :aria-disabled="disabled ? 'true' : undefined"
       aria-label="Rows per page"
       @change="onPick"
     >
@@ -59,25 +72,46 @@ const CUSTOM = 'custom'
 const customMode = ref(!isPresetPageSize(props.value))
 const draft = ref(String(props.value))
 const customBox = useTemplateRef<HTMLInputElement>('customBox')
+const presetsButton = useTemplateRef<HTMLButtonElement>('presetsButton')
+const presetSelect = useTemplateRef<HTMLSelectElement>('presetSelect')
 
 // Keep the box in step when the value changes from outside, and snap back to
-// the dropdown whenever the size in force is a preset.
+// the dropdown whenever the size in force is a preset. That swap takes away
+// the box, or the Presets button beside it, and when the agent was in one of
+// them focus goes to the dropdown that replaces them rather than to the top
+// of the document. The queue opens on 10, in the box, so typing 25 and
+// pressing Enter is the everyday way to reach this.
 watch(
   () => props.value,
-  (value) => {
+  async (value) => {
     draft.value = String(value)
-    if (isPresetPageSize(value)) customMode.value = false
+    if (!customMode.value || !isPresetPageSize(value)) return
+    const active = document.activeElement
+    const hadFocus =
+      active !== null && (active === customBox.value || active === presetsButton.value)
+    customMode.value = false
+    if (!hadFocus) return
+    await nextTick()
+    presetSelect.value?.focus()
   }
 )
 
 function applyCustom() {
+  if (props.disabled) return
   const next = clampPageSize(Number(draft.value))
   draft.value = String(next)
   if (next !== props.value) emit('change', next)
 }
 
 async function onPick(event: Event) {
-  const picked = (event.target as HTMLSelectElement).value
+  const select = event.target as HTMLSelectElement
+  // A marked select still changes under the arrow keys. The pick is
+  // ignored, so the select goes back to naming the size in force.
+  if (props.disabled) {
+    select.value = String(props.value)
+    return
+  }
+  const picked = select.value
   if (picked === CUSTOM) {
     customMode.value = true
     // The select the agent was using is gone; put them in the box that
@@ -89,9 +123,14 @@ async function onPick(event: Event) {
   emit('change', Number(picked))
 }
 
-function backToPresets() {
+async function backToPresets() {
+  if (props.disabled) return
   customMode.value = false
   if (!isPresetPageSize(props.value)) emit('change', PAGE_SIZE_PRESETS[0])
+  // The button that was pressed is gone with the box; the dropdown that
+  // replaced them takes focus.
+  await nextTick()
+  presetSelect.value?.focus()
 }
 </script>
 
@@ -134,14 +173,14 @@ function backToPresets() {
   cursor: pointer;
 }
 
-.page-size__presets:hover:not(:disabled) {
+.page-size__presets:hover:not([aria-disabled='true']) {
   background: var(--accent-green-soft);
   color: var(--charcoal);
 }
 
-.page-size__presets:disabled,
-.page-size__select:disabled,
-.page-size__box:disabled {
+.page-size__presets[aria-disabled='true'],
+.page-size__select[aria-disabled='true'],
+.page-size__box[aria-disabled='true'] {
   opacity: 0.55;
   cursor: not-allowed;
 }

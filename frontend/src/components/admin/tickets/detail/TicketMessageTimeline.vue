@@ -40,11 +40,16 @@
                  so a refusal replaces this app with DRF's error page and takes
                  the half-typed reply with it; with target="_blank" WebKit
                  leaks an empty tab per click instead. See
-                 downloadTicketAttachment in utils/ticketAgentAPI.ts. -->
+                 downloadTicketAttachment in utils/ticketAgentAPI.ts.
+
+                 aria-disabled while the file is on its way, not disabled. A
+                 browser moves focus off a button that becomes disabled, to the
+                 page body and out of the modal panel. The guard in download()
+                 is what ignores a second press. -->
             <button
               type="button"
               class="agent-timeline__file"
-              :disabled="busy[file.id]"
+              :aria-disabled="busy[file.id] ? 'true' : undefined"
               @click="download(file)"
             >
               <i class="fas fa-paperclip" aria-hidden="true"></i>
@@ -107,7 +112,7 @@ async function download(file: TicketAttachment) {
     // box is still there, and it is the agent's.
     failed.value = { ...failed.value, [file.id]: downloadErrorMessage(error) }
   } finally {
-    // In finally, or one click leaves the button disabled for good.
+    // In finally, or one click leaves the button marked busy for good.
     busy.value = without(busy.value, file.id)
   }
 }
@@ -235,7 +240,7 @@ async function download(file: TicketAttachment) {
   cursor: pointer;
 }
 
-.agent-timeline__file:disabled {
+.agent-timeline__file[aria-disabled='true'] {
   cursor: progress;
   opacity: 0.6;
 }
