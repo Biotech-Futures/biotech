@@ -250,6 +250,34 @@ class SubmissionApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Submission.objects.get(group=self.group).submitted_by, self.supervisor)
 
+    def test_an_admin_may_edit_submit_and_reopen_for_a_team(self):
+        from apps.users.models import AdminScope
+
+        admin = User.objects.create_user(email="admin@test.local", password="testUser@123")
+        AdminScope.objects.create(user=admin)
+        client = self._client_for(admin)
+        response = client.put(self.detail_url, {"answers": {self.first_key: "By admin."}}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(Submission.objects.get(group=self.group).answers[self.first_key], "By admin.")
+
+        self._answer_everything()
+        self._attach_poster()
+        self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
+        self.assertEqual(Submission.objects.get(group=self.group).submitted_by, admin)
+        reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
+        self.assertEqual(client.post(reopen_url, {}, format="json").status_code, 200)
+
+    def test_an_admin_is_held_to_the_deadline_too(self):
+        from apps.users.models import AdminScope
+
+        admin = User.objects.create_user(email="admin@test.local", password="testUser@123")
+        AdminScope.objects.create(user=admin)
+        Deadline.objects.update(closes_at=timezone.now() - timedelta(days=1))
+        response = self._client_for(admin).put(
+            self.detail_url, {"answers": {self.first_key: "Late."}}, format="json"
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(
             self.detail_url, {"answers": {self.first_key: "x"}}, format="json"

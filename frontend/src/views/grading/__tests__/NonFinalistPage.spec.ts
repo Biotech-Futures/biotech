@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import NonFinalistPage from '@/views/grading/NonFinalistPage.vue'
 import {
   fetchSymposiumEmail,
+  fetchTestEmailRecipients,
   previewSymposiumEmail,
   sendSymposiumEmailBatch,
   type SymposiumEmail,
@@ -144,6 +145,22 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__actions`).exists()).toBe(true)
   })
 
+  it('previews the email as the person picked in Send Test Email gets it', async () => {
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async (kind) => ({
+      recipients: kind === 'nonsubmissions'
+        ? [{ value: '9:1', label: '(BTF09) Amy Chen' }, { value: '12:4', label: '(BTF12) Ben Lee' }]
+        : []
+    }))
+    previewMock.mockResolvedValue({ subject: 'No Submission', to: 'BTF12', html: '<p>email</p>' })
+    const wrapper = await mountPage()
+    await wrapper.find(`${NONSUBMISSIONS} .test-email__select`).setValue('12:4')
+    await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Email$/).trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '12:4')
+    expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As BTF12 would get it.')
+    vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
+  })
+
   it("previews each card's own email", async () => {
     previewMock.mockImplementation(async (email) => ({
       subject:
@@ -156,7 +173,8 @@ describe('Email Nonfinalist', () => {
     const wrapper = await mountPage()
     await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Email$/).trigger('click')
     await flushPromises()
-    expect(previewMock).toHaveBeenCalledWith('nonsubmissions')
+    // Nobody to pick from: the first team due.
+    expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '')
     const dialog = wrapper.find('[aria-label="Email preview"]')
     expect(dialog.text()).toContain('BIOTech Futures – No Submission Received')
     expect(dialog.text()).toContain('As BTF09 would get it. Nothing has been sent.')

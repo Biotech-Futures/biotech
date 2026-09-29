@@ -78,7 +78,28 @@
               </div>
             </div>
             <div>
-              <h2 class="gd-title">{{ group.name }}</h2>
+              <!-- The name is a dropdown of the user's groups (an admin's is
+                   every group): picking one opens it on the same section. -->
+              <h2 class="gd-title">
+                <!-- The name shows at title size; an invisible dropdown lies
+                     over it, so its list opens at normal size, as the other
+                     dropdowns do, rather than at the title's. -->
+                <span v-if="availableGroups.length > 1" class="gd-title-picker">
+                  <span>{{ group.name }}</span>
+                  <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
+                  <select
+                    class="gd-title-picker__select"
+                    aria-label="Group"
+                    :value="routeGroupId"
+                    @change="switchGroup"
+                  >
+                    <option v-for="option in availableGroups" :key="option.id" :value="option.id">
+                      {{ option.name }}
+                    </option>
+                  </select>
+                </span>
+                <template v-else>{{ group.name }}</template>
+              </h2>
               <p class="gd-subtitle">{{ groupSubtitle }}</p>
               <div v-if="groupMetaItems.length" class="gd-meta-row">
                 <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
@@ -2429,6 +2450,14 @@ const loadGroupOptions = async () => {
     groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
   }
   isLoadingGroupOptions.value = false
+}
+
+const switchGroup = (event) => {
+  const id = event.target.value
+  if (!id || id === routeGroupId.value) return
+  // Stays on Submission when that's the section open.
+  const name = route.name === 'group-submission' ? 'group-submission' : 'group-detail'
+  void router.push({ name, params: { id } })
 }
 
 const loadGroupMembers = async () => {
@@ -5905,6 +5934,8 @@ const reloadGroupDetail = async () => {
 watch(routeGroupId, async () => {
   await reloadGroupDetail()
   await loadMentions()
+  // A group opened from outside the list still shows in the dropdown.
+  void loadGroupOptions()
 })
 
 watch(
@@ -6027,6 +6058,8 @@ onMounted(async () => {
     // App.vue's sidebar already pulls /groups/ + /group-members/ for the
     // switcher rail — re-fetching the same data here is pure waste.
     await reloadGroupDetail()
+    // The header's dropdown; the list is the store's, shared with the sidebar.
+    void loadGroupOptions()
   } else {
     // No route id: only path that needs the group list, to pick a
     // fallback to redirect into.
@@ -9207,6 +9240,48 @@ onBeforeUnmount(() => {
   margin-top: 0.1rem;
   color: #6c757d;
   font-size: 0.9rem;
+}
+
+/* Reads as the title; the arrow and a border on hover say it can change. */
+.gd-title-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  /* Lines the name up with the subtitle, past its own padding. */
+  margin-left: -0.4rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.gd-title-picker:hover {
+  border-color: var(--border-light);
+}
+
+.gd-title-picker:focus-within {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 1px;
+}
+
+.gd-title-picker__icon {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Covers the name and arrow, so a click anywhere on them opens it. */
+.gd-title-picker__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 400;
 }
 
 .group-avatar {

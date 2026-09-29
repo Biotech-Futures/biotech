@@ -123,6 +123,7 @@ class FinalistEmailTests(TestCase):
             symposium_date=today + timedelta(days=30),
             confirm_by=today + timedelta(days=10),
             slides_due=today + timedelta(days=20),
+            registration_url="https://example.com/register",
         )
         self.group = Groups.objects.create(group_name="CRISPR Research 01")
         for email in ("one@example.com", "two@example.com"):

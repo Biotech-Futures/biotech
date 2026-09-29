@@ -40,7 +40,7 @@
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
-          <TestEmailSender :kind="email" />
+          <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
           <span v-if="sending" class="symposium-email__progress" role="status">
             Emailed {{ plural(progress.emailed, 'person', 'people') }} so far…
           </span>
@@ -155,12 +155,14 @@ const canSend = computed(() => Boolean(status.value && !status.value.blocked && 
 
 const preview = ref<SymposiumEmailPreview | null>(null)
 const loadingPreview = ref(false)
+// The person picked in Send Test Email: the preview is their team's email.
+const testRecipient = ref('')
 
 const openPreview = async () => {
   actionError.value = ''
   loadingPreview.value = true
   try {
-    preview.value = await previewSymposiumEmail(props.email)
+    preview.value = await previewSymposiumEmail(props.email, testRecipient.value)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {

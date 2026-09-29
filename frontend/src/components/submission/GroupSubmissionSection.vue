@@ -58,7 +58,10 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const canSeeSubmission = computed(() => auth.isStudent || auth.isMentor || auth.isSupervisor)
+// Admins too: they can edit, submit and reopen for a team that needs a hand.
+const canSeeSubmission = computed(
+  () => auth.isStudent || auth.isMentor || auth.isSupervisor || auth.isAdmin
+)
 
 const groupId = computed(() => String(route.params.id ?? ''))
 

@@ -78,7 +78,7 @@ describe('the real route table', () => {
 })
 
 describe('who is offered the Submission tab', () => {
-  it.each(['student', 'mentor', 'supervisor'])('offers it to a %s', async (role) => {
+  it.each(['student', 'mentor', 'supervisor', 'admin'])('offers it to a %s', async (role) => {
     const { wrapper } = await mountAt('/groups/1', role)
 
     expect(wrapper.find('[data-testid="section-tab-tasks"]').exists()).toBe(true)
@@ -91,11 +91,10 @@ describe('who is offered the Submission tab', () => {
     expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
   })
 
-  it('hides the whole strip from an admin', async () => {
-    const { wrapper } = await mountAt('/groups/1', 'admin')
+  it('opens the portal for an admin on the submission URL, to edit for the team', async () => {
+    const { wrapper } = await mountAt('/groups/1/submission', 'admin')
 
-    expect(wrapper.find('nav.group-sections').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
   })
 })
 

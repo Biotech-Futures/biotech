@@ -30,7 +30,7 @@ from ..models import (
     SubmissionComponent,
 )
 from ..permissions import IsGrader
-from ..services import content
+from ..services import content, test_email
 from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
 from ..services.xlsx import _format_product_category, _format_solution_category
 
@@ -93,7 +93,8 @@ class FinalistEmailSettingsView(APIView):
 class FinalistEmailPreviewView(APIView):
     """POST /api/v1/grading/finalists/email/preview/ — the email exactly as
     a finalist would get it, for the details in the body (unsaved edits) or
-    the saved ones. Addressed to the first finalist team not yet notified."""
+    the saved ones. Addressed to ``recipient``'s team (a person picked in
+    Send Test Email), else the first finalist team not yet notified."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
@@ -104,6 +105,14 @@ class FinalistEmailPreviewView(APIView):
         # Show the edits without saving them.
         for field, value in serializer.validated_data.items():
             setattr(details, field, value)
+        recipient = request.data.get("recipient")
+        if recipient:
+            try:
+                rendered, group_name, _files = test_email.preview("finalist", str(recipient), request.data)
+            except test_email.TestEmailError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
+            return Response({"subject": rendered.subject, "group_name": group_name, "html": html})
         flag = (
             FinalistFlag.objects.select_related("group")
             .order_by("notified", "group__group_name")
