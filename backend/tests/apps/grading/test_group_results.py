@@ -84,7 +84,7 @@ class GroupResultsTests(_GradingFixture):
         self.assertTrue(body["marks_released"])
         self.assertEqual([c["code"] for c in body["components"]], ["SAQ", "POSTER"])
         saq = next(c for c in body["components"] if c["code"] == "SAQ")
-        self.assertEqual((saq["criteria"][0]["mark"], saq["criteria"][0]["comment"]), ("8.00", "Clear claim."))
+        self.assertEqual((saq["criteria"][0]["mark"], saq["criteria"][0]["comment"]), ("8", "Clear claim."))
         year = self.group.year
         self.assertEqual(body["summary_file_name"], f"{year}_BTF_Marks_BTF-TEST-1.docx")
         r = self._summary()
@@ -114,6 +114,40 @@ class GroupResultsTests(_GradingFixture):
         self.assertEqual(self._certificate(self.sam).status_code, status.HTTP_404_NOT_FOUND)
         # Marks still wait for theirs.
         self.assertEqual((body["marks_released"], body["components"]), (False, []))
+
+    def test_the_marks_come_with_the_summarys_details_and_combined_mark(self):
+        from apps.grading.models import ComponentFeedback, GroupMarkingCategories
+        from apps.submissions.models import Submission
+
+        Submission.objects.filter(group=self.group).update(submitted_project_title="Plant Sensors")
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Health and Medicine", "Agriculture"], solution_category="App",
+        )
+        ComponentFeedback.objects.create(group=self.group, component=self.poster, comment="Strong poster overall.")
+        Grade.objects.create(
+            submission=self.submission, criterion=self.poster_c1, mark=Decimal("6.50"), graded_by=self.staff,
+        )
+        _release(MarksRelease)
+        body = self._results()
+        # As the marks summary words them; the heading plural for two categories.
+        self.assertEqual(body["summary"], {
+            "project_title": "Plant Sensors",
+            "project_category_heading": "Project Categories",
+            "project_category": "Health and Medicine, Agriculture",
+            "solution_category": "App",
+            # 8 (SAQ) + 6.5 (Poster), out of every SAQ and Poster criterion's most.
+            "combined_total": "14.5",
+            "combined_max": "25",
+        })
+        poster = next(c for c in body["components"] if c["code"] == "POSTER")
+        self.assertEqual(poster["overall_comment"], "Strong poster overall.")
+        # Each table's Subtotal row: its marks, out of its criteria's most.
+        subtotals = {c["code"]: (c["subtotal"], c["subtotal_max"]) for c in body["components"]}
+        self.assertEqual(subtotals, {"SAQ": ("8", "15"), "POSTER": ("6.5", "10")})
+
+    def test_no_summary_before_marks_are_released(self):
+        _release(CertificatesRelease)
+        self.assertIsNone(self._results()["summary"])
 
     def test_a_finalists_certificates_are_held_back_while_certificates_exclude_them(self):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)

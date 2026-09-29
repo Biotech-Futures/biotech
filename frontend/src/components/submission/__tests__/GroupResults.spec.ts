@@ -30,13 +30,33 @@ const results = (over: Partial<GroupResultsData> = {}): GroupResultsData => ({
       name: 'Short Answer Questions',
       submitted: true,
       criteria: [
-        { name: 'Content', max_mark: '10.00', mark: '8.00', comment: 'Clear claim.' },
-        { name: 'Clarity', max_mark: '5.00', mark: '', comment: '' }
-      ]
+        { name: 'Content', max_mark: '10', mark: '7.5', comment: 'Clear claim.' },
+        { name: 'Clarity', max_mark: '5', mark: '', comment: '' }
+      ],
+      overall_comment: 'A thoughtful set of answers.',
+      subtotal: '7.5',
+      subtotal_max: '15'
+    },
+    {
+      code: 'POSTER',
+      name: 'A2 Poster',
+      submitted: true,
+      criteria: [{ name: 'Design', max_mark: '5', mark: '4', comment: 'Bold.' }],
+      overall_comment: '',
+      subtotal: '4',
+      subtotal_max: '5'
     },
     // A part with no criteria has nothing to show.
     { code: 'REPORT', name: 'Scientific Report', submitted: true, criteria: [] }
   ],
+  summary: {
+    project_title: 'Plant Sensors',
+    project_category_heading: 'Project Categories',
+    project_category: 'Health and Medicine, Agriculture',
+    solution_category: 'App',
+    combined_total: '12',
+    combined_max: '20'
+  },
   summary_file_name: '2026_BTF_Marks_BTF1.docx',
   certificates: [AMY, MO],
   ...over
@@ -54,16 +74,46 @@ describe('the Results section', () => {
   it("shows each part's marks and comments, with the marks summary", async () => {
     const wrapper = mountResults(results())
     const marks = wrapper.find('[data-testid="results-marks"]')
-    expect(marks.findAll('.group-results__component-name').map((h) => h.text())).toEqual(['Short Answer Questions'])
+    expect(marks.find('h2').text()).toBe('Mark Summary')
+    expect(marks.findAll('.group-results__component-name').map((h) => h.text())).toEqual([
+      'Short Answer Questions',
+      'A2 Poster'
+    ])
     const rows = marks.findAll('tbody tr').map((r) => r.findAll('td').map((c) => c.text()))
-    expect(rows).toEqual([
-      ['Content', '8.00 / 10.00', 'Clear claim.'],
-      ['Clarity', '— / 5.00', '']
+    expect(rows.slice(0, 2)).toEqual([
+      ['Content', '7.5 / 10', 'Clear claim.'],
+      ['Clarity', '— / 5', '']
+    ])
+    // Each table ends with its marks added up.
+    const subtotals = marks
+      .findAll('[data-testid="results-subtotal"]')
+      .map((r) => r.findAll('th, td').map((c) => c.text()))
+    expect(subtotals).toEqual([
+      ['Subtotal', '7.5 / 15', ''],
+      ['Subtotal', '4 / 5', '']
     ])
 
     await marks.find('button').trigger('click')
     await flushPromises()
     expect(summaryMock).toHaveBeenCalledWith('7', '2026_BTF_Marks_BTF1.docx')
+  })
+
+  it('gives the project details, each overall comment, the combined mark and the note', () => {
+    const marks = mountResults(results()).find('[data-testid="results-marks"]')
+    const details = marks
+      .findAll('[data-testid="results-details"] div')
+      .map((d) => `${d.find('dt').text()} ${d.find('dd').text()}`)
+    expect(details).toEqual([
+      'Project Title: Plant Sensors',
+      'Project Categories: Health and Medicine, Agriculture',
+      'Solution Category: App'
+    ])
+    const overall = marks.findAll('[data-testid="results-overall"]').map((p) => p.text().replace(/\s+/g, ' '))
+    expect(overall).toEqual(['Overall SAQ Comment: A thoughtful set of answers.', 'Overall Poster Comment: —'])
+    expect(marks.find('[data-testid="results-combined"]').text()).toBe('Combined Mark: 12/20')
+    expect(marks.text()).toContain(
+      '*Please note that if you submitted a prototype or report, specific marks for these are not released.'
+    )
   })
 
   it("lists every student's and mentor's certificate to download", async () => {
@@ -83,7 +133,7 @@ describe('the Results section', () => {
     expect(marksOnly.find('[data-testid="results-certificates"]').text()).toContain(
       "Certificates haven't been released yet."
     )
-    const certificatesOnly = mountResults(results({ marks_released: false, components: [] }))
+    const certificatesOnly = mountResults(results({ marks_released: false, components: [], summary: null }))
     expect(certificatesOnly.find('[data-testid="results-marks"]').text()).toContain(
       "Marks haven't been released yet."
     )
@@ -98,7 +148,7 @@ describe('the Results section', () => {
   })
 
   it("says there are no results for a group that didn't submit", () => {
-    const wrapper = mountResults(results({ has_submission: false, components: [], certificates: [] }))
+    const wrapper = mountResults(results({ has_submission: false, components: [], summary: null, certificates: [] }))
     expect(wrapper.text()).toContain("This group didn't make a submission, so there are no results to show.")
     expect(wrapper.find('[data-testid="results-marks"]').exists()).toBe(false)
   })

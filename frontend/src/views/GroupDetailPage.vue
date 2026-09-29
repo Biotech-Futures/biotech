@@ -9239,6 +9239,13 @@ onBeforeUnmount(() => {
 .gd-head-left {
   /* Keeps the group's picture clear of the card's left edge. */
   padding-left: 0.85rem;
+  /* The name keeps to one line; the member line beside Members wraps first. */
+  flex-shrink: 0;
+}
+
+.gd-head-actions {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .gd-title {
@@ -9252,6 +9259,11 @@ onBeforeUnmount(() => {
   margin-top: 0.1rem;
   color: #6c757d;
   font-size: 0.9rem;
+}
+
+/* The group's name on one line: a hyphen ("TEST-BTF1") mustn't break it. */
+.gd-title {
+  white-space: nowrap;
 }
 
 /* Reads as the title; the arrow and a border on hover say it can change. */

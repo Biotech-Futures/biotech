@@ -22,6 +22,7 @@ const results = vi.hoisted(() => ({
     has_submission: true,
     year: 2026,
     components: [],
+    summary: null,
     summary_file_name: '',
     certificates: []
   } as Record<string, unknown>

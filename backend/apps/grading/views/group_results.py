@@ -4,6 +4,8 @@ certificates are, as the results email carries them. For the team's
 students, mentors and supervisors, and admins."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.http import content_disposition_header
@@ -17,7 +19,13 @@ from apps.groups.models.groups import Groups
 
 from ..models import CertificatesRelease, FinalistFlag, MarksRelease
 from ..services import content, results_notify
-from ..services.docx import TemplateNotConfigured
+from ..services.docx import (
+    TemplateNotConfigured,
+    _mark_text,
+    _sum_marks,
+    marks_release_fields,
+    marks_summary_context,
+)
 from .student import _grades_payload
 
 _ROLES = GroupMembership.MembershipRoleChoices
@@ -74,6 +82,37 @@ def _docx(payload: bytes, filename: str) -> HttpResponse:
     return response
 
 
+def _results_part(part: dict) -> dict:
+    """The part as its table shows it: marks printed as the marks summary
+    prints them ("8", "6.5", not "8.00"), and added up with the most they
+    could be for its Subtotal row."""
+    most = sum((Decimal(criterion["max_mark"]) for criterion in part["criteria"]), Decimal("0"))
+    return {
+        **part,
+        "criteria": [
+            {**criterion, "mark": _mark_text(criterion["mark"]), "max_mark": _mark_text(criterion["max_mark"])}
+            for criterion in part["criteria"]
+        ],
+        "subtotal": _mark_text(_sum_marks(part["criteria"])),
+        "subtotal_max": _mark_text(most),
+    }
+
+
+def _summary(group, year: int, components: list[dict], parts: list[dict]) -> dict:
+    """The marks summary's own details and total, as its document fills
+    them, and the most the total could be (SAQ and Poster together)."""
+    fields = marks_release_fields(marks_summary_context(group, year, components))
+    most = sum(Decimal(criterion["max_mark"]) for part in parts for criterion in part["criteria"])
+    return {
+        "project_title": fields["ProjectTitle"],
+        "project_category_heading": fields["ProjectCategoryHeading"],
+        "project_category": fields["ProjectCategory"],
+        "solution_category": fields["SolutionCategory"],
+        "combined_total": fields["CombinedTotal"],
+        "combined_max": _mark_text(most),
+    }
+
+
 class GroupResultsView(APIView):
     """GET /api/v1/grading/groups/<id>/results/ — what the group's Results
     section shows. The page shows the section once marks or certificates
@@ -82,7 +121,11 @@ class GroupResultsView(APIView):
     Shape:
         {"marks_released", "certificates_released", "certificates_withheld",
          "has_submission", "year",
-         "components": [...],          # once marks are out: SAQ and Poster only
+         "components": [...],          # once marks are out: SAQ and Poster only,
+                                       # each with "subtotal" and "subtotal_max"
+         "summary": {"project_title", "project_category_heading",
+                     "project_category", "solution_category",
+                     "combined_total", "combined_max"} | null,
          "summary_file_name": str,     # the marks summary's download name
          "certificates": [{"user_id", "name", "kind": "student"|"mentor",
                            "file_name"}]}   # once certificates are out
@@ -100,12 +143,13 @@ class GroupResultsView(APIView):
         shows_certificates = (
             state["certificates_released"] and state["has_submission"] and not state["certificates_withheld"]
         )
+        components = _grades_payload(group, year) if shows_marks else []
+        parts = [_results_part(component) for component in components if component["code"] in RESULTS_PARTS]
         return Response({
             **state,
             "year": year,
-            "components": [
-                component for component in _grades_payload(group, year) if component["code"] in RESULTS_PARTS
-            ] if shows_marks else [],
+            "components": parts,
+            "summary": _summary(group, year, components, parts) if shows_marks else None,
             "summary_file_name": (
                 results_notify._file_name(year, "Marks", group.group_name, "docx") if shows_marks else ""
             ),

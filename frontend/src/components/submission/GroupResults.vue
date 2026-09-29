@@ -14,7 +14,7 @@
     <template v-else>
       <section class="card group-results__card" data-testid="results-marks">
         <header class="group-results__head">
-          <h2 class="card-title">Marks</h2>
+          <h2 class="card-title">Mark Summary</h2>
           <button
             v-if="results.marks_released"
             type="button"
@@ -28,6 +28,21 @@
         <p v-if="!results.marks_released" class="group-results__muted">
           Marks haven't been released yet.
         </p>
+        <!-- As the marks summary words them. -->
+        <dl v-if="results.summary" class="group-results__details" data-testid="results-details">
+          <div>
+            <dt>Project Title:</dt>
+            <dd>{{ results.summary.project_title || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ results.summary.project_category_heading }}:</dt>
+            <dd>{{ results.summary.project_category || '—' }}</dd>
+          </div>
+          <div>
+            <dt>Solution Category:</dt>
+            <dd>{{ results.summary.solution_category || '—' }}</dd>
+          </div>
+        </dl>
         <article v-for="component in markedComponents" :key="component.code" class="group-results__component">
           <h3 class="group-results__component-name">{{ component.name }}</h3>
           <p v-if="!component.submitted" class="group-results__muted">Not submitted.</p>
@@ -57,9 +72,32 @@
                   <td class="group-results__comment">{{ criterion.comment }}</td>
                 </tr>
               </tbody>
+              <tfoot v-if="component.subtotal">
+                <tr class="group-results__subtotal" data-testid="results-subtotal">
+                  <th scope="row">Subtotal</th>
+                  <td class="group-results__mark">
+                    {{ component.subtotal }}<span class="group-results__muted"> / {{ component.subtotal_max }}</span>
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
+          <!-- The marker's comment on the part as a whole. -->
+          <p v-if="component.submitted" class="group-results__overall" data-testid="results-overall">
+            <span class="group-results__label">Overall {{ partLabel(component.code) }} Comment:</span>
+            {{ component.overall_comment || '—' }}
+          </p>
         </article>
+        <template v-if="results.summary">
+          <p class="group-results__combined" data-testid="results-combined">
+            Combined Mark: {{ results.summary.combined_total || '0' }}/{{ results.summary.combined_max }}
+          </p>
+          <p class="group-results__muted group-results__note">
+            *Please note that if you submitted a prototype or report, specific marks for these are not
+            released.
+          </p>
+        </template>
       </section>
 
       <section class="card group-results__card" data-testid="results-certificates">
@@ -108,6 +146,9 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const props = defineProps<{ groupId: string; results: GroupResults }>()
 
+// "Overall Poster Comment", "Overall SAQ Comment".
+const partLabel = (code: string) => (code === 'SAQ' ? 'SAQ' : code === 'POSTER' ? 'Poster' : code)
+
 // The parts that carry marks; one without criteria has nothing to show.
 const markedComponents = computed(() =>
   props.results.components.filter((component) => component.criteria.length)
@@ -139,7 +180,7 @@ const downloadCertificate = (certificate: GroupCertificate) =>
 .group-results {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .group-results__card {
@@ -147,6 +188,8 @@ const downloadCertificate = (certificate: GroupCertificate) =>
   min-height: 0;
   padding: 1.25rem 1.5rem;
   overflow: visible;
+  /* The section's gap spaces the cards, not .card's own margin. */
+  margin-bottom: 0;
 }
 
 .group-results__head {
@@ -168,7 +211,47 @@ const downloadCertificate = (certificate: GroupCertificate) =>
 }
 
 .group-results__component + .group-results__component {
-  margin-top: 1.25rem;
+  margin-top: 1.75rem;
+}
+
+/* Project Title, categories: the value follows its label, wrapping under it
+   as one sentence rather than starting a line of its own. */
+.group-results__details {
+  margin: 0 0 1.75rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.group-results__details dt {
+  display: inline;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.group-results__details dd {
+  display: inline;
+  margin: 0 0 0 0.3em;
+}
+
+.group-results__overall {
+  margin: 0.6rem 0 0;
+  white-space: pre-line;
+}
+
+.group-results__label {
+  color: var(--text-muted);
+}
+
+.group-results__combined {
+  margin: 1.75rem 0 0;
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+
+.group-results__note {
+  margin: 1.75rem 0 0;
+  font-size: 0.9rem;
+  font-style: italic;
 }
 
 .group-results__component-name {
@@ -191,7 +274,21 @@ const downloadCertificate = (certificate: GroupCertificate) =>
 }
 
 .group-results__col-criterion {
-  width: 30%;
+  width: 34%;
+}
+
+/* Criteria are sentences and comments often short, so a wider screen gives
+   the criteria more of the room. */
+@media (min-width: 1400px) {
+  .group-results__col-criterion {
+    width: 42%;
+  }
+}
+
+@media (min-width: 1800px) {
+  .group-results__col-criterion {
+    width: 48%;
+  }
 }
 
 .group-results__col-mark {
@@ -216,6 +313,13 @@ const downloadCertificate = (certificate: GroupCertificate) =>
 
 .group-results__table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.group-results__subtotal th,
+.group-results__subtotal td {
+  border-top: 1px solid var(--border-light);
+  border-bottom: none;
+  font-weight: 400;
 }
 
 .group-results__mark {
