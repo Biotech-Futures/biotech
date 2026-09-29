@@ -1,8 +1,10 @@
 """The Finalist Presentation tab: this year's times, on the Symposium date
 set on Notify Finalists, which admins add, change and remove; and each
-finalist student's answer, the times they can make."""
+finalist student's answer, the times they can make; and the slides each
+finalist team hands in."""
 from datetime import date, time
 
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -10,6 +12,7 @@ from rest_framework.test import APIClient
 from apps.grading.models import (
     FinalistEmailSettings,
     FinalistFlag,
+    FinalistSlides,
     PresentationAvailability,
     PresentationSlot,
 )
@@ -132,6 +135,39 @@ class PresentationResponseTests(_GradingFixture):
         self.assertEqual((btf2[1]["responded"], btf2[1]["slot_ids"]), (True, sorted([self.morning.id, self.noon.id])))
         self.assertIsNotNone(btf2[1]["updated_at"])
 
+    def _allocate(self, team, slot_id):
+        return self.client.put(
+            reverse("grading:presentation-allocation", args=[team.id]), {"slot_id": slot_id}, format="json"
+        )
+
+    def test_a_team_is_given_a_time_and_it_can_be_taken_away(self):
+        r = self._allocate(self.btf2, self.noon.id)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json(), {"group_id": self.btf2.id, "slot_id": self.noon.id})
+        teams = {t["group_name"]: t for t in self._teams()}
+        self.assertEqual(teams["BTF2"]["allocated_slot_id"], self.noon.id)
+        self.assertIsNone(teams["BTF10"]["allocated_slot_id"])
+        # Several teams may share a time.
+        self.assertEqual(self._allocate(self.btf10, self.noon.id).status_code, status.HTTP_200_OK)
+
+        self._allocate(self.btf2, None)
+        self.assertIsNone(self._teams()[0]["allocated_slot_id"])
+
+    def test_only_this_years_times_and_finalist_teams(self):
+        old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
+        for bad in (old.id, 99999, True, "x"):
+            with self.subTest(slot_id=bad):
+                r = self._allocate(self.btf2, bad)
+                self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(r.json()["detail"], "That time isn't one of this year's.")
+        # The fixture's team isn't a finalist.
+        self.assertEqual(self._allocate(self.group, self.noon.id).status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_removing_a_time_clears_it_from_the_teams_given_it(self):
+        self._allocate(self.btf2, self.noon.id)
+        self.client.delete(reverse("grading:presentation-slot-detail", args=[self.noon.id]))
+        self.assertIsNone(self._teams()[0]["allocated_slot_id"])
+
     def test_a_removed_time_drops_out_of_the_answers(self):
         self.client.delete(reverse("grading:presentation-slot-detail", args=[self.noon.id]))
         zoe = self._teams()[0]["students"][1]
@@ -142,3 +178,131 @@ class PresentationResponseTests(_GradingFixture):
         self.assertEqual(
             self.client.get(reverse("grading:presentation-responses")).status_code, status.HTTP_403_FORBIDDEN
         )
+        self.assertEqual(self._allocate(self.btf2, self.noon.id).status_code, status.HTTP_403_FORBIDDEN)
+
+
+class FinalistSlidesTests(_GradingFixture):
+    def setUp(self):
+        from django.utils import timezone
+
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.btf10 = Groups.objects.create(group_name="BTF10")
+        self.btf2 = Groups.objects.create(group_name="BTF2")
+        for team in (self.btf10, self.btf2):
+            FinalistFlag.objects.create(group=team, flagged_by=self.staff)
+        self.amy = _member("amy.chen@example.com", self.btf10)
+        self.handed_in = timezone.now()
+        FinalistSlides.objects.create(
+            group=self.btf10,
+            file={"storage_key": "slides/btf10.pptx", "name": "BTF10 slides.pptx", "mime": "x", "size": 1},
+            submitted_by=self.amy,
+            submitted_at=self.handed_in,
+        )
+
+    def _get(self):
+        r = self.client.get(reverse("grading:presentation-slides"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        return r.json()
+
+    def test_each_finalist_team_and_its_slides(self):
+        body = self._get()
+        # Finalist teams only, slides handed in first; the one without says so.
+        self.assertEqual([t["group_name"] for t in body["teams"]], ["BTF10", "BTF2"])
+        btf10, btf2 = body["teams"]
+        self.assertEqual(
+            (btf2["submitted"], btf2["file_name"], btf2["submitted_by"], btf2["submitted_at"]),
+            (False, "", None, None),
+        )
+        self.assertEqual((btf10["submitted"], btf10["file_name"], btf10["submitted_by"]), (True, "BTF10 slides.pptx", "Amy Chen"))
+        self.assertIsNotNone(btf10["submitted_at"])
+
+    def test_the_latest_handed_in_come_first(self):
+        from datetime import timedelta
+
+        btf5 = Groups.objects.create(group_name="BTF5")
+        btf7 = Groups.objects.create(group_name="BTF7")
+        for team in (btf5, btf7):
+            FinalistFlag.objects.create(group=team, flagged_by=self.staff)
+        # BTF7 an hour after BTF10, BTF5 an hour before; BTF2 not yet.
+        for team, hours in ((btf7, 1), (btf5, -1)):
+            FinalistSlides.objects.create(
+                group=team, file={"name": "s.pdf"}, submitted_at=self.handed_in + timedelta(hours=hours),
+            )
+        self.assertEqual(
+            [t["group_name"] for t in self._get()["teams"]], ["BTF7", "BTF10", "BTF5", "BTF2"]
+        )
+
+    def test_it_carries_the_slides_due_date_once_it_is_set(self):
+        self.assertIsNone(self._get()["slides_due"])
+        FinalistEmailSettings.objects.update_or_create(pk=1, defaults={"slides_due": date(2026, 10, 16)})
+        self.assertEqual(self._get()["slides_due"], "2026-10-16")
+
+    def test_graders_only(self):
+        self.client.force_authenticate(self.non_staff)
+        self.assertEqual(
+            self.client.get(reverse("grading:presentation-slides")).status_code, status.HTTP_403_FORBIDDEN
+        )
+
+
+@override_settings(USE_AZURE_BLOB_STORAGE=False)
+class FinalistSlidesOpenTests(_GradingFixture):
+    def setUp(self):
+        import tempfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.utils import timezone
+
+        from apps.common.storage import reset_managed_storage_caches
+        from apps.grading.views.presentation import SLIDES_FILES
+
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        media_setting = override_settings(MEDIA_ROOT=media.name)
+        media_setting.enable()
+        self.addCleanup(media_setting.disable)
+        reset_managed_storage_caches()
+        self.addCleanup(reset_managed_storage_caches)
+
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.team = Groups.objects.create(group_name="BTF3")
+        FinalistFlag.objects.create(group=self.team, flagged_by=self.staff)
+        self.deck = FinalistSlides.objects.create(
+            group=self.team,
+            file=SLIDES_FILES.save_uploaded_file(
+                SimpleUploadedFile("BTF3 slides.pdf", b"%PDF-1.4 slides", content_type="application/pdf"),
+                content_type_field="mime",
+                size_field="size",
+                original_filename_field="name",
+            ),
+            submitted_at=timezone.now(),
+        )
+
+    def _open(self, group_id):
+        response = self.client.get(reverse("grading:presentation-slides-file", args=[group_id]))
+        # Lets go of the file, so the temporary folder can be removed.
+        self.addCleanup(response.close)
+        return response
+
+    def test_a_teams_pdf_opens_in_the_browser(self):
+        r = self._open(self.team.id)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(r.streaming_content), b"%PDF-1.4 slides")
+        self.assertTrue(r["Content-Disposition"].startswith("inline"))
+
+    def test_other_files_download(self):
+        self.deck.file = {**self.deck.file, "mime": "application/vnd.ms-powerpoint"}
+        self.deck.save()
+        self.assertTrue(self._open(self.team.id)["Content-Disposition"].startswith("attachment"))
+
+    def test_nothing_to_open_until_slides_are_in(self):
+        other = Groups.objects.create(group_name="BTF4")
+        FinalistFlag.objects.create(group=other, flagged_by=self.staff)
+        self.assertEqual(self._open(other.id).status_code, status.HTTP_404_NOT_FOUND)
+        # Nor for a team that isn't a finalist.
+        self.assertEqual(self._open(self.group.id).status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_graders_only(self):
+        self.client.force_authenticate(self.non_staff)
+        self.assertEqual(self._open(self.team.id).status_code, status.HTTP_403_FORBIDDEN)

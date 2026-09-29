@@ -901,7 +901,51 @@ export interface PresentationResponseStudent {
 export interface PresentationResponseTeam {
   group_id: number
   group_name: string
+  /** The time the team has been given; null until it is. */
+  allocated_slot_id: number | null
   students: PresentationResponseStudent[]
+}
+
+// PUT /api/v1/grading/finalists/presentation-allocation/{group_id}/ — give a
+// finalist team a time, or take it away with null.
+export function allocatePresentationSlot(
+  groupId: number,
+  slotId: number | null
+): Promise<{ group_id: number; slot_id: number | null }> {
+  return requestJson<{ group_id: number; slot_id: number | null }>(
+    `/api/v1/grading/finalists/presentation-allocation/${groupId}/`,
+    { method: 'PUT', body: JSON.stringify({ slot_id: slotId }) }
+  )
+}
+
+/** A finalist team's presentation slides, once handed in. */
+export interface PresentationSlidesTeam {
+  group_id: number
+  group_name: string
+  submitted: boolean
+  file_name: string
+  /** Who handed them in; null when not yet, or their account is gone. */
+  submitted_by: string | null
+  submitted_at: string | null
+}
+
+export interface PresentationSlides {
+  /** Set on Notify Finalists; null until it is. */
+  slides_due: string | null
+  teams: PresentationSlidesTeam[]
+}
+
+// GET /api/v1/grading/finalists/presentation-slides/ — this year's finalist
+// teams and the slides each has handed in, the latest first; teams still to
+// hand theirs in follow, by number.
+export function fetchPresentationSlides(): Promise<PresentationSlides> {
+  return requestJson<PresentationSlides>('/api/v1/grading/finalists/presentation-slides/')
+}
+
+// GET /api/v1/grading/finalists/presentation-slides/{group_id}/file/ — a
+// team's slides, for a link: a PDF opens in the browser, anything else downloads.
+export function presentationSlidesUrl(groupId: number): string {
+  return `${API_BASE_URL}/api/v1/grading/finalists/presentation-slides/${groupId}/file/`
 }
 
 // GET /api/v1/grading/finalists/presentation-responses/ — this year's

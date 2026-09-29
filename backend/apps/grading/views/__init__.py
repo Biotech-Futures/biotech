@@ -38,7 +38,10 @@ from .nonfinalist import (
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
 from .presentation import (
+    PresentationAllocationView,
     PresentationResponsesView,
+    PresentationSlidesFileView,
+    PresentationSlidesView,
     PresentationSlotDetailView,
     PresentationSlotListView,
 )
@@ -98,7 +101,10 @@ __all__ = [
     "NonSubmissionEmailPreviewView",
     "NonSubmissionEmailSendView",
     "NonSubmissionEmailView",
+    "PresentationAllocationView",
     "PresentationResponsesView",
+    "PresentationSlidesFileView",
+    "PresentationSlidesView",
     "PresentationSlotDetailView",
     "PresentationSlotListView",
     "SupervisorDownloadView",

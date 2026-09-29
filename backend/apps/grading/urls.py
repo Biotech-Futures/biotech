@@ -39,7 +39,10 @@ from .views import (
     NonSubmissionEmailPreviewView,
     NonSubmissionEmailSendView,
     NonSubmissionEmailView,
+    PresentationAllocationView,
     PresentationResponsesView,
+    PresentationSlidesFileView,
+    PresentationSlidesView,
     PresentationSlotDetailView,
     PresentationSlotListView,
     SupervisorDownloadView,
@@ -159,6 +162,23 @@ urlpatterns = [
         "finalists/presentation-responses/",
         PresentationResponsesView.as_view(),
         name="presentation-responses",
+    ),
+    # The time each finalist team is given.
+    path(
+        "finalists/presentation-allocation/<int:group_id>/",
+        PresentationAllocationView.as_view(),
+        name="presentation-allocation",
+    ),
+    # The slides each finalist team hands in for its presentation.
+    path(
+        "finalists/presentation-slides/",
+        PresentationSlidesView.as_view(),
+        name="presentation-slides",
+    ),
+    path(
+        "finalists/presentation-slides/<int:group_id>/file/",
+        PresentationSlidesFileView.as_view(),
+        name="presentation-slides-file",
     ),
 
     # Send Test Email beside each email tab's preview.

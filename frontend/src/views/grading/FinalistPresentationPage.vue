@@ -28,6 +28,28 @@
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
       </div>
       <template v-else-if="data">
+        <!-- After adding, the next time starts where this one ended and runs
+             as long, so a run of times goes in quickly. -->
+        <div class="finalist-presentation__add">
+          <label class="finalist-presentation__field">
+            <span>Start</span>
+            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time" />
+          </label>
+          <label class="finalist-presentation__field">
+            <span>End</span>
+            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time" />
+          </label>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving || !draft.starts_at || !draft.ends_at"
+            @click="add"
+          >
+            {{ isSaving ? 'Saving…' : 'Add Time' }}
+          </button>
+        </div>
+        <p v-if="actionError" class="finalist-presentation__error" role="alert">{{ actionError }}</p>
+
         <div class="finalist-presentation__scroll">
           <table class="finalist-presentation__table">
             <thead>
@@ -83,28 +105,6 @@
             </tbody>
           </table>
         </div>
-
-        <!-- After adding, the next time starts where this one ended and runs
-             as long, so a run of times goes in quickly. -->
-        <div class="finalist-presentation__add">
-          <label class="finalist-presentation__field">
-            <span>Start</span>
-            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time" />
-          </label>
-          <label class="finalist-presentation__field">
-            <span>End</span>
-            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time" />
-          </label>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            :disabled="isSaving || !draft.starts_at || !draft.ends_at"
-            @click="add"
-          >
-            {{ isSaving ? 'Saving…' : 'Add Time' }}
-          </button>
-        </div>
-        <p v-if="actionError" class="finalist-presentation__error" role="alert">{{ actionError }}</p>
       </template>
     </section>
 
@@ -124,10 +124,10 @@
             <tr>
               <th>Group</th>
               <th>Student</th>
+              <th>Answered</th>
               <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
                 {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
               </th>
-              <th>Answered</th>
             </tr>
           </thead>
           <tbody>
@@ -152,6 +152,7 @@
                 </td>
                 <td>{{ student.name }}</td>
                 <template v-if="student.responded">
+                  <td>{{ formatWhen(student.updated_at) }}</td>
                   <td v-for="slot in columns" :key="slot.id" class="finalist-presentation__tick">
                     <i
                       v-if="student.slot_ids.includes(slot.id)"
@@ -161,13 +162,130 @@
                     ></i>
                     <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
                   </td>
-                  <td>{{ formatAnswered(student.updated_at) }}</td>
                 </template>
                 <td v-else :colspan="columns.length + 1" class="finalist-presentation__muted">
-                  No response yet
+                  No response
                 </td>
               </tr>
             </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card finalist-presentation__allocate">
+      <h3 class="finalist-presentation__section-title">Allocate Slot</h3>
+      <p class="finalist-presentation__hint">
+        Give each finalist team a time. The numbers are how many of its students can make each
+        one; green is the whole team.
+      </p>
+      <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
+      <div v-else-if="responsesError" class="finalist-presentation__load-error">
+        <p>Failed to load the teams. {{ responsesError }}</p>
+        <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
+      </div>
+      <template v-else>
+        <div class="finalist-presentation__scroll">
+          <table class="finalist-presentation__table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Allocate</th>
+                <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
+                  {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!teams.length">
+                <td :colspan="columns.length + 2" class="finalist-presentation__empty">
+                  No finalist teams yet.
+                </td>
+              </tr>
+              <tr v-for="team in teams" :key="team.group_id">
+                <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
+                <td>
+                  <select
+                    class="finalist-presentation__allocate-select"
+                    :aria-label="`Time for ${team.group_name}`"
+                    :value="team.allocated_slot_id ?? ''"
+                    :disabled="allocating === team.group_id"
+                    @change="allocate(team, $event)"
+                  >
+                    <option value="">Not allocated</option>
+                    <option v-for="slot in columns" :key="slot.id" :value="slot.id">
+                      {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
+                    </option>
+                  </select>
+                </td>
+                <td
+                  v-for="slot in columns"
+                  :key="slot.id"
+                  class="finalist-presentation__tick"
+                  :class="{
+                    'is-allocated': team.allocated_slot_id === slot.id,
+                    'is-everyone': canAllMake(team, slot.id)
+                  }"
+                >
+                  {{ availableCount(team, slot.id) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-if="allocateError" class="finalist-presentation__error" role="alert">{{ allocateError }}</p>
+      </template>
+    </section>
+
+    <section class="card finalist-presentation__submissions">
+      <h3 class="finalist-presentation__section-title">Finalist Submission</h3>
+      <p class="finalist-presentation__hint">
+        <template v-if="slidesDue">
+          Each finalist team's presentation slides, due {{ slidesDue }}, set on
+          <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
+        </template>
+        <template v-else>
+          Each finalist team's presentation slides. Set the date they're due on
+          <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
+        </template>
+      </p>
+      <p v-if="isLoadingSlides" class="finalist-presentation__hint">Loading…</p>
+      <div v-else-if="slidesError" class="finalist-presentation__load-error">
+        <p>Failed to load the slides. {{ slidesError }}</p>
+        <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
+      </div>
+      <div v-else class="finalist-presentation__scroll">
+        <table class="finalist-presentation__table">
+          <thead>
+            <tr>
+              <th>Group</th>
+              <th>Submitted</th>
+              <th class="finalist-presentation__cell--right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!slidesTeams.length">
+              <td colspan="3" class="finalist-presentation__empty">No finalist teams yet.</td>
+            </tr>
+            <tr v-for="team in slidesTeams" :key="team.group_id">
+              <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
+              <template v-if="team.submitted">
+                <td>{{ formatSubmitted(team.submitted_at) }}</td>
+                <td class="finalist-presentation__cell--right">
+                  <!-- Opens the slides in a new tab; the name is on hover. -->
+                  <a
+                    :href="presentationSlidesUrl(team.group_id)"
+                    target="_blank"
+                    rel="noopener"
+                    class="btn btn-outline btn-sm"
+                    :title="team.file_name"
+                  >
+                    Open
+                  </a>
+                </td>
+              </template>
+              <td v-else colspan="2" class="finalist-presentation__muted">Not submitted yet</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -179,11 +297,15 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   addPresentationSlot,
+  allocatePresentationSlot,
   deletePresentationSlot,
   fetchPresentationResponses,
+  fetchPresentationSlides,
   fetchPresentationSlots,
+  presentationSlidesUrl,
   updatePresentationSlot,
   type PresentationResponseTeam,
+  type PresentationSlidesTeam,
   type PresentationSlot,
   type PresentationSlots
 } from '@/utils/gradingAPI'
@@ -231,14 +353,61 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
+// Allocate Slot: how many of a team's students can make a time, and giving
+// the team one.
+const availableCount = (team: PresentationResponseTeam, slotId: number) =>
+  team.students.filter((student) => student.slot_ids.includes(slotId)).length
+
+const canAllMake = (team: PresentationResponseTeam, slotId: number) =>
+  team.students.length > 0 && availableCount(team, slotId) === team.students.length
+
+const allocating = ref<number | null>(null)
+const allocateError = ref('')
+
+const allocate = async (team: PresentationResponseTeam, event: Event) => {
+  const select = event.target as HTMLSelectElement
+  const slotId = select.value ? Number(select.value) : null
+  allocating.value = team.group_id
+  allocateError.value = ''
+  try {
+    team.allocated_slot_id = (await allocatePresentationSlot(team.group_id, slotId)).slot_id
+  } catch (err) {
+    allocateError.value = `${team.group_name}: ${apiErrorFromUnknown(err).message}`
+    // Back to the time the team still has.
+    select.value = team.allocated_slot_id === null ? '' : String(team.allocated_slot_id)
+  } finally {
+    allocating.value = null
+  }
+}
+
+// Finalist Submission: each finalist team's slides.
+const slidesTeams = ref<PresentationSlidesTeam[]>([])
+const slidesDueOn = ref<string | null>(null)
+const isLoadingSlides = ref(false)
+const slidesError = ref('')
+
+const loadSlides = async () => {
+  isLoadingSlides.value = true
+  slidesError.value = ''
+  try {
+    const slides = await fetchPresentationSlides()
+    slidesTeams.value = slides.teams
+    slidesDueOn.value = slides.slides_due
+  } catch (err) {
+    slidesError.value = apiErrorFromUnknown(err).message
+  } finally {
+    isLoadingSlides.value = false
+  }
+}
+
 onMounted(() => {
   void load()
   void loadResponses()
+  void loadSlides()
 })
 
-// "Friday, 23 October 2026", as the finalist email words the day.
-const symposiumDay = computed(() => {
-  const iso = data.value?.symposium_date
+// "Friday, 23 October 2026", as the finalist email words its dates.
+const longDate = (iso: string | null | undefined) => {
   if (!iso) return ''
   const [year, month, day] = iso.split('-').map(Number)
   return new Date(year!, month! - 1, day).toLocaleDateString('en-AU', {
@@ -247,7 +416,10 @@ const symposiumDay = computed(() => {
     month: 'long',
     year: 'numeric'
   })
-})
+}
+
+const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+const slidesDue = computed(() => longDate(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number)
@@ -266,10 +438,19 @@ const formatTime = (hhmm: string) => {
 }
 
 // "29 Sept, 15:10".
-const formatAnswered = (iso: string | null) => {
+const formatWhen = (iso: string | null) => {
   if (!iso) return ''
   const at = new Date(iso)
   return `${at.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}, ${clock(at.getHours(), at.getMinutes())}`
+}
+
+// "17/10/2026 23:06".
+const formatSubmitted = (iso: string | null) => {
+  if (!iso) return ''
+  const at = new Date(iso)
+  const date = at.toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return `${date} ${time}`
 }
 
 // Every change answers with the whole list, which replaces the one shown.
@@ -315,7 +496,8 @@ const saveEdit = async (id: number) => {
 }
 
 const remove = async (id: number) => {
-  await run(() => deletePresentationSlot(id))
+  // A removed time is taken from any team given it, so the teams reload.
+  if (await run(() => deletePresentationSlot(id))) void loadResponses()
 }
 </script>
 
@@ -354,6 +536,11 @@ const remove = async (id: number) => {
 
 .finalist-presentation__error {
   margin: 0.75rem 0 0;
+}
+
+/* Under Add Time, above the times. */
+.finalist-presentation__add + .finalist-presentation__error {
+  margin: -0.25rem 0 1rem;
 }
 
 .finalist-presentation__scroll {
@@ -434,11 +621,36 @@ const remove = async (id: number) => {
   color: var(--dark-green);
 }
 
+/* The whole team can make it. */
+.finalist-presentation__tick.is-everyone {
+  color: var(--dark-green);
+  font-weight: 700;
+}
+
+/* The time the team has been given: a green tint and outline, apart from
+   the header's and hover's pale pink. */
+.finalist-presentation__tick.is-allocated {
+  background: color-mix(in srgb, var(--dark-green) 14%, transparent);
+  box-shadow: inset 0 0 0 1px var(--dark-green);
+}
+
+/* Same box as the time fields above. */
+.finalist-presentation__allocate-select {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
 .finalist-presentation__add {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
 }
 
 .finalist-presentation__field {

@@ -221,6 +221,15 @@ class FinalistFlag(models.Model):
         blank=True,
         related_name="finalist_notifications",
     )
+    # The presentation time allocated on the Finalist Presentation tab;
+    # cleared when that time is removed.
+    presentation_slot = models.ForeignKey(
+        "PresentationSlot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="allocated_flags",
+    )
 
     class Meta:
         db_table = "finalist_flag"
@@ -407,6 +416,32 @@ class PresentationAvailability(models.Model):
 
     def __str__(self):
         return f"{self.group_id}:{self.user_id}"
+
+
+class FinalistSlides(models.Model):
+    """A finalist team's slide deck for its Symposium presentation, due on
+    the slides due date set on Notify Finalists. One per team; uploading
+    again replaces it."""
+
+    group = models.OneToOneField(
+        "groups.Groups", on_delete=models.CASCADE, related_name="finalist_slides"
+    )
+    # As a submission's files: {"storage_key", "name", "mime", "size"}.
+    file = models.JSONField()
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_slides",
+    )
+    submitted_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "finalist_slides"
+
+    def __str__(self):
+        return f"{self.group_id}: {self.file.get('name', '')}"
 
 
 class ResultsEmailSettings(SingletonModel):
