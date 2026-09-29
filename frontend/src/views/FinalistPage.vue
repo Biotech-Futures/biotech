@@ -1,5 +1,4 @@
 <template>
-  <!-- Design tokens for this section are declared on .content-area. -->
   <div
     class="content-area"
     :class="{ 'is-dragging-file': isDraggingFile }"

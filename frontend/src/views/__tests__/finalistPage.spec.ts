@@ -52,7 +52,6 @@ const buildDetail = (entry: Partial<FinalistEntry> | null = {}, isOpen = true): 
   deadline: { closes_at: new Date(Date.now() + 5 * 86_400_000).toISOString(), is_extended: false, is_open: isOpen },
   sessions: SESSIONS,
   max_file_size: 25 * 1024 * 1024,
-  main_round_open: false,
   entry: entry === null ? null : { ...blankEntry(), ...entry },
 })
 
