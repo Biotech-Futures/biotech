@@ -32,7 +32,18 @@
             />
           </div>
         </div>
-        <p v-if="showsIncompleteKey" class="finalists__legend">* Not Marked Completely</p>
+        <div class="finalists__search-side">
+          <!-- Each group's title and categories stay hidden until asked for. -->
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :aria-pressed="showDetails"
+            @click="showDetails = !showDetails"
+          >
+            {{ showDetails ? 'Hide Details' : 'Show Details' }}
+          </button>
+          <p v-if="showsIncompleteKey" class="finalists__legend">* Not Marked Completely</p>
+        </div>
       </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
       <div v-else class="finalists__scroll finalists__scroll--flush">
@@ -63,63 +74,77 @@
                 {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
-            <tr v-for="r in candidates" :key="r.group_id">
-              <td class="finalists__cell--strong">{{ r.group_name }}</td>
-              <td>
-                <span v-if="r.is_late" class="finalists__late">
-                  {{ r.late_by || 'Late' }}
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td v-for="c in candidateComponents" :key="c.code">
-                <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
-                  {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
-                </span>
-                <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--strong">
-                <span v-if="r.total != null">{{ r.total }}</span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-if="r.markers.length"
-                  class="finalists__marker"
-                  :title="markerTooltip(r)"
-                >
-                  {{ r.markers[0] }}
-                  <i
-                    v-if="r.markers.length > 1"
-                    class="fas fa-users finalists__marker-icon"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--right">
-                <button
-                  v-if="!r.is_finalist"
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="isMutating"
-                  @click="addFromRow(r.group_id)"
-                >
-                  Add
-                </button>
-                <span v-else class="finalists__muted">Added</span>
-              </td>
-              <td class="finalists__cell--right">
-                <RouterLink
-                  v-if="r.has_submission"
-                  :to="`/grading/groups/${r.group_id}`"
-                  class="btn btn-outline btn-sm"
-                >
-                  Open
-                </RouterLink>
-                <span v-else class="finalists__muted">No sub.</span>
-              </td>
-            </tr>
+            <template v-for="r in candidates" :key="r.group_id">
+              <tr :class="{ 'finalists__row--with-details': showDetails }">
+                <td class="finalists__cell--strong">{{ r.group_name }}</td>
+                <td>
+                  <span v-if="r.is_late" class="finalists__late">
+                    {{ r.late_by || 'Late' }}
+                  </span>
+                  <span v-else class="finalists__muted">—</span>
+                </td>
+                <td v-for="c in candidateComponents" :key="c.code">
+                  <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
+                    {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
+                  </span>
+                  <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
+                  <span v-else class="finalists__muted">—</span>
+                </td>
+                <td class="finalists__cell--strong">
+                  <span v-if="r.total != null">{{ r.total }}</span>
+                  <span v-else class="finalists__muted">—</span>
+                </td>
+                <td>
+                  <span
+                    v-if="r.markers.length"
+                    class="finalists__marker"
+                    :title="markerTooltip(r)"
+                  >
+                    {{ r.markers[0] }}
+                    <i
+                      v-if="r.markers.length > 1"
+                      class="fas fa-users finalists__marker-icon"
+                      aria-hidden="true"
+                    ></i>
+                  </span>
+                  <span v-else class="finalists__muted">—</span>
+                </td>
+                <td class="finalists__cell--right">
+                  <button
+                    v-if="!r.is_finalist"
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="isMutating"
+                    @click="addFromRow(r.group_id)"
+                  >
+                    Add
+                  </button>
+                  <span v-else class="finalists__muted">Added</span>
+                </td>
+                <td class="finalists__cell--right">
+                  <RouterLink
+                    v-if="r.has_submission"
+                    :to="`/grading/groups/${r.group_id}`"
+                    class="btn btn-outline btn-sm"
+                  >
+                    Open
+                  </RouterLink>
+                  <span v-else class="finalists__muted">No sub.</span>
+                </td>
+              </tr>
+              <!-- The project's details get a full-width row of their own so
+                   long text can wrap; the pair reads as one group. -->
+              <tr v-if="showDetails" class="finalists__details-row">
+                <td :colspan="candidateComponents.length + 6">
+                  <div>
+                    <span class="finalists__muted">Title:</span> {{ r.project_title || '—' }}
+                  </div>
+                  <span class="finalists__muted">Category:</span> {{ r.project_category || '—' }}
+                  <span class="finalists__details-gap"></span>
+                  <span class="finalists__muted">Solution Category:</span> {{ r.solution_category || '—' }}
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -274,6 +299,7 @@ const loadError = ref('')
 const actionError = ref('')
 const isMutating = ref(false)
 const groupQuery = ref('')
+const showDetails = ref(false)
 
 const finalists = computed(() => list.value?.finalists ?? [])
 
@@ -461,6 +487,12 @@ const remove = async (id: number) => {
   max-width: 252px;
 }
 
+.finalists__search-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .finalists__legend {
   margin: 0;
   color: var(--text-muted);
@@ -566,6 +598,22 @@ const remove = async (id: number) => {
 
 .finalists__table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.finalists__row--with-details td {
+  border-bottom: none;
+}
+
+.finalists__details-row td {
+  white-space: normal;
+  font-size: 0.85rem;
+  padding-top: 0;
+  padding-left: 1.5rem;
+}
+
+.finalists__details-gap {
+  display: inline-block;
+  width: 1.5rem;
 }
 
 .finalists__empty {

@@ -19,22 +19,22 @@
               v-model="form[field.key]"
               type="date"
               :min="details.today"
-              :class="{ 'is-invalid': isPast(field.key) }"
+              :class="{ 'is-invalid': saveTried && isPast(field.key) }"
             />
-            <small v-if="isPast(field.key)" class="notify-finalists__field-error">
-              Can't be before today.
-            </small>
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
             <span>Registration Link</span>
             <input v-model="form.registration_url" type="url" placeholder="https://…" />
           </label>
         </div>
+        <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
+          {{ pastDatesMessage }}
+        </p>
         <div class="notify-finalists__email-actions">
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="!detailsChanged || savingDetails || newPastDates.length > 0"
+            :disabled="savingDetails"
             @click="saveDetails"
           >
             {{ savingDetails ? 'Saving…' : 'Save' }}
@@ -47,17 +47,36 @@
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
+          <TestEmailSender kind="finalist" :fields="formFields" />
         </div>
       </template>
     </section>
 
     <section class="card notify-finalists__email-section">
-      <div class="card-header">
-        <h3 class="card-title">Send Email Notification</h3>
-      </div>
+      <h3 class="notify-finalists__section-title">Send Email Notification</h3>
       <p class="notify-finalists__hint">
         Send a notification email to the finalist teams. Tick Notify on specific teams
         to email only those.
+      </p>
+      <p class="notify-finalists__hint">
+        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+      </p>
+      <!-- Same status line as Release Marks. A team only counts as notified
+           once every member got the email. -->
+      <p
+        v-if="finalists.length"
+        class="notify-finalists__status"
+        :class="allNotified ? 'notify-finalists__status--ok' : 'notify-finalists__status--warn'"
+      >
+        <i
+          :class="allNotified ? 'fas fa-envelope-circle-check' : 'fas fa-envelope'"
+          aria-hidden="true"
+        ></i>
+        {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
+      </p>
+      <!-- A notified team is one where every member got the email. -->
+      <p v-if="finalists.length" class="notify-finalists__counts">
+        Students: {{ studentsEmailed }} of {{ studentsTotal }} emailed
       </p>
       <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
       <div class="notify-finalists__email-actions">
@@ -233,6 +252,7 @@ import {
   type FinalistListResponse
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import TestEmailSender from '@/views/grading/TestEmailSender.vue'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -242,6 +262,11 @@ const { message: actionMessage, show: flashAction } = useFlashMessage()
 const sendingMode = ref<'all' | 'selected' | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
+const allNotified = computed(() => finalists.value.every((f) => f.notified))
+const studentsTotal = computed(() => finalists.value.reduce((n, f) => n + f.students, 0))
+const studentsEmailed = computed(() =>
+  finalists.value.reduce((n, f) => n + (f.notified ? f.students : 0), 0)
+)
 
 // Teams ticked in the Notify column. Empty selection = email all un-notified.
 const selectedIds = ref(new Set<number>())
@@ -315,13 +340,19 @@ const isPast = (key: DateField) => {
   return Boolean(value && details.value && value < details.value.today)
 }
 
-// Past dates the admin has just typed; a saved one that has since passed
-// may stay while other details are edited (sending is what refuses it).
-const newPastDates = computed(() =>
-  DATE_FIELDS.filter(
-    ({ key }) => isPast(key) && (form.value[key] || null) !== details.value?.[key]
-  )
-)
+// Dates before today are only pointed out once Save is pressed: then they
+// stop the save, get a red border, and are named above the Save button.
+const saveTried = ref(false)
+const pastDates = computed(() => DATE_FIELDS.filter(({ key }) => isPast(key)))
+const pastDatesMessage = computed(() => {
+  if (!saveTried.value || !pastDates.value.length) return ''
+  const labels = pastDates.value.map((f) => f.label)
+  const named =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+  return `${named} can't be before today.`
+})
 
 const loadDetails = async () => {
   detailsError.value = ''
@@ -335,9 +366,12 @@ const loadDetails = async () => {
 const saveDetails = async () => {
   actionMessage.value = ''
   actionError.value = ''
+  saveTried.value = true
+  if (pastDates.value.length) return
   savingDetails.value = true
   try {
     showDetails(await updateFinalistEmailDetails(formFields()))
+    saveTried.value = false
     flashAction('Email details saved.')
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
@@ -454,6 +488,7 @@ const confirmSend = async () => {
 
 .notify-finalists__section-title {
   font-size: 1.05rem;
+  font-weight: 600;
   margin-bottom: 0.75rem;
 }
 
@@ -480,9 +515,11 @@ const confirmSend = async () => {
   border-color: var(--danger);
 }
 
+/* Above the Save button, once Save found a date before today. */
 .notify-finalists__field-error {
   color: var(--danger);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 /* Same boxes as Document Setup's text fields. */
@@ -538,22 +575,39 @@ const confirmSend = async () => {
   border: 0;
 }
 
-/* No divider under the heading — the hint line sits directly beneath it. */
-.notify-finalists__email-section .card-header {
-  border-bottom: none;
-  padding-bottom: 0;
-  margin-bottom: 0;
-}
-
 .notify-finalists__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
 }
 
+/* As the Release Marks status line. */
+.notify-finalists__status {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.notify-finalists__status--ok {
+  color: var(--dark-green);
+}
+
+.notify-finalists__status--warn {
+  color: #eab308;
+}
+
+/* The size of the hint lines. */
+.notify-finalists__counts {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
 .notify-finalists__email-actions {
   display: flex;
-  gap: 1.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
 }
 
 .notify-finalists__last-emailed {

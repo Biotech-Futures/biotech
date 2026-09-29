@@ -59,11 +59,17 @@
     </div>
 
     <div class="email-editor__field">
-      <label class="email-editor__label" for="email-subject">Subject</label>
+      <label class="email-editor__label" for="template-subject">Subject</label>
+      <!-- Not a login field: an id with "email" in it, and no autocomplete
+           hint, made password managers (Bitwarden) offer to fill it. -->
       <input
-        id="email-subject"
+        id="template-subject"
         ref="subjectInput"
         type="text"
+        autocomplete="off"
+        data-bwignore
+        data-1p-ignore
+        data-lpignore="true"
         class="email-editor__subject"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"

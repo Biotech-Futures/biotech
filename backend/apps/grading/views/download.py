@@ -18,7 +18,7 @@ from django.core.files.storage import default_storage
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
-from django.utils import timezone
+from apps.submissions.services import current_cohort
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -49,7 +49,7 @@ class GroupDownloadView(APIView):
         payload = build_submissions_zip(entries, group_folder=False)
         # Named year + group name, with
         # the component label appended for single-component downloads.
-        name = f"{timezone.now().year}_{_safe(group.group_name)}"
+        name = f"{current_cohort()}_{_safe(group.group_name)}"
         if component_code != "all":
             name += f"_{_COMPONENT_LABELS.get(component_code, component_code)}"
         response = HttpResponse(payload, content_type="application/zip")

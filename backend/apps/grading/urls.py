@@ -12,6 +12,11 @@ from .views import (
     ComponentMarkingListView,
     FinalistCandidatesView,
     FinalistEmailPreviewView,
+    ResultsEmailPreviewView,
+    ResultsEmailSendView,
+    ResultsEmailSettingsView,
+    ResultsSampleSheetView,
+    ResultsSupervisorSheetView,
     FinalistEmailSettingsView,
     FinalistListView,
     FinalistNotifyAllView,
@@ -28,8 +33,17 @@ from .views import (
     MyCertificateView,
     MyGradesView,
     MySummaryView,
+    NonFinalistEmailPreviewView,
+    NonFinalistEmailSendView,
+    NonFinalistEmailView,
+    NonSubmissionEmailPreviewView,
+    NonSubmissionEmailSendView,
+    NonSubmissionEmailView,
     SupervisorDownloadView,
     SupervisorGradesView,
+    TestEmailView,
+    TemplateDownloadView,
+    TemplatePeopleView,
     TemplateScanView,
     TemplateTestRenderView,
 )
@@ -77,6 +91,18 @@ urlpatterns = [
         TemplateScanView.as_view(),
         name="settings-template-scan",
     ),
+    # The saved template file itself.
+    path(
+        "settings/template/<str:kind>/",
+        TemplateDownloadView.as_view(),
+        name="settings-template-download",
+    ),
+    # Who a template can be tested with, for a real person's document.
+    path(
+        "settings/test-people/<str:kind>/",
+        TemplatePeopleView.as_view(),
+        name="settings-test-people",
+    ),
     # Render the active template with synthetic data to check placeholders.
     path(
         "settings/test-render/<str:kind>/",
@@ -104,6 +130,29 @@ urlpatterns = [
         name="finalist-email-preview",
     ),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
+    # The invitation to teams that submitted but weren't picked, from the
+    # Email Nonfinalist tab.
+    path("nonfinalists/", NonFinalistEmailView.as_view(), name="nonfinalist-email"),
+    path("nonfinalists/preview/", NonFinalistEmailPreviewView.as_view(), name="nonfinalist-email-preview"),
+    path("nonfinalists/send/", NonFinalistEmailSendView.as_view(), name="nonfinalist-email-send"),
+    # The same tab's notice to teams that didn't submit.
+    path("nonsubmissions/", NonSubmissionEmailView.as_view(), name="nonsubmission-email"),
+    path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
+    path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
+
+    # Send Test Email beside each email tab's preview.
+    path("test-email/<str:kind>/", TestEmailView.as_view(), name="test-email"),
+
+    # Results emails to teams and supervisors, from the Release Results tab.
+    path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),
+    path("results-email/preview/", ResultsEmailPreviewView.as_view(), name="results-email-preview"),
+    path("results-email/send/", ResultsEmailSendView.as_view(), name="results-email-send"),
+    path("results-email/sample-sheet/", ResultsSampleSheetView.as_view(), name="results-email-sample-sheet"),
+    path(
+        "results-email/supervisor-sheet/<int:supervisor_id>/",
+        ResultsSupervisorSheetView.as_view(),
+        name="results-email-supervisor-sheet",
+    ),
 
     # M9 — read-only analytics for Team 4's dashboards.
     path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),

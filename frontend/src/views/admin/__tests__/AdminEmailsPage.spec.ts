@@ -104,7 +104,7 @@ describe('AdminEmailsPage', () => {
 
   it('pre-fills the editor with the built-in wording', async () => {
     const wrapper = await mountPage()
-    const subject = wrapper.find('#email-subject')
+    const subject = wrapper.find('#template-subject')
     expect((subject.element as HTMLInputElement).value).toBe('Reset your password')
   })
 
@@ -138,7 +138,7 @@ describe('AdminEmailsPage', () => {
     })
     vi.mocked(updateSystemEmailTemplate).mockResolvedValue(updated)
 
-    await wrapper.find('#email-subject').setValue('New subject')
+    await wrapper.find('#template-subject').setValue('New subject')
     const saveButton = wrapper
       .findAll('button')
       .find((button) => button.text().includes('Save changes'))

@@ -3,9 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import GradingSettingsPage from '@/views/grading/GradingSettingsPage.vue'
 import {
   downloadCandidateTestRender,
+  downloadSavedTemplate,
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
+  fetchTemplateTestPeople,
   scanTemplateCandidate,
   updateGradingSettings
 } from '@/utils/gradingAPI'
@@ -17,9 +19,11 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/utils/gradingAPI', () => ({
   downloadCandidateTestRender: vi.fn(),
+  downloadSavedTemplate: vi.fn(),
   downloadTemplateTestRender: vi.fn(),
   fetchGradingSettings: vi.fn(),
   fetchTemplateScan: vi.fn(),
+  fetchTemplateTestPeople: vi.fn(),
   scanTemplateCandidate: vi.fn(),
   updateGradingSettings: vi.fn()
 }))
@@ -29,6 +33,21 @@ const candidateScanMock = vi.mocked(scanTemplateCandidate)
 const updateMock = vi.mocked(updateGradingSettings)
 const testStoredMock = vi.mocked(downloadTemplateTestRender)
 const testCandidateMock = vi.mocked(downloadCandidateTestRender)
+const savedTemplateMock = vi.mocked(downloadSavedTemplate)
+const peopleMock = vi.mocked(fetchTemplateTestPeople)
+
+// This year's students, or mentors for the mentor certificate.
+const PEOPLE = {
+  'marks-summary': [
+    { value: '1:11', label: '(BTF1) Amy Chen' },
+    { value: '2:12', label: '(BTF2) Ben Lee' }
+  ],
+  certificate: [
+    { value: '1:11', label: '(BTF1) Amy Chen' },
+    { value: '2:12', label: '(BTF2) Ben Lee' }
+  ],
+  'mentor-certificate': [{ value: '1:21', label: '(BTF1) Mo Mentor' }]
+}
 
 const detail = (over: Record<string, unknown> = {}) => ({
   director_1_name: 'Prof. Alice Adams',
@@ -39,6 +58,7 @@ const detail = (over: Record<string, unknown> = {}) => ({
   director_2_signature: null,
   marks_summary_template: '/media/grading/marks%20summary.docx',
   certificate_template: null,
+  mentor_certificate_template: null,
   component_weights: {},
   ...over
 })
@@ -88,6 +108,8 @@ beforeEach(() => {
   updateMock.mockReset()
   testStoredMock.mockReset()
   testCandidateMock.mockReset()
+  savedTemplateMock.mockReset()
+  peopleMock.mockReset().mockImplementation(async (kind) => ({ options: PEOPLE[kind] }))
 })
 
 describe('loading', () => {
@@ -254,13 +276,163 @@ describe('template picking and testing', () => {
 
     await buttonNamed(wrapper, /^Test$/).trigger('click')
     await flushPromises()
-    expect(testStoredMock).toHaveBeenCalledWith('marks-summary')
+    expect(testStoredMock).toHaveBeenCalledWith('marks-summary', undefined)
 
     await pickFile(wrapper, '.docx', 'candidate.docx', 1) // certificate slot
     const testButtons = wrapper.findAll('button').filter((b) => /^Test$/.test(b.text().trim()))
     await testButtons[1]!.trigger('click')
     await flushPromises()
-    expect(testCandidateMock).toHaveBeenCalledWith('certificate', expect.any(File))
+    expect(testCandidateMock).toHaveBeenCalledWith('certificate', expect.any(File), undefined)
+  })
+
+  it('each Test is followed by Test Student or Test Mentor and its dropdown', async () => {
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.grading-settings__test-row')
+    expect(rows.map((r) => r.findAll('button').map((b) => b.text().trim()))).toEqual([
+      ['Test', 'Test Student'],
+      ['Test', 'Test Student'],
+      ['Test', 'Test Mentor']
+    ])
+    const options = (i: number) => rows[i]!.findAll('option').map((o) => o.text())
+    expect(options(0)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
+    expect(options(1)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
+    expect(options(2)).toEqual(['(BTF1) Mo Mentor'])
+    expect(peopleMock).toHaveBeenCalledWith('mentor-certificate')
+  })
+
+  it('Test Student renders the chosen student with the saved template', async () => {
+    testStoredMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const row = wrapper.findAll('.grading-settings__test-row')[0]!
+    await row.find('select').setValue('2:12')
+    await buttonNamed(wrapper, /^Test Student$/).trigger('click')
+    await flushPromises()
+    expect(testStoredMock).toHaveBeenCalledWith('marks-summary', '2:12')
+  })
+
+  it('Test Mentor renders a picked file with the chosen mentor', async () => {
+    candidateScanMock.mockResolvedValueOnce(scan(['Name']))
+    testCandidateMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    await pickFile(wrapper, '.docx', 'BTF_Mentor.docx', 2)
+    await buttonNamed(wrapper, /^Test Mentor$/).trigger('click')
+    await flushPromises()
+    expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File), '1:21')
+  })
+
+  it('Test Student stays off while nobody is on the list or no template exists', async () => {
+    peopleMock.mockImplementation(async (kind) => ({
+      options: kind === 'marks-summary' ? [] : PEOPLE[kind]
+    }))
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.grading-settings__test-row')
+    // Nobody yet: the dropdown says so and both it and the button are off.
+    expect(rows[0]!.find('select').text()).toBe('Nobody yet')
+    expect(rows[0]!.find('select').attributes('disabled')).toBeDefined()
+    expect(rows[0]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+    // People, but no certificate template saved or picked.
+    expect(rows[1]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+  })
+
+  it('Download Current Template sits above Browse and fetches the saved file', async () => {
+    savedTemplateMock.mockResolvedValueOnce()
+    const wrapper = await mountPage()
+    const field = wrapper.findAll('.grading-settings__template .grading-settings__field')[0]!
+    const order = field.findAll('button').map((b) => b.text().trim())
+    expect(order).toEqual(['Download Current Template', 'Browse…'])
+
+    // Even with a new file picked, it's the saved one that downloads.
+    candidateScanMock.mockResolvedValueOnce(scan([]))
+    await pickFile(wrapper, '.docx', 'draft.docx', 0)
+    await field.find('.grading-settings__download').trigger('click')
+    await flushPromises()
+    expect(savedTemplateMock).toHaveBeenCalledWith('marks-summary')
+  })
+
+  it('names the three templates', async () => {
+    const wrapper = await mountPage()
+    const labels = wrapper
+      .findAll('.grading-settings__template .grading-settings__field > span')
+      .map((s) => s.text())
+    expect(labels).toEqual([
+      'Marks summary template (.docx)',
+      'Student Certificate template (.docx)',
+      'Mentor Certificate template (.docx)'
+    ])
+  })
+
+  it('the Student Certificate template names the student with {{Name}}', async () => {
+    const wrapper = await mountPage()
+    const student = wrapper.findAll('.grading-settings__template')[1]!
+    const chips = student.findAll('.grading-settings__tokens code').map((c) => c.text())
+    expect(chips.slice(0, 3)).toEqual(['{{Year}}', '{{Name}}', '{{ProjectTitle}}'])
+    expect(chips).not.toContain('{{FirstName}}')
+    expect(chips).not.toContain('{{LastName}}')
+  })
+
+  it('the Mentor Certificate template lists its variables, addressed by {{Name}}', async () => {
+    scanMock.mockImplementation(async (kind) =>
+      kind === 'mentor-certificate' ? scan(['Name', 'Year'], ['FirstName']) : scan([])
+    )
+    const wrapper = await mountPage()
+    expect(scanMock).toHaveBeenCalledWith('mentor-certificate')
+    const mentor = wrapper.findAll('.grading-settings__template')[2]!
+    const chips = mentor.findAll('.grading-settings__tokens code')
+    expect(chips.map((c) => c.text())).toEqual([
+      '{{Year}}',
+      '{{Name}}',
+      '{{ProjectTitle}}',
+      '{{Date}}',
+      '{{Director1Signature}}',
+      '{{Director2Signature}}',
+      '{{Director1Name}}',
+      '{{Director2Name}}',
+      '{{Director1Position}}',
+      '{{Director2Position}}'
+    ])
+    expect(chips.filter((c) => c.classes('is-found')).map((c) => c.text())).toEqual(['{{Year}}', '{{Name}}'])
+    expect(mentor.find('.grading-settings__unknown').text()).toContain('FirstName')
+  })
+
+  it('a picked Mentor Certificate template is checked, tested and saved like the others', async () => {
+    candidateScanMock.mockResolvedValueOnce(scan(['Name']))
+    testCandidateMock.mockResolvedValueOnce()
+    updateMock.mockResolvedValueOnce(detail({ mentor_certificate_template: 'grading/templates/ab12/BTF_Mentor.docx' }))
+    const wrapper = await mountPage()
+    await pickFile(wrapper, '.docx', 'BTF_Mentor.docx', 2)
+    expect(candidateScanMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File))
+    const mentor = wrapper.findAll('.grading-settings__template')[2]!
+    expect(mentor.find('.grading-settings__file-name').text()).toBe('BTF_Mentor.docx')
+
+    await mentor.findAll('button').find((b) => b.text().trim() === 'Test')!.trigger('click')
+    await flushPromises()
+    expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File), undefined)
+
+    await buttonNamed(wrapper, /^Update$/).trigger('click')
+    await flushPromises()
+    const body = updateMock.mock.calls[0]![0] as FormData
+    expect((body.get('mentor_certificate_template') as File).name).toBe('BTF_Mentor.docx')
+    // Saved: its name shows beside Browse, and the current one can be downloaded.
+    expect(mentor.find('.grading-settings__file-name').text()).toBe('BTF_Mentor.docx')
+    savedTemplateMock.mockResolvedValueOnce()
+    await mentor.find('.grading-settings__download').trigger('click')
+    await flushPromises()
+    expect(savedTemplateMock).toHaveBeenCalledWith('mentor-certificate')
+  })
+
+  it('Download Current Template stays off while nothing is saved', async () => {
+    const wrapper = await mountPage()
+    const buttons = wrapper.findAll('.grading-settings__download')
+    expect(buttons[0]!.attributes('disabled')).toBeUndefined() // summary saved
+    expect(buttons[1]!.attributes('disabled')).toBeDefined() // no certificate
+  })
+
+  it('a failed download is reported', async () => {
+    savedTemplateMock.mockRejectedValueOnce(new Error('No template uploaded yet.'))
+    const wrapper = await mountPage()
+    await wrapper.findAll('.grading-settings__download')[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.grading-settings__banner--error').text()).toContain('No template uploaded yet.')
   })
 
   it('the certificate Test stays off while no template exists at all', async () => {

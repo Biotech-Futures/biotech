@@ -1,11 +1,12 @@
-"""DOCX renderers for marks summaries and participation certificates.
+"""DOCX renderers for marks summaries, participation certificates and mentor
+certificates.
 
 Templates come from Document Setup uploads only
-(``GradingSettings.marks_summary_template`` / ``certificate_template``);
-with nothing uploaded the render/scan paths report ``TemplateNotConfigured``
-rather than producing a document.
+(``GradingSettings.marks_summary_template`` / ``certificate_template`` /
+``mentor_certificate_template``); with nothing uploaded the render/scan paths
+report ``TemplateNotConfigured`` rather than producing a document.
 
-Both templates use ``{{FieldName}}`` text variables, typed as plain text in
+The templates use ``{{FieldName}}`` text variables, typed as plain text in
 the document. They are replaced run-aware so formatting and line breaks
 survive, in the body (tables included) and in every header and footer.
 
@@ -17,20 +18,27 @@ import io
 import logging
 import re
 import zipfile
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from django.core.files.storage import default_storage
 from django.utils import timezone
+
+from apps.submissions.services import current_cohort
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches
+from docx.text.run import Run
 
 from ..models import (
     CertificatesRelease,
     GradingSettings,
     GroupMarkingCategories,
     MarksRelease,
+    Rubric,
+    SubmissionComponent,
 )
 from .xlsx import _format_product_category, _format_solution_category
 
@@ -156,6 +164,61 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
             t_el.set(qn("xml:space"), "preserve")
 
 
+# Invisible markers a field value puts around text to raise (superscript),
+# e.g. the "th" in "29th". Private-use characters, so no template has them;
+# ``_raise_marked_text`` turns them into formatting and removes them.
+_RAISE_START, _RAISE_END = "", ""
+_RAISE_SPLIT_RE = re.compile(f"({_RAISE_START}.*?{_RAISE_END})")
+
+
+def _raise_marked_text(paragraph) -> None:
+    """Split marked text into its own superscript run, keeping the run's font,
+    size and colour. A filled-in field sits inside one ``w:t``, so its markers
+    always share a node."""
+    for t_el in paragraph._element.findall(f".//{qn('w:t')}"):
+        text = t_el.text or ""
+        if _RAISE_START not in text:
+            continue
+        run = t_el.getparent()
+        if run is None or run.tag != qn("w:r"):
+            t_el.text = text.replace(_RAISE_START, "").replace(_RAISE_END, "")
+            continue
+
+        pieces = [
+            (piece[1:-1], True) if piece.startswith(_RAISE_START) else (piece, False)
+            for piece in _RAISE_SPLIT_RE.split(text)
+            if piece
+        ]
+        rpr = run.find(qn("w:rPr"))
+        children = [c for c in run if c.tag != qn("w:rPr")]
+        at = children.index(t_el)
+        before, after = children[:at], children[at + 1:]
+
+        new_runs = []
+        for i, (piece, raised) in enumerate(pieces):
+            r = OxmlElement("w:r")
+            if rpr is not None:
+                r.append(deepcopy(rpr))
+            if i == 0:
+                r.extend(before)
+            text_el = OxmlElement("w:t")
+            text_el.text = piece
+            if piece != piece.strip():
+                text_el.set(qn("xml:space"), "preserve")
+            r.append(text_el)
+            if i == len(pieces) - 1:
+                r.extend(after)
+            if raised:
+                Run(r, paragraph).font.superscript = True
+            new_runs.append(r)
+
+        parent = run.getparent()
+        index = parent.index(run)
+        for offset, r in enumerate(new_runs):
+            parent.insert(index + offset, r)
+        parent.remove(run)
+
+
 def _insert_images_in_paragraph(paragraph, images: dict) -> None:
     """Swap ``{{Name}}`` image tokens for the picture they name.
 
@@ -215,6 +278,7 @@ def _render_token_template(data: bytes, fields: dict, images: dict | None = None
             if images:
                 _insert_images_in_paragraph(paragraph, images)
             _replace_tokens_in_paragraph(paragraph, fields)
+            _raise_marked_text(paragraph)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -319,6 +383,10 @@ def marks_release_fields(context: dict) -> dict:
 def certificate_fields(context: dict) -> dict:
     """Map our context onto the merit certificate's variables."""
     return {
+        # The whole name, e.g. "Jane Doe".
+        "Name": context.get("student_full_name", ""),
+        # Templates used to write {{FirstName}} {{LastName}}; still filled, so
+        # one uploaded before {{Name}} doesn't print a blank name.
         "FirstName": context.get("first_name", ""),
         "LastName": context.get("last_name", ""),
         # No project-title field in the data model yet; the group name is the
@@ -328,19 +396,37 @@ def certificate_fields(context: dict) -> dict:
         "Director2Name": context.get("director_2_name", ""),
         "Director1Position": context.get("director_1_position", ""),
         "Director2Position": context.get("director_2_position", ""),
-        # The day certificates were released, e.g. "27 September 2026".
+        # The day certificates were released, e.g. "27th September 2026",
+        # with the "th" raised.
         "Date": _long_date(context.get("issued_on")),
         # The year of that same day, e.g. "2026".
         "Year": _year_of(context.get("issued_on")),
     }
 
 
+def mentor_certificate_fields(context: dict) -> dict:
+    """The mentor's certificate: the student certificate's variables. It has
+    only ever used {{Name}}, so the older first and last name ones aren't
+    among them."""
+    fields = certificate_fields(context)
+    del fields["FirstName"], fields["LastName"]
+    return fields
+
+
+def _ordinal_suffix(day: int) -> str:
+    """1 -> "st", 2 -> "nd", 3 -> "rd", 11-13 -> "th", 21 -> "st"..."""
+    if 11 <= day % 100 <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+
+
 def _long_date(iso: str | None) -> str:
-    """"2026-09-27" -> "27 September 2026"; blank when there is no date."""
+    """"2026-09-29" -> "29th September 2026", the "th" marked to be raised
+    (see ``_raise_marked_text``); blank when there is no date."""
     if not iso:
         return ""
     day = date.fromisoformat(str(iso))
-    return f"{day.day} {day:%B %Y}"
+    return f"{day.day}{_RAISE_START}{_ordinal_suffix(day.day)}{_RAISE_END} {day:%B %Y}"
 
 
 def _year_of(iso: str | None) -> str:
@@ -382,15 +468,15 @@ def signature_images(settings) -> dict:
 # Public renderers
 
 
-def render_marks_summary_data(data: bytes, context: dict) -> bytes:
+def render_marks_summary_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
     """Render marks-summary docx bytes — the saved template or a candidate
-    upload being previewed before it replaces anything."""
-    settings = GradingSettings.load()
+    upload being previewed before it replaces anything. ``images`` are the
+    signatures, when the caller already read them (see ``signature_images``)."""
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
             data,
             marks_release_fields(context),
-            signature_images(settings),
+            signature_images(GradingSettings.load()) if images is None else images,
         )
     # No recognised placeholders: hand back the document as uploaded rather
     # than failing. A static summary with nothing to substitute is valid.
@@ -405,15 +491,37 @@ def render_marks_summary(context: dict) -> bytes:
     return render_marks_summary_data(data, context)
 
 
-def render_certificate_data(data: bytes, context: dict) -> bytes:
-    """Render certificate docx bytes — saved template or previewed candidate."""
-    settings = GradingSettings.load()
+def render_certificate_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
+    """Render certificate docx bytes — saved template or previewed candidate.
+    ``images`` as for ``render_marks_summary_data``."""
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
-            data, certificate_fields(context), signature_images(settings)
+            data,
+            certificate_fields(context),
+            signature_images(GradingSettings.load()) if images is None else images,
         )
     # As above — a certificate with no variables is returned unchanged.
     return data
+
+
+def render_mentor_certificate_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
+    """Render mentor certificate docx bytes — saved template or previewed
+    candidate. ``images`` as for ``render_marks_summary_data``."""
+    if _has_text_tokens(_document_xml(data)):
+        return _render_token_template(
+            data,
+            mentor_certificate_fields(context),
+            signature_images(GradingSettings.load()) if images is None else images,
+        )
+    return data
+
+
+def render_mentor_certificate(context: dict) -> bytes:
+    """Materialise a mentor certificate docx (see ``certificate_context``)."""
+    settings = GradingSettings.load()
+    with _open_template(settings.mentor_certificate_template) as fh:
+        data = fh.read()
+    return render_mentor_certificate_data(data, context)
 
 
 def render_participation_certificate(context: dict) -> bytes:
@@ -428,48 +536,56 @@ def render_participation_certificate(context: dict) -> bytes:
 # Context builders
 
 
-def sample_marks_summary_context() -> dict:
-    """Synthetic marks-summary data for the Document Setup test render.
+# Made-up marks as a share of each criterion's maximum, cycled.
+_SAMPLE_MARK_SHARES = (Decimal("0.6"), Decimal("0.7"), Decimal("0.8"), Decimal("0.9"))
 
-    Every field the templates can reference is filled with an obviously fake
-    value, so an admin opening the result can spot any placeholder that did
-    NOT get replaced.
+
+def _sample_components(year: int, shift: int = 0) -> list[dict]:
+    """Every component with its real rubric, as a released summary would show
+    it: this year's active rubric, else the component's latest active one.
+    Marks and comments are made up; ``shift`` varies them, so several sample
+    teams don't all score the same. A component with no rubric has no
+    criteria, as on a real summary."""
+    out = []
+    for component in SubmissionComponent.objects.order_by("order", "id"):
+        code, name = component.code, component.name
+        rubrics = Rubric.objects.filter(component=component, active=True)
+        rubric = rubrics.filter(year=year).first() or rubrics.order_by("-year").first()
+        criteria = [(c.name, c.max_mark) for c in rubric.criteria.all()] if rubric else []
+        out.append({
+            "code": code,
+            "name": name,
+            "submitted": True,
+            "overall_comment": f"Sample overall {name} comment.",
+            "criteria": [
+                {
+                    "name": criterion_name,
+                    "max_mark": str(max_mark),
+                    "mark": str((max_mark * _SAMPLE_MARK_SHARES[(i + shift) % 4]).quantize(Decimal("1"))),
+                    "comment": f"Sample comment for {name} criterion {i}.",
+                }
+                for i, (criterion_name, max_mark) in enumerate(criteria, start=1)
+            ],
+        })
+    return out
+
+
+def sample_marks_summary_context() -> dict:
+    """Marks-summary data for the Document Setup test render.
+
+    The rubric is the real one (criterion names and maximums from the
+    database); everything else is an obviously fake value, so an admin
+    opening the result can spot any placeholder that did NOT get replaced.
     """
     settings = GradingSettings.load()
-
-    def _criteria(prefix: str, count: int) -> list[dict]:
-        return [
-            {
-                "name": f"Sample {prefix} criterion {i}",
-                "max_mark": "5",
-                "mark": f"{3 + (i % 3)}.00",
-                "comment": f"Sample comment for {prefix} criterion {i}.",
-            }
-            for i in range(1, count + 1)
-        ]
 
     return {
         "group_name": "SAMPLE-TEAM-01",
         "project_title": "Sample Project Title",
         "project_category": "Sample Project Category",
         "solution_category": "Sample Solution Category",
-        "year": date.today().year,
-        "components": [
-            {
-                "code": "POSTER",
-                "name": "Poster",
-                "submitted": True,
-                "overall_comment": "Sample overall poster comment.",
-                "criteria": _criteria("poster", 10),
-            },
-            {
-                "code": "SAQ",
-                "name": "Short Answer Questions",
-                "submitted": True,
-                "overall_comment": "Sample overall SAQ comment.",
-                "criteria": _criteria("SAQ", 4),
-            },
-        ],
+        "year": current_cohort(),
+        "components": _sample_components(current_cohort()),
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "director_1_position": settings.director_1_position or "Sample Position One",
@@ -490,7 +606,7 @@ def sample_certificate_context() -> dict:
     context = certificate_context(
         "Jane Doe",
         "SAMPLE-TEAM-01",
-        date.today().year,
+        current_cohort(),
         first_name="Jane",
         last_name="Doe",
     )
@@ -499,6 +615,22 @@ def sample_certificate_context() -> dict:
     # certificates are released (real certificates carry the release date).
     context["issued_on"] = timezone.localdate(timezone=RELEASE_TZ).isoformat()
     return context
+
+
+def sample_mentor_certificate_context() -> dict:
+    """Synthetic mentor certificate data for the Document Setup test render."""
+    context = certificate_context("Dr Sam Mentor", "SAMPLE-TEAM-01", current_cohort())
+    context["project_title"] = "Sample Project Title"
+    context["issued_on"] = timezone.localdate(timezone=RELEASE_TZ).isoformat()
+    return context
+
+
+# Each template kind the Document Setup page handles, and its settings field.
+TEMPLATE_FIELDS = {
+    "marks-summary": "marks_summary_template",
+    "certificate": "certificate_template",
+    "mentor-certificate": "mentor_certificate_template",
+}
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -525,6 +657,8 @@ def _known_placeholders(kind: str) -> set[str]:
         return set(marks_release_fields(sample_marks_summary_context())) | _TOKEN_SIGNATURES
     if kind == "certificate":
         return set(certificate_fields(sample_certificate_context())) | _TOKEN_SIGNATURES
+    if kind == "mentor-certificate":
+        return set(mentor_certificate_fields(sample_mentor_certificate_context())) | _TOKEN_SIGNATURES
     raise ValueError(f"unknown template kind {kind!r}")
 
 
@@ -554,13 +688,9 @@ def scan_template(kind: str) -> dict:
     typo in the template, so the settings page can surface them before real
     documents go out.
     """
-    settings = GradingSettings.load()
-    if kind == "marks-summary":
-        field = settings.marks_summary_template
-    elif kind == "certificate":
-        field = settings.certificate_template
-    else:
+    if kind not in TEMPLATE_FIELDS:
         raise ValueError(f"unknown template kind {kind!r}")
+    field = getattr(GradingSettings.load(), TEMPLATE_FIELDS[kind])
 
     try:
         with _open_template(field) as fh:

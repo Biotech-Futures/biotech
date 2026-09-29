@@ -12,6 +12,13 @@ from .download import (
     GradingJobDownloadView,
     GroupDownloadView,
 )
+from .results import (
+    ResultsEmailPreviewView,
+    ResultsEmailSendView,
+    ResultsEmailSettingsView,
+    ResultsSampleSheetView,
+    ResultsSupervisorSheetView,
+)
 from .finalist import (
     FinalistCandidatesView,
     FinalistEmailPreviewView,
@@ -20,11 +27,26 @@ from .finalist import (
     FinalistNotifyAllView,
     FinalistToggleView,
 )
+from .nonfinalist import (
+    NonFinalistEmailPreviewView,
+    NonFinalistEmailSendView,
+    NonFinalistEmailView,
+    NonSubmissionEmailPreviewView,
+    NonSubmissionEmailSendView,
+    NonSubmissionEmailView,
+)
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
 from .release import CertificatesReleaseView, MarksReleaseView
-from .settings import GradingSettingsView, TemplateScanView, TemplateTestRenderView
+from .settings import (
+    GradingSettingsView,
+    TemplateDownloadView,
+    TemplatePeopleView,
+    TemplateScanView,
+    TemplateTestRenderView,
+)
 from .student import MyCertificateView, MyGradesView, MySummaryView
+from .test_email import TestEmailView
 from .supervisor import SupervisorDownloadView, SupervisorGradesView
 from .upload import BulkUploadMarksView
 
@@ -37,6 +59,11 @@ __all__ = [
     "ComponentMarkingListView",
     "FinalistCandidatesView",
     "FinalistEmailPreviewView",
+    "ResultsEmailPreviewView",
+    "ResultsEmailSendView",
+    "ResultsEmailSettingsView",
+    "ResultsSampleSheetView",
+    "ResultsSupervisorSheetView",
     "FinalistEmailSettingsView",
     "FinalistListView",
     "FinalistNotifyAllView",
@@ -46,6 +73,8 @@ __all__ = [
     "GradingJobDetailView",
     "GradingJobDownloadView",
     "GradingSettingsView",
+    "TemplateDownloadView",
+    "TemplatePeopleView",
     "TemplateScanView",
     "TemplateTestRenderView",
     "GroupDownloadView",
@@ -58,6 +87,13 @@ __all__ = [
     "MyCertificateView",
     "MyGradesView",
     "MySummaryView",
+    "NonFinalistEmailPreviewView",
+    "NonFinalistEmailSendView",
+    "NonFinalistEmailView",
+    "NonSubmissionEmailPreviewView",
+    "NonSubmissionEmailSendView",
+    "NonSubmissionEmailView",
     "SupervisorDownloadView",
     "SupervisorGradesView",
+    "TestEmailView",
 ]

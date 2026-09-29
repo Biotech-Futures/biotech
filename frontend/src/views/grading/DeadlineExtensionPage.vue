@@ -59,9 +59,7 @@
     </section>
 
     <section class="card">
-      <div class="card-header">
-        <h3 class="card-title">Current Extensions</h3>
-      </div>
+      <h3 class="extensions__section-title">Current Extensions</h3>
       <p v-if="isLoading" class="extensions__hint">Loading…</p>
       <div v-else-if="loadError" class="extensions__load-error">
         <p>Failed to load. {{ loadError }}</p>
@@ -334,6 +332,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* A section heading, as "Email Details" on Notify Finalists. */
+.extensions__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
 .extensions {
   display: flex;
   flex-direction: column;

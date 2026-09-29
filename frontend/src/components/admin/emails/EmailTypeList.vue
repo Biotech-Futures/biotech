@@ -8,6 +8,10 @@
         class="email-type-list__search-input"
         placeholder="Search emails"
         aria-label="Search email types"
+        autocomplete="off"
+        data-bwignore
+        data-1p-ignore
+        data-lpignore="true"
       />
     </div>
 

@@ -1,0 +1,26 @@
+{% autoescape off %}{# Keep the wording in step with nonsubmission_notice.html. #}{{ BRAND_NAME }} – No Submission Received
+
+Dear members of {{ GROUP_NAME }},
+
+We did not receive a submission from your team. If you believe this is
+incorrect, please contact us as soon as possible so we can check our
+records.
+
+You are still invited to attend the in-person {{ BRAND_NAME }} Symposium at
+the University of Sydney on {{ SYMPOSIUM_DATE }} (in-person only).
+
+AT THE SYMPOSIUM YOU CAN:
+  - View finalist team presentations.
+  - Meet mentors and partner organisations in person.
+  - Hear from guest speakers and join a hands-on workshop.
+
+Register to Attend (In-Person):
+{{ REGISTER_URL }}
+
+Warm regards,
+The {{ BRAND_NAME }} Team
+
+--
+You’re receiving this email because your team participated in the
+{{ BRAND_NAME }} Challenge.
+{% endautoescape %}

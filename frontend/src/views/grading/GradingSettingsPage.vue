@@ -75,6 +75,14 @@
           <div class="grading-settings__template">
             <div class="grading-settings__field">
               <span>Marks summary template (.docx)</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm grading-settings__download"
+                :disabled="downloading !== '' || !settings.marks_summary_template"
+                @click="downloadCurrent('marks-summary')"
+              >
+                {{ downloading === 'marks-summary' ? 'Downloading…' : 'Download Current Template' }}
+              </button>
               <div class="grading-settings__file-row">
                 <button type="button" class="grading-settings__file-btn" @click="summaryInput?.click()">
                   Browse…
@@ -100,14 +108,38 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('marks-summary')" :key="name">{{ name }}</code>
             </p>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
-              @click="testRender('marks-summary')"
-            >
-              {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
-            </button>
+            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
+                @click="testRender('marks-summary')"
+              >
+                {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['marks-summary'] || !(summaryTpl || settings.marks_summary_template)"
+                  @click="testRender('marks-summary', true)"
+                >
+                  {{ testing === 'marks-summary-person' ? 'Rendering…' : 'Test Student' }}
+                </button>
+                <select
+                  v-model="person['marks-summary']"
+                  class="grading-settings__person-select"
+                  aria-label="Student"
+                  :disabled="!people['marks-summary'].length"
+                >
+                  <option v-if="!people['marks-summary'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['marks-summary']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
             <p v-if="summaryTpl" class="grading-settings__save-hint">
               Click Update to save templates
             </p>
@@ -115,7 +147,15 @@
 
           <div class="grading-settings__template">
             <div class="grading-settings__field">
-              <span>Certificate template (.docx)</span>
+              <span>Student Certificate template (.docx)</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm grading-settings__download"
+                :disabled="downloading !== '' || !settings.certificate_template"
+                @click="downloadCurrent('certificate')"
+              >
+                {{ downloading === 'certificate' ? 'Downloading…' : 'Download Current Template' }}
+              </button>
               <div class="grading-settings__file-row">
                 <button type="button" class="grading-settings__file-btn" @click="certInput?.click()">
                   Browse…
@@ -137,15 +177,108 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('certificate')" :key="name">{{ name }}</code>
             </p>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
-              @click="testRender('certificate')"
-            >
-              {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
-            </button>
+            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
+                @click="testRender('certificate')"
+              >
+                {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['certificate'] || !(certTpl || settings.certificate_template)"
+                  @click="testRender('certificate', true)"
+                >
+                  {{ testing === 'certificate-person' ? 'Rendering…' : 'Test Student' }}
+                </button>
+                <select
+                  v-model="person['certificate']"
+                  class="grading-settings__person-select"
+                  aria-label="Student"
+                  :disabled="!people['certificate'].length"
+                >
+                  <option v-if="!people['certificate'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['certificate']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
             <p v-if="certTpl" class="grading-settings__save-hint">
+              Click Update to save templates
+            </p>
+          </div>
+
+          <div class="grading-settings__template">
+            <div class="grading-settings__field">
+              <span>Mentor Certificate template (.docx)</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm grading-settings__download"
+                :disabled="downloading !== '' || !settings.mentor_certificate_template"
+                @click="downloadCurrent('mentor-certificate')"
+              >
+                {{ downloading === 'mentor-certificate' ? 'Downloading…' : 'Download Current Template' }}
+              </button>
+              <div class="grading-settings__file-row">
+                <button type="button" class="grading-settings__file-btn" @click="mentorInput?.click()">
+                  Browse…
+                </button>
+                <span class="grading-settings__file-name">{{ mentorTpl?.name || baseName(settings.mentor_certificate_template) || 'No file selected.' }}</span>
+              </div>
+              <input ref="mentorInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('mentor-certificate', $event)" />
+            </div>
+            <p class="grading-settings__note">
+              Expected variables:<br />
+              <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
+            </p>
+            <ul class="grading-settings__tokens">
+              <li v-for="chip in MENTOR_CERTIFICATE_FIELDS" :key="chip.label">
+                <code :class="{ 'is-found': isFound('mentor-certificate', chip) }">{{ chip.label }}</code>
+              </li>
+            </ul>
+            <p v-if="unknownIn('mentor-certificate').length" class="grading-settings__unknown">
+              Variables present in the selected file but not recognised (these render blank):
+              <code v-for="name in unknownIn('mentor-certificate')" :key="name">{{ name }}</code>
+            </p>
+            <!-- Test fills in made-up details; Test Mentor a real mentor's. -->
+            <div class="grading-settings__test-row">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="testing !== '' || !(mentorTpl || settings.mentor_certificate_template)"
+                @click="testRender('mentor-certificate')"
+              >
+                {{ testing === 'mentor-certificate' ? 'Rendering…' : 'Test' }}
+              </button>
+              <div class="grading-settings__person-test">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="testing !== '' || !person['mentor-certificate'] || !(mentorTpl || settings.mentor_certificate_template)"
+                  @click="testRender('mentor-certificate', true)"
+                >
+                  {{ testing === 'mentor-certificate-person' ? 'Rendering…' : 'Test Mentor' }}
+                </button>
+                <select
+                  v-model="person['mentor-certificate']"
+                  class="grading-settings__person-select"
+                  aria-label="Mentor"
+                  :disabled="!people['mentor-certificate'].length"
+                >
+                  <option v-if="!people['mentor-certificate'].length" value="">Nobody yet</option>
+                  <option v-for="option in people['mentor-certificate']" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <p v-if="mentorTpl" class="grading-settings__save-hint">
               Click Update to save templates
             </p>
           </div>
@@ -182,18 +315,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadCandidateTestRender,
+  downloadSavedTemplate,
   downloadTemplateTestRender,
   fetchGradingSettings,
   fetchTemplateScan,
+  fetchTemplateTestPeople,
   scanTemplateCandidate,
   updateGradingSettings,
   type GradingSettingsDetail,
-  type TemplateScan
+  type TemplateKind,
+  type TemplateScan,
+  type TestEmailRecipient
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -212,11 +349,30 @@ const sig1 = ref<File | null>(null)
 const sig2 = ref<File | null>(null)
 const summaryTpl = ref<File | null>(null)
 const certTpl = ref<File | null>(null)
+const mentorTpl = ref<File | null>(null)
 
 const sig1Input = ref<HTMLInputElement | null>(null)
 const sig2Input = ref<HTMLInputElement | null>(null)
 const summaryInput = ref<HTMLInputElement | null>(null)
 const certInput = ref<HTMLInputElement | null>(null)
+const mentorInput = ref<HTMLInputElement | null>(null)
+
+// Each template's picked file, its Browse input and its settings field.
+const PICKED: Record<TemplateKind, Ref<File | null>> = {
+  'marks-summary': summaryTpl,
+  certificate: certTpl,
+  'mentor-certificate': mentorTpl
+}
+const INPUTS: Record<TemplateKind, Ref<HTMLInputElement | null>> = {
+  'marks-summary': summaryInput,
+  certificate: certInput,
+  'mentor-certificate': mentorInput
+}
+const TEMPLATE_FIELD: Record<TemplateKind, string> = {
+  'marks-summary': 'marks_summary_template',
+  certificate: 'certificate_template',
+  'mentor-certificate': 'mentor_certificate_template'
+}
 
 const fileOf = (event: Event) => (event.target as HTMLInputElement).files?.[0] ?? null
 
@@ -233,7 +389,7 @@ const baseName = (value: string | null | undefined) => {
 }
 
 const hasPickedFiles = computed(() =>
-  Boolean(sig1.value || sig2.value || summaryTpl.value || certTpl.value)
+  Boolean(sig1.value || sig2.value || summaryTpl.value || certTpl.value || mentorTpl.value)
 )
 
 // Each director's details differ from what is saved: an edited name or
@@ -304,13 +460,14 @@ const FIELD_LABELS: Record<string, string> = {
   director_1_signature: 'Director 1 Signature',
   director_2_signature: 'Director 2 Signature',
   marks_summary_template: 'Marks summary template',
-  certificate_template: 'Certificate template'
+  certificate_template: 'Student Certificate template',
+  mentor_certificate_template: 'Mentor Certificate template'
 }
 
 
 // The variables each template can reference, matching the field maps in
 // backend apps/grading/services/docx.py (marks_release_fields /
-// certificate_fields). Shown on the page so template authors never have to
+// certificate_fields / mentor_certificate_fields). Shown on the page so template authors never have to
 // ask a developer which placeholders exist.
 /** A chip may stand for a run of placeholders (P1…P10), so it carries every
  *  underlying name — the chip lights up when the template uses any of them. */
@@ -367,8 +524,20 @@ const SUMMARY_GROUPS: Placeholder[][] = [
 ]
 const CERTIFICATE_FIELDS: Placeholder[] = [
   'Year',
-  'FirstName',
-  'LastName',
+  'Name',
+  'ProjectTitle',
+  'Date',
+  'Director1Signature',
+  'Director2Signature',
+  'Director1Name',
+  'Director2Name',
+  'Director1Position',
+  'Director2Position'
+].map(token)
+// The same variables as the student certificate.
+const MENTOR_CERTIFICATE_FIELDS: Placeholder[] = [
+  'Year',
+  'Name',
   'ProjectTitle',
   'Date',
   'Director1Signature',
@@ -379,13 +548,16 @@ const CERTIFICATE_FIELDS: Placeholder[] = [
   'Director2Position'
 ].map(token)
 
-const testing = ref<'' | 'marks-summary' | 'certificate'>('')
+// Which Test is rendering: a kind, or "<kind>-person" for its Test Student
+// or Test Mentor.
+const testing = ref<'' | TemplateKind | `${TemplateKind}-person`>('')
 
 // What the saved template actually contains, so chips can show which
 // placeholders were found and which stray ones would render blank.
 const scans = ref<Record<string, TemplateScan | null>>({
   'marks-summary': null,
-  certificate: null
+  certificate: null,
+  'mentor-certificate': null
 })
 
 const isFound = (kind: string, chip: Placeholder) => {
@@ -397,7 +569,7 @@ const unknownIn = (kind: string) => scans.value[kind]?.unknown ?? []
 
 const loadScans = async () => {
   await Promise.all(
-    (['marks-summary', 'certificate'] as const).map(async (kind) => {
+    (['marks-summary', 'certificate', 'mentor-certificate'] as const).map(async (kind) => {
       try {
         scans.value[kind] = await fetchTemplateScan(kind)
       } catch {
@@ -411,10 +583,9 @@ const loadScans = async () => {
 // Picking a template file previews it: the chips recolour from a server-side
 // scan of the picked file, and Test renders it — all without storing anything.
 // Only Save replaces the template the real documents are generated from.
-const pickTemplate = async (kind: 'marks-summary' | 'certificate', event: Event) => {
-  const isSummary = kind === 'marks-summary'
+const pickTemplate = async (kind: TemplateKind, event: Event) => {
   const file = fileOf(event)
-  const picked = isSummary ? summaryTpl : certTpl
+  const picked = PICKED[kind]
   picked.value = file
   actionError.value = ''
   if (!file) {
@@ -427,23 +598,66 @@ const pickTemplate = async (kind: 'marks-summary' | 'certificate', event: Event)
   } catch (err) {
     // The renderer can't open this file; drop the pick so Save can't send it.
     picked.value = null
-    const input = isSummary ? summaryInput.value : certInput.value
+    const input = INPUTS[kind].value
     if (input) input.value = ''
-    const label = isSummary
-      ? FIELD_LABELS.marks_summary_template
-      : FIELD_LABELS.certificate_template
-    actionError.value = `${label}: ${apiErrorFromUnknown(err).message}`
+    actionError.value = `${FIELD_LABELS[TEMPLATE_FIELD[kind]]}: ${apiErrorFromUnknown(err).message}`
   }
 }
 
-const testRender = async (kind: 'marks-summary' | 'certificate') => {
+// The saved template as uploaded, to edit and upload back. A file picked but
+// not yet saved isn't it, so the button always fetches the saved one.
+const downloading = ref<'' | TemplateKind>('')
+
+const downloadCurrent = async (kind: TemplateKind) => {
   actionError.value = ''
-  testing.value = kind
-  const candidate = kind === 'marks-summary' ? summaryTpl.value : certTpl.value
+  downloading.value = kind
+  try {
+    await downloadSavedTemplate(kind)
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    downloading.value = ''
+  }
+}
+
+// Who each template can be tested with: this year's students, or mentors for
+// the mentor certificate. The first is picked to start with.
+const people = ref<Record<TemplateKind, TestEmailRecipient[]>>({
+  'marks-summary': [],
+  certificate: [],
+  'mentor-certificate': []
+})
+const person = ref<Record<TemplateKind, string>>({
+  'marks-summary': '',
+  certificate: '',
+  'mentor-certificate': ''
+})
+
+const loadPeople = async () => {
+  await Promise.all(
+    (Object.keys(PICKED) as TemplateKind[]).map(async (kind) => {
+      try {
+        people.value[kind] = (await fetchTemplateTestPeople(kind)).options
+      } catch {
+        // Best-effort: the dropdown just reads Nobody yet.
+        people.value[kind] = []
+      }
+      person.value[kind] = people.value[kind][0]?.value ?? ''
+    })
+  )
+}
+
+// With forPerson, the chosen student's or mentor's real document; otherwise
+// made-up details.
+const testRender = async (kind: TemplateKind, forPerson = false) => {
+  actionError.value = ''
+  testing.value = forPerson ? `${kind}-person` : kind
+  const candidate = PICKED[kind].value
+  const who = forPerson ? person.value[kind] : undefined
   try {
     // A picked file is test-driven as-is; otherwise the saved template runs.
-    if (candidate) await downloadCandidateTestRender(kind, candidate)
-    else await downloadTemplateTestRender(kind)
+    if (candidate) await downloadCandidateTestRender(kind, candidate, who)
+    else await downloadTemplateTestRender(kind, who)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -468,6 +682,7 @@ const load = async () => {
 onMounted(() => {
   void load()
   void loadScans()
+  void loadPeople()
 })
 
 const clearFilePickers = () => {
@@ -475,7 +690,8 @@ const clearFilePickers = () => {
   sig2.value = null
   summaryTpl.value = null
   certTpl.value = null
-  for (const input of [sig1Input.value, sig2Input.value, summaryInput.value, certInput.value]) {
+  mentorTpl.value = null
+  for (const input of [sig1Input.value, sig2Input.value, summaryInput.value, certInput.value, mentorInput.value]) {
     if (input) input.value = ''
   }
 }
@@ -496,7 +712,7 @@ const save = async () => {
   savedMessage.value = ''
   isSaving.value = true
   try {
-    const hasFile = sig1.value || sig2.value || summaryTpl.value || certTpl.value
+    const hasFile = sig1.value || sig2.value || summaryTpl.value || certTpl.value || mentorTpl.value
     let body: FormData | ReturnType<typeof directorText>
     if (hasFile) {
       const fd = new FormData()
@@ -505,6 +721,7 @@ const save = async () => {
       if (sig2.value) fd.append('director_2_signature', sig2.value)
       if (summaryTpl.value) fd.append('marks_summary_template', summaryTpl.value)
       if (certTpl.value) fd.append('certificate_template', certTpl.value)
+      if (mentorTpl.value) fd.append('mentor_certificate_template', mentorTpl.value)
       body = fd
     } else {
       body = directorText()
@@ -552,6 +769,7 @@ const save = async () => {
 
 .grading-settings__section-title {
   font-size: 1.05rem;
+  font-weight: 600;
   margin-bottom: 0.75rem;
 }
 
@@ -607,6 +825,12 @@ const save = async () => {
   padding: 0.3rem 0.7rem;
   font-size: 0.84rem;
   font-weight: 500;
+}
+
+/* Above the Browse row, sized to its label rather than the field. */
+.grading-settings__template .grading-settings__download {
+  justify-self: start;
+  margin-bottom: 0.5rem;
 }
 
 .grading-settings__template .btn:hover:not(:disabled) {
@@ -665,6 +889,32 @@ const save = async () => {
 }
 
 /* Yellow nudge under Test while a picked file is still unsaved. */
+/* Test, then Test Student or Test Mentor with its dropdown. */
+.grading-settings__test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+/* The button and its dropdown stay together when the line wraps. */
+.grading-settings__person-test {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.grading-settings__person-select {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  max-width: 14rem;
+}
+
 .grading-settings__save-hint {
   color: #b8860b;
   font-size: 0.85rem;
