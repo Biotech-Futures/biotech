@@ -44,7 +44,7 @@ from apps.submissions.services import current_cohort
 
 from ..models import FinalistEmailSettings, FinalistFlag, NonFinalistEmail, NonSubmissionEmail
 from .finalist_notify import NOT_SET, _long_date, symposium_today
-from .send_guard import Work, start_run, submissions_open_reason
+from .send_guard import Work, member_labels, start_run, submissions_open_reason
 
 logger = logging.getLogger(__name__)
 
@@ -225,9 +225,10 @@ def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettin
     return render_system_email(email.key, context, default_text=default_text)
 
 
-def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEmail, group_id: int) -> int:
-    """One copy per member, so nobody sees the others. Returns how many went."""
-    sent = 0
+def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEmail, group_id: int) -> list[str]:
+    """One copy per member, so nobody sees the others. Returns the addresses
+    it couldn't reach."""
+    missed = []
     for address in recipients:
         message = build_message(
             rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
@@ -239,29 +240,29 @@ def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEm
         except Exception as exc:  # noqa: BLE001
             # Error type only: SMTP errors carry the recipient address.
             logger.error("%s: send failed group=%s error=%s", email.key, group_id, type(exc).__name__)
-        else:
-            sent += 1
-    return sent
+            missed.append(address)
+    return missed
 
 
 def _send_team(
-    email: TeamEmail, team, recipients, details: FinalistEmailSettings, actor, connection, cache: dict,
-) -> tuple[int, bool]:
-    """One team's copies; recorded as emailed only once every member got it."""
+    email: TeamEmail, team, people: dict[str, str], details: FinalistEmailSettings, actor, connection, cache: dict,
+) -> list[str]:
+    """One team's copies; recorded as emailed only once every member got it.
+    Returns who it didn't reach, as ``people`` labels them."""
     try:
         rendered = render_email(email, team.group_name, details)
     except Exception:  # noqa: BLE001
         logger.exception("%s: failed to render group=%s", email.key, team.id)
-        return 0, False
-    sent = _send_each(rendered, recipients, connection, email=email, group_id=team.id)
-    if sent < len(recipients):
-        return sent, False
+        return list(people.values())
+    missed = _send_each(rendered, list(people), connection, email=email, group_id=team.id)
+    if missed:
+        return [people[address] for address in missed]
     try:
         with transaction.atomic():
             email.record.objects.create(group=team, sent_by=actor)
     except IntegrityError:
         pass  # already recorded
-    return sent, True
+    return []
 
 
 def start_send(email: TeamEmail, actor) -> None:
@@ -270,8 +271,9 @@ def start_send(email: TeamEmail, actor) -> None:
     run is going."""
     details = FinalistEmailSettings.load()
     due = audience(email)
-    start_run(email.key, actor, [
-        Work(len(due.recipients[team.id]), partial(_send_team, email, team, due.recipients[team.id], details, actor))
-        for team in due.teams
-        if team.id not in due.emailed
-    ])
+    work = []
+    for team in due.teams:
+        if team.id not in due.emailed:
+            people = member_labels(team, due.recipients[team.id])
+            work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor)))
+    start_run(email.key, actor, work)

@@ -137,6 +137,8 @@ class NonFinalistEmailTests(_GradingFixture):
                 self.assertLogs("apps.grading.services.symposium_emails", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
+        # The page lists who it couldn't reach.
+        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Mem ben"])
         self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
         self.assertFalse(NonFinalistEmail.objects.filter(group=self.group).exists())
 

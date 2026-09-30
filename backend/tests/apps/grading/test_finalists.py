@@ -515,6 +515,31 @@ class FinalistEmailTests(_GradingFixture):
         self.assertIsNone(flag.notified_at)
         self.assertIsNone(flag.notified_by)
 
+    def test_a_run_names_the_member_it_could_not_reach(self):
+        from unittest import mock
+
+        from django.core import mail
+
+        _set_email_details()
+        self._member("stu@example.com", "student")
+        self._member("men@example.com", "mentor")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        real_send = mail.EmailMultiAlternatives.send
+
+        def fail_for_stu(message, *args, **kwargs):
+            if message.to == ["stu@example.com"]:
+                raise OSError("rejected")
+            return real_send(message, *args, **kwargs)
+
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_stu), \
+                self.assertLogs("apps.grading.services.finalist_notify", level="ERROR"):
+            run = self.client.post(reverse("grading:finalist-notify")).json()["run"]
+        self.assertEqual(
+            (run["due"], run["emailed"], run["failed"], run["missed"]),
+            (2, 1, 1, [f"({self.group.group_name}) stu X"]),
+        )
+        self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
+
     def test_preview_shows_unsaved_details_and_the_logo_inline(self):
         from django.core import mail
 

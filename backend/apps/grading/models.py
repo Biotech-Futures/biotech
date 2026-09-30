@@ -490,6 +490,8 @@ class EmailSendRun(models.Model):
     failed = models.PositiveIntegerField(default=0)
     # Why the run stopped short, e.g. the mail server couldn't be reached.
     error = models.CharField(max_length=300, blank=True)
+    # Who it couldn't reach, as the page lists them: "(BTF07) Amy Chen".
+    missed = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "email_send_run"

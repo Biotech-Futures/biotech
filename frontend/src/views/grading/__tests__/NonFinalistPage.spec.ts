@@ -27,6 +27,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   emailed: 0,
   failed: 0,
   error: '',
+  missed: [] as string[],
   started_at: '2026-10-20T00:00:00Z',
   finished_at: null as string | null,
   ...over
@@ -227,6 +228,15 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 5 of 12 people so far…')
     expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
     expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it("lists, under the button, who the last run couldn't reach", async () => {
+    statuses.nonfinalists = status({ ...finishedRun({ failed: 1, missed: ['(BTF03) Amy Chen'] }) })
+    const wrapper = await mountPage()
+    const missed = wrapper.find(`${NONFINALISTS} [data-testid="missed"]`)
+    expect(missed.text()).toContain("Couldn't be emailed:")
+    expect(missed.findAll('li').map((li) => li.text())).toEqual(['(BTF03) Amy Chen'])
+    expect(wrapper.find(`${NONSUBMISSIONS} [data-testid="missed"]`).exists()).toBe(false)
   })
 
   it('says how many teams were not emailed in full, for a retry', async () => {

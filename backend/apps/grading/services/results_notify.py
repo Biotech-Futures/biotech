@@ -72,7 +72,7 @@ from .docx import (
     signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
-from .send_guard import Work, start_run, submissions_open_reason
+from .send_guard import Work, person_name, start_run, submissions_open_reason
 from .xlsx import build_team_marks_xlsx
 from .zip import _safe
 
@@ -579,9 +579,10 @@ def example_file_names(audience: str, year: int) -> list[str]:
     return [student, mentor, _file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
 
 
-def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> int:
-    """One copy per address, so nobody sees the others. Returns how many went."""
-    sent = 0
+def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> list[str]:
+    """One copy per address, so nobody sees the others. Returns the addresses
+    it couldn't reach."""
+    missed = []
     for address in recipients:
         message = build_message(
             rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
@@ -594,9 +595,8 @@ def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, fil
         except Exception as exc:  # noqa: BLE001
             # Error type only: SMTP errors carry the recipient address.
             logger.error("results email: send failed %s error=%s", who, type(exc).__name__)
-        else:
-            sent += 1
-    return sent
+            missed.append(address)
+    return missed
 
 
 def _record(model, **fields) -> None:
@@ -609,20 +609,18 @@ def _record(model, **fields) -> None:
 
 
 def _send_item(
-    audience: str, item, result: ResultsAudience, details: ResultsEmailSettings, actor, connection, cache: dict,
-) -> tuple[int, bool]:
+    audience: str, item, people: dict[str, str], result: ResultsAudience, details: ResultsEmailSettings, actor,
+    connection, cache: dict,
+) -> list[str]:
     """One group's or supervisor's email with its files; recorded as emailed
-    only once everyone it goes to got it. ``cache`` keeps the templates read
-    once per worker."""
+    only once everyone it goes to got it. Returns who it didn't reach, as
+    ``people`` labels them. ``cache`` keeps the templates read once per
+    worker."""
     if "docs" not in cache:
         cache["docs"] = Documents(result.year)
     docs = cache["docs"]
-    if audience == GROUPS:
-        recipients = result.team_recipients.get(item.id, [])
-        who = f"group={item.id}"
-    else:
-        recipients = [item.email]
-        who = f"supervisor={item.id}"
+    recipients = list(people)
+    who = f"group={item.id}" if audience == GROUPS else f"supervisor={item.id}"
     try:
         if audience == GROUPS:
             rendered = render_team_email(item.group_name, details, result.year)
@@ -634,15 +632,33 @@ def _send_item(
         files = [(f.name, f.make(), f.mimetype) for f in planned]
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
-        return 0, False
-    sent = _send_each(rendered, recipients, connection, who=who, files=files)
-    if not recipients or sent < len(recipients):
-        return sent, False
+        return list(people.values())
+    missed = _send_each(rendered, recipients, connection, who=who, files=files)
+    if missed:
+        return [people[address] for address in missed]
     if audience == GROUPS:
         _record(ResultsTeamEmail, group=item, sent_by=actor)
     else:
         _record(ResultsSupervisorEmail, supervisor=item, year=result.year, sent_by=actor)
-    return sent, True
+    return []
+
+
+def _group_people(result: ResultsAudience, team) -> dict[str, str]:
+    """The group email's students and mentors: "(BTF07) Amy Chen"."""
+    users = {u.email: u for u in result.team_students.get(team.id, []) + result.team_mentors.get(team.id, [])}
+    return {
+        address: f"({team.group_name}) {person_name(users[address]) if address in users else address}"
+        for address in result.team_recipients.get(team.id, [])
+    }
+
+
+def _supervisor_people(result: ResultsAudience, supervisor) -> dict[str, str]:
+    """The supervisor with their students' groups: "(BTF07, BTF12) Sam Lee"."""
+    groups = []
+    for _student, team in result.supervisor_students.get(supervisor.id, []):
+        if team.group_name not in groups:
+            groups.append(team.group_name)
+    return {supervisor.email: f"({', '.join(groups)}) {person_name(supervisor)}"}
 
 
 def start_send(actor, audience: str) -> None:
@@ -653,9 +669,12 @@ def start_send(actor, audience: str) -> None:
     result = results_audience()
     if audience == GROUPS:
         pending = [t for t in result.teams if t.id not in result.teams_emailed]
-        work = [Work(len(result.team_recipients.get(t.id, [])), partial(_send_item, audience, t, result, details, actor))
-                for t in pending]
+        labels = _group_people
     else:
         pending = [s for s in result.supervisors if s.id not in result.supervisors_emailed]
-        work = [Work(1, partial(_send_item, audience, s, result, details, actor)) for s in pending]
+        labels = _supervisor_people
+    work = []
+    for item in pending:
+        people = labels(result, item)
+        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
     start_run(EMAIL_KEYS[audience], actor, work)

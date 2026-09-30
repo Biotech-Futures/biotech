@@ -864,6 +864,8 @@ export interface EmailRun {
   failed: number
   /** Why it stopped short, e.g. the mail server couldn't be reached, or "". */
   error: string
+  /** Who it couldn't reach, e.g. "(BTF07) Amy Chen". */
+  missed: string[]
   started_at: string
   finished_at: string | null
 }

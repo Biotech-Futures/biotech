@@ -245,6 +245,11 @@ class ResultsEmailTests(_GradingFixture):
             (run["emailed"], run["failed"], run["error"]),
             (0, 1, "Couldn't reach the mail server. Press Send again to email the rest."),
         )
+        # Nobody it was for got it, so all are listed.
+        group = self.group.group_name
+        self.assertEqual(
+            sorted(run["missed"]), [f"({group}) Mo Mentor", f"({group}) Stu amy", f"({group}) Stu ben"],
+        )
         self.assertFalse(ResultsTeamEmail.objects.exists())
         # Pressing again sends it.
         self._send_all("groups")
@@ -368,6 +373,12 @@ class ResultsEmailTests(_GradingFixture):
 
     # -- runs and failures ----------------------------------------------------------
 
+    def test_a_supervisor_it_could_not_reach_is_listed_with_their_groups(self):
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=OSError("rejected")), \
+                self.assertLogs("apps.grading.services.results_notify", level="ERROR"):
+            run = self._send_all("supervisors")[-1]["run"]
+        self.assertEqual(run["missed"], [f"({self.group.group_name}) Sam Lee"])
+
     def test_one_press_emails_every_group(self):
         for n in range(6):
             team = _submitted_team(f"Extra {n}", self.staff)
@@ -389,6 +400,8 @@ class ResultsEmailTests(_GradingFixture):
                 self.assertLogs("apps.grading.services.results_notify", level="ERROR"):
             results = self._send_all("groups")
         self.assertEqual(sum(r["failed"] for r in results), 1)
+        # The page lists who it couldn't reach.
+        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Stu ben"])
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
 

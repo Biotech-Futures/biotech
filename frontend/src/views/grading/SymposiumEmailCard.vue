@@ -49,6 +49,12 @@
             Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
           </span>
         </div>
+        <div v-if="status.run?.missed.length" class="symposium-email__missed" data-testid="missed">
+          <p class="symposium-email__missed-title">Couldn't be emailed:</p>
+          <ul>
+            <li v-for="(who, i) in status.run.missed" :key="i">{{ who }}</li>
+          </ul>
+        </div>
       </template>
     </section>
 
@@ -273,6 +279,23 @@ onMounted(load)
 .symposium-email__progress {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* Who the last run couldn't reach, under the buttons. */
+.symposium-email__missed {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.symposium-email__missed-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.symposium-email__missed ul {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .symposium-email__banner {

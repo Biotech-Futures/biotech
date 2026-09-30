@@ -23,9 +23,11 @@ from typing import Callable
 from django.conf import settings
 from django.core.mail import get_connection
 from django.db import connection as db_connection
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from apps.groups.models.group_members import GroupMembership
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -78,15 +80,30 @@ class AlreadySending(Exception):
     """A run is already sending this email."""
 
 
+def person_name(user) -> str:
+    return user.get_full_name() or user.email
+
+
+def member_labels(group, addresses) -> dict[str, str]:
+    """Each address on ``group`` as the page lists someone an email missed:
+    "(BTF07) Amy Chen"."""
+    names = {}
+    for membership in GroupMembership.objects.filter(group=group, left_at__isnull=True).select_related("user"):
+        if membership.user and membership.user.email:
+            names.setdefault(membership.user.email, person_name(membership.user))
+    return {address: f"({group.group_name}) {names.get(address, address)}" for address in addresses}
+
+
 @dataclass
 class Work:
-    """One team's or supervisor's email: how many people it goes to, and
-    sending it. ``send(connection, cache)`` gives how many got it and whether
-    everyone did (only then is it recorded as emailed); ``cache`` lasts one
-    worker's share of the run, e.g. for templates read once."""
+    """One team's or supervisor's email: everyone it goes to, as the page
+    would list them, and sending it. ``send(connection, cache)`` gives those
+    it didn't reach, empty when everyone got it (only then is it recorded as
+    emailed); ``cache`` lasts one worker's share of the run, e.g. for
+    templates read once."""
 
-    people: int
-    send: Callable[[object, dict], tuple[int, bool]]
+    people: list[str]
+    send: Callable[[object, dict], list[str]]
 
 
 def _take(key: str, **fields) -> bool:
@@ -120,7 +137,7 @@ def start_run(key: str, actor, work: list[Work]) -> None:
     another run is going."""
     if not _take(
         key, started_at=timezone.now(), started_by=actor, finished_at=None,
-        due=sum(item.people for item in work), emailed=0, failed=0, error="",
+        due=sum(len(item.people) for item in work), emailed=0, failed=0, error="", missed=[],
     ):
         raise AlreadySending
     if settings.BULK_EMAIL_DISPATCH_SYNC:
@@ -161,20 +178,17 @@ def _work(key: str, items: list[Work], threaded: bool) -> None:
             connection.open()
         except Exception as exc:  # noqa: BLE001
             logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-            EmailSendRun.objects.filter(key=key).update(failed=F("failed") + len(items), error=UNREACHABLE)
+            _note(key, emailed=0, failed=len(items), missed=[p for item in items for p in item.people],
+                  error=UNREACHABLE)
             return
         cache: dict = {}
         for item in items:
             try:
-                sent, whole = item.send(connection, cache)
+                missed = item.send(connection, cache)
             except Exception:  # noqa: BLE001
                 logger.exception("email run %s: an email failed", key)
-                sent, whole = 0, False
-            EmailSendRun.objects.filter(key=key).update(
-                emailed=F("emailed") + (sent if whole else 0),
-                failed=F("failed") + (0 if whole else 1),
-                held_until=timezone.now() + SEND_LEASE,
-            )
+                missed = list(item.people)
+            _note(key, emailed=len(item.people) - len(missed), failed=1 if missed else 0, missed=missed)
     finally:
         try:
             connection.close()
@@ -182,6 +196,23 @@ def _work(key: str, items: list[Work], threaded: bool) -> None:
             pass
         if threaded:
             db_connection.close()
+
+
+def _note(key: str, *, emailed: int, failed: int, missed: list[str], error: str = "") -> None:
+    """Add one item's outcome to the run, and renew its hold."""
+    held_until = timezone.now() + SEND_LEASE
+    if not missed:
+        EmailSendRun.objects.filter(key=key).update(emailed=F("emailed") + emailed, held_until=held_until)
+        return
+    # The list grows from several workers at once: locked, so none is lost.
+    with transaction.atomic():
+        run = EmailSendRun.objects.select_for_update().get(key=key)
+        run.emailed += emailed
+        run.failed += failed
+        run.missed = [*run.missed, *missed]
+        run.error = error or run.error
+        run.held_until = held_until
+        run.save(update_fields=["emailed", "failed", "missed", "error", "held_until"])
 
 
 def run_state(key: str) -> dict:
@@ -197,6 +228,8 @@ def run_state(key: str) -> dict:
             "emailed": run.emailed,
             "failed": run.failed,
             "error": run.error,
+            # Who it couldn't reach: "(BTF07) Amy Chen".
+            "missed": run.missed,
             "started_at": run.started_at,
             "finished_at": run.finished_at,
         } if run and run.started_at else None,

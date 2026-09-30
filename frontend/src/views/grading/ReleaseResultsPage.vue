@@ -168,6 +168,20 @@
             </span>
           </template>
         </div>
+        <template v-for="audience in AUDIENCES" :key="`missed-${audience.value}`">
+          <div
+            v-if="runOf(audience.value).run?.missed.length"
+            class="release-results__missed"
+            :data-testid="`missed-${audience.value}`"
+          >
+            <p class="release-results__missed-title">
+              {{ audience.value === 'groups' ? "The group email couldn't reach:" : "The supervisor email couldn't reach:" }}
+            </p>
+            <ul>
+              <li v-for="(who, i) in runOf(audience.value).run!.missed" :key="i">{{ who }}</li>
+            </ul>
+          </div>
+        </template>
       </template>
     </section>
 
@@ -663,6 +677,23 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 .release-results__progress {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* Who the last run couldn't reach, under the buttons. */
+.release-results__missed {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.release-results__missed-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.release-results__missed ul {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .release-results__banner {

@@ -38,6 +38,7 @@ from ..services.send_guard import (
     AlreadySending,
     Work,
     holding_send,
+    member_labels,
     run_state,
     start_run,
     submissions_open_reason,
@@ -420,10 +421,10 @@ class FinalistNotifyAllView(APIView):
             flags = flags.filter(group_id__in=group_ids)
         work = []
         for flag in flags:
-            people = len(recipients_for(flag.group))
+            people = member_labels(flag.group, recipients_for(flag.group))
             # A team with nobody to email has nothing to send.
             if people:
-                work.append(Work(people, partial(_notify, flag, people, details, request.user)))
+                work.append(Work(list(people.values()), partial(_notify, flag, people, details, request.user)))
         try:
             start_run(FINALIST_SEND, request.user, work)
         except AlreadySending:
@@ -434,10 +435,13 @@ class FinalistNotifyAllView(APIView):
         })
 
 
-def _notify(flag, people: int, details, actor, connection, cache) -> tuple[int, bool]:
-    """One finalist team's email, as a run sends it."""
-    notified = notify_finalist(flag, actor=actor, details=details, connection=connection)
-    return (people if notified else 0), notified
+def _notify(flag, people: dict[str, str], details, actor, connection, cache) -> list[str]:
+    """One finalist team's email, as a run sends it: who it didn't reach, as
+    ``people`` labels them (everyone, when it didn't go at all)."""
+    missed: list[str] = []
+    if notify_finalist(flag, actor=actor, details=details, connection=connection, missed=missed):
+        return []
+    return [people.get(address, address) for address in missed] if missed else list(people.values())
 
 
 class FinalistToggleView(APIView):

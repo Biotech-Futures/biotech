@@ -31,6 +31,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   emailed: 0,
   failed: 0,
   error: '',
+  missed: [] as string[],
   started_at: '2026-10-20T00:00:00Z',
   finished_at: null as string | null,
   ...over
@@ -224,6 +225,15 @@ describe('sending', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("lists, under the buttons, who the last run couldn't reach", async () => {
+    detailsMock.mockResolvedValue(details({ ...finishedRun({ due: 4, emailed: 2, failed: 1,
+      missed: ['(BTF01) Amy Chen', '(BTF01) Mo Mentor'] }) }))
+    const wrapper = await mountPage()
+    const missed = wrapper.find('[data-testid="missed"]')
+    expect(missed.text()).toContain("Couldn't be emailed:")
+    expect(missed.findAll('li').map((li) => li.text())).toEqual(['(BTF01) Amy Chen', '(BTF01) Mo Mentor'])
   })
 
   it('a page opened mid-run shows its progress, with Send off', async () => {

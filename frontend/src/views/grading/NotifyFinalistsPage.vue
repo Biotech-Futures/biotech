@@ -104,6 +104,12 @@
           Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
         </span>
       </div>
+      <div v-if="details?.run?.missed.length" class="notify-finalists__missed" data-testid="missed">
+        <p class="notify-finalists__missed-title">Couldn't be emailed:</p>
+        <ul>
+          <li v-for="(who, i) in details.run.missed" :key="i">{{ who }}</li>
+        </ul>
+      </div>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
         {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
@@ -634,6 +640,23 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 .notify-finalists__progress {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* Who the last run couldn't reach, under the buttons. */
+.notify-finalists__missed {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.notify-finalists__missed-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.notify-finalists__missed ul {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .notify-finalists__last-emailed {
