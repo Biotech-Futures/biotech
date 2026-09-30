@@ -11,11 +11,13 @@ export interface FinalistSession {
 }
 
 export interface FinalistEntry {
-  /** The viewer's own times: each student answers for themselves. */
+  /** The times the team can make, one answer for the whole team. */
   available_session_ids: number[]
+  /** When the team's times were last submitted; null until they are. */
+  availability_submitted_at: string | null
+  /** Who submitted them: anyone on the team, or an admin. */
+  availability_submitted_by_name: string
   presentation: StoredFile | null
-  /** The same own times; answers aren't frozen at submit. */
-  submitted_session_ids: number[]
   submitted_presentation: StoredFile | null
   submitted_at: string | null
   submitted_by_name: string
@@ -33,8 +35,6 @@ export interface FinalistDetail {
   sessions: FinalistSession[]
   /** The day they're on (set on Notify Finalists); null until it is. */
   symposium_date: string | null
-  /** Whether the viewer is one of the team's students, who each tick their own. */
-  can_choose_sessions: boolean
   max_file_size: number
   /** Null until the team first saves something. */
   entry: FinalistEntry | null
@@ -53,7 +53,7 @@ export function fetchFinalist(groupId: number | string) {
   return requestJson<FinalistDetail>(`${base(groupId)}/`)
 }
 
-export function saveAvailability(groupId: number | string, sessionIds: number[]) {
+export function submitAvailability(groupId: number | string, sessionIds: number[]) {
   return requestJson<FinalistWriteResult>(`${base(groupId)}/`, {
     method: 'PUT',
     body: JSON.stringify({ session_ids: sessionIds })

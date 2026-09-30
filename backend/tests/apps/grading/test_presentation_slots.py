@@ -5,6 +5,7 @@ finalist team hands in."""
 from datetime import date, time
 
 from django.test import override_settings
+from django.utils import timezone
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -117,7 +118,9 @@ class PresentationResponseTests(_GradingFixture):
         _member("mo.mentor@example.com", self.btf2, role="mentor")
         _member("ben.wu@example.com", self.btf10)
         _member("not.finalist@example.com", self.group)
-        answer = PresentationAvailability.objects.create(group=self.btf2, user=self.zoe)
+        answer = PresentationAvailability.objects.create(
+            group=self.btf2, submitted_by=self.zoe, submitted_at=timezone.now()
+        )
         answer.slots.set([self.noon, self.morning])
 
     def _teams(self):
@@ -125,15 +128,19 @@ class PresentationResponseTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         return r.json()["teams"]
 
-    def test_each_finalist_student_and_the_times_they_can_make(self):
+    def test_each_finalist_team_and_the_times_it_can_make(self):
         teams = self._teams()
         self.assertEqual([t["group_name"] for t in teams], ["BTF2", "BTF10"])
-        btf2 = teams[0]["students"]
-        # Students only, by name; one hasn't answered yet.
-        self.assertEqual([s["name"] for s in btf2], ["Amy Chen", "Zoe Lee"])
-        self.assertEqual((btf2[0]["responded"], btf2[0]["slot_ids"]), (False, []))
-        self.assertEqual((btf2[1]["responded"], btf2[1]["slot_ids"]), (True, sorted([self.morning.id, self.noon.id])))
-        self.assertIsNotNone(btf2[1]["updated_at"])
+        btf2, btf10 = teams
+        # Who answered for the team, and when; BTF10 hasn't yet.
+        self.assertEqual((btf2["slot_ids"], btf2["answered_by"]), (sorted([self.morning.id, self.noon.id]), "Zoe Lee"))
+        self.assertIsNotNone(btf2["answered_at"])
+        self.assertEqual((btf10["slot_ids"], btf10["answered_at"], btf10["answered_by"]), ([], None, None))
+
+    def test_times_carried_over_but_never_submitted_are_no_answer(self):
+        PresentationAvailability.objects.create(group=self.btf10).slots.set([self.morning])
+        btf10 = self._teams()[1]
+        self.assertEqual((btf10["slot_ids"], btf10["answered_at"]), ([], None))
 
     def _allocate(self, team, slot_id):
         return self.client.put(
@@ -170,8 +177,7 @@ class PresentationResponseTests(_GradingFixture):
 
     def test_a_removed_time_drops_out_of_the_answers(self):
         self.client.delete(reverse("grading:presentation-slot-detail", args=[self.noon.id]))
-        zoe = self._teams()[0]["students"][1]
-        self.assertEqual(zoe["slot_ids"], [self.morning.id])
+        self.assertEqual(self._teams()[0]["slot_ids"], [self.morning.id])
 
     def test_graders_only(self):
         self.client.force_authenticate(self.non_staff)

@@ -974,23 +974,17 @@ export function deletePresentationSlot(id: number): Promise<PresentationSlots> {
   return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, { method: 'DELETE' })
 }
 
-/** One finalist student's answer. */
-export interface PresentationResponseStudent {
-  user_id: number
-  name: string
-  /** False until they answer. */
-  responded: boolean
-  /** The times they can make. */
-  slot_ids: number[]
-  updated_at: string | null
-}
-
+/** A finalist team and its answer: the times the whole team can make. */
 export interface PresentationResponseTeam {
   group_id: number
   group_name: string
   /** The time the team has been given; null until it is. */
   allocated_slot_id: number | null
-  students: PresentationResponseStudent[]
+  /** The times the team can make; empty until it answers. */
+  slot_ids: number[]
+  /** When it submitted them, and who; null until it has. */
+  answered_at: string | null
+  answered_by: string | null
 }
 
 // PUT /api/v1/grading/finalists/presentation-allocation/{group_id}/ — give a

@@ -86,7 +86,7 @@ class FinalistTests(TestCase):
         return client
 
     def _ready(self, client=None):
-        # A student gives their times; whoever submits uploads the slides.
+        # A student submits the team's times; whoever submits uploads the slides.
         self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
         client = client or self._client(self.student)
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
@@ -94,14 +94,12 @@ class FinalistTests(TestCase):
 
     # Access
     def test_every_member_role_can_read_a_notified_finalist_entry(self):
-        for user, chooses in ((self.student, True), (self.mentor, False), (self.supervisor, False)):
+        for user in (self.student, self.mentor, self.supervisor):
             with self.subTest(user=user.email):
                 response = self._client(user).get(self.url)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual([s["label"] for s in response.data["sessions"]],
                                  ["10:00 – 11:00", "11:40 – 12:30"])
-                # Only students tick times, each their own.
-                self.assertEqual(response.data["can_choose_sessions"], chooses)
 
     def test_a_group_flagged_but_not_yet_notified_is_not_a_finalist(self):
         FinalistFlag.objects.filter(group=self.group).update(notified=False)
@@ -136,35 +134,60 @@ class FinalistTests(TestCase):
         self.assertEqual(response.data["code"], "not_a_finalist")
 
     # Availability
-    def test_a_students_availability_is_saved_for_the_finalist_presentation_tab(self):
+    def test_the_teams_availability_is_submitted_with_who_and_when(self):
         response = self._client(self.student).put(
             self.url, {"session_ids": [self.noon.id, self.morning.id]}, format="json"
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["entry"]["available_session_ids"], sorted([self.morning.id, self.noon.id]))
-        # Kept as the student's own answer, which the tab's tables read.
-        answer = PresentationAvailability.objects.get(group=self.group, user=self.student)
+        entry = response.data["entry"]
+        self.assertEqual(entry["available_session_ids"], sorted([self.morning.id, self.noon.id]))
+        self.assertEqual(entry["availability_submitted_by_name"], "Test Student")
+        self.assertIsNotNone(entry["availability_submitted_at"])
+        # Kept as the team's answer, which the tab's Allocate Slot table reads.
+        answer = PresentationAvailability.objects.get(group=self.group)
         self.assertEqual(sorted(answer.slots.values_list("id", flat=True)), sorted([self.morning.id, self.noon.id]))
+        self.assertEqual(answer.submitted_by, self.student)
 
-    def test_each_student_answers_for_themselves(self):
-        other = self._user("student2@test.local", "student")
-        GroupMembership.objects.create(group=self.group, user=other, membership_role="student")
+    def test_the_whole_team_shares_one_answer(self):
         self._client(self.student).put(self.url, {"session_ids": [self.morning.id]}, format="json")
-        self._client(other).put(self.url, {"session_ids": [self.noon.id]}, format="json")
-
         self.assertEqual(
-            self._client(self.student).get(self.url).data["entry"]["available_session_ids"], [self.morning.id]
+            self._client(self.mentor).get(self.url).data["entry"]["available_session_ids"], [self.morning.id]
         )
-        self.assertEqual(self._client(other).get(self.url).data["entry"]["available_session_ids"], [self.noon.id])
 
-    def test_only_students_choose_times(self):
+        entry = self._client(self.mentor).put(self.url, {"session_ids": [self.noon.id]}, format="json").data["entry"]
+
+        # The mentor's answer replaces the student's, for everyone.
+        self.assertEqual((entry["available_session_ids"], entry["availability_submitted_by_name"]),
+                         ([self.noon.id], "Test Mentor"))
+        self.assertEqual(
+            self._client(self.student).get(self.url).data["entry"]["available_session_ids"], [self.noon.id]
+        )
+        self.assertEqual(PresentationAvailability.objects.filter(group=self.group).count(), 1)
+
+    def test_mentors_supervisors_and_admins_can_submit_it(self):
         for user in (self.mentor, self.supervisor, self.admin):
             with self.subTest(user=user.email):
                 response = self._client(user).put(self.url, {"session_ids": [self.morning.id]}, format="json")
-                self.assertEqual(response.status_code, 403)
-                self.assertEqual(response.data["code"], "availability_students_only")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(PresentationAvailability.objects.get(group=self.group).submitted_by, user)
+
+    def test_no_times_at_all_is_refused(self):
+        response = self._client(self.student).put(self.url, {"session_ids": []}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Choose at least one session your team can attend.", str(response.data))
         self.assertFalse(PresentationAvailability.objects.exists())
+
+    def test_times_carried_over_but_never_submitted_do_not_count(self):
+        # As the migration leaves the students' old answers: ticked, not submitted.
+        PresentationAvailability.objects.create(group=self.group).slots.set([self.morning])
+        client = self._client(self.student)
+        client.post(self.file_url, {"file": _pdf()}, format="multipart")
+
+        entry = client.get(self.url).data["entry"]
+        self.assertEqual((entry["available_session_ids"], entry["availability_submitted_at"]), ([self.morning.id], None))
+        self.assertEqual(client.post(self.submit_url, {}, format="json").data["code"], "availability_required")
 
     def test_a_time_from_another_year_cannot_be_chosen(self):
         old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))

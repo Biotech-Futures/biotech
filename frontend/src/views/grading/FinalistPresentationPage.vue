@@ -8,7 +8,7 @@
       </div>
       <h3 class="finalist-presentation__section-title">Presentation Times</h3>
       <p class="finalist-presentation__hint">
-        Each finalist student will tick every time they can make. The times change each year, so
+        Each finalist team will tick every time it can make. The times change each year, so
         add, change or remove them until they're final.
       </p>
       <p class="finalist-presentation__hint">
@@ -108,76 +108,10 @@
       </template>
     </section>
 
-    <section class="card finalist-presentation__responses">
-      <h3 class="finalist-presentation__section-title">Finalist Response</h3>
-      <p class="finalist-presentation__hint">
-        The times each finalist student said they can make. Each student answers for themselves.
-      </p>
-      <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
-      <div v-else-if="responsesError" class="finalist-presentation__load-error">
-        <p>Failed to load the responses. {{ responsesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
-      </div>
-      <div v-else class="finalist-presentation__scroll">
-        <table class="finalist-presentation__table finalist-presentation__table--responses">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Student</th>
-              <th>Answered</th>
-              <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
-                {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!teams.length">
-              <td :colspan="columns.length + 3" class="finalist-presentation__empty">
-                No finalist teams yet.
-              </td>
-            </tr>
-            <template v-for="team in teams" :key="team.group_id">
-              <tr v-if="!team.students.length">
-                <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
-                <td :colspan="columns.length + 2" class="finalist-presentation__muted">No students</td>
-              </tr>
-              <!-- The group's name spans its students' rows. -->
-              <tr v-for="(student, index) in team.students" :key="student.user_id">
-                <td
-                  v-if="index === 0"
-                  :rowspan="team.students.length"
-                  class="finalist-presentation__cell--strong finalist-presentation__group-cell"
-                >
-                  {{ team.group_name }}
-                </td>
-                <td>{{ student.name }}</td>
-                <template v-if="student.responded">
-                  <td>{{ formatWhen(student.updated_at) }}</td>
-                  <td v-for="slot in columns" :key="slot.id" class="finalist-presentation__tick">
-                    <i
-                      v-if="student.slot_ids.includes(slot.id)"
-                      class="fas fa-check"
-                      title="Can make it"
-                      aria-label="Can make it"
-                    ></i>
-                    <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
-                  </td>
-                </template>
-                <td v-else :colspan="columns.length + 1" class="finalist-presentation__muted">
-                  No response
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <section class="card finalist-presentation__allocate">
       <h3 class="finalist-presentation__section-title">Allocate Slot</h3>
       <p class="finalist-presentation__hint">
-        Give each finalist team a time. The numbers are how many of its students can make each
-        one; green is the whole team.
+        Give each finalist team a time. Ticks show the times each team said it can make.
       </p>
       <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="responsesError" class="finalist-presentation__load-error">
@@ -190,6 +124,7 @@
             <thead>
               <tr>
                 <th>Group</th>
+                <th>Answered</th>
                 <th>Allocate</th>
                 <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
                   {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
@@ -198,12 +133,16 @@
             </thead>
             <tbody>
               <tr v-if="!teams.length">
-                <td :colspan="columns.length + 2" class="finalist-presentation__empty">
+                <td :colspan="columns.length + 3" class="finalist-presentation__empty">
                   No finalist teams yet.
                 </td>
               </tr>
               <tr v-for="team in teams" :key="team.group_id">
                 <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
+                <td v-if="team.answered_at" :title="team.answered_by ? `By ${team.answered_by}` : undefined">
+                  {{ formatSubmitted(team.answered_at) }}
+                </td>
+                <td v-else class="finalist-presentation__muted">No response</td>
                 <td>
                   <select
                     class="finalist-presentation__allocate-select"
@@ -222,12 +161,15 @@
                   v-for="slot in columns"
                   :key="slot.id"
                   class="finalist-presentation__tick"
-                  :class="{
-                    'is-allocated': team.allocated_slot_id === slot.id,
-                    'is-everyone': canAllMake(team, slot.id)
-                  }"
+                  :class="{ 'is-allocated': team.allocated_slot_id === slot.id }"
                 >
-                  {{ availableCount(team, slot.id) }}
+                  <i
+                    v-if="team.slot_ids.includes(slot.id)"
+                    class="fas fa-check"
+                    title="Can make it"
+                    aria-label="Can make it"
+                  ></i>
+                  <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
                 </td>
               </tr>
             </tbody>
@@ -333,7 +275,7 @@ const load = async () => {
   }
 }
 
-// Finalist Response: each finalist student's answer.
+// Each finalist team and the times it said it can make.
 const teams = ref<PresentationResponseTeam[]>([])
 const isLoadingResponses = ref(false)
 const responsesError = ref('')
@@ -353,14 +295,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slot: how many of a team's students can make a time, and giving
-// the team one.
-const availableCount = (team: PresentationResponseTeam, slotId: number) =>
-  team.students.filter((student) => student.slot_ids.includes(slotId)).length
-
-const canAllMake = (team: PresentationResponseTeam, slotId: number) =>
-  team.students.length > 0 && availableCount(team, slotId) === team.students.length
-
+// Allocate Slot: giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
@@ -437,20 +372,12 @@ const formatTime = (hhmm: string) => {
   return clock(Math.floor(total / 60), total % 60)
 }
 
-// "29 Sept, 15:10".
-const formatWhen = (iso: string | null) => {
-  if (!iso) return ''
-  const at = new Date(iso)
-  return `${at.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}, ${clock(at.getHours(), at.getMinutes())}`
-}
-
-// "17/10/2026 23:06".
+// "17/10/26 23:06", as the other management tables write it.
 const formatSubmitted = (iso: string | null) => {
   if (!iso) return ''
   const at = new Date(iso)
-  const date = at.toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' })
-  const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
-  return `${date} ${time}`
+  const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return `${date} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
 }
 
 // Every change answers with the whole list, which replaces the one shown.
@@ -600,11 +527,6 @@ const remove = async (id: number) => {
   font-weight: 600;
 }
 
-/* Spans its students' rows, so it sits at the top of them. */
-.finalist-presentation__table--responses .finalist-presentation__group-cell {
-  vertical-align: top;
-}
-
 /* Times read as written, not in the header's capitals. */
 .finalist-presentation__table thead .finalist-presentation__time-col {
   text-transform: none;
@@ -619,12 +541,6 @@ const remove = async (id: number) => {
 
 .finalist-presentation__tick .fa-check {
   color: var(--dark-green);
-}
-
-/* The whole team can make it. */
-.finalist-presentation__tick.is-everyone {
-  color: var(--dark-green);
-  font-weight: 700;
 }
 
 /* The time the team has been given: a green tint and outline, apart from

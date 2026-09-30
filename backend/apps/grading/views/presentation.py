@@ -9,7 +9,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.storage import serve_managed_file
-from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
 from apps.submissions.storage import FINALIST_SLIDES_FILES
@@ -113,61 +112,40 @@ def _finalist_teams() -> list:
 
 class PresentationResponsesView(APIView):
     """GET /api/v1/grading/finalists/presentation-responses/ — this year's
-    finalist teams, each student in them, and the times each said they can
-    make. ``responded`` is false until a student answers. ``allocated_slot_id``
-    is the time the team has been given, if any.
+    finalist teams, the times each team said it can make, and when it
+    answered and who for it (``answered_at`` is null until it has).
+    ``allocated_slot_id`` is the time the team has been given, if any.
 
     Shape:
         {"teams": [{"group_id", "group_name", "allocated_slot_id",
-                    "students": [{"user_id", "name", "responded",
-                                  "slot_ids": [...], "updated_at"}]}]}
+                    "slot_ids": [...], "answered_at", "answered_by"}]}
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
     def get(self, request):
         teams = _finalist_teams()
-        memberships = (
-            GroupMembership.objects.filter(
-                group__in=teams,
-                left_at__isnull=True,
-                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-                user__is_active=True,
-            )
-            .select_related("user")
-        )
-        students: dict[int, list] = {}
-        for membership in memberships:
-            students.setdefault(membership.group_id, []).append(membership.user)
+        # Only submitted answers: times carried over from before, when each
+        # student answered, count once the team has checked and submitted them.
         answers = {
-            (answer.group_id, answer.user_id): answer
-            for answer in PresentationAvailability.objects.filter(group__in=teams).prefetch_related("slots")
+            answer.group_id: answer
+            for answer in PresentationAvailability.objects.filter(group__in=teams, submitted_at__isnull=False)
+            .select_related("submitted_by")
+            .prefetch_related("slots")
         }
 
-        def student_row(team, user) -> dict:
-            answer = answers.get((team.id, user.id))
+        def row(team) -> dict:
+            answer = answers.get(team.id)
             return {
-                "user_id": user.id,
-                "name": _person_name(user),
-                "responded": answer is not None,
+                "group_id": team.id,
+                "group_name": team.group_name,
+                "allocated_slot_id": team.finalist_flag.presentation_slot_id,
                 "slot_ids": sorted(slot.id for slot in answer.slots.all()) if answer else [],
-                "updated_at": answer.updated_at if answer else None,
+                "answered_at": answer.submitted_at if answer else None,
+                "answered_by": _person_name(answer.submitted_by) if answer and answer.submitted_by else None,
             }
 
-        return Response({
-            "teams": [
-                {
-                    "group_id": team.id,
-                    "group_name": team.group_name,
-                    "allocated_slot_id": team.finalist_flag.presentation_slot_id,
-                    "students": [
-                        student_row(team, user)
-                        for user in sorted(students.get(team.id, []), key=lambda u: _person_name(u).lower())
-                    ],
-                }
-                for team in teams
-            ],
-        })
+        return Response({"teams": [row(team) for team in teams]})
 
 
 class PresentationSlidesView(APIView):

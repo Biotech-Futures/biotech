@@ -112,7 +112,7 @@ describe('the finalist roster', () => {
     expect(rows[0]!.text()).toContain('BTF-1')
     expect(rows[0]!.text()).toContain('—')
     expect(rows[1]!.text()).toContain(
-      `${new Date('2026-09-10T00:00:00Z').toLocaleDateString('en-GB')} ${new Date('2026-09-10T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+      `${new Date('2026-09-10T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date('2026-09-10T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
     )
   })
 

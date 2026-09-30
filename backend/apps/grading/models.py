@@ -394,28 +394,32 @@ class PresentationSlot(models.Model):
 
 
 class PresentationAvailability(models.Model):
-    """One finalist student's answer: every presentation time they can make.
-    Each student in a finalist team answers for themselves; a student with
-    no row hasn't answered yet."""
+    """A finalist team's answer: every presentation time the team can make.
+    Anyone on the team (students, mentors, supervisors) or an admin submits
+    it for the whole team. Until ``submitted_at`` is set the team hasn't
+    answered: its times are only carried over from before, when each student
+    answered for themselves."""
 
-    group = models.ForeignKey(
+    group = models.OneToOneField(
         "groups.Groups", on_delete=models.CASCADE, related_name="presentation_availability"
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="presentation_availability"
     )
     # A removed time drops out of every answer.
     slots = models.ManyToManyField(PresentationSlot, blank=True, related_name="available")
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "presentation_availability"
-        constraints = [
-            models.UniqueConstraint(fields=["group", "user"], name="uniq_presentation_availability")
-        ]
 
     def __str__(self):
-        return f"{self.group_id}:{self.user_id}"
+        return f"{self.group_id}"
 
 
 class FinalistSlides(models.Model):

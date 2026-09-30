@@ -82,7 +82,6 @@
             While we hope you can join us for the whole day, we understand that not all teams are
             able to. Please select which sessions you will be able to join us for to ensure we
             schedule you into an appropriate presentation slot. You may select multiple options.
-            Each student answers for themselves.
           </p>
           <p v-if="symposiumDay" class="section-head__sub">The sessions are on {{ symposiumDay }}.</p>
         </header>
@@ -90,14 +89,11 @@
         <p v-if="!detail.sessions.length" class="submission-muted">
           No sessions have been set up yet.
         </p>
-        <fieldset v-else class="finalist-sessions" :disabled="!isEditable || !detail.can_choose_sessions">
+        <fieldset v-else class="finalist-sessions" :disabled="!isEditable || isSaving">
           <legend class="submission-label">
             Sessions
             <span class="submission-required" title="Required" aria-label="required">*</span>
           </legend>
-          <p v-if="!detail.can_choose_sessions" class="submission-muted" data-testid="students-choose">
-            Each student chooses their own sessions.
-          </p>
           <label v-for="session in detail.sessions" :key="session.id" class="finalist-session">
             <input
               type="checkbox"
@@ -109,6 +105,22 @@
             <span>{{ session.label }}</span>
           </label>
         </fieldset>
+
+        <div v-if="detail.sessions.length" class="finalist-availability-submit">
+          <button
+            v-if="isEditable"
+            class="btn btn-primary btn-sm"
+            type="button"
+            data-testid="submit-availability"
+            :disabled="isBusy || !canSubmitAvailability"
+            @click="onSubmitAvailability"
+          >
+            {{ isSaving ? 'Submitting…' : 'Submit Availability' }}
+          </button>
+          <span v-if="availabilitySubmittedLine" class="submission-muted" data-testid="availability-submitted">
+            {{ availabilitySubmittedLine }}
+          </span>
+        </div>
         </div>
 
         <div class="finalist-part" data-testid="finalist-presentation">
@@ -213,15 +225,6 @@
       </section>
 
       <div class="submission-actions">
-        <span
-          v-if="isEditable && saveStateLabel"
-          class="submission-savestate"
-          :class="{ 'is-error': saveFailed }"
-          data-testid="finalist-savestate"
-        >
-          {{ saveStateLabel }}
-        </span>
-
         <button v-if="isEditable" class="btn btn-primary" type="button" :disabled="isBusy" @click="onSubmit">
           {{ isSubmitting ? 'Submitting…' : 'Submit' }}
         </button>
@@ -240,7 +243,7 @@ import {
   presentationPreviewUrl,
   removePresentation,
   reopenFinalist,
-  saveAvailability,
+  submitAvailability,
   submitFinalist,
   uploadPresentation,
   type FinalistDetail,
@@ -250,7 +253,6 @@ import { describeTimeRemaining, formatFileSize, isDeadlineNear as deadlineIsNear
 import { useFileDragging } from '@/components/submission/useFileDragging'
 
 const MESSAGE_TIMEOUT_MS = 4000
-const SAVE_DELAY_MS = 600
 const ALLOWED_EXTENSIONS = ['pdf', 'ppt', 'pptx']
 
 const route = useRoute()
@@ -269,9 +271,6 @@ const isDropTarget = ref(false)
 const isDraggingFile = useFileDragging(() => {
   isDropTarget.value = false
 })
-const saveFailed = ref(false)
-const hasPendingSave = ref(false)
-const lastSavedAt = ref<Date | null>(null)
 const previewCollapsed = ref(false)
 const message = ref('')
 const isError = ref(false)
@@ -308,6 +307,27 @@ const symposiumDay = computed(() => {
     year: 'numeric'
   })
 })
+/** The ticks differ from the team's submitted times. */
+const availabilityChanged = computed(() => {
+  const saved = entry.value?.available_session_ids ?? []
+  return selected.value.length !== saved.length || selected.value.some((id) => !saved.includes(id))
+})
+const canSubmitAvailability = computed(
+  () => selected.value.length > 0 && (availabilityChanged.value || !entry.value?.availability_submitted_at)
+)
+const availabilitySubmittedLine = computed(() => {
+  const at = entry.value?.availability_submitted_at
+  if (!at) return ''
+  const by = entry.value?.availability_submitted_by_name
+  return `Submitted${by ? ` by ${by}` : ''} on ${formatDayTime(at)}`
+})
+
+// "1/10/2026 23:08": day first, 24 hour.
+function formatDayTime(iso: string) {
+  const at = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${at.getDate()}/${at.getMonth() + 1}/${at.getFullYear()} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
 const downloadUrl = computed(() => presentationDownloadUrl(groupId.value))
 const previewUrl = computed(() => presentationPreviewUrl(groupId.value))
 
@@ -383,9 +403,7 @@ function errorText(error: unknown): string {
 }
 
 function syncSelection() {
-  selected.value = [
-    ...((showsSubmittedCopy.value ? entry.value?.submitted_session_ids : entry.value?.available_session_ids) ?? []),
-  ]
+  selected.value = [...(entry.value?.available_session_ids ?? [])]
 }
 
 function applyResult(result: FinalistWriteResult) {
@@ -406,41 +424,23 @@ async function load() {
   }
 }
 
-const saveStateLabel = computed(() => {
-  if (isSaving.value) return 'Saving…'
-  if (saveFailed.value) return 'Could not save'
-  if (hasPendingSave.value) return 'Unsaved changes'
-  if (lastSavedAt.value) {
-    return `Saved ${lastSavedAt.value.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
-  }
-  return ''
-})
-
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-// Kept at tick time; by unmount the route already points at the next page.
-let pendingGroupId = ''
 function toggleSession(id: number) {
   if (!isEditable.value) return
   selected.value = selected.value.includes(id)
     ? selected.value.filter((value) => value !== id)
     : [...selected.value, id]
-  hasPendingSave.value = true
-  pendingGroupId = groupId.value
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => void flushAvailability(), SAVE_DELAY_MS)
 }
 
-async function flushAvailability() {
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = null
+/** The ticks, for the whole team; the page notes who submitted them and when. */
+async function onSubmitAvailability() {
+  if (!canSubmitAvailability.value) return
   isSaving.value = true
+  setMessage('')
   try {
-    applyResult(await saveAvailability(groupId.value, selected.value))
-    hasPendingSave.value = false
-    saveFailed.value = false
-    lastSavedAt.value = new Date()
+    applyResult(await submitAvailability(groupId.value, selected.value))
+    syncSelection()
+    setMessage('Availability submitted for your team.')
   } catch (error) {
-    saveFailed.value = true
     setMessage(errorText(error), true)
   } finally {
     isSaving.value = false
@@ -517,11 +517,8 @@ async function removeFile() {
 }
 
 async function onSubmit() {
-  if (saveTimer) await flushAvailability()
-  // Whether any of the team's students has chosen sessions is the server's to
-  // say (see the catch below); a student hasn't, when they haven't themselves.
-  if (detail.value?.can_choose_sessions && !selected.value.length) {
-    setMessage('Choose at least one session you can attend.', true)
+  if (!entry.value?.availability_submitted_at || availabilityChanged.value) {
+    setMessage("Submit your team's availability first.", true)
     showPart('availability')
     return
   }
@@ -630,11 +627,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('focus', onPageVisible)
   document.removeEventListener('visibilitychange', onPageVisible)
-  if (saveTimer) {
-    // A tick made just before leaving is still sent.
-    clearTimeout(saveTimer)
-    void saveAvailability(pendingGroupId, selected.value).catch(() => undefined)
-  }
   if (messageTimer) clearTimeout(messageTimer)
   clearInterval(clockTimer)
 })
@@ -678,5 +670,13 @@ onBeforeUnmount(() => {
 .finalist-sessions:disabled .finalist-session {
   cursor: default;
   color: var(--muted);
+}
+
+.finalist-availability-submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 </style>

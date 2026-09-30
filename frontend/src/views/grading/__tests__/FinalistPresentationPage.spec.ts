@@ -32,19 +32,25 @@ const responsesMock = vi.mocked(fetchPresentationResponses)
 const slidesMock = vi.mocked(fetchPresentationSlides)
 const allocateMock = vi.mocked(allocatePresentationSlot)
 
-// BTF2: Zoe answered (the morning only), Amy hasn't, and the team has the
-// morning; BTF10 has no students.
+// BTF2: Zoe answered for the team (the morning only), which has the
+// morning; BTF10 hasn't answered.
 const TEAMS: PresentationResponseTeam[] = [
   {
     group_id: 2,
     group_name: 'BTF2',
     allocated_slot_id: 1,
-    students: [
-      { user_id: 11, name: 'Amy Chen', responded: false, slot_ids: [], updated_at: null },
-      { user_id: 12, name: 'Zoe Lee', responded: true, slot_ids: [1], updated_at: '2026-09-29T05:10:00Z' }
-    ]
+    slot_ids: [1],
+    answered_at: '2026-09-29T05:10:00Z',
+    answered_by: 'Zoe Lee'
   },
-  { group_id: 10, group_name: 'BTF10', allocated_slot_id: null, students: [] }
+  {
+    group_id: 10,
+    group_name: 'BTF10',
+    allocated_slot_id: null,
+    slot_ids: [],
+    answered_at: null,
+    answered_by: null
+  }
 ]
 
 const slots = (over: Partial<PresentationSlots> = {}): PresentationSlots => ({
@@ -74,8 +80,8 @@ const rows = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
     .findAll('.finalist-presentation__setup tbody tr')
     .map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
 
-const responses = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
-  wrapper.find('.finalist-presentation__responses')
+const allocation = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+  wrapper.find('.finalist-presentation__allocate')
 
 beforeEach(() => {
   fetchMock.mockReset().mockResolvedValue(slots())
@@ -171,75 +177,48 @@ describe('Finalist Presentation', () => {
     expect(wrapper.find('.finalist-presentation__empty').exists()).toBe(true)
   })
 
-  it("Finalist Response has a column for each time and each student's answer", async () => {
-    const wrapper = await mountPage()
-    const table = responses(wrapper)
-    expect(table.find('h3').text()).toBe('Finalist Response')
-    const headers = table.findAll('thead th').map((h) => h.text().replace(/\s+/g, ' '))
-    expect(headers).toEqual(['Group', 'Student', 'Answered', '9:30 – 10:00', '13:00 – 13:30'])
-
-    const [amy, zoe, btf10] = table.findAll('tbody tr')
-    // The group's name spans its students.
-    expect(amy!.find('td').text()).toBe('BTF2')
-    expect(amy!.find('td').attributes('rowspan')).toBe('2')
-    expect(amy!.text()).toContain('No response')
-    expect(amy!.text()).not.toContain('yet')
-    const zoeCells = zoe!.findAll('td')
-    expect(zoeCells[0]!.text()).toBe('Zoe Lee')
-    // When they answered, in 24 hour time as the times are, then their ticks.
-    expect(zoeCells[1]!.text()).toMatch(/^29 Sept, \d{1,2}:10$/)
-    expect(zoeCells[2]!.find('.fa-check').exists()).toBe(true)
-    expect(zoeCells[3]!.text()).toBe('—')
-    expect(btf10!.text()).toContain('No students')
-  })
-
   it('says when there are no finalist teams yet', async () => {
     responsesMock.mockResolvedValue({ teams: [] })
     const wrapper = await mountPage()
-    expect(responses(wrapper).find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
+    expect(allocation(wrapper).find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
+    expect(allocation(wrapper).find('.finalist-presentation__empty').attributes('colspan')).toBe('5')
   })
 
-  it('Allocate Slot counts who can make each time, after Finalist Response', async () => {
-    responsesMock.mockImplementation(async () => ({
-      teams: [
-        {
-          ...structuredClone(TEAMS[0]!),
-          students: [
-            { user_id: 11, name: 'Amy Chen', responded: true, slot_ids: [1, 2], updated_at: null },
-            { user_id: 12, name: 'Zoe Lee', responded: true, slot_ids: [1], updated_at: null }
-          ]
-        },
-        structuredClone(TEAMS[1]!)
-      ]
-    }))
+  it("Allocate Slot shows when each team answered and the times it can make", async () => {
     const wrapper = await mountPage()
     const titles = wrapper.findAll('.finalist-presentation__section-title').map((h) => h.text())
-    expect(titles).toEqual([
-      'Presentation Times',
-      'Finalist Response',
-      'Allocate Slot',
-      'Finalist Submission'
-    ])
-    const table = wrapper.find('.finalist-presentation__allocate')
+    expect(titles).toEqual(['Presentation Times', 'Allocate Slot', 'Finalist Submission'])
+    expect(allocation(wrapper).text()).toContain(
+      'Give each finalist team a time. Ticks show the times each team said it can make.'
+    )
+    const table = allocation(wrapper)
     expect(table.findAll('thead th').map((h) => h.text())).toEqual([
       'Group',
+      'Answered',
       'Allocate',
       '9:30 – 10:00',
       '13:00 – 13:30'
     ])
-    const [btf2] = table.findAll('tbody tr')
+    const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
-    expect((cells[1]!.find('select').element as HTMLSelectElement).value).toBe('1')
-    expect(cells[1]!.findAll('option').map((o) => o.text())).toEqual([
+    // When it answered, as Finalist Submission writes it; who, on hover.
+    expect(cells[1]!.text()).toMatch(/^29\/09\/26 \d{2}:10$/)
+    expect(cells[1]!.attributes('title')).toBe('By Zoe Lee')
+    expect((cells[2]!.find('select').element as HTMLSelectElement).value).toBe('1')
+    expect(cells[2]!.findAll('option').map((o) => o.text())).toEqual([
       'Not allocated',
       '9:30 – 10:00',
       '13:00 – 13:30'
     ])
-    // Both students can make the morning (the time it has); one the afternoon.
-    expect([cells[2]!.text(), cells[3]!.text()]).toEqual(['2', '1'])
-    expect(cells[2]!.classes()).toEqual(expect.arrayContaining(['is-allocated', 'is-everyone']))
-    expect(cells[3]!.classes()).not.toContain('is-everyone')
+    // It can make the morning (the time it has), not the afternoon.
+    expect(cells[3]!.find('.fa-check').exists()).toBe(true)
+    expect(cells[3]!.classes()).toContain('is-allocated')
+    expect(cells[4]!.text()).toBe('—')
+    // BTF10 hasn't answered.
+    const btf10Cells = btf10!.findAll('td')
+    expect(btf10Cells[1]!.text()).toBe('No response')
+    expect(btf10Cells.slice(3).map((c) => c.text())).toEqual(['—', '—'])
   })
 
   it('choosing a time gives it to the team, and Not allocated takes it away', async () => {
@@ -251,13 +230,13 @@ describe('Finalist Presentation', () => {
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, 2)
     const cells = wrapper.find('.finalist-presentation__allocate tbody tr').findAll('td')
-    expect(cells[3]!.classes()).toContain('is-allocated')
+    expect(cells[4]!.classes()).toContain('is-allocated')
 
     await select.setValue('')
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, null)
-    expect(cells[2]!.classes()).not.toContain('is-allocated')
     expect(cells[3]!.classes()).not.toContain('is-allocated')
+    expect(cells[4]!.classes()).not.toContain('is-allocated')
   })
 
   it("keeps the team's time and says why when giving it another fails", async () => {
@@ -283,7 +262,7 @@ describe('Finalist Presentation', () => {
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
-    expect(cells[1]!.text()).toMatch(/^10\/10\/2026 \d{2}:05$/)
+    expect(cells[1]!.text()).toMatch(/^10\/10\/26 \d{2}:05$/)
     // Open takes the slides to a new tab; their name is on hover.
     const open = cells[2]!.find('a')
     expect(open.text()).toBe('Open')

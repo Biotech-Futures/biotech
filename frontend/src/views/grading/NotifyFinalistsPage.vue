@@ -154,7 +154,7 @@
                   <i class="fas fa-envelope-circle-check" aria-hidden="true"></i>
                   {{
                     f.notified_at
-                      ? `${new Date(f.notified_at).toLocaleDateString('en-GB')} ${new Date(f.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+                      ? `${new Date(f.notified_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
                       : 'Sent'
                   }}
                 </span>
