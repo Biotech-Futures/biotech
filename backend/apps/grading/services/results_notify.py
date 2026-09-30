@@ -27,11 +27,11 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from functools import partial
 from typing import Callable
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import get_connection
 from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
 
@@ -72,6 +72,7 @@ from .docx import (
     signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
+from .send_guard import Work, start_run, submissions_open_reason
 from .xlsx import build_team_marks_xlsx
 from .zip import _safe
 
@@ -84,11 +85,8 @@ AUDIENCES = (GROUPS, SUPERVISORS)
 # Which system email each audience gets.
 EMAIL_KEYS = {GROUPS: "results_team", SUPERVISORS: "results_supervisor"}
 
-# Teams or supervisors emailed per request: a few seconds of sending, so a
-# request never runs long and the page can report progress between batches.
-BATCH_SIZE = 5
-
 RELEASE_FIRST = "Release both marks and certificates before sending the results emails."
+ALREADY_SENDING = "Results emails are already being sent. Wait for that to finish."
 TEMPLATES_MISSING = {
     GROUPS: (
         "Upload the marks summary, student certificate and mentor certificate templates "
@@ -276,6 +274,10 @@ def send_blocked_reason(details: ResultsEmailSettings, audience: str) -> str:
     """Why emailing ``audience`` is refused, or "" when it may go ahead."""
     if MarksRelease.load().released_at is None or CertificatesRelease.load().released_at is None:
         return RELEASE_FIRST
+    # Releasing already waits for this, but an extension granted since would not.
+    open_reason = submissions_open_reason()
+    if open_reason:
+        return open_reason
     if not is_email_enabled(EMAIL_KEYS[audience]):
         return f"{get_email_type(EMAIL_KEYS[audience]).name} is switched off on System Emails."
     if not templates_ready()[audience]:
@@ -606,70 +608,54 @@ def _record(model, **fields) -> None:
         pass
 
 
-def send_results_batch(actor, audience: str, cursor: int | None = None, *, limit: int = BATCH_SIZE) -> dict:
-    """Email ``audience`` for the next ``limit`` groups or supervisors not
-    yet emailed.
+def _send_item(
+    audience: str, item, result: ResultsAudience, details: ResultsEmailSettings, actor, connection, cache: dict,
+) -> tuple[int, bool]:
+    """One group's or supervisor's email with its files; recorded as emailed
+    only once everyone it goes to got it. ``cache`` keeps the templates read
+    once per worker."""
+    if "docs" not in cache:
+        cache["docs"] = Documents(result.year)
+    docs = cache["docs"]
+    if audience == GROUPS:
+        recipients = result.team_recipients.get(item.id, [])
+        who = f"group={item.id}"
+    else:
+        recipients = [item.email]
+        who = f"supervisor={item.id}"
+    try:
+        if audience == GROUPS:
+            rendered = render_team_email(item.group_name, details, result.year)
+            planned = team_files(docs, result, item)
+        else:
+            rendered = render_supervisor_email(_person_name(item), result.year)
+            planned = supervisor_files(docs, result, item)
+        # Made once: every copy carries the same files.
+        files = [(f.name, f.make(), f.mimetype) for f in planned]
+    except Exception:  # noqa: BLE001
+        logger.exception("results email: failed to render %s", who)
+        return 0, False
+    sent = _send_each(rendered, recipients, connection, who=who, files=files)
+    if not recipients or sent < len(recipients):
+        return sent, False
+    if audience == GROUPS:
+        _record(ResultsTeamEmail, group=item, sent_by=actor)
+    else:
+        _record(ResultsSupervisorEmail, supervisor=item, year=result.year, sent_by=actor)
+    return sent, True
 
-    ``cursor`` is the last team or supervisor this run already tried, so one
-    that fails is left for the next press rather than retried in a loop.
-    Returns how many people were emailed, how many teams or supervisors
-    failed, the new cursor, whether this run is ``done``, and the counts.
-    """
-    after = int(cursor or 0)
+
+def start_send(actor, audience: str) -> None:
+    """Start a run emailing ``audience`` ("groups" or "supervisors") to every
+    group or supervisor not yet emailed (see ``send_guard.start_run``).
+    Raises ``AlreadySending`` while a run of that email is going."""
     details = ResultsEmailSettings.load()
     result = results_audience()
-
     if audience == GROUPS:
-        pending = [t for t in result.teams if t.id > after and t.id not in result.teams_emailed]
+        pending = [t for t in result.teams if t.id not in result.teams_emailed]
+        work = [Work(len(result.team_recipients.get(t.id, [])), partial(_send_item, audience, t, result, details, actor))
+                for t in pending]
     else:
-        pending = [s for s in result.supervisors if s.id > after and s.id not in result.supervisors_emailed]
-    batch = pending[:limit]
-
-    emailed = failed = 0
-    docs = Documents(result.year)
-    if batch:
-        connection = get_connection(fail_silently=False)
-        connection.open()
-        try:
-            for item in batch:
-                if audience == GROUPS:
-                    recipients = result.team_recipients.get(item.id, [])
-                    who = f"group={item.id}"
-                else:
-                    recipients = [item.email]
-                    who = f"supervisor={item.id}"
-                try:
-                    if audience == GROUPS:
-                        rendered = render_team_email(item.group_name, details, result.year)
-                        planned = team_files(docs, result, item)
-                    else:
-                        rendered = render_supervisor_email(_person_name(item), result.year)
-                        planned = supervisor_files(docs, result, item)
-                    # Made once: every copy carries the same files.
-                    files = [(f.name, f.make(), f.mimetype) for f in planned]
-                except Exception:  # noqa: BLE001
-                    logger.exception("results email: failed to render %s", who)
-                    failed += 1
-                    continue
-                sent = _send_each(rendered, recipients, connection, who=who, files=files)
-                if recipients and sent == len(recipients):
-                    if audience == GROUPS:
-                        _record(ResultsTeamEmail, group=item, sent_by=actor)
-                    else:
-                        _record(ResultsSupervisorEmail, supervisor=item, year=result.year, sent_by=actor)
-                    emailed += sent
-                else:
-                    failed += 1
-        finally:
-            try:
-                connection.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-    return {
-        "emailed": emailed,
-        "failed": failed,
-        "cursor": batch[-1].id if batch else after,
-        "done": len(pending) <= len(batch),
-        **results_audience(result.year).counts(),
-    }
+        pending = [s for s in result.supervisors if s.id not in result.supervisors_emailed]
+        work = [Work(1, partial(_send_item, audience, s, result, details, actor)) for s in pending]
+    start_run(EMAIL_KEYS[audience], actor, work)

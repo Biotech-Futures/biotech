@@ -48,6 +48,11 @@ def _active_group_for(user):
     return membership.group if membership else None
 
 
+# The parts whose marks are released to students and supervisors, as on the
+# marks summary: not the report or prototype, whose marks stay unreleased.
+RELEASED_PARTS = ("SAQ", "POSTER")
+
+
 def _grades_payload(group, year: int) -> list[dict]:
     """Shape one group's marks for both JSON reads and docx rendering.
 
@@ -95,6 +100,12 @@ def _grades_payload(group, year: int) -> list[dict]:
     return out
 
 
+def _released_payload(group, year: int) -> list[dict]:
+    """The group's marks as a student or supervisor may read them: the
+    released parts only."""
+    return [c for c in _grades_payload(group, year) if c["code"] in RELEASED_PARTS]
+
+
 def _no_submission_response(what: str):
     """Marks and certificates exist only for teams that actually entered."""
     return Response(
@@ -118,7 +129,7 @@ class MyGradesView(APIView):
         return Response({
             "group": {"id": group.id, "group_name": group.group_name},
             "year": year,
-            "components": _grades_payload(group, year),
+            "components": _released_payload(group, year),
         })
 
 

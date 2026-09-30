@@ -31,10 +31,10 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="sending || !canSend"
+            :disabled="starting || !canSend"
             @click="confirming = true"
           >
-            {{ sending ? 'Sending…' : buttonLabel }}
+            {{ starting || status.sending ? 'Sending…' : buttonLabel }}
           </button>
           <button
             type="button"
@@ -45,8 +45,8 @@
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
           <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
-          <span v-if="sending" class="symposium-email__progress" role="status">
-            Emailed {{ plural(progress.emailed, 'person', 'people') }} so far…
+          <span v-if="status.sending && status.run" class="symposium-email__progress" role="status">
+            Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
           </span>
         </div>
       </template>
@@ -115,11 +115,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchSymposiumEmail,
   previewSymposiumEmail,
-  sendSymposiumEmailBatch,
+  startSymposiumEmail,
+  type EmailRun,
   type SymposiumEmail,
   type SymposiumEmailPreview,
   type SymposiumEmailStatus
@@ -153,7 +155,9 @@ const load = async () => {
 
 const pendingTeams = computed(() => (status.value ? status.value.teams.total - status.value.teams.emailed : 0))
 const allEmailed = computed(() => Boolean(status.value?.teams.total) && pendingTeams.value === 0)
-const canSend = computed(() => Boolean(status.value && !status.value.blocked && pendingTeams.value > 0))
+const canSend = computed(() =>
+  Boolean(status.value && !status.value.sending && !status.value.blocked && pendingTeams.value > 0)
+)
 
 // -- Preview ----------------------------------------------------------------
 
@@ -184,51 +188,38 @@ const fitPreview = (event: Event) => {
 // -- Sending ----------------------------------------------------------------
 
 const confirming = ref(false)
-const sending = ref(false)
-const progress = ref({ emailed: 0, failed: 0 })
+// The Send request itself; the run then sends on the server.
+const starting = ref(false)
 
-// A few teams at a time, so no single request runs long; progress shows between.
 const sendAll = async () => {
   confirming.value = false
   actionError.value = ''
-  sending.value = true
-  progress.value = { emailed: 0, failed: 0 }
-  let cursor: number | null = null
+  starting.value = true
   try {
-    for (;;) {
-      const batch = await sendSymposiumEmailBatch(props.email, cursor)
-      progress.value = {
-        emailed: progress.value.emailed + batch.emailed,
-        failed: progress.value.failed + batch.failed
-      }
-      if (status.value) {
-        status.value = {
-          ...status.value,
-          teams: batch.teams,
-          students: batch.students,
-          mentors: batch.mentors,
-          supervisors: batch.supervisors
-        }
-      }
-      cursor = batch.cursor
-      if (batch.done) break
-    }
-    const { emailed, failed } = progress.value
-    const sent = `Emailed ${plural(emailed, 'person', 'people')}.`
-    if (failed) {
-      actionError.value =
-        `${sent} ${plural(failed, 'team')} ${failed === 1 ? "wasn't" : "weren't"} emailed in full; ` +
-        `press ${props.buttonLabel} again to retry.`
-    } else {
-      flashAction(sent)
-    }
+    status.value = await startSymposiumEmail(props.email)
+    // A run with little or nothing to send can be over by the reply.
+    if (!status.value.sending && status.value.run) reportRun(status.value.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
-    sending.value = false
-    await load()
+    starting.value = false
   }
 }
+
+// How the run went, once this page saw it finish.
+const reportRun = (run: EmailRun) => {
+  const sent = `Emailed ${plural(run.emailed, 'person', 'people')}.`
+  if (run.error) {
+    actionError.value = `${sent} ${run.error}`
+  } else if (run.failed) {
+    actionError.value =
+      `${sent} ${plural(run.failed, 'team')} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full; ` +
+      `press ${props.buttonLabel} again to retry.`
+  } else {
+    flashAction(sent)
+  }
+}
+useEmailRun(() => status.value, load, reportRun)
 
 onMounted(load)
 </script>

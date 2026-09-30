@@ -45,7 +45,7 @@
         </label>
       </div>
       <p v-if="!released && submissionsOpen" class="release__banner release__banner--warn">
-        Submissions are still open (including extensions) — certificates can be released
+        Submissions are still open (including extensions) - certificates can be released
         once the window has closed.
       </p>
 

@@ -223,7 +223,7 @@
       <label class="admin-groups__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
         <span>
-          Force delete — also permanently delete any hosted workshops linked to these groups.
+          Force delete - also permanently delete any hosted workshops linked to these groups.
           Required to remove groups that still have one.
         </span>
       </label>
@@ -597,7 +597,7 @@ const runBulkDelete = async () => {
     if (isSelectAll && (stalled || handled < expectedCount)) {
       reasons.push(
         `Deleted ${deletedIds.length} of ${expectedCount} ${expectedCount === 1 ? 'group' : 'groups'}. ` +
-          'The matching set changed since you reviewed it — close this dialog, refresh, and re-check the rest.'
+          'The matching set changed since you reviewed it - close this dialog, refresh, and re-check the rest.'
       )
     }
 

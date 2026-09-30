@@ -301,6 +301,56 @@ class StudentReadViewsTests(_GradingFixture):
         self.assertIsNone(no_group["group"])
         self.assertEqual(no_group["components"], [])
 
+    def _mark_the_report(self):
+        """A marked report: a criterion mark and comment, and an overall comment."""
+        from apps.grading.models import ComponentFeedback, Rubric, RubricCriterion, SubmissionComponent
+        from apps.submissions.models import Submission
+
+        Submission.objects.filter(pk=self.submission.pk).update(submitted_report={
+            "storage_key": "2026/01/01/fixture/report.pdf", "name": "report.pdf",
+            "mime": "application/pdf", "size": 42,
+        })
+        report = SubmissionComponent.objects.get(code="REPORT")
+        criterion = RubricCriterion.objects.create(
+            rubric=Rubric.objects.create(component=report, year=2026, active=True),
+            name="Structure", max_mark=Decimal("5.00"), order=10,
+        )
+        Grade.objects.create(
+            submission=self.submission, criterion=criterion, mark=Decimal("4.00"),
+            comment="Withheld report note.",
+        )
+        ComponentFeedback.objects.create(group=self.group, component=report, comment="Withheld report overall.")
+
+    def test_students_and_supervisors_read_only_the_released_parts(self):
+        """The report's and prototype's marks and comments stay unreleased,
+        as the marks summary says: only SAQ and Poster come back."""
+        from apps.grading.views.student import _grades_payload
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        self._mark_the_report()
+        # The marks are there to leak: the full payload carries them.
+        self.assertIn("Withheld report note.", str(_grades_payload(self.group, 2026)))
+        supervisor = User.objects.create_user(
+            email="parts-super@example.com", first_name="Sue", last_name="Pervisor", password="pw12345!",
+        )
+        StudentProfile.objects.create(
+            user=self.student_user, pg_first_name="P", pg_last_name="G",
+            supervisor=SupervisorProfile.objects.create(user=supervisor, school_name="Test School"),
+            school_name="Test School", year_lvl="11",
+        )
+        self._release_now()
+
+        self.client.force_authenticate(self.student_user)
+        mine = self.client.get(reverse("grading:me-grades"), {"year": 2026})
+        self.assertEqual([c["code"] for c in mine.json()["components"]], ["SAQ", "POSTER"])
+        self.assertNotIn("Withheld report", mine.content.decode())
+
+        self.client.force_authenticate(supervisor)
+        theirs = self.client.get(reverse("grading:supervisor-grades"), {"year": 2026})
+        row = theirs.json()["students"][0]
+        self.assertEqual([c["code"] for c in row["components"]], ["SAQ", "POSTER"])
+        self.assertNotIn("Withheld report", theirs.content.decode())
+
     def test_supervisor_grades_listing_empty_for_non_supervisors(self):
         """A caller with no supervisor profile gets an empty roster, not an
         error — the guard in _supervised_students."""

@@ -917,7 +917,7 @@
                       ? 'Fetching latest messages'
                       : (wsConnectionState === 'connected'
                           ? 'Realtime updates active'
-                          : 'Realtime updates unavailable — click Reconnect to retry')
+                          : 'Realtime updates unavailable - click Reconnect to retry')
                   "
                 >
                   <i
@@ -1135,7 +1135,7 @@
               >
                 <span class="chat-empty-emoji" aria-hidden="true">👋</span>
                 <strong>It's quiet here</strong>
-                <span>Be the first to say hi — start the conversation below.</span>
+                <span>Be the first to say hi - start the conversation below.</span>
                 <button type="button" class="btn btn-outline btn-sm" @click="composer?.focus()">
                   <i class="fas fa-pen"></i> Write a message
                 </button>

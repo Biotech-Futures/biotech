@@ -5,7 +5,7 @@ import {
   fetchSymposiumEmail,
   fetchTestEmailRecipients,
   previewSymposiumEmail,
-  sendSymposiumEmailBatch,
+  startSymposiumEmail,
   type SymposiumEmail,
   type SymposiumEmailStatus
 } from '@/utils/gradingAPI'
@@ -15,11 +15,28 @@ vi.mock('@/utils/gradingAPI', () => ({
   sendTestEmail: vi.fn(),
   fetchSymposiumEmail: vi.fn(),
   previewSymposiumEmail: vi.fn(),
-  sendSymposiumEmailBatch: vi.fn()
+  startSymposiumEmail: vi.fn()
 }))
 const statusMock = vi.mocked(fetchSymposiumEmail)
 const previewMock = vi.mocked(previewSymposiumEmail)
-const sendMock = vi.mocked(sendSymposiumEmailBatch)
+const sendMock = vi.mocked(startSymposiumEmail)
+
+// A run's progress, as the server reports it.
+const run = (over: Record<string, unknown> = {}) => ({
+  due: 9,
+  emailed: 0,
+  failed: 0,
+  error: '',
+  started_at: '2026-10-20T00:00:00Z',
+  finished_at: null as string | null,
+  ...over
+})
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const finishedRun = (over: Record<string, unknown> = {}) => ({
+  sending: false,
+  run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
+})
+const IDLE = { sending: false, run: null }
 
 // People due the email and emailed, and the emails that makes ("times").
 const people = (total: number, emailed: number, timesTotal = total, timesEmailed = emailed) => ({
@@ -34,6 +51,7 @@ const status = (overrides: Partial<SymposiumEmailStatus> = {}): SymposiumEmailSt
   mentors: people(3, 0, 4),
   supervisors: people(2, 0),
   blocked: '',
+  ...IDLE,
   ...overrides
 })
 
@@ -162,6 +180,66 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__actions`).exists()).toBe(true)
   })
 
+  it('asks first, then starts a run on the server and shows its progress until it is done', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      sendMock.mockResolvedValueOnce(status({ ...sendingRun({ due: 12 }) }))
+      const wrapper = await mountPage()
+      await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
+      const confirm = wrapper.find('[aria-label="Send the email"]')
+      expect(confirm.text()).toContain('Email non-finalist teams?')
+      expect(confirm.text()).toContain("This emails every member of the 3 teams that haven't had this email yet.")
+      expect(sendMock).not.toHaveBeenCalled()
+
+      await dialogButton(wrapper, /^Send$/).trigger('click')
+      await flushPromises()
+      expect(sendMock).toHaveBeenCalledWith('nonfinalists')
+      expect(wrapper.find('[aria-label="Send the email"]').exists()).toBe(false)
+      expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 0 of 12 people so far…')
+      expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
+
+      statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 8 }) })
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 8 of 12 people so far…')
+
+      statuses.nonfinalists = status({
+        ...finishedRun({ due: 12, emailed: 12 }),
+        teams: { total: 3, emailed: 3 }, students: people(6, 6),
+        mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
+      })
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).exists()).toBe(false)
+      expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--ok`).text()).toBe('Emailed 12 people.')
+      expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe(
+        'Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
+          'Supervisors: 2 of 2 emailed (Times 2 of 2)'
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a page opened mid-run shows its progress; the other email can still go', async () => {
+    statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 5 }) })
+    const wrapper = await mountPage()
+    expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 5 of 12 people so far…')
+    expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('says how many teams were not emailed in full, for a retry', async () => {
+    sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 3, emailed: 1, failed: 1 }) }))
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--error`).text()).toBe(
+      "Emailed 1 person. 1 team wasn't emailed in full; press Email Nonfinalists again to retry."
+    )
+  })
+
   it('previews the email as the person picked in Send Test Email gets it', async () => {
     vi.mocked(fetchTestEmailRecipients).mockImplementation(async (kind) => ({
       recipients: kind === 'nonsubmissions'
@@ -197,59 +275,4 @@ describe('Email Nonfinalist', () => {
     expect(dialog.text()).toContain('As BTF09 would get it. Nothing has been sent.')
   })
 
-  it('asks first, then emails batch after batch until done', async () => {
-    sendMock
-      .mockResolvedValueOnce({
-        emailed: 8, failed: 0, cursor: 5, done: false,
-        teams: { total: 3, emailed: 2 }, students: people(6, 4),
-        mentors: people(3, 2, 4, 3), supervisors: people(2, 1)
-      })
-      .mockResolvedValueOnce({
-        emailed: 4, failed: 0, cursor: 9, done: true,
-        teams: { total: 3, emailed: 3 }, students: people(6, 6),
-        mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
-      })
-    const wrapper = await mountPage()
-    await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
-    const confirm = wrapper.find('[aria-label="Send the email"]')
-    expect(confirm.text()).toContain('Email non-finalist teams?')
-    expect(confirm.text()).toContain("This emails every member of the 3 teams that haven't had this email yet.")
-    expect(sendMock).not.toHaveBeenCalled()
-
-    statuses.nonfinalists = status({
-      teams: { total: 3, emailed: 3 }, students: people(6, 6),
-      mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
-    })
-    await dialogButton(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-    expect(sendMock.mock.calls).toEqual([
-      ['nonfinalists', null],
-      ['nonfinalists', 5]
-    ])
-    expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--ok`).text()).toBe('Emailed 12 people.')
-    // Everyone emailed once done: people, and the emails that made.
-    expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe(
-      'Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
-        'Supervisors: 2 of 2 emailed (Times 2 of 2)'
-    )
-  })
-
-  it('says how many teams were not emailed in full, for a retry', async () => {
-    sendMock.mockResolvedValue({
-      emailed: 1, failed: 1, cursor: 5, done: true,
-      teams: { total: 1, emailed: 0 }, students: people(1, 0),
-      mentors: people(1, 0), supervisors: people(0, 0)
-    })
-    const wrapper = await mountPage()
-    await buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).trigger('click')
-    const confirm = wrapper.find('[aria-label="Send the email"]')
-    expect(confirm.text()).toContain('Email teams without a submission?')
-    expect(confirm.text()).toContain("This emails every member of the 1 team that hasn't had this email yet.")
-    await dialogButton(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-    expect(sendMock).toHaveBeenCalledWith('nonsubmissions', null)
-    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__banner--error`).text()).toBe(
-      "Emailed 1 person. 1 team wasn't emailed in full; press Email Nonsubmissions again to retry."
-    )
-  })
 })

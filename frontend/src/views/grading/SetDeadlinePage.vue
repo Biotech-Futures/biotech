@@ -15,7 +15,7 @@
       <template v-else>
         <p v-if="!deadline" class="deadline__closed">
           <i class="fas fa-lock" aria-hidden="true"></i>
-          No deadline set — submissions are <strong>closed</strong>. Students can view the
+          No deadline set - submissions are <strong>closed</strong>. Students can view the
           submission page but cannot save or submit until a deadline exists.
         </p>
         <template v-else>

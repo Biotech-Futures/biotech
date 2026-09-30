@@ -90,7 +90,7 @@
           :disabled="sendingMode !== null || !canSend"
           @click="sendEmails('all')"
         >
-          {{ sendingMode === 'all' ? 'Sending…' : 'Send Email to All Groups' }}
+          {{ sendingMode === 'all' || (details?.sending && sendingMode === null) ? 'Sending…' : 'Send Email to All Groups' }}
         </button>
         <button
           type="button"
@@ -100,6 +100,9 @@
         >
           {{ sendingMode === 'selected' ? 'Sending…' : 'Send Email to Selected Groups' }}
         </button>
+        <span v-if="details?.sending && details.run" class="notify-finalists__progress" role="status">
+          Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
+        </span>
       </div>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
@@ -180,22 +183,10 @@
           </h3>
           <p class="notify-finalists__dialog-text">{{ confirmText }}</p>
           <div class="notify-finalists__dialog-actions">
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="sendingMode !== null"
-              @click="pendingSendMode = null"
-            >
+            <button type="button" class="btn btn-outline btn-sm" @click="pendingSendMode = null">
               Cancel
             </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="sendingMode !== null"
-              @click="confirmSend"
-            >
-              {{ sendingMode !== null ? 'Sending…' : 'Send' }}
-            </button>
+            <button type="button" class="btn btn-primary btn-sm" @click="confirmSend">Send</button>
           </div>
         </div>
       </div>
@@ -243,11 +234,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchFinalistEmailDetails,
   fetchFinalists,
   notifyFinalists,
+  type EmailRun,
   previewFinalistEmail,
   updateFinalistEmailDetails,
   type FinalistEmailDetails,
@@ -391,9 +384,13 @@ const sendBlockedReason = computed(() => {
   if (d.dates_in_past.length) {
     return 'Some email dates are before today. Update and save them before sending.'
   }
+  if (d.submissions_open) return d.submissions_open
   return ''
 })
-const canSend = computed(() => details.value !== null && !sendBlockedReason.value)
+
+const canSend = computed(
+  () => details.value !== null && !details.value.sending && !sendBlockedReason.value
+)
 
 // The email exactly as a finalist would get it, for the details as typed.
 const preview = ref<FinalistEmailPreview | null>(null)
@@ -448,28 +445,49 @@ const sendEmails = (mode: 'all' | 'selected') => {
   pendingSendMode.value = mode
 }
 
+const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`
+
 const confirmSend = async () => {
   const mode = pendingSendMode.value
   if (!mode) return
+  // The dialog closes at once; the run sends on the server, its progress
+  // beside the buttons.
+  pendingSendMode.value = null
   actionMessage.value = ''
   actionError.value = ''
   sendingMode.value = mode
   try {
     const result = await notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined)
-    flashAction(
-      result.sent > 0
-        ? `Sent ${result.sent} notification ${result.sent === 1 ? 'email' : 'emails'}.`
-        : 'No emails sent — every finalist team is already notified or has no members to email.'
-    )
+    if (details.value) details.value = { ...details.value, sending: result.sending, run: result.run }
     selectedIds.value = new Set()
-    await load()
+    // A run with little or nothing to send can be over by the reply.
+    if (!result.sending && result.run) reportRun(result.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
     sendingMode.value = null
-    pendingSendMode.value = null
   }
 }
+
+// How the run went, once this page saw it finish; then who it reached.
+const reportRun = (run: EmailRun) => {
+  const sent = `Emailed ${plural(run.emailed, 'person', 'people')}.`
+  if (run.error) {
+    actionError.value = `${sent} ${run.error}`
+  } else if (run.failed) {
+    actionError.value =
+      `${sent} ${plural(run.failed, 'team')} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full; ` +
+      'press Send Email to All Groups again to retry.'
+  } else {
+    flashAction(
+      run.due > 0
+        ? sent
+        : 'No emails sent - every finalist team is already notified or has no members to email.'
+    )
+  }
+  void load()
+}
+useEmailRun(() => details.value, loadDetails, reportRun)
 </script>
 
 <style scoped>
@@ -611,6 +629,11 @@ const confirmSend = async () => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+.notify-finalists__progress {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .notify-finalists__last-emailed {

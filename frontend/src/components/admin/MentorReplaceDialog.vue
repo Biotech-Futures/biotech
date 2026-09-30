@@ -25,7 +25,7 @@
             ★ Suggested: {{ topName(group.groupId) }} (score {{ topScore(group.groupId) }})
           </p>
           <p v-else-if="suggestionsFor(group.groupId).length > 0" class="replace-dialog__hint">
-            Every suggested mentor is at capacity — you can still pick one manually below.
+            Every suggested mentor is at capacity - you can still pick one manually below.
           </p>
         </div>
         <select
@@ -93,7 +93,7 @@ const selections = reactive<Record<number, string>>({})
 
 const description = computed(() => {
   const count = props.inactiveGroups.length
-  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'has' : 'have'} an inactive mentor. The best match from the matcher is pre-selected — adjust any, or choose "Unassign" to leave a group unmatched.`
+  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'has' : 'have'} an inactive mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
 })
 
 const suggestionsFor = (groupId: number): MentorReplaceSuggestion[] =>

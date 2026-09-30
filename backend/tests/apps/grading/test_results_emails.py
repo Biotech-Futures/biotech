@@ -31,7 +31,6 @@ from apps.grading.models import (
     SubmissionComponent,
 )
 from apps.grading.services.finalist_notify import symposium_today
-from apps.grading.services.results_notify import send_results_batch
 from apps.groups.models import GroupMembership, Groups
 from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Submission
@@ -120,14 +119,14 @@ class ResultsEmailTests(_GradingFixture):
         )
 
     def _send_all(self, audience):
-        cursor, results = None, []
-        while True:
-            r = self.client.post(reverse(SEND), {"audience": audience, "cursor": cursor}, format="json")
-            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-            results.append(r.json())
-            cursor = r.json()["cursor"]
-            if r.json()["done"]:
-                return results
+        """One press: the run sends everyone (inline under test settings). The
+        run's result, with the counts after it, as a one-item list."""
+        r = self.client.post(reverse(SEND), {"audience": audience}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        body = r.json()
+        run = body["runs"][audience]
+        self.assertFalse(run["sending"])
+        return [{**body, "emailed": run["run"]["emailed"], "failed": run["run"]["failed"], "run": run["run"]}]
 
     def _recipients(self):
         return sorted(m.to[0] for m in mail.outbox)
@@ -179,9 +178,77 @@ class ResultsEmailTests(_GradingFixture):
         self._send_all("groups")
         self._send_all("supervisors")
         mail.outbox = []
-        self.assertTrue(self._send_all("groups")[-1]["done"])
-        self.assertTrue(self._send_all("supervisors")[-1]["done"])
+        self.assertEqual(self._send_all("groups")[-1]["run"]["due"], 0)
+        self.assertEqual(self._send_all("supervisors")[-1]["run"]["due"], 0)
         self.assertEqual(mail.outbox, [])
+
+    # -- one run at a time, on the server ------------------------------------------
+
+    def _hold_send(self, key, until):
+        from apps.grading.models import EmailSendRun
+
+        EmailSendRun.objects.update_or_create(key=key, defaults={"held_until": until, "started_at": timezone.now()})
+
+    def _runs(self):
+        return self.client.get(reverse("grading:results-email")).json()["runs"]
+
+    def test_a_second_run_is_refused_while_one_is_sending(self):
+        # Another tab, or a run started before the page was reopened.
+        self._hold_send("results_team", timezone.now() + timedelta(minutes=4))
+        self.assertEqual((self._runs()["groups"]["sending"], self._runs()["supervisors"]["sending"]), (True, False))
+        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r.json()["detail"], "Results emails are already being sent. Wait for that to finish.")
+        self.assertEqual(mail.outbox, [])
+        self.assertFalse(ResultsTeamEmail.objects.exists())
+        # The supervisor email has a run of its own.
+        self._send_all("supervisors")
+        self.assertEqual(self._recipients(), ["sam.lee@example.com"])
+
+    def test_the_page_is_told_the_runs_progress(self):
+        self.assertEqual(self._runs()["groups"], {"sending": False, "run": None})
+        self._send_all("groups")
+        run = self._runs()["groups"]
+        self.assertFalse(run["sending"])
+        # Two students and a mentor due, all emailed.
+        self.assertEqual(
+            {k: run["run"][k] for k in ("due", "emailed", "failed", "error")},
+            {"due": 3, "emailed": 3, "failed": 0, "error": ""},
+        )
+        self.assertIsNotNone(run["run"]["finished_at"])
+
+    def test_a_run_that_died_frees_it_once_its_hold_lapses(self):
+        self._hold_send("results_team", timezone.now() - timedelta(seconds=1))
+        self.assertFalse(self._runs()["groups"]["sending"])
+        self._send_all("groups")
+        self.assertEqual(self._recipients(), ["amy@example.com", "ben@example.com", "mentor@example.com"])
+
+    def test_an_extension_granted_since_the_release_holds_them(self):
+        from apps.submissions.models import GroupExtension
+
+        GroupExtension.objects.create(group=self.group, extended_until=timezone.now() + timedelta(hours=6))
+        body = self.client.get(reverse("grading:results-email")).json()
+        self.assertTrue(body["submissions_open"].startswith("A team's extension is open until "), body)
+        for audience in ("groups", "supervisors"):
+            r = self.client.post(reverse(SEND), {"audience": audience}, format="json")
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(r.json()["detail"], body["submissions_open"])
+        self.assertEqual(mail.outbox, [])
+
+    def test_a_run_that_cannot_reach_the_mail_server_says_so_and_frees_the_send(self):
+        unreachable = mock.Mock()
+        unreachable.open.side_effect = OSError("mail server down")
+        with mock.patch("apps.grading.services.send_guard.get_connection", return_value=unreachable), \
+                self.assertLogs("apps.grading.services.send_guard", level="ERROR"):
+            run = self._send_all("groups")[-1]["run"]
+        self.assertEqual(
+            (run["emailed"], run["failed"], run["error"]),
+            (0, 1, "Couldn't reach the mail server. Press Send again to email the rest."),
+        )
+        self.assertFalse(ResultsTeamEmail.objects.exists())
+        # Pressing again sends it.
+        self._send_all("groups")
+        self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     # -- the files they carry ------------------------------------------------------
 
@@ -299,18 +366,16 @@ class ResultsEmailTests(_GradingFixture):
         r = self.client.get(reverse("grading:results-email"))
         self.assertEqual(r.json()["templates_ready"], {"groups": False, "supervisors": False})
 
-    # -- batches and failures ------------------------------------------------------
+    # -- runs and failures ----------------------------------------------------------
 
-    def test_batches_move_on_and_report_progress(self):
+    def test_one_press_emails_every_group(self):
         for n in range(6):
             team = _submitted_team(f"Extra {n}", self.staff)
             _student(f"extra{n}@example.com", team)
-        first = send_results_batch(self.staff, "groups", None, limit=5)
-        # The fixture group has two students and a mentor.
-        self.assertEqual((first["emailed"], first["done"]), (7, False))
-        second = send_results_batch(self.staff, "groups", first["cursor"], limit=5)
-        self.assertEqual((second["emailed"], second["done"]), (2, True))
-        self.assertEqual(second["groups"], {"total": 7, "emailed": 7})
+        result = self._send_all("groups")[-1]
+        # The fixture group has two students and a mentor; six more students.
+        self.assertEqual((result["run"]["due"], result["emailed"]), (9, 9))
+        self.assertEqual(result["groups"], {"total": 7, "emailed": 7})
 
     def test_a_team_whose_student_misses_it_stays_pending_and_is_not_retried_in_the_run(self):
         real_send = mail.EmailMultiAlternatives.send

@@ -76,7 +76,9 @@ def render_finalist_email(group_name: str, details: FinalistEmailSettings) -> Re
     return render_system_email(EMAIL_KEY, context, default_text=default_text)
 
 
-def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettings | None = None) -> bool:
+def notify_finalist(
+    flag: FinalistFlag, actor=None, details: FinalistEmailSettings | None = None, connection=None,
+) -> bool:
     """Email every active member of a finalist team (students, mentors and
     supervisors), each their own copy.
 
@@ -109,7 +111,7 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
         logger.exception("finalist notify failed to render: group=%s", flag.group_id)
         return False
 
-    sent = _send_to_each(rendered, recipients, group_id=flag.group_id)
+    sent = _send_to_each(rendered, recipients, group_id=flag.group_id, connection=connection)
     if sent < len(recipients):
         # Someone missed it: leave the flag unnotified so the next press retries.
         logger.error(
@@ -125,19 +127,22 @@ def notify_finalist(flag: FinalistFlag, actor=None, details: FinalistEmailSettin
     return True
 
 
-def _send_to_each(rendered, recipients, *, group_id) -> int:
-    """Send one copy per member over a single connection. Returns how many sent.
+def _send_to_each(rendered, recipients, *, group_id, connection=None) -> int:
+    """Send one copy per member over a single connection: ``connection`` when
+    a run passes its own, else one opened for this team. Returns how many sent.
 
     One message each rather than one listing the whole group: members would
     otherwise see each other's addresses, and one bad address would stop
     everyone's copy.
     """
-    connection = get_connection(fail_silently=False)
-    try:
-        connection.open()
-    except Exception as exc:  # noqa: BLE001
-        logger.error("finalist notify: connection failed group=%s error=%s", group_id, type(exc).__name__)
-        return 0
+    own = connection is None
+    if own:
+        connection = get_connection(fail_silently=False)
+        try:
+            connection.open()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("finalist notify: connection failed group=%s error=%s", group_id, type(exc).__name__)
+            return 0
 
     sent = 0
     try:
@@ -155,8 +160,9 @@ def _send_to_each(rendered, recipients, *, group_id) -> int:
             else:
                 sent += 1
     finally:
-        try:
-            connection.close()
-        except Exception:  # noqa: BLE001
-            pass
+        if own:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001
+                pass
     return sent

@@ -18,7 +18,7 @@ from apps.users.models import StudentProfile
 from ..models import GradingJob
 from ..permissions import AnythingReleased, MarksReleased
 from ..services.dispatch import dispatch_job
-from .student import _grades_payload
+from .student import _released_payload
 
 
 def _supervised_students(user):
@@ -68,7 +68,7 @@ class SupervisorGradesView(APIView):
                 "full_name": sp.user.get_full_name() or sp.user.email,
                 "email": sp.user.email,
                 "group": {"id": group.id, "group_name": group.group_name} if group else None,
-                "components": _grades_payload(group, year) if group else [],
+                "components": _released_payload(group, year) if group else [],
             })
         return Response({"year": year, "students": rows})
 

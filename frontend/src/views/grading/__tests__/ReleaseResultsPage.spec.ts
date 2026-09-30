@@ -10,7 +10,7 @@ import {
   fetchRelease,
   fetchResultsEmailDetails,
   previewResultsEmail,
-  sendResultsEmailBatch,
+  startResultsEmail,
   updateResultsEmailDetails
 } from '@/utils/gradingAPI'
 
@@ -27,12 +27,29 @@ vi.mock('@/utils/gradingAPI', () => ({
   fetchResultsEmailDetails: vi.fn(),
   updateResultsEmailDetails: vi.fn(),
   previewResultsEmail: vi.fn(),
-  sendResultsEmailBatch: vi.fn()
+  startResultsEmail: vi.fn()
 }))
 const detailsMock = vi.mocked(fetchResultsEmailDetails)
 const saveMock = vi.mocked(updateResultsEmailDetails)
 const previewMock = vi.mocked(previewResultsEmail)
-const sendMock = vi.mocked(sendResultsEmailBatch)
+const sendMock = vi.mocked(startResultsEmail)
+
+// A run's progress, as the server reports it.
+const run = (over: Record<string, unknown> = {}) => ({
+  due: 9,
+  emailed: 0,
+  failed: 0,
+  error: '',
+  started_at: '2026-10-20T00:00:00Z',
+  finished_at: null as string | null,
+  ...over
+})
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const finishedRun = (over: Record<string, unknown> = {}) => ({
+  sending: false,
+  run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
+})
+const IDLE = { sending: false, run: null }
 
 const status = { released_at: null, released_by: null, submissions_open: false }
 
@@ -47,6 +64,8 @@ const details = (over: Record<string, unknown> = {}) => ({
   certificates_released: true,
   emails_on: { groups: true, supervisors: true },
   templates_ready: { groups: true, supervisors: true },
+  submissions_open: '',
+  runs: { groups: IDLE, supervisors: IDLE },
   groups: { total: 3, emailed: 0 },
   supervisors: { total: 2, emailed: 0 },
   ...over
@@ -296,61 +315,66 @@ describe('sending', () => {
     expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeDefined()
   })
 
-  it('emails groups batch after batch until done, then supervisors on their own button', async () => {
-    sendMock
-      .mockResolvedValueOnce({
-        emailed: 6, failed: 0, cursor: 9, done: false,
-        groups: { total: 3, emailed: 2 }, supervisors: { total: 2, emailed: 0 }
-      })
-      .mockResolvedValueOnce({
-        emailed: 3, failed: 0, cursor: 12, done: true,
-        groups: { total: 3, emailed: 3 }, supervisors: { total: 2, emailed: 0 }
-      })
+  it('waits for an extension granted since the release, saying until when', async () => {
+    const reason =
+      "A team's extension is open until Friday, 17 October 2026, 11:59 PM (Sydney time). Send this once every extension has ended."
+    detailsMock.mockResolvedValue(details({ submissions_open: reason }))
     const wrapper = await mountPage()
-    detailsMock.mockResolvedValue(details({ groups: { total: 3, emailed: 3 } }))
-
-    await emailButton(wrapper, 'Groups').trigger('click')
-    const dialog = wrapper.find('[aria-label="Send results emails"]')
-    expect(dialog.text()).toContain('Email groups?')
-    expect(dialog.text()).toContain(
-      "This emails the students and mentors of the 3 groups that haven't had their results email yet."
-    )
-    await buttonNamed(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-
-    expect(sendMock.mock.calls).toEqual([['groups', null], ['groups', 9]])
-    // People: every student and mentor emailed.
-    expect(wrapper.text()).toContain('Emailed 9 people.')
-    expect(wrapper.find('.release-results__counts').text()).toBe(
-      'Groups: 3 of 3 emailed · Supervisors: 0 of 2 emailed'
-    )
-    // Groups are done; supervisors are still to go.
+    expect(wrapper.find('.release-results__blocked').text()).toBe(reason)
     expect(emailButton(wrapper, 'Groups').attributes('disabled')).toBeDefined()
-    expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeUndefined()
-    expect(wrapper.find('.release-results__status').text()).toBe(
-      'Emails are not sent to every group and supervisor'
-    )
+    expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeDefined()
+  })
 
-    sendMock.mockResolvedValueOnce({
-      emailed: 2, failed: 0, cursor: 7, done: true,
-      groups: { total: 3, emailed: 3 }, supervisors: { total: 2, emailed: 2 }
-    })
-    detailsMock.mockResolvedValue(details({ groups: { total: 3, emailed: 3 }, supervisors: { total: 2, emailed: 2 } }))
-    await emailButton(wrapper, 'Supervisors').trigger('click')
-    await buttonNamed(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-    expect(sendMock).toHaveBeenLastCalledWith('supervisors', null)
-    expect(wrapper.text()).toContain('Emailed 2 supervisors.')
-    expect(wrapper.find('.release-results__status').text()).toBe(
-      'Emails are sent to every group and supervisor'
-    )
+  it('asks first, then starts a run on the server and shows its progress until it is done', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      sendMock.mockResolvedValueOnce(details({ runs: { groups: sendingRun(), supervisors: IDLE } }))
+      const wrapper = await mountPage()
+      await emailButton(wrapper, 'Groups').trigger('click')
+      const dialog = wrapper.find('[aria-label="Send results emails"]')
+      expect(dialog.text()).toContain(
+        "This emails the students and mentors of the 3 groups that haven't had their results email yet."
+      )
+      await buttonNamed(wrapper, /^Send$/).trigger('click')
+      await flushPromises()
+
+      // The dialog closes; the run sends on the server, its progress beside the buttons.
+      expect(sendMock).toHaveBeenCalledWith('groups')
+      expect(wrapper.find('[aria-label="Send results emails"]').exists()).toBe(false)
+      expect(wrapper.find('.release-results__progress').text()).toBe('Emailed 0 of 9 people so far…')
+      expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeUndefined()
+
+      detailsMock.mockResolvedValue(details({ runs: { groups: sendingRun({ emailed: 6 }), supervisors: IDLE } }))
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find('.release-results__progress').text()).toBe('Emailed 6 of 9 people so far…')
+
+      detailsMock.mockResolvedValue(details({
+        runs: { groups: finishedRun({ emailed: 9 }), supervisors: IDLE },
+        groups: { total: 3, emailed: 3 }
+      }))
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find('.release-results__progress').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Emailed 9 people.')
+      expect(wrapper.find('.release-results__counts').text()).toBe(
+        'Groups: 3 of 3 emailed · Supervisors: 0 of 2 emailed'
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a page opened mid-run shows its progress, with that button off', async () => {
+    detailsMock.mockResolvedValue(details({ runs: { groups: IDLE, supervisors: sendingRun({ due: 2, emailed: 1 }) } }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.release-results__progress').text()).toBe('Emailed 1 of 2 supervisors so far…')
+    expect(buttonNamed(wrapper, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(emailButton(wrapper, 'Groups').attributes('disabled')).toBeUndefined()
   })
 
   it('says how many groups were not emailed in full, for a retry', async () => {
-    sendMock.mockResolvedValueOnce({
-      emailed: 4, failed: 1, cursor: 12, done: true,
-      groups: { total: 3, emailed: 2 }, supervisors: { total: 2, emailed: 0 }
-    })
+    sendMock.mockResolvedValueOnce(details({ runs: { groups: finishedRun({ emailed: 4, failed: 1 }), supervisors: IDLE } }))
     const wrapper = await mountPage()
     await emailButton(wrapper, 'Groups').trigger('click')
     await buttonNamed(wrapper, /^Send$/).trigger('click')
@@ -358,6 +382,16 @@ describe('sending', () => {
     expect(wrapper.find('.release-results__banner--error').text()).toBe(
       "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups again to retry."
     )
+  })
+
+  it('says when the mail server could not be reached', async () => {
+    const error = "Couldn't reach the mail server. Press Send again to email the rest."
+    sendMock.mockResolvedValueOnce(details({ runs: { groups: IDLE, supervisors: finishedRun({ due: 2, failed: 2, error }) } }))
+    const wrapper = await mountPage()
+    await emailButton(wrapper, 'Supervisors').trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.release-results__banner--error').text()).toBe(`Emailed 0 supervisors. ${error}`)
   })
 
   it('rechecks once marks are released below', async () => {

@@ -1,10 +1,8 @@
 """The Email Nonfinalist tab: the Symposium emails to teams that submitted but
 weren't picked, and to teams that didn't submit. For each, who it's for, a
-preview, and sending it in batches. The Symposium date and registration link
+preview, and sending it (a run on the server). The Symposium date and registration link
 are the ones set on Notify Finalists."""
 from __future__ import annotations
-
-import logging
 
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -15,23 +13,29 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 from ..models import FinalistEmailSettings
 from ..permissions import IsGrader
 from ..services import symposium_emails, test_email
+from ..services.send_guard import AlreadySending, run_state
 from ..services.symposium_emails import NONFINALIST, NONSUBMISSION
 
-logger = logging.getLogger(__name__)
+
+def _status(email) -> dict:
+    """This year's teams due ``email``: how many teams and people have it,
+    why sending is refused, if it is, and whether a run is sending it now,
+    with its progress."""
+    return {
+        **symposium_emails.audience(email).counts(),
+        "blocked": symposium_emails.send_blocked_reason(email, FinalistEmailSettings.load()),
+        **run_state(email.key),
+    }
 
 
 class _StatusView(APIView):
-    """GET — this year's teams due the email: how many teams and students
-    have it, and why sending is refused, if it is."""
+    """GET — this year's teams due the email (see ``_status``)."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
     email = NONFINALIST
 
     def get(self, request):
-        return Response({
-            **symposium_emails.audience(self.email).counts(),
-            "blocked": symposium_emails.send_blocked_reason(self.email, FinalistEmailSettings.load()),
-        })
+        return Response(_status(self.email))
 
 
 class _PreviewView(APIView):
@@ -62,29 +66,25 @@ class _PreviewView(APIView):
 
 
 class _SendView(APIView):
-    """POST — email the next few teams not emailed yet. The page calls it
-    again with the returned ``cursor`` until ``done``. Refused until the
-    Symposium date and link are set."""
+    """POST — start a run emailing every team due it and not yet emailed, on
+    the server, so the page can be closed; returns the status with the run's
+    progress. Refused until the Symposium date and link are set, while
+    submissions are open, and while a run is going."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
     email = NONFINALIST
 
     def post(self, request):
-        cursor = request.data.get("cursor")
-        if cursor is not None and not isinstance(cursor, int):
-            return Response({"detail": "cursor must be a number"}, status=status.HTTP_400_BAD_REQUEST)
         reason = symposium_emails.send_blocked_reason(self.email, FinalistEmailSettings.load())
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            result = symposium_emails.send_batch(self.email, request.user, cursor)
-        except (ConnectionError, OSError) as exc:
-            logger.error("%s: mail server unreachable error=%s", self.email.key, type(exc).__name__)
+            symposium_emails.start_send(self.email, request.user)
+        except AlreadySending:
             return Response(
-                {"detail": "Couldn't reach the mail server. Nothing more was sent; try again shortly."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                {"detail": symposium_emails.already_sending(self.email)}, status=status.HTTP_409_CONFLICT,
             )
-        return Response(result)
+        return Response(_status(self.email))
 
 
 # /api/v1/grading/nonfinalists/ (and preview/, send/): teams that submitted but

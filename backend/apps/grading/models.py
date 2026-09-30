@@ -464,6 +464,40 @@ class ResultsEmailSettings(SingletonModel):
         return bool(self.survey_url and self.survey_closes)
 
 
+class EmailSendRun(models.Model):
+    """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
+    Results): the run going now, or the last one. Pressing Send starts a run on
+    the server that emails everyone due, whether or not the page stays open.
+    One run at a time per email, so nobody is emailed twice: ``held_until`` is
+    a lease the run renews as it goes, so one that dies frees it once it
+    passes. One row per email, made on first use; see ``services.send_guard``."""
+
+    key = models.CharField(max_length=64, unique=True)
+    held_until = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # People due the email when the run started, and those emailed so far.
+    due = models.PositiveIntegerField(default=0)
+    emailed = models.PositiveIntegerField(default=0)
+    # Teams or supervisors not emailed in full: the next run tries them again.
+    failed = models.PositiveIntegerField(default=0)
+    # Why the run stopped short, e.g. the mail server couldn't be reached.
+    error = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        db_table = "email_send_run"
+
+    def __str__(self):
+        return f"EmailSendRun({self.key})"
+
+
 class ResultsTeamEmail(models.Model):
     """A team emailed about its results; sending skips it after that. Only
     recorded once every member got the email, so a retry reaches the rest."""

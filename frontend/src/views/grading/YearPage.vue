@@ -61,13 +61,13 @@
       </div>
       <ol class="year__steps">
         <li>
-          Grading shows only the new year's submissions and finalists — previous years
+          Grading shows only the new year's submissions and finalists - previous years
           stay on record.
         </li>
         <li>Sets the last year's deadline on the Submission Deadline tab.</li>
         <li>Resets marks and certificates from their tabs.</li>
         <li>Clears all per-group deadline extensions.</li>
-        <li>Ends all group memberships — students, mentors and supervisors.</li>
+        <li>Ends all group memberships - students, mentors and supervisors.</li>
         <li>
           Deactivates student accounts and signs them out; mentor and supervisor accounts
           stay active.
@@ -75,7 +75,7 @@
         <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
       </ol>
       <p class="year__hint">
-        These steps are instructions for the backend — the Start new year button will
+        These steps are instructions for the backend - the Start new year button will
         run them automatically once it's built.
       </p>
       <button type="button" class="btn btn-outline btn-sm" disabled title="Coming soon">

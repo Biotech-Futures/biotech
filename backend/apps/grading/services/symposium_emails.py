@@ -8,18 +8,23 @@ team (students, mentors and supervisors) gets their own copy; and replies go
 to the support mailbox. The Symposium date and registration link are the
 ones set on Notify Finalists, and nothing is sent until both are set.
 
-Teams are emailed in small batches, so each request stays short and the page
-can show progress. A team is recorded as emailed only once every member got
-it, so a retry reaches whoever missed it, and is skipped after that.
+Neither goes out while submissions are still open, the deadline's or any
+team's extension, and each is sent by one request at a time (see
+``send_guard``). The non-finalist invitation also waits until the finalists
+have been notified, which is when the picks are settled.
+
+Pressing Send starts a run on the server that emails every team due (see
+``send_guard``). A team is recorded as emailed only once every member got it,
+so the next run reaches whoever missed it, and is skipped after that.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Callable
 
 from django.conf import settings
-from django.core.mail import get_connection
 from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
 
@@ -37,17 +42,15 @@ from apps.submissions.emails import recipients_for
 from apps.submissions.models import Submission
 from apps.submissions.services import current_cohort
 
-from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
+from ..models import FinalistEmailSettings, FinalistFlag, NonFinalistEmail, NonSubmissionEmail
 from .finalist_notify import NOT_SET, _long_date, symposium_today
+from .send_guard import Work, start_run, submissions_open_reason
 
 logger = logging.getLogger(__name__)
 
-# Teams emailed per request: a few seconds of sending, so a request never
-# runs long and the page can report progress between batches.
-BATCH_SIZE = 5
-
 MISSING_DETAILS = "Set the Symposium date and registration link on Notify Finalists before sending."
 PAST_DATE = "The Symposium date on Notify Finalists is before today. Update it before sending."
+NOT_NOTIFIED = "Notify the finalists on Notify Finalists before sending this."
 
 _STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 
@@ -83,13 +86,16 @@ class TeamEmail:
     key: str
     record: type
     teams: Callable[[int], object]
+    # Whether it waits for the finalists to be notified: until then, who
+    # wasn't picked isn't settled.
+    after_finalists: bool = False
 
     @property
     def name(self) -> str:
         return get_email_type(self.key).name
 
 
-NONFINALIST = TeamEmail("nonfinalist_invitation", NonFinalistEmail, _nonfinalist_teams)
+NONFINALIST = TeamEmail("nonfinalist_invitation", NonFinalistEmail, _nonfinalist_teams, after_finalists=True)
 NONSUBMISSION = TeamEmail("nonsubmission_notice", NonSubmissionEmail, _nonsubmission_teams)
 
 
@@ -185,6 +191,10 @@ def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
 # --- sending ---------------------------------------------------------------------
 
 
+def already_sending(email: TeamEmail) -> str:
+    return f"{email.name} is already being sent. Wait for that to finish."
+
+
 def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str:
     """Why sending ``email`` is refused, or "" when it may go ahead."""
     if not is_email_enabled(email.key):
@@ -193,6 +203,13 @@ def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str
         return MISSING_DETAILS
     if details.symposium_date < symposium_today():
         return PAST_DATE
+    open_reason = submissions_open_reason()
+    if open_reason:
+        return open_reason
+    if email.after_finalists and not FinalistFlag.objects.filter(
+        group__year=current_cohort(), notified=True,
+    ).exists():
+        return NOT_NOTIFIED
     return ""
 
 
@@ -227,53 +244,34 @@ def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEm
     return sent
 
 
-def send_batch(email: TeamEmail, actor, cursor: int | None = None, *, limit: int = BATCH_SIZE) -> dict:
-    """Email ``email`` to the next ``limit`` teams not yet emailed.
+def _send_team(
+    email: TeamEmail, team, recipients, details: FinalistEmailSettings, actor, connection, cache: dict,
+) -> tuple[int, bool]:
+    """One team's copies; recorded as emailed only once every member got it."""
+    try:
+        rendered = render_email(email, team.group_name, details)
+    except Exception:  # noqa: BLE001
+        logger.exception("%s: failed to render group=%s", email.key, team.id)
+        return 0, False
+    sent = _send_each(rendered, recipients, connection, email=email, group_id=team.id)
+    if sent < len(recipients):
+        return sent, False
+    try:
+        with transaction.atomic():
+            email.record.objects.create(group=team, sent_by=actor)
+    except IntegrityError:
+        pass  # already recorded
+    return sent, True
 
-    ``cursor`` is the last team this run already tried, so one that fails is
-    left for the next press rather than retried in a loop. Returns how many
-    people were emailed, how many teams failed, the new cursor, whether this
-    run is ``done``, and the counts.
-    """
-    after = int(cursor or 0)
+
+def start_send(email: TeamEmail, actor) -> None:
+    """Start a run emailing ``email`` to every team due it and not yet
+    emailed (see ``send_guard.start_run``). Raises ``AlreadySending`` while a
+    run is going."""
     details = FinalistEmailSettings.load()
     due = audience(email)
-    pending = [t for t in due.teams if t.id > after and t.id not in due.emailed]
-    batch = pending[:limit]
-
-    emailed = failed = 0
-    if batch:
-        connection = get_connection(fail_silently=False)
-        connection.open()
-        try:
-            for team in batch:
-                recipients = due.recipients[team.id]
-                try:
-                    rendered = render_email(email, team.group_name, details)
-                except Exception:  # noqa: BLE001
-                    logger.exception("%s: failed to render group=%s", email.key, team.id)
-                    failed += 1
-                    continue
-                sent = _send_each(rendered, recipients, connection, email=email, group_id=team.id)
-                if sent == len(recipients):
-                    try:
-                        with transaction.atomic():
-                            email.record.objects.create(group=team, sent_by=actor)
-                    except IntegrityError:
-                        pass  # a second sender racing this one already recorded it
-                    emailed += sent
-                else:
-                    failed += 1
-        finally:
-            try:
-                connection.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-    return {
-        "emailed": emailed,
-        "failed": failed,
-        "cursor": batch[-1].id if batch else after,
-        "done": len(pending) <= len(batch),
-        **audience(email).counts(),
-    }
+    start_run(email.key, actor, [
+        Work(len(due.recipients[team.id]), partial(_send_team, email, team, due.recipients[team.id], details, actor))
+        for team in due.teams
+        if team.id not in due.emailed
+    ])

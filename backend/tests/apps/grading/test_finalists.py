@@ -85,7 +85,9 @@ class FinalistToggleTests(_GradingFixture):
         url = reverse("grading:finalist-notify")
         r = self.client.post(url)
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        self.assertEqual(r.json()["sent"], 1)
+        # The run is done by the reply under test settings: one person emailed.
+        self.assertFalse(r.json()["sending"])
+        self.assertEqual((r.json()["run"]["due"], r.json()["run"]["emailed"]), (1, 1))
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("member@example.com", mail.outbox[0].to)
         notified_flag = FinalistFlag.objects.get(group=self.group)
@@ -94,7 +96,7 @@ class FinalistToggleTests(_GradingFixture):
 
         # Second press: everything already notified (or has no recipients) — no new mail.
         r2 = self.client.post(url)
-        self.assertEqual(r2.json()["sent"], 0)
+        self.assertEqual(r2.json()["run"]["due"], 0)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_notify_with_group_ids_targets_only_those(self):
@@ -117,7 +119,7 @@ class FinalistToggleTests(_GradingFixture):
         url = reverse("grading:finalist-notify")
         r = self.client.post(url, {"group_ids": [self.group.id]}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        self.assertEqual(r.json()["sent"], 1)
+        self.assertEqual(r.json()["run"]["emailed"], 1)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("member@example.com", mail.outbox[0].to)
         self.assertFalse(FinalistFlag.objects.get(group=other_group).notified)
@@ -473,7 +475,8 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
 
         r = self.client.post(reverse("grading:finalist-notify"))
-        self.assertEqual(r.json()["sent"], 1)
+        # The people it went to, for the page's progress.
+        self.assertEqual((r.json()["run"]["due"], r.json()["run"]["emailed"]), (3, 3))
         self.assertEqual(
             sorted(m.to[0] for m in mail.outbox),
             ["men@example.com", "stu@example.com", "sup@example.com"],
@@ -540,6 +543,69 @@ class FinalistEmailTests(_GradingFixture):
         self.assertEqual(fields["symposium_date"], ["Can't be before today."])
         self.assertNotIn("slides_due", fields)  # today itself is fine
         self.assertIsNone(FinalistEmailSettings.load().symposium_date)
+
+    def test_sending_waits_for_submissions_to_close(self):
+        from datetime import timedelta
+
+        from django.core import mail
+        from django.utils import timezone
+
+        from apps.submissions.models import Deadline, GroupExtension
+
+        _set_email_details()
+        self._member("stu@example.com", "student")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        deadline = Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=1), grace_hours=3)
+        body = self.client.get(reverse("grading:finalist-email")).json()
+        self.assertTrue(body["submissions_open"].startswith("Submissions are open until "), body)
+        r = self.client.post(reverse("grading:finalist-notify"))
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["detail"], body["submissions_open"])
+
+        # Then the last extension, grace hours included.
+        Deadline.objects.filter(pk=deadline.pk).update(grace_hours=0)
+        GroupExtension.objects.create(
+            group=self.group, extended_until=timezone.now() - timedelta(hours=1), grace_hours=2,
+        )
+        r = self.client.post(reverse("grading:finalist-notify"))
+        self.assertTrue(r.json()["detail"].startswith("A team's extension is open until "), r.json())
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
+
+        # Flagging a team still works; only its email waits.
+        other = Groups.objects.create(group_name="Other")
+        r = self.client.post(
+            reverse("grading:finalist-toggle", kwargs={"group_id": other.id}), {"notify": True}, format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.content)
+        self.assertFalse(r.json()["notified"])
+        self.assertTrue(FinalistFlag.objects.filter(group=other).exists())
+
+    def test_a_second_send_is_refused_while_one_is_running(self):
+        from datetime import timedelta
+
+        from django.core import mail
+        from django.utils import timezone
+
+        from apps.grading.models import EmailSendRun
+
+        _set_email_details()
+        self._member("stu@example.com", "student")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        EmailSendRun.objects.create(
+            key="finalist_notification", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
+        )
+        self.assertTrue(self.client.get(reverse("grading:finalist-email")).json()["sending"])
+        r = self.client.post(reverse("grading:finalist-notify"))
+        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r.json()["detail"], "Finalist emails are already being sent. Wait for that to finish.")
+        self.assertEqual(len(mail.outbox), 0)
+
+        # Once free, it sends, and frees it again.
+        EmailSendRun.objects.update(held_until=None)
+        r = self.client.post(reverse("grading:finalist-notify"))
+        self.assertEqual(r.json()["run"]["emailed"], 1)
+        self.assertFalse(self.client.get(reverse("grading:finalist-email")).json()["sending"])
 
     def test_the_page_is_told_today_and_which_saved_dates_have_passed(self):
         details = _set_email_details()

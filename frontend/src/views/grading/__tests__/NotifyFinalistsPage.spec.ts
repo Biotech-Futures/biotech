@@ -25,6 +25,22 @@ const detailsMock = vi.mocked(fetchFinalistEmailDetails)
 const saveMock = vi.mocked(updateFinalistEmailDetails)
 const previewMock = vi.mocked(previewFinalistEmail)
 
+// A run's progress, as the server reports it.
+const run = (over: Record<string, unknown> = {}) => ({
+  due: 9,
+  emailed: 0,
+  failed: 0,
+  error: '',
+  started_at: '2026-10-20T00:00:00Z',
+  finished_at: null as string | null,
+  ...over
+})
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const finishedRun = (over: Record<string, unknown> = {}) => ({
+  sending: false,
+  run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
+})
+
 // Every detail set: the email can go out.
 const details = (over: Record<string, unknown> = {}) => ({
   symposium_date: '2026-10-23',
@@ -34,6 +50,9 @@ const details = (over: Record<string, unknown> = {}) => ({
   complete: true,
   today: '2026-09-27',
   dates_in_past: [] as string[],
+  submissions_open: '',
+  sending: false,
+  run: null,
   ...over
 })
 
@@ -152,7 +171,7 @@ describe('the finalist roster', () => {
 
 describe('sending', () => {
   it('sending to all confirms first, then reports how many went out', async () => {
-    notifyMock.mockResolvedValueOnce({ sent: 1, pending: 0 })
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 3, emailed: 3 }), pending: 0 })
     const wrapper = await mountPage()
     await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
     const dialog = wrapper.find('[role="dialog"]')
@@ -160,9 +179,58 @@ describe('sending', () => {
 
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
+    // Every team not yet notified, which the server picks.
     expect(notifyMock).toHaveBeenCalledWith(undefined)
-    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Sent 1 notification email.')
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Emailed 3 people.')
     expect(listMock).toHaveBeenCalledTimes(2) // roster refreshes after a send
+  })
+
+  it('explains, with a plain dash, a send that had nobody left to email', async () => {
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 0, emailed: 0 }), pending: 0 })
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe(
+      'No emails sent - every finalist team is already notified or has no members to email.'
+    )
+  })
+
+  it("closes the dialog on Send, then shows the run's progress until it is done", async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      notifyMock.mockResolvedValueOnce({ ...sendingRun({ due: 28 }), pending: 7 })
+      const wrapper = await mountPage()
+      await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
+      await buttonNamed(wrapper, /^Send$/).trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+      expect(wrapper.find('.notify-finalists__progress').text()).toBe('Emailed 0 of 28 people so far…')
+      expect(buttonNamed(wrapper, /Send Email to Selected Groups/).attributes('disabled')).toBeDefined()
+
+      detailsMock.mockResolvedValue(details({ ...sendingRun({ due: 28, emailed: 20 }) }))
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find('.notify-finalists__progress').text()).toBe('Emailed 20 of 28 people so far…')
+
+      detailsMock.mockResolvedValue(details({ ...finishedRun({ due: 28, emailed: 28 }) }))
+      listMock.mockClear()
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+      expect(wrapper.find('.notify-finalists__progress').exists()).toBe(false)
+      expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Emailed 28 people.')
+      // The roster is reloaded, with the teams the run reached.
+      expect(listMock).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a page opened mid-run shows its progress, with Send off', async () => {
+    detailsMock.mockResolvedValue(details({ ...sendingRun({ due: 28, emailed: 12 }) }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.notify-finalists__progress').text()).toBe('Emailed 12 of 28 people so far…')
+    expect(buttonNamed(wrapper, /^Sending…$/).attributes('disabled')).toBeDefined()
   })
 
   it('the selected-teams button stays off until something is ticked', async () => {
@@ -175,7 +243,7 @@ describe('sending', () => {
   })
 
   it('sending to selected teams names the count and targets only them', async () => {
-    notifyMock.mockResolvedValueOnce({ sent: 1, pending: 0 })
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 3, emailed: 3 }), pending: 0 })
     const wrapper = await mountPage()
     await wrapper.find('tbody input[type="checkbox"]').trigger('change')
     await buttonNamed(wrapper, /Send Email to Selected Groups/).trigger('click')
@@ -184,15 +252,6 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(notifyMock).toHaveBeenCalledWith([1])
-  })
-
-  it('explains a send that had nobody left to email', async () => {
-    notifyMock.mockResolvedValueOnce({ sent: 0, pending: 0 })
-    const wrapper = await mountPage()
-    await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
-    await buttonNamed(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-    expect(wrapper.find('.notify-finalists__banner--ok').text()).toContain('No emails sent')
   })
 
   it('cancelling the dialog sends nothing', async () => {
@@ -306,6 +365,15 @@ describe('the email details', () => {
     expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
       'Fill in and save every email detail above before sending.'
     )
+    expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
+  })
+
+  it('Send stays off, saying until when, while submissions are still open', async () => {
+    const reason =
+      "A team's extension is open until Friday, 17 October 2026, 11:59 PM (Sydney time). Send this once every extension has ended."
+    detailsMock.mockResolvedValue(details({ submissions_open: reason }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.notify-finalists__blocked').text()).toBe(reason)
     expect(buttonNamed(wrapper, /Send Email to All Groups/).attributes('disabled')).toBeDefined()
   })
 

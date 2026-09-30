@@ -28,7 +28,7 @@
       <p v-if="actionError" class="release__banner release__banner--error">{{ actionError }}</p>
 
       <p v-if="!released && submissionsOpen" class="release__banner release__banner--warn">
-        Submissions are still open (including extensions) — marks can be released once the
+        Submissions are still open (including extensions) - marks can be released once the
         window has closed.
       </p>
 

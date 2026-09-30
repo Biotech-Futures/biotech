@@ -4,6 +4,7 @@ the client's wording with the Symposium details from Notify Finalists,
 preview, and sending in batches."""
 from datetime import timedelta
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.core import mail
 from django.test import override_settings
@@ -14,10 +15,9 @@ from rest_framework.test import APIClient
 
 from apps.grading.models import FinalistEmailSettings, FinalistFlag, NonFinalistEmail, NonSubmissionEmail
 from apps.grading.services.finalist_notify import symposium_today
-from apps.grading.services.symposium_emails import NONFINALIST, send_batch
 from apps.groups.models import GroupMembership, Groups
 from apps.services.models import SystemEmailTemplate
-from apps.submissions.models import Submission
+from apps.submissions.models import Deadline, GroupExtension, Submission
 from apps.users.models import User
 
 from .fixtures import _GradingFixture
@@ -44,6 +44,16 @@ def _submitted_team(name, staff):
     return team
 
 
+def _press(test, name):
+    """One press: the run sends every team (inline under test settings). The
+    run's result, with the counts after it, as a one-item list."""
+    r = test.client.post(reverse(name), {}, format="json")
+    test.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+    body = r.json()
+    test.assertFalse(body["sending"])
+    return [{**body, "emailed": body["run"]["emailed"], "failed": body["run"]["failed"]}]
+
+
 @override_settings(EMAIL_BACKEND=LOCMEM)
 class NonFinalistEmailTests(_GradingFixture):
     def setUp(self):
@@ -58,10 +68,13 @@ class NonFinalistEmailTests(_GradingFixture):
         _member("sue@example.com", self.group, role="supervisor")
         _member("gone@example.com", self.group, left_at=timezone.now())
 
-        # A finalist team and a team that never submitted don't get it.
+        # A finalist team and a team that never submitted don't get it. The
+        # finalists have been told, so who wasn't picked is settled.
         finalist = _submitted_team("Picked", self.staff)
         _member("fin@example.com", finalist)
-        FinalistFlag.objects.create(group=finalist, flagged_by=self.staff)
+        FinalistFlag.objects.create(
+            group=finalist, flagged_by=self.staff, notified=True, notified_at=timezone.now(),
+        )
         no_entry = Groups.objects.create(group_name="No Entry")
         _member("none@example.com", no_entry)
 
@@ -71,14 +84,7 @@ class NonFinalistEmailTests(_GradingFixture):
         details.save()
 
     def _send_all(self):
-        cursor, results = None, []
-        while True:
-            r = self.client.post(reverse(SEND), {"cursor": cursor}, format="json")
-            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-            results.append(r.json())
-            cursor = r.json()["cursor"]
-            if r.json()["done"]:
-                return results
+        return _press(self, SEND)
 
     def _recipients(self):
         return sorted(m.to[0] for m in mail.outbox)
@@ -108,17 +114,16 @@ class NonFinalistEmailTests(_GradingFixture):
     def test_a_second_send_emails_nobody_again(self):
         self._send_all()
         mail.outbox = []
-        self.assertTrue(self._send_all()[-1]["done"])
+        self.assertEqual(self._send_all()[-1]["run"]["due"], 0)
         self.assertEqual(mail.outbox, [])
 
-    def test_batches_move_on_and_report_progress(self):
+    def test_one_press_emails_every_team(self):
         for n in range(6):
             _member(f"extra{n}@example.com", _submitted_team(f"Extra {n}", self.staff))
-        first = send_batch(NONFINALIST, self.staff, None, limit=5)
-        self.assertEqual((first["emailed"], first["done"]), (8, False))  # the fixture team has four members
-        second = send_batch(NONFINALIST, self.staff, first["cursor"], limit=5)
-        self.assertEqual((second["emailed"], second["done"]), (2, True))
-        self.assertEqual(second["teams"], {"total": 7, "emailed": 7})
+        result = self._send_all()[-1]
+        # The fixture team has four members; six more teams of one.
+        self.assertEqual((result["run"]["due"], result["emailed"], result["run"]["failed"]), (10, 10, 0))
+        self.assertEqual(result["teams"], {"total": 7, "emailed": 7})
 
     def test_a_team_whose_member_misses_it_stays_pending(self):
         real_send = mail.EmailMultiAlternatives.send
@@ -154,6 +159,78 @@ class NonFinalistEmailTests(_GradingFixture):
         )
         self.assertEqual(mail.outbox, [])
 
+    def test_it_waits_until_the_finalists_are_notified(self):
+        # Picked but not yet told: the picks may still change.
+        FinalistFlag.objects.update(notified=False, notified_at=None)
+        r = self.client.post(reverse(SEND), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["detail"], "Notify the finalists on Notify Finalists before sending this.")
+        self.assertEqual(self.client.get(reverse("grading:nonfinalist-email")).json()["blocked"], r.json()["detail"])
+        self.assertEqual(mail.outbox, [])
+
+    def test_neither_email_goes_out_while_submissions_are_open(self):
+        # Past the date the teams were shown, but still in its grace hours.
+        closes_at = timezone.now() - timedelta(hours=1)
+        Deadline.objects.create(closes_at=closes_at, grace_hours=2)
+        until = timezone.localtime(closes_at + timedelta(hours=2), ZoneInfo("Australia/Sydney"))
+        for name in (SEND, NS_SEND):
+            r = self.client.post(reverse(name), {}, format="json")
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+            detail = r.json()["detail"]
+            self.assertTrue(detail.startswith("Submissions are open until "), detail)
+            self.assertIn(f"{until.day} {until:%B %Y}, ", detail)
+            self.assertTrue(detail.endswith("(Sydney time). Send this once they close."), detail)
+        self.assertEqual(mail.outbox, [])
+
+    def test_neither_email_goes_out_while_any_extension_is_open(self):
+        # The deadline has closed, but one team's extension, with its grace
+        # hours, hasn't: that team may yet submit, or be picked.
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        extension = GroupExtension.objects.create(
+            group=Groups.objects.create(group_name="Extended"),
+            extended_until=timezone.now() - timedelta(hours=1), grace_hours=2,
+        )
+        until = timezone.localtime(extension.extended_until + timedelta(hours=2), ZoneInfo("Australia/Sydney"))
+        for name in (SEND, NS_SEND):
+            r = self.client.post(reverse(name), {}, format="json")
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+            detail = r.json()["detail"]
+            self.assertTrue(detail.startswith("A team's extension is open until "), detail)
+            self.assertIn(f"{until.day} {until:%B %Y}, ", detail)
+            self.assertTrue(detail.endswith("(Sydney time). Send this once every extension has ended."), detail)
+        self.assertEqual(mail.outbox, [])
+
+        # Once it has ended, grace hours included, or is revoked, sending goes ahead.
+        GroupExtension.objects.filter(pk=extension.pk).update(extended_until=timezone.now() - timedelta(hours=3))
+        self.assertEqual(self.client.get(reverse("grading:nonfinalist-email")).json()["blocked"], "")
+        GroupExtension.objects.filter(pk=extension.pk).update(
+            extended_until=timezone.now() + timedelta(days=1), revoked_at=timezone.now(),
+        )
+        self._send_all()
+        self.assertEqual(len(mail.outbox), 4)
+
+    def test_a_second_run_is_refused_while_one_is_sending(self):
+        from apps.grading.models import EmailSendRun
+
+        EmailSendRun.objects.create(
+            key="nonfinalist_invitation", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
+        )
+        self.assertTrue(self.client.get(reverse("grading:nonfinalist-email")).json()["sending"])
+        r = self.client.post(reverse(SEND), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r.json()["detail"], "Non-finalist invitation is already being sent. Wait for that to finish.")
+        self.assertEqual(mail.outbox, [])
+
+        # The other email has a send of its own.
+        self.assertFalse(self.client.get(reverse("grading:nonsubmission-email")).json()["sending"])
+
+        # A run that died frees it once its hold lapses.
+        EmailSendRun.objects.update(held_until=timezone.now() - timedelta(seconds=1))
+        self.assertFalse(self.client.get(reverse("grading:nonfinalist-email")).json()["sending"])
+        self._send_all()
+        self.assertEqual(len(mail.outbox), 4)
+        self.assertIsNone(EmailSendRun.objects.get(key="nonfinalist_invitation").held_until)
+
     def test_a_switched_off_email_is_refused(self):
         SystemEmailTemplate.objects.create(key="nonfinalist_invitation", is_enabled=False)
         r = self.client.post(reverse(SEND), {}, format="json")
@@ -169,6 +246,8 @@ class NonFinalistEmailTests(_GradingFixture):
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
+            "sending": False,
+            "run": None,
         })
 
     def test_preview_is_addressed_to_the_first_team_due(self):
@@ -215,14 +294,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         details.save()
 
     def _send_all(self):
-        cursor, results = None, []
-        while True:
-            r = self.client.post(reverse(NS_SEND), {"cursor": cursor}, format="json")
-            self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-            results.append(r.json())
-            cursor = r.json()["cursor"]
-            if r.json()["done"]:
-                return results
+        return _press(self, NS_SEND)
 
     def test_the_section_counts_teams_that_did_not_submit(self):
         r = self.client.get(reverse("grading:nonsubmission-email"))
@@ -233,6 +305,8 @@ class NonSubmissionEmailTests(_GradingFixture):
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
+            "sending": False,
+            "run": None,
         })
 
     def test_everyone_counts_as_emailed_once_their_team_is(self):
@@ -278,7 +352,7 @@ class NonSubmissionEmailTests(_GradingFixture):
     def test_a_second_send_emails_nobody_again(self):
         self._send_all()
         mail.outbox = []
-        self.assertTrue(self._send_all()[-1]["done"])
+        self.assertEqual(self._send_all()[-1]["run"]["due"], 0)
         self.assertEqual(mail.outbox, [])
 
     def test_it_waits_for_the_symposium_details_and_can_be_switched_off(self):
@@ -292,6 +366,26 @@ class NonSubmissionEmailTests(_GradingFixture):
         r = self.client.post(reverse(NS_SEND), {}, format="json")
         self.assertEqual(r.json()["detail"], "Non-submission notice is switched off on System Emails.")
         self.assertEqual(mail.outbox, [])
+
+    def test_a_team_on_an_extension_blocks_it_for_everyone(self):
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        GroupExtension.objects.create(group=self.no_entry, extended_until=timezone.now() + timedelta(hours=5))
+        blocked = self.client.get(reverse("grading:nonsubmission-email")).json()["blocked"]
+        self.assertTrue(blocked.startswith("A team's extension is open until "), blocked)
+        r = self.client.post(reverse(NS_SEND), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mail.outbox, [])
+
+    def test_an_extension_from_another_year_does_not_block_it(self):
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        past_team = Groups.objects.create(group_name="Last Year", year=self.no_entry.year - 1)
+        GroupExtension.objects.create(group=past_team, extended_until=timezone.now() + timedelta(days=1))
+        self.assertEqual(self.client.get(reverse("grading:nonsubmission-email")).json()["blocked"], "")
+
+    def test_it_does_not_wait_for_the_finalists(self):
+        # Teams that didn't submit were never in the running.
+        self.assertFalse(FinalistFlag.objects.exists())
+        self.assertEqual(self.client.get(reverse("grading:nonsubmission-email")).json()["blocked"], "")
 
     def test_preview_is_addressed_to_the_first_team_due(self):
         r = self.client.post(reverse("grading:nonsubmission-email-preview"), {}, format="json")

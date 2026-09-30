@@ -36,7 +36,7 @@ class _SingletonReleaseView(APIView):
             return Response(
                 {
                     "detail": (
-                        "Submissions are still open (including any extensions) — "
+                        "Submissions are still open (including any extensions) - "
                         "releasing is available once the window has closed."
                     )
                 },

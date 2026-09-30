@@ -103,7 +103,7 @@
         <!-- Global audience notice -->
         <div v-if="roleIds.length === 0 && groupIds.length === 0" class="admin-ann-form__notice">
           <i class="fas fa-circle-info"></i>
-          <span>No roles or groups selected — announcement will be visible to all users (Global).</span>
+          <span>No roles or groups selected - announcement will be visible to all users (Global).</span>
         </div>
       </div>
 

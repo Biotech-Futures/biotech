@@ -1,8 +1,6 @@
 """The results emails on the Release Results tab: the feedback survey details
-they give teams, a preview of each, and sending them in batches."""
+they give teams, a preview of each, and sending them (a run on the server)."""
 from __future__ import annotations
-
-import logging
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
@@ -16,8 +14,7 @@ from ..models import CertificatesRelease, MarksRelease, ResultsEmailSettings
 from ..permissions import IsGrader
 from ..services import results_notify, test_email
 from ..services.finalist_notify import symposium_today
-
-logger = logging.getLogger(__name__)
+from ..services.send_guard import AlreadySending, run_state, submissions_open_reason
 
 
 class ResultsEmailSettingsSerializer(serializers.ModelSerializer):
@@ -48,6 +45,10 @@ def _payload(details: ResultsEmailSettings) -> dict:
         "emails_on": results_notify.emails_on(),
         # Whether the documents each email carries can be made.
         "templates_ready": results_notify.templates_ready(),
+        # Why sending waits for submissions to close, or "".
+        "submissions_open": submissions_open_reason(),
+        # Whether a run is sending each email now, and its progress.
+        "runs": {audience: run_state(key) for audience, key in results_notify.EMAIL_KEYS.items()},
         **audience.counts(),
     }
 
@@ -164,11 +165,12 @@ class ResultsEmailPreviewView(APIView):
 
 
 class ResultsEmailSendView(APIView):
-    """POST /api/v1/grading/results-email/send/ — email ``audience``
-    ("groups" or "supervisors") for the next few teams or supervisors not
-    emailed yet. The page calls it again with the returned ``cursor`` until
-    ``done``. Refused until marks and certificates are released, and for
-    students until the survey details are set."""
+    """POST /api/v1/grading/results-email/send/ — start a run emailing
+    ``audience`` ("groups" or "supervisors") to every group or supervisor not
+    yet emailed, on the server, so the page can be closed; returns the
+    details with the run's progress. Refused until marks and certificates are
+    released, for groups until the survey details are set, while submissions
+    are open, and while a run of that email is going."""
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
 
@@ -179,18 +181,11 @@ class ResultsEmailSendView(APIView):
                 {"detail": 'audience must be "groups" or "supervisors"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        cursor = request.data.get("cursor")
-        if cursor is not None and not isinstance(cursor, int):
-            return Response({"detail": "cursor must be a number"}, status=status.HTTP_400_BAD_REQUEST)
         reason = results_notify.send_blocked_reason(ResultsEmailSettings.load(), audience)
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            result = results_notify.send_results_batch(request.user, audience, cursor)
-        except (ConnectionError, OSError) as exc:
-            logger.error("results email: mail server unreachable error=%s", type(exc).__name__)
-            return Response(
-                {"detail": "Couldn't reach the mail server. Nothing more was sent; try again shortly."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(result)
+            results_notify.start_send(request.user, audience)
+        except AlreadySending:
+            return Response({"detail": results_notify.ALREADY_SENDING}, status=status.HTTP_409_CONFLICT)
+        return Response(_payload(ResultsEmailSettings.load()))

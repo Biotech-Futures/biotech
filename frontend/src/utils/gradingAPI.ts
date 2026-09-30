@@ -23,12 +23,6 @@ export interface ComponentBlock {
   subtotal_max?: string
 }
 
-export interface MyGradesPayload {
-  group: { id: number; group_name: string }
-  year: number
-  components: ComponentBlock[]
-}
-
 // GET /api/v1/grading/release/ — surfaces released_at so the UI can decide
 // whether to render the Results tab. Kept public-ish (any authenticated user
 // can hit it if it becomes needed) but the current backend limits it to
@@ -74,10 +68,6 @@ async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Pro
 
   const text = await response.text()
   return (text ? JSON.parse(text) : null) as T
-}
-
-export function fetchMyGrades(): Promise<MyGradesPayload> {
-  return requestJson<MyGradesPayload>('/api/v1/grading/me/grades/')
 }
 
 // Submission file URLs are absolute when storage is Azure (SAS-signed) but
@@ -199,21 +189,6 @@ export async function downloadGroupCertificate(
     `/api/v1/grading/groups/${groupId}/results/certificate/${certificate.user_id}/`
   )
   triggerBlobDownload(blob, filename ?? certificate.file_name)
-}
-
-// Fetch bytes for the summary/certificate docx and trigger a browser download.
-// Rendered server-side via docxtpl (see backend/apps/grading/services/docx.py).
-async function downloadDocx(path: string, filename: string) {
-  const { blob } = await requestBlob(path)
-  triggerBlobDownload(blob, filename)
-}
-
-export function downloadMySummary(groupName: string) {
-  return downloadDocx('/api/v1/grading/me/summary/', `marks-summary-${groupName}.docx`)
-}
-
-export function downloadMyCertificate(groupName: string) {
-  return downloadDocx('/api/v1/grading/me/certificate/', `certificate-${groupName}.docx`)
 }
 
 // ---------------------------------------------------------------------------
@@ -870,8 +845,33 @@ export function fetchFinalistCandidates(): Promise<FinalistCandidatesResponse> {
 // POST /api/v1/grading/finalists/notify/ — email finalist teams not yet
 // notified. Pass groupIds to restrict the send to those teams; omitted means
 // all. Safe to repeat: already-notified flags are skipped server-side.
-export function notifyFinalists(groupIds?: number[]): Promise<{ sent: number; pending: number }> {
-  return requestJson<{ sent: number; pending: number }>('/api/v1/grading/finalists/notify/', {
+/** A bulk email's run on the server: the one going now, or the last. */
+export interface EmailRun {
+  /** People due the email when it started, and emailed so far. */
+  due: number
+  emailed: number
+  /** Teams or supervisors not emailed in full; the next run tries them again. */
+  failed: number
+  /** Why it stopped short, e.g. the mail server couldn't be reached, or "". */
+  error: string
+  started_at: string
+  finished_at: string | null
+}
+
+export interface EmailRunState {
+  /** A run is sending the email now. */
+  sending: boolean
+  run: EmailRun | null
+}
+
+/** The run started, and finalist teams still to notify. */
+export interface FinalistNotifyResult extends EmailRunState {
+  pending: number
+}
+
+// Starts a run on the server that emails them, so the page can be closed.
+export function notifyFinalists(groupIds?: number[]): Promise<FinalistNotifyResult> {
+  return requestJson<FinalistNotifyResult>('/api/v1/grading/finalists/notify/', {
     method: 'POST',
     body: JSON.stringify(groupIds?.length ? { group_ids: groupIds } : {})
   })
@@ -885,13 +885,15 @@ export interface FinalistEmailFields {
   registration_url: string
 }
 
-export interface FinalistEmailDetails extends FinalistEmailFields {
+export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState {
   /** Every detail is set, so the email can go out. */
   complete: boolean
   /** Sydney's today (YYYY-MM-DD): the earliest any of the dates may be. */
   today: string
   /** Saved date fields already before today, which block sending. */
   dates_in_past: string[]
+  /** Why sending waits for submissions (and extensions) to close, or "". */
+  submissions_open: string
 }
 
 // GET /api/v1/grading/finalists/email/ — the finalist email's dates and link.
@@ -1076,25 +1078,16 @@ export interface ResultsEmailDetails extends ResultsEmailFields {
   emails_on: Record<ResultsAudience, boolean>
   /** Whether the Document Setup templates each email's files need are uploaded. */
   templates_ready: Record<ResultsAudience, boolean>
+  /** Why sending waits for submissions (and extensions) to close, or "". */
+  submissions_open: string
+  /** Each email's run: whether it's sending now, and its progress. */
+  runs: Record<ResultsAudience, EmailRunState>
   /** Groups due the group email, which goes to their students and mentors. */
   groups: EmailedCount
   supervisors: EmailedCount
 }
 
 export type ResultsAudience = 'groups' | 'supervisors'
-
-export interface ResultsEmailBatch {
-  /** People emailed in this batch. */
-  emailed: number
-  /** Groups or supervisors not emailed in full. */
-  failed: number
-  /** The last group or supervisor tried; pass it back for the next batch. */
-  cursor: number
-  /** Everyone due has been tried in this run. */
-  done: boolean
-  groups: EmailedCount
-  supervisors: EmailedCount
-}
 
 export interface ResultsEmailPreview {
   subject: string
@@ -1150,13 +1143,12 @@ export async function downloadSupervisorMarksSheet(supervisorId: string): Promis
 
 // POST /api/v1/grading/results-email/send/ — email the next few groups, or
 // supervisors; call again with the returned cursor until done.
-export function sendResultsEmailBatch(
-  audience: ResultsAudience,
-  cursor: number | null
-): Promise<ResultsEmailBatch> {
-  return requestJson<ResultsEmailBatch>('/api/v1/grading/results-email/send/', {
+// POST /api/v1/grading/results-email/send/ — start a run on the server that
+// emails ``audience``, so the page can be closed; the details, with its progress.
+export function startResultsEmail(audience: ResultsAudience): Promise<ResultsEmailDetails> {
+  return requestJson<ResultsEmailDetails>('/api/v1/grading/results-email/send/', {
     method: 'POST',
-    body: JSON.stringify({ audience, cursor })
+    body: JSON.stringify({ audience })
   })
 }
 
@@ -1176,14 +1168,14 @@ export interface PeopleEmailedCount extends EmailedCount {
   times: EmailedCount
 }
 
-export interface SymposiumEmailStatus {
+export interface SymposiumEmailStatus extends EmailRunState {
   teams: EmailedCount
   /** Their members with an address, by role; each gets the email. */
   students: PeopleEmailedCount
   mentors: PeopleEmailedCount
   supervisors: PeopleEmailedCount
   /** Why sending is refused (details missing on Notify Finalists, switched
-   *  off), or "" when it may go ahead. */
+   *  off, submissions still open), or "" when it may go ahead. */
   blocked: string
 }
 
@@ -1192,19 +1184,6 @@ export interface SymposiumEmailPreview {
   /** The team the preview is addressed to. */
   to: string
   html: string
-}
-
-export interface SymposiumEmailBatch {
-  /** People emailed in this batch. */
-  emailed: number
-  /** Teams in this batch not emailed in full; left for the next press. */
-  failed: number
-  cursor: number
-  done: boolean
-  teams: EmailedCount
-  students: PeopleEmailedCount
-  mentors: PeopleEmailedCount
-  supervisors: PeopleEmailedCount
 }
 
 // GET /api/v1/grading/{nonfinalists|nonsubmissions}/ — who the email is for.
@@ -1227,13 +1206,12 @@ export function previewSymposiumEmail(
 
 // POST /api/v1/grading/{email}/send/ — email the next few teams; call again
 // with the returned cursor until done.
-export function sendSymposiumEmailBatch(
-  email: SymposiumEmail,
-  cursor: number | null
-): Promise<SymposiumEmailBatch> {
-  return requestJson<SymposiumEmailBatch>(`/api/v1/grading/${email}/send/`, {
+// POST /api/v1/grading/{nonfinalists|nonsubmissions}/send/ — start a run on
+// the server that emails every team due it, so the page can be closed.
+export function startSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailStatus> {
+  return requestJson<SymposiumEmailStatus>(`/api/v1/grading/${email}/send/`, {
     method: 'POST',
-    body: JSON.stringify({ cursor })
+    body: JSON.stringify({})
   })
 }
 

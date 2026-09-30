@@ -149,16 +149,24 @@
             :key="audience.value"
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="sending !== null || !canSend[audience.value]"
+            :disabled="starting !== null || !canSend[audience.value]"
             @click="confirming = audience.value"
           >
-            {{ sending === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
+            {{ starting === audience.value || runOf(audience.value).sending ? 'Sending…' : `Email ${audience.noun}` }}
           </button>
-          <span v-if="sending" class="release-results__progress" role="status">
-            Emailed
-            {{ sending === 'groups' ? plural(progress.emailed, 'person', 'people') : plural(progress.emailed, 'supervisor') }}
-            so far…
-          </span>
+          <template v-for="audience in AUDIENCES" :key="`progress-${audience.value}`">
+            <span
+              v-if="runOf(audience.value).sending && runOf(audience.value).run"
+              class="release-results__progress"
+              role="status"
+            >
+              Emailed {{ runOf(audience.value).run!.emailed }} of
+              {{ audience.value === 'groups'
+                ? plural(runOf(audience.value).run!.due, 'person', 'people')
+                : plural(runOf(audience.value).run!.due, 'supervisor') }}
+              so far…
+            </span>
+          </template>
         </div>
       </template>
     </section>
@@ -233,6 +241,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadResultsSampleSheet,
@@ -240,8 +249,9 @@ import {
   fetchResultsEmailDetails,
   fetchTestEmailRecipients,
   previewResultsEmail,
-  sendResultsEmailBatch,
+  startResultsEmail,
   updateResultsEmailDetails,
+  type EmailRun,
   type ResultsAudience,
   type ResultsEmailDetails,
   type ResultsEmailFields,
@@ -416,6 +426,8 @@ const releaseReason = computed(() => {
   if (d && (!d.marks_released || !d.certificates_released)) {
     return 'Release both marks and certificates before sending the results emails.'
   }
+  // Releasing waits for this too, but an extension granted since would not.
+  if (d?.submissions_open) return d.submissions_open
   return ''
 })
 
@@ -444,9 +456,16 @@ const blockedReasons = computed(() =>
   [releaseReason.value, audienceReason('groups'), audienceReason('supervisors')].filter(Boolean)
 )
 
+// Each email's run: whether it's sending now, and its progress.
+const runOf = (audience: ResultsAudience) => details.value?.runs[audience] ?? { sending: false, run: null }
+
 const canSend = computed(() => {
   const can = (audience: ResultsAudience) =>
-    details.value !== null && !releaseReason.value && !audienceReason(audience) && pending(audience) > 0
+    details.value !== null &&
+    !runOf(audience).sending &&
+    !releaseReason.value &&
+    !audienceReason(audience) &&
+    pending(audience) > 0
   return { groups: can('groups'), supervisors: can('supervisors') }
 })
 
@@ -461,46 +480,42 @@ const confirmText = computed(() => {
   return `This emails the ${plural(due, 'supervisor')} who haven't had their results email yet.`
 })
 
-const sending = ref<ResultsAudience | null>(null)
-const progress = ref({ emailed: 0, failed: 0 })
+// The Send request itself; the run then sends on the server.
+const starting = ref<ResultsAudience | null>(null)
 
-// A few at a time, so no single request runs long; progress shows between.
 const sendAll = async (audience: ResultsAudience) => {
   confirming.value = null
   actionError.value = ''
-  sending.value = audience
-  progress.value = { emailed: 0, failed: 0 }
-  let cursor: number | null = null
+  starting.value = audience
   try {
-    for (;;) {
-      const batch = await sendResultsEmailBatch(audience, cursor)
-      progress.value = {
-        emailed: progress.value.emailed + batch.emailed,
-        failed: progress.value.failed + batch.failed
-      }
-      if (details.value) {
-        details.value = { ...details.value, groups: batch.groups, supervisors: batch.supervisors }
-      }
-      cursor = batch.cursor
-      if (batch.done) break
-    }
-    const { emailed, failed } = progress.value
-    const sent = `Emailed ${audience === 'groups' ? plural(emailed, 'person', 'people') : plural(emailed, 'supervisor')}.`
-    const button = audience === 'groups' ? 'Email Groups' : 'Email Supervisors'
-    if (failed) {
-      const missed = audience === 'groups'
-        ? `${plural(failed, 'group')} ${failed === 1 ? "wasn't" : "weren't"} emailed in full`
-        : `${plural(failed, 'supervisor')} couldn't be emailed`
-      actionError.value = `${sent} ${missed}; press ${button} again to retry.`
-    } else {
-      flashAction(sent)
-    }
+    details.value = await startResultsEmail(audience)
+    // A run with little or nothing to send can be over by the reply.
+    const state = details.value.runs[audience]
+    if (!state.sending && state.run) reportRun(audience, state.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
-    sending.value = null
-    await loadDetails()
+    starting.value = null
   }
+}
+
+// How a run went, once this page saw it finish.
+const reportRun = (audience: ResultsAudience, run: EmailRun) => {
+  const sent = `Emailed ${audience === 'groups' ? plural(run.emailed, 'person', 'people') : plural(run.emailed, 'supervisor')}.`
+  const button = audience === 'groups' ? 'Email Groups' : 'Email Supervisors'
+  if (run.error) {
+    actionError.value = `${sent} ${run.error}`
+  } else if (run.failed) {
+    const missed = audience === 'groups'
+      ? `${plural(run.failed, 'group')} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
+      : `${plural(run.failed, 'supervisor')} couldn't be emailed`
+    actionError.value = `${sent} ${missed}; press ${button} again to retry.`
+  } else {
+    flashAction(sent)
+  }
+}
+for (const audience of ['groups', 'supervisors'] as const) {
+  useEmailRun(() => details.value?.runs[audience], loadDetails, (run) => reportRun(audience, run))
 }
 
 onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))

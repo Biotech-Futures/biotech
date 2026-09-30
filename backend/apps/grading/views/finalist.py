@@ -8,6 +8,7 @@ the notification path avoid spamming groups when admins toggle repeatedly.
 from __future__ import annotations
 
 from decimal import Decimal
+from functools import partial
 
 from django.db import transaction
 from django.db.models import Count, Sum
@@ -19,6 +20,7 @@ from rest_framework.views import APIView
 
 from apps.groups.models.groups import Groups
 from apps.services.email_branding import LOGO_CID, logo_data_uri
+from apps.submissions.emails import recipients_for
 
 from ..models import (
     FinalistEmailSettings,
@@ -31,6 +33,15 @@ from ..models import (
 from ..permissions import IsGrader
 from ..services import content, test_email
 from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
+from ..services.send_guard import (
+    FINALIST_SEND,
+    AlreadySending,
+    Work,
+    holding_send,
+    run_state,
+    start_run,
+    submissions_open_reason,
+)
 from ..services.symposium_emails import member_ids, role_counts
 from ..services.xlsx import _format_product_category, _format_solution_category
 
@@ -38,6 +49,7 @@ MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
     "link before sending."
 )
+ALREADY_SENDING = "Finalist emails are already being sent. Wait for that to finish."
 PAST_DATES = "The email's dates can't be before today. Update them before sending."
 
 
@@ -77,6 +89,10 @@ class FinalistEmailSettingsView(APIView):
             # ones are already before it.
             "today": today,
             "dates_in_past": details.dates_before(today),
+            # Why sending waits for submissions to close, or "".
+            "submissions_open": submissions_open_reason(),
+            # Whether a run is sending now, and its progress.
+            **run_state(FINALIST_SEND),
         }
 
     def get(self, request):
@@ -376,9 +392,10 @@ class FinalistNotifyAllView(APIView):
     Optional body ``{"group_ids": [1, 2, ...]}`` restricts the send to those
     groups; omitted or empty means every un-notified finalist.
 
-    Refused until every email detail is set. ``notify_finalist`` is a no-op
-    per flag when it was already notified, so this is safe to press
-    repeatedly.
+    Starts a run on the server that emails them, so the page can be closed,
+    and returns the run's progress. Refused until every email detail is set,
+    while submissions are still open, and while a run is going.
+    ``notify_finalist`` is a no-op per flag when it was already notified.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsGrader]
@@ -389,6 +406,9 @@ class FinalistNotifyAllView(APIView):
             return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
         if details.dates_before(symposium_today()):
             return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
+        open_reason = submissions_open_reason()
+        if open_reason:
+            return Response({"detail": open_reason}, status=status.HTTP_400_BAD_REQUEST)
         flags = FinalistFlag.objects.select_related("group").filter(notified=False)
         group_ids = request.data.get("group_ids")
         if group_ids:
@@ -398,13 +418,26 @@ class FinalistNotifyAllView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             flags = flags.filter(group_id__in=group_ids)
-        sent = sum(
-            1 for flag in flags if notify_finalist(flag, actor=request.user, details=details)
-        )
+        work = []
+        for flag in flags:
+            people = len(recipients_for(flag.group))
+            # A team with nobody to email has nothing to send.
+            if people:
+                work.append(Work(people, partial(_notify, flag, people, details, request.user)))
+        try:
+            start_run(FINALIST_SEND, request.user, work)
+        except AlreadySending:
+            return Response({"detail": ALREADY_SENDING}, status=status.HTTP_409_CONFLICT)
         return Response({
-            "sent": sent,
+            **run_state(FINALIST_SEND),
             "pending": FinalistFlag.objects.filter(notified=False).count(),
         })
+
+
+def _notify(flag, people: int, details, actor, connection, cache) -> tuple[int, bool]:
+    """One finalist team's email, as a run sends it."""
+    notified = notify_finalist(flag, actor=actor, details=details, connection=connection)
+    return (people if notified else 0), notified
 
 
 class FinalistToggleView(APIView):
@@ -434,8 +467,14 @@ class FinalistToggleView(APIView):
 
         should_notify = bool(request.data.get("notify"))
         notified_now = False
-        if should_notify:
-            notify_finalist(flag, actor=request.user)
+        # The team is flagged either way; the email waits for submissions to
+        # close, and for any send already running.
+        if should_notify and not submissions_open_reason():
+            try:
+                with holding_send(FINALIST_SEND):
+                    notify_finalist(flag, actor=request.user)
+            except AlreadySending:
+                pass
             notified_now = flag.notified  # notify_finalist sets it if it actually sent
 
         return Response(

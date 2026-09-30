@@ -87,7 +87,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     body?: unknown
   }
   const cases: Case[] = [
-    { name: 'fetchMyGrades', call: () => api.fetchMyGrades(), reply: { components: [] }, url: '/api/v1/grading/me/grades/' },
     { name: 'fetchCertificatesRelease', call: () => api.fetchCertificatesRelease(), reply: {}, url: '/api/v1/grading/certificates-release/' },
     {
       name: 'toggleCertificatesRelease',
@@ -320,14 +319,6 @@ describe('blob downloads', () => {
     await api.downloadSubmissionFile('https://blob.example/poster.pdf', 'poster.pdf')
     expect(lastCall().url).toBe('https://blob.example/poster.pdf')
     expect(clicks).toEqual(['poster.pdf'])
-  })
-
-  it('summary and certificate downloads carry the group name in the filename', async () => {
-    fetchMock.mockResolvedValueOnce(blobResponse())
-    await api.downloadMySummary('BTF-1')
-    fetchMock.mockResolvedValueOnce(blobResponse())
-    await api.downloadMyCertificate('BTF-1')
-    expect(clicks).toEqual(['marks-summary-BTF-1.docx', 'certificate-BTF-1.docx'])
   })
 
   it('template test renders download for both the stored and a candidate file', async () => {
