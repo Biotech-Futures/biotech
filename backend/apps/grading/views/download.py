@@ -23,19 +23,19 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..models import GradingJob, SubmissionComponent
-from ..permissions import IsGrader
 from ..services import content
 from ..services.dispatch import dispatch_job
-from ..services.zip import _COMPONENT_LABELS, _safe, build_submissions_zip
+from ..services.zip import _COMPONENT_LABELS, build_submissions_zip, safe_name
 
 
 class GroupDownloadView(APIView):
     """GET /api/v1/grading/groups/<id>/download/?component=all|<code>"""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
@@ -49,7 +49,7 @@ class GroupDownloadView(APIView):
         payload = build_submissions_zip(entries, group_folder=False)
         # Named year + group name, with
         # the component label appended for single-component downloads.
-        name = f"{current_cohort()}_{_safe(group.group_name)}"
+        name = f"{current_cohort()}_{safe_name(group.group_name)}"
         if component_code != "all":
             name += f"_{_COMPONENT_LABELS.get(component_code, component_code)}"
         response = HttpResponse(payload, content_type="application/zip")
@@ -69,7 +69,7 @@ class ComponentDownloadView(APIView):
     up jobs.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request, code: str):
         component = get_object_or_404(SubmissionComponent, code=code)
@@ -116,7 +116,7 @@ class AllSubmissionsDownloadView(APIView):
     contract as ComponentDownloadView: 202 with ``{"job_id": <int>}``.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         job = GradingJob.objects.create(
@@ -140,7 +140,7 @@ class GradingJobDetailView(generics.RetrieveAPIView):
     """
 
     queryset = GradingJob.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def retrieve(self, request, *args, **kwargs):
         job = self.get_object()
@@ -169,7 +169,7 @@ class GradingJobDownloadView(APIView):
     ``AzureStorage``) — the storage abstraction hides the difference.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, pk: int):
         job = get_object_or_404(GradingJob, pk=pk)

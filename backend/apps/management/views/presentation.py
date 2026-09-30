@@ -8,9 +8,10 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.common.storage import serve_managed_file
 from apps.grading.models import FinalistFlag
-from apps.grading.permissions import IsGrader
+from apps.grading.services.text import natural_key
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
 from apps.submissions.storage import FINALIST_SLIDES_FILES
@@ -18,10 +19,11 @@ from apps.submissions.storage import FINALIST_SLIDES_FILES
 from ..models import (
     FinalistEmailSettings,
     FinalistSlides,
+    PresentationAllocation,
     PresentationAvailability,
     PresentationSlot,
 )
-from ..services.results_notify import _person_name, natural_key
+from ..services.send_guard import person_name
 
 
 class PresentationSlotSerializer(serializers.ModelSerializer):
@@ -61,7 +63,7 @@ class PresentationSlotListView(APIView):
     times, earliest first, and adding one (``starts_at``, ``ends_at`` as
     "HH:MM"). Both answer with the whole list."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         return Response(_payload())
@@ -79,7 +81,7 @@ class PresentationSlotDetailView(APIView):
     change or remove one of this year's times. Both answer with the whole
     list."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _slot(slot_id: int) -> PresentationSlot:
@@ -105,9 +107,14 @@ def _finalist_teams() -> list:
     return sorted(
         Groups.objects.filter(
             deleted_at__isnull=True, year=current_cohort(), finalist_flag__isnull=False
-        ).select_related("finalist_flag"),
+        ).select_related("finalist_flag__presentation_allocation"),
         key=lambda team: natural_key(team.group_name),
     )
+
+
+def _allocated_slot_id(team) -> int | None:
+    allocation = getattr(team.finalist_flag, "presentation_allocation", None)
+    return allocation.slot_id if allocation else None
 
 
 class PresentationResponsesView(APIView):
@@ -121,7 +128,7 @@ class PresentationResponsesView(APIView):
                     "slot_ids": [...], "answered_at", "answered_by"}]}
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         teams = _finalist_teams()
@@ -139,10 +146,10 @@ class PresentationResponsesView(APIView):
             return {
                 "group_id": team.id,
                 "group_name": team.group_name,
-                "allocated_slot_id": team.finalist_flag.presentation_slot_id,
+                "allocated_slot_id": _allocated_slot_id(team),
                 "slot_ids": sorted(slot.id for slot in answer.slots.all()) if answer else [],
                 "answered_at": answer.submitted_at if answer else None,
-                "answered_by": _person_name(answer.submitted_by) if answer and answer.submitted_by else None,
+                "answered_by": person_name(answer.submitted_by) if answer and answer.submitted_by else None,
             }
 
         return Response({"teams": [row(team) for team in teams]})
@@ -160,7 +167,7 @@ class PresentationSlidesView(APIView):
                     "file_name", "submitted_by", "submitted_at"}]}
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         teams = _finalist_teams()
@@ -176,7 +183,7 @@ class PresentationSlidesView(APIView):
                 "group_name": team.group_name,
                 "submitted": deck is not None,
                 "file_name": (deck.file or {}).get("name", "") if deck else "",
-                "submitted_by": _person_name(deck.submitted_by) if deck and deck.submitted_by else None,
+                "submitted_by": person_name(deck.submitted_by) if deck and deck.submitted_by else None,
                 "submitted_at": deck.submitted_at if deck else None,
             }
 
@@ -199,7 +206,7 @@ class PresentationSlidesFileView(APIView):
     open a finalist team's slides: a PDF in the browser, anything else as a
     download (only a PDF is safe to show inline). 404 until they're in."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, group_id: int):
         team = next((t for t in _finalist_teams() if t.id == group_id), None)
@@ -224,7 +231,7 @@ class PresentationAllocationView(APIView):
     give a finalist team one of this year's times, ``{"slot_id": id}``, or
     take it away, ``{"slot_id": null}``. Several teams may share a time."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def put(self, request, group_id: int):
         flag = get_object_or_404(
@@ -235,17 +242,14 @@ class PresentationAllocationView(APIView):
         )
         slot_id = request.data.get("slot_id")
         if slot_id is None:
-            flag.presentation_slot = None
-        else:
-            # A number only: JSON's true would otherwise pass as 1.
-            is_id = isinstance(slot_id, int) and not isinstance(slot_id, bool)
-            slot = PresentationSlot.objects.filter(
-                pk=slot_id if is_id else None, year=current_cohort()
-            ).first()
-            if slot is None:
-                return Response(
-                    {"detail": "That time isn't one of this year's."}, status=status.HTTP_400_BAD_REQUEST
-                )
-            flag.presentation_slot = slot
-        flag.save(update_fields=["presentation_slot"])
-        return Response({"group_id": group_id, "slot_id": flag.presentation_slot_id})
+            PresentationAllocation.objects.filter(flag=flag).delete()
+            return Response({"group_id": group_id, "slot_id": None})
+        # A number only: JSON's true would otherwise pass as 1.
+        is_id = isinstance(slot_id, int) and not isinstance(slot_id, bool)
+        slot = PresentationSlot.objects.filter(pk=slot_id if is_id else None, year=current_cohort()).first()
+        if slot is None:
+            return Response(
+                {"detail": "That time isn't one of this year's."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        PresentationAllocation.objects.update_or_create(flag=flag, defaults={"slot": slot})
+        return Response({"group_id": group_id, "slot_id": slot.id})

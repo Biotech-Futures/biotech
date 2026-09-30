@@ -12,7 +12,8 @@ from apps.groups.models import GroupMembership, Groups
 from apps.management.models import CertificatesRelease, MarksRelease
 from apps.users.models import User
 
-from .fixtures import _GradingFixture, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture
+from tests.apps.management.fixtures import _seed_doc_templates
 
 
 def _member(email, group, role="student"):
@@ -50,16 +51,16 @@ class GroupResultsTests(_GradingFixture):
         return client
 
     def _results(self, user=None):
-        r = self._client(user or self.amy).get(reverse("grading:group-results", args=[self.group.id]))
+        r = self._client(user or self.amy).get(reverse("management:group-results", args=[self.group.id]))
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         return r.json()
 
     def _summary(self, user=None):
-        return self._client(user or self.amy).get(reverse("grading:group-results-summary", args=[self.group.id]))
+        return self._client(user or self.amy).get(reverse("management:group-results-summary", args=[self.group.id]))
 
     def _certificate(self, holder, user=None):
         return self._client(user or self.amy).get(
-            reverse("grading:group-results-certificate", args=[self.group.id, holder.id])
+            reverse("management:group-results-certificate", args=[self.group.id, holder.id])
         )
 
     def test_nothing_shows_before_anything_is_released(self):
@@ -162,7 +163,7 @@ class GroupResultsTests(_GradingFixture):
         student = _member("nia.ng@example.com", empty)
         _release(MarksRelease)
         _release(CertificatesRelease)
-        r = self._client(student).get(reverse("grading:group-results", args=[empty.id]))
+        r = self._client(student).get(reverse("management:group-results", args=[empty.id]))
         body = r.json()
         self.assertEqual((body["has_submission"], body["components"], body["certificates"]), (False, [], []))
 
@@ -172,6 +173,6 @@ class GroupResultsTests(_GradingFixture):
             with self.subTest(user=user.email):
                 self.assertEqual(self._results(user)["marks_released"], True)
         outsider = User.objects.create_user(email="out.sider@example.com", password="pw12345!")
-        r = self._client(outsider).get(reverse("grading:group-results", args=[self.group.id]))
+        r = self._client(outsider).get(reverse("management:group-results", args=[self.group.id]))
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self._summary(outsider).status_code, status.HTTP_403_FORBIDDEN)

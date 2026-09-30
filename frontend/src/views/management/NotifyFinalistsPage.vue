@@ -75,12 +75,12 @@
         {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
       </p>
       <!-- A notified team is one where every member got the email. -->
-      <p v-if="finalists.length && list" class="notify-finalists__counts">
-        Students: {{ list.counts.students.emailed }} of {{ list.counts.students.total }} emailed ·
-        Mentors: {{ list.counts.mentors.emailed }} of {{ list.counts.mentors.total }} emailed
-        (Times {{ list.counts.mentors.times.emailed }} of {{ list.counts.mentors.times.total }}) ·
-        Supervisors: {{ list.counts.supervisors.emailed }} of {{ list.counts.supervisors.total }} emailed
-        (Times {{ list.counts.supervisors.times.emailed }} of {{ list.counts.supervisors.times.total }})
+      <p v-if="finalists.length && details" class="notify-finalists__counts">
+        Students: {{ details.counts.students.emailed }} of {{ details.counts.students.total }} emailed ·
+        Mentors: {{ details.counts.mentors.emailed }} of {{ details.counts.mentors.total }} emailed
+        (Times {{ details.counts.mentors.times.emailed }} of {{ details.counts.mentors.times.total }}) ·
+        Supervisors: {{ details.counts.supervisors.emailed }} of {{ details.counts.supervisors.total }} emailed
+        (Times {{ details.counts.supervisors.times.emailed }} of {{ details.counts.supervisors.times.total }})
       </p>
       <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
       <div class="notify-finalists__email-actions">

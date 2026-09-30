@@ -1,15 +1,85 @@
 // The Management section's API: the run-the-competition levers (deadlines,
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
-import {
-  requestBlob,
-  requestJson,
-  triggerBlobDownload,
-  type EmailedCount,
-  type PeopleEmailedCount
-} from './gradingAPI'
+import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+export interface EmailedCount {
+  total: number
+  emailed: number
+}
+
+/** This year's teams due the email, and how many have it. */
+/** People due an email and emailed (at least once), and how many emails
+ *  that is: someone on several teams gets one per team. */
+export interface PeopleEmailedCount extends EmailedCount {
+  times: EmailedCount
+}
+
+// ---------------------------------------------------------------------------
+// The Results section on a group's page
+
+/** The marks summary's details and total, as its document has them. */
+export interface GroupResultsSummary {
+  project_title: string
+  /** "Project Category", or "Project Categories" for more than one. */
+  project_category_heading: string
+  project_category: string
+  solution_category: string
+  /** SAQ and Poster marks together, e.g. "40.5". */
+  combined_total: string
+  /** The most they could be, e.g. "70". */
+  combined_max: string
+}
+
+/** A student's or mentor's certificate in the group. */
+export interface GroupCertificate {
+  user_id: number
+  name: string
+  kind: 'student' | 'mentor'
+  file_name: string
+}
+
+export interface GroupResults {
+  marks_released: boolean
+  certificates_released: boolean
+  /** A finalist team's certificates, while certificates exclude finalists. */
+  certificates_withheld: boolean
+  /** Results are only for a group that made a submission. */
+  has_submission: boolean
+  year: number
+  /** Once marks are released: SAQ and Poster marks and comments. */
+  components: ComponentBlock[]
+  /** Once marks are released: as the marks summary fills them. */
+  summary: GroupResultsSummary | null
+  /** The marks summary's download name; "" until marks are released. */
+  summary_file_name: string
+  /** Once certificates are released: every student's, then mentor's. */
+  certificates: GroupCertificate[]
+}
+
+// GET /api/v1/management/groups/{id}/results/ — what's out for the group.
+export function fetchGroupResults(groupId: number | string): Promise<GroupResults> {
+  return requestJson<GroupResults>(`/api/v1/management/groups/${groupId}/results/`)
+}
+
+// GET /api/v1/management/groups/{id}/results/summary/ — the marks summary docx.
+export async function downloadGroupSummary(groupId: number | string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob(`/api/v1/management/groups/${groupId}/results/summary/`)
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/groups/{id}/results/certificate/{userId}/ — one certificate docx.
+export async function downloadGroupCertificate(
+  groupId: number | string,
+  certificate: GroupCertificate
+): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/groups/${groupId}/results/certificate/${certificate.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? certificate.file_name)
+}
 
 // ---------------------------------------------------------------------------
 // The submission deadline and per-team extensions
@@ -336,6 +406,9 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   dates_in_past: string[]
   /** Why sending waits for submissions (and extensions) to close, or "". */
   submissions_open: string
+  /** Everyone the finalist email goes to, by role; a notified team's
+   *  members count as emailed. */
+  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

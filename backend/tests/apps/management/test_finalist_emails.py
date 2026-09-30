@@ -419,3 +419,38 @@ class FinalistEmailTests(_GradingFixture):
         self.assertIn("can't be before today", r.json()["detail"])
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
+
+    def test_details_count_each_teams_students_mentors_and_supervisors(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        User = get_user_model()
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        members = (
+            ("student", None), ("student", None), ("student", timezone.now()),
+            ("mentor", None), ("supervisor", None), ("supervisor", None),
+        )
+        for n, (role, left) in enumerate(members):
+            member = User.objects.create_user(email=f"m{n}@example.com", password="pw12345!")
+            GroupMembership.objects.create(
+                group=self.group, user=member, membership_role=role,
+                joined_at=timezone.now() - timezone.timedelta(days=30), left_at=left,
+            )
+        # People and emails, by role: current members only, so not the
+        # student who left; nobody's emailed until the team is notified.
+        counts = self.client.get(reverse("management:finalist-email")).json()["counts"]
+        self.assertEqual(counts["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+        self.assertEqual(counts["mentors"], {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}})
+        self.assertEqual(counts["supervisors"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+
+    def test_a_mentor_on_two_finalist_teams_counts_once_with_two_emails(self):
+        from django.contrib.auth import get_user_model
+
+        mentor = get_user_model().objects.create_user(email="mo@example.com", password="pw12345!")
+        other = Groups.objects.create(group_name="BTF-OTHER")
+        for team, notified in ((self.group, True), (other, False)):
+            FinalistFlag.objects.create(group=team, flagged_by=self.staff, notified=notified)
+            GroupMembership.objects.create(group=team, user=mentor, membership_role="mentor")
+        counts = self.client.get(reverse("management:finalist-email")).json()["counts"]
+        # One mentor, emailed with the notified team; one of their two emails.
+        self.assertEqual(counts["mentors"], {"total": 1, "emailed": 1, "times": {"total": 2, "emailed": 1}})

@@ -9,8 +9,8 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.grading.models import FinalistFlag
-from apps.grading.permissions import IsGrader
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 from apps.submissions.emails import recipients_for
 
@@ -26,6 +26,7 @@ from ..services.send_guard import (
     start_run,
     submissions_open_reason,
 )
+from ..services.symposium_emails import member_ids, role_counts
 
 MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
@@ -55,11 +56,23 @@ class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
         return attrs
 
 
+def _email_counts() -> dict:
+    """The finalist teams' students, mentors and supervisors with an address
+    to be emailed at, and how many have been; a notified team's members
+    count as emailed (see ``role_counts``)."""
+    flags = list(FinalistFlag.objects.values_list("group_id", "notified"))
+    return role_counts(
+        member_ids(group_id for group_id, _ in flags),
+        [group_id for group_id, _ in flags],
+        {group_id for group_id, notified in flags if notified},
+    )
+
+
 class FinalistEmailSettingsView(APIView):
     """GET/PATCH /api/v1/management/finalists/email/ — the dates and link the
     finalist email gives teams. Also says whether the email is complete."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _payload(details: FinalistEmailSettings) -> dict:
@@ -75,6 +88,8 @@ class FinalistEmailSettingsView(APIView):
             "submissions_open": submissions_open_reason(),
             # Whether a run is sending now, and its progress.
             **run_state(FINALIST_SEND),
+            # Everyone due the email and emailed, by role.
+            "counts": _email_counts(),
         }
 
     def get(self, request):
@@ -94,7 +109,7 @@ class FinalistEmailPreviewView(APIView):
     the saved ones. Addressed to ``recipient``'s team (a person picked in
     Send Test Email), else the first finalist team not yet notified."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         details = FinalistEmailSettings.load()
@@ -137,7 +152,7 @@ class FinalistNotifyAllView(APIView):
     ``notify_finalist`` is a no-op per flag when it was already notified.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         details = FinalistEmailSettings.load()

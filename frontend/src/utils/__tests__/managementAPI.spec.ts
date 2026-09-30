@@ -47,6 +47,7 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     body?: unknown
   }
   const cases: Case[] = [
+    { name: 'fetchGroupResults', call: () => api.fetchGroupResults(7), reply: {}, url: '/api/v1/management/groups/7/results/' },
     { name: 'fetchCertificatesRelease', call: () => api.fetchCertificatesRelease(), reply: {}, url: '/api/v1/management/certificates-release/' },
     {
       name: 'toggleCertificatesRelease',

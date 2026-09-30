@@ -46,13 +46,6 @@ const candidate = (over: Record<string, unknown> = {}) => ({
   ...over
 })
 
-// Everyone the finalist email goes to, by role: people emailed, and the
-// emails that makes ("times"), as the server counts them.
-const COUNTS = {
-  students: { total: 6, emailed: 3, times: { total: 6, emailed: 3 } },
-  mentors: { total: 1, emailed: 1, times: { total: 2, emailed: 1 } },
-  supervisors: { total: 2, emailed: 1, times: { total: 3, emailed: 1 } }
-}
 
 const mountPage = async () => {
   const wrapper = mount(FinalistsPage, {
@@ -101,12 +94,9 @@ beforeEach(() => {
         flagged_by: 'Ada Admin',
         notified: false,
         notified_at: null,
-        notified_by: null,
-        students: 3
+        notified_by: null
       }
-    ],
-    counts: COUNTS
-  })
+    ] })
 })
 
 describe('the group marks ranking', () => {
@@ -302,11 +292,9 @@ describe('the current finalists', () => {
         {
           group_id: 2, group_name: 'BTF-2', flagged_at: '2026-09-20T00:00:00Z',
           flagged_by: 'Ada Admin', notified: true, notified_at: '2026-09-21T00:00:00Z',
-          notified_by: 'Ada Admin', students: 3
+          notified_by: 'Ada Admin'
         }
-      ],
-      counts: COUNTS
-    })
+      ] })
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /^Remove$/.test(b.text()))!.trigger('click')
     expect(wrapper.find('.finalists__dialog').text()).toContain(
@@ -315,7 +303,7 @@ describe('the current finalists', () => {
   })
 
   it('says so when nobody is flagged yet', async () => {
-    finalistsMock.mockResolvedValue({ finalists: [], counts: COUNTS })
+    finalistsMock.mockResolvedValue({ finalists: [] })
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain('No finalists yet.')
   })

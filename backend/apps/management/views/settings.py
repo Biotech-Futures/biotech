@@ -8,8 +8,11 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
+
 from ..models import GradingSettings
-from apps.grading.permissions import IsGrader
+from ..services import docx as docx_service
+from ..services import results_notify
 
 
 logger = logging.getLogger(__name__)
@@ -48,9 +51,6 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
             return uploaded
         if uploaded.size and uploaded.size > MAX_DOCUMENT_UPLOAD_BYTES:
             raise serializers.ValidationError("File is too large (10 MB max).")
-        # Local import: python-docx is heavier than anything else views pull in.
-        from apps.grading.services import docx as docx_service
-
         data = uploaded.read()
         uploaded.seek(0)
         try:
@@ -93,7 +93,7 @@ class GradingSettingsView(RetrieveUpdateAPIView):
     the save — re-uploads must not accumulate orphans in the media container.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     serializer_class = GradingSettingsSerializer
     # Accept multipart (file uploads) and JSON (director-name patches with no
     # file). Without JSONParser, plain-text PATCHes 415 with "Unsupported
@@ -152,9 +152,6 @@ def _read_candidate(request, kind: str):
         )
     if upload.size and upload.size > MAX_DOCUMENT_UPLOAD_BYTES:
         return None, None, Response({"detail": "File is too large (10 MB max)."}, status=400)
-    # Local import: python-docx is heavier than anything else views pull in.
-    from apps.grading.services import docx as docx_service
-
     data = upload.read()
     try:
         scan = docx_service.check_template_upload(kind, data)
@@ -180,9 +177,6 @@ def _docx_response(payload: bytes, kind: str, filename: str | None = None) -> Ht
 def _person_render(kind: str, person: str, template: bytes | None = None):
     """A test render with a real person's details (``person`` is a value from
     ``TemplatePeopleView``), or the error to answer with."""
-    from apps.grading.services import docx as docx_service
-    from ..services import results_notify
-
     try:
         name, payload = results_notify.document_for(kind, person, template)
     except docx_service.TemplateNotConfigured:
@@ -202,12 +196,10 @@ class TemplateScanView(APIView):
     the stored template.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request, kind: str):
-        from apps.grading.services import docx as docx_service
-
         try:
             return Response(docx_service.scan_template(kind))
         except ValueError:
@@ -228,7 +220,7 @@ class TemplateDownloadView(APIView):
     private blob storage the browser can't open directly.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, kind: str):
         field, filename = {
@@ -263,11 +255,9 @@ class TemplatePeopleView(APIView):
     be tested with: this year's students, or mentors for the mentor
     certificate, as ``{"options": [{"value", "label"}]}``."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, kind: str):
-        from ..services import results_notify
-
         if kind not in TEMPLATE_KINDS:
             return Response({"detail": "unknown template kind"}, status=404)
         return Response({"options": results_notify.document_people(kind)})
@@ -288,13 +278,10 @@ class TemplateTestRenderView(APIView):
     email would carry it.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request, kind: str):
-        # Local import: python-docx is heavier than anything else views pull in.
-        from apps.grading.services import docx as docx_service
-
         if kind not in TEMPLATE_KINDS:
             return Response({"detail": "unknown template kind"}, status=404)
         person = request.query_params.get("person")
@@ -320,8 +307,6 @@ class TemplateTestRenderView(APIView):
         return _docx_response(payload, kind)
 
     def post(self, request, kind: str):
-        from apps.grading.services import docx as docx_service
-
         data, _scan, error = _read_candidate(request, kind)
         if error:
             return error

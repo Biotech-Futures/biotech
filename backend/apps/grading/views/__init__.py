@@ -9,7 +9,6 @@ from .download import (
 from .finalist import FinalistCandidatesView, FinalistListView, FinalistToggleView
 from .grade import GradeBulkView, GradeUpdateView
 from .group import GroupCategoriesView, GroupMarkingView
-from .group_results import GroupResultsCertificateView, GroupResultsSummaryView, GroupResultsView
 from .upload import BulkUploadMarksView
 
 __all__ = [
@@ -27,7 +26,4 @@ __all__ = [
     "GroupCategoriesView",
     "GroupDownloadView",
     "GroupMarkingView",
-    "GroupResultsCertificateView",
-    "GroupResultsSummaryView",
-    "GroupResultsView",
 ]

@@ -17,7 +17,8 @@ from rest_framework.test import APIClient
 from apps.management.models import GradingSettings, MarksRelease
 from apps.submissions.models import Deadline, GroupExtension
 
-from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture
+from tests.apps.management.fixtures import _seed_doc_templates
 
 
 def _days_from_now(days: int) -> str:

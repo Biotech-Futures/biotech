@@ -9,13 +9,14 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
 from apps.grading.models import ComponentFeedback, Grade, GroupMarkingCategories
-from apps.grading.services.docx import (
-    _render_token_template,
-    _sum_marks,
-)
 from apps.management.models import GradingSettings
+from apps.management.services.docx import (
+    _render_token_template,
+    sum_marks,
+)
 
-from .fixtures import _GradingFixture, _build_docx, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture
+from tests.apps.management.fixtures import _build_docx, _seed_doc_templates
 
 
 class ClientDocxTemplateTests(_GradingFixture):
@@ -34,7 +35,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         return re.sub(r"<[^>]+>", "", cls._document_xml(data))
 
     def test_marks_release_tokens_filled(self):
-        from apps.grading.services.docx import marks_summary_context, render_marks_summary
+        from apps.management.services.docx import marks_summary_context, render_marks_summary
         from apps.grading.services.marks import grades_payload
 
         _seed_doc_templates()
@@ -60,7 +61,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("Strong poster overall.", xml)  # PosterOverallComment
 
     def test_director_positions_fill_both_templates(self):
-        from apps.grading.services.docx import (
+        from apps.management.services.docx import (
             certificate_context,
             marks_summary_context,
             render_certificate_data,
@@ -87,7 +88,7 @@ class ClientDocxTemplateTests(_GradingFixture):
             )
 
     def test_saq_comment_is_the_overall_saq_comment(self):
-        from apps.grading.services.docx import (
+        from apps.management.services.docx import (
             marks_summary_context,
             render_marks_summary_data,
             scan_template_data,
@@ -111,7 +112,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertEqual(report["unknown"], [])
 
     def test_marks_summary_carries_the_markers_categories(self):
-        from apps.grading.services.docx import marks_summary_context, render_marks_summary
+        from apps.management.services.docx import marks_summary_context, render_marks_summary
 
         row = GradingSettings.load()
         row.marks_summary_template = SimpleUploadedFile("marks.docx", _build_docx(
@@ -131,7 +132,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("Project: Health and Medicine, Wearables | Solution: App", xml)
 
     def test_marks_summary_headings_count_the_team(self):
-        from apps.grading.services.docx import marks_summary_context, render_marks_summary_data
+        from apps.management.services.docx import marks_summary_context, render_marks_summary_data
         from apps.groups.models.group_members import GroupMembership
         from apps.users.models import StudentProfile, User
 
@@ -167,14 +168,14 @@ class ClientDocxTemplateTests(_GradingFixture):
         )
 
     def test_marks_summary_categories_blank_when_none_chosen(self):
-        from apps.grading.services.docx import marks_summary_context
+        from apps.management.services.docx import marks_summary_context
 
         context = marks_summary_context(self.group, self.year, [])
         self.assertEqual(context["project_category"], "")
         self.assertEqual(context["solution_category"], "")
 
     def _render_dated_certificate(self) -> str:
-        from apps.grading.services import docx as docx_service
+        from apps.management.services import docx as docx_service
 
         row = GradingSettings.load()
         row.certificate_template = SimpleUploadedFile("cert.docx", _build_docx("Issued {{Date}}"))
@@ -211,17 +212,17 @@ class ClientDocxTemplateTests(_GradingFixture):
     def test_certificate_date_before_release_is_today(self):
         from django.utils import timezone
 
-        from apps.grading.services.docx import _ordinal_suffix
+        from apps.management.services.docx import ordinal_suffix
 
         today = timezone.localdate()
         text = re.sub(r"<[^>]+>", "", self._render_dated_certificate())
-        self.assertIn(f"Issued {today.day}{_ordinal_suffix(today.day)} {today:%B %Y}", text)
+        self.assertIn(f"Issued {today.day}{ordinal_suffix(today.day)} {today:%B %Y}", text)
 
     def test_the_document_setup_test_render_uses_sydneys_today_even_after_release(self):
         from datetime import datetime, timezone as dt_timezone
         from unittest import mock
 
-        from apps.grading.services.docx import render_certificate_data, sample_certificate_context
+        from apps.management.services.docx import render_certificate_data, sample_certificate_context
         from apps.management.models import CertificatesRelease
 
         release = CertificatesRelease.load()
@@ -238,7 +239,7 @@ class ClientDocxTemplateTests(_GradingFixture):
     def test_the_certificate_date_raises_its_ordinal_and_keeps_the_formatting(self):
         from docx import Document
 
-        from apps.grading.services.docx import certificate_context, render_certificate_data
+        from apps.management.services.docx import certificate_context, render_certificate_data
 
         template = Document()
         run = template.add_paragraph().add_run("On {{Date}}.")
@@ -257,16 +258,16 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertNotIn("\ue000", rendered.paragraphs[0].text)
 
     def test_ordinal_suffixes(self):
-        from apps.grading.services.docx import _ordinal_suffix
+        from apps.management.services.docx import ordinal_suffix
 
         self.assertEqual(
-            [f"{d}{_ordinal_suffix(d)}" for d in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 24, 30, 31)],
+            [f"{d}{ordinal_suffix(d)}" for d in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 24, 30, 31)],
             ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "24th", "30th", "31st"],
         )
 
     def _render_year(self, *, download_year: int = 2031) -> tuple[str, str]:
         """{{Year}} in a summary and a certificate, downloaded in ``download_year``."""
-        from apps.grading.services.docx import (
+        from apps.management.services.docx import (
             certificate_context,
             marks_summary_context,
             render_certificate_data,
@@ -319,7 +320,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         from datetime import datetime, timezone as dt_timezone
         from unittest import mock
 
-        from apps.grading.services.docx import (
+        from apps.management.services.docx import (
             render_certificate_data,
             render_marks_summary_data,
             sample_certificate_context,
@@ -340,7 +341,7 @@ class ClientDocxTemplateTests(_GradingFixture):
             self.assertIn("Chair 2027", self._document_xml(data))
 
     def test_the_test_summary_uses_the_real_rubric(self):
-        from apps.grading.services.docx import render_marks_summary_data, sample_marks_summary_context
+        from apps.management.services.docx import render_marks_summary_data, sample_marks_summary_context
 
         context = sample_marks_summary_context()
         by_code = {c["code"]: c for c in context["components"]}
@@ -359,20 +360,20 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertNotIn("Sample", xml)
 
     def test_the_test_summary_falls_back_when_this_year_has_no_rubric(self):
-        from apps.grading.services.docx import _sample_components
+        from apps.management.services.docx import sample_components
 
         # No 2030 rubric yet: the latest active one stands in.
-        by_code = {c["code"]: c for c in _sample_components(2030)}
+        by_code = {c["code"]: c for c in sample_components(2030)}
         self.assertEqual([c["name"] for c in by_code["SAQ"]["criteria"]], ["Content", "Clarity"])
 
         # No active rubric at all: no criteria, as on a real summary.
         self.poster_rubric.active = False
         self.poster_rubric.save(update_fields=["active"])
-        poster = {c["code"]: c for c in _sample_components(2026)}["POSTER"]
+        poster = {c["code"]: c for c in sample_components(2026)}["POSTER"]
         self.assertEqual(poster["criteria"], [])
 
     def test_the_template_check_knows_the_criterion_names_but_not_the_old_ones(self):
-        from apps.grading.services.docx import scan_template_data
+        from apps.management.services.docx import scan_template_data
 
         report = scan_template_data("marks-summary", _build_docx(
             "{{PosterRubric10}}: {{PM10}}/5 {{PosterComment10}} {{PosterOverallComment}} "
@@ -392,20 +393,20 @@ class ClientDocxTemplateTests(_GradingFixture):
         ])
 
     def test_the_template_check_recognises_year(self):
-        from apps.grading.services.docx import scan_template_data
+        from apps.management.services.docx import scan_template_data
 
         for kind in ("marks-summary", "certificate"):
             report = scan_template_data(kind, _build_docx("Chair {{Year}}"))
             self.assertEqual((report["present"], report["unknown"]), (["Year"], []), kind)
 
     def test_the_template_check_recognises_date(self):
-        from apps.grading.services.docx import scan_template_data
+        from apps.management.services.docx import scan_template_data
 
         report = scan_template_data("certificate", _build_docx("{{Date}}"))
         self.assertEqual((report["present"], report["unknown"]), (["Date"], []))
 
     def test_certificate_tokens_named_as_document_setup_lists_them(self):
-        from apps.grading.services.docx import (
+        from apps.management.services.docx import (
             certificate_context,
             render_participation_certificate,
             scan_template_data,
@@ -431,7 +432,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertEqual(report["unknown"], [])
 
     def test_a_certificate_with_the_older_first_and_last_name_still_names_the_student(self):
-        from apps.grading.services.docx import certificate_context, render_certificate_data
+        from apps.management.services.docx import certificate_context, render_certificate_data
 
         template = _build_docx("{{FirstName}} {{LastName}} — {{ProjectTitle}}")
         xml = self._document_xml(render_certificate_data(
@@ -485,7 +486,7 @@ class DocxEngineEdgeTests(SimpleTestCase):
         self.assertIn('<w:t xml:space="preserve"> Doe</w:t>', xml)
 
     def test_headings_are_plural_only_for_more_than_one(self):
-        from apps.grading.services.docx import marks_release_fields
+        from apps.management.services.docx import marks_release_fields
 
         def headings(count):
             fields = marks_release_fields({
@@ -592,7 +593,7 @@ class DocxEngineEdgeTests(SimpleTestCase):
         self.assertIn("Prof. Alice Adams", xml)
 
     def test_sum_marks_skips_unparseable_values(self):
-        total = _sum_marks([
+        total = sum_marks([
             {"mark": "3.50"},
             {"mark": "abc"},
             {"mark": None},
@@ -601,7 +602,7 @@ class DocxEngineEdgeTests(SimpleTestCase):
         self.assertEqual(total, Decimal("4.75"))
 
     def test_criterion_name_mark_and_comment_follow_rubric_order(self):
-        from apps.grading.services.docx import marks_release_fields
+        from apps.management.services.docx import marks_release_fields
 
         poster = [
             {"name": "Identifies problem", "mark": "4.00", "comment": "Clear."},
@@ -629,7 +630,7 @@ class DocxEngineEdgeTests(SimpleTestCase):
             self.assertNotIn(old, fields)
 
     def test_marks_print_as_whole_numbers_when_whole(self):
-        from apps.grading.services.docx import marks_release_fields
+        from apps.management.services.docx import marks_release_fields
 
         poster = [{"mark": m} for m in ("4.00", "4.50", "1.92", "", "5.00")]
         saq = [{"mark": "5.00"}, {"mark": "5.00"}]
@@ -688,7 +689,7 @@ class DirectorSignatureTests(_GradingFixture):
         return settings_row
 
     def _render(self):
-        from apps.grading.services.docx import marks_summary_context, render_marks_summary
+        from apps.management.services.docx import marks_summary_context, render_marks_summary
 
         return render_marks_summary(marks_summary_context(self.group, self.year, []))
 
@@ -728,3 +729,17 @@ class DirectorSignatureTests(_GradingFixture):
         self.assertFalse([n for n in names if n.startswith("word/media/")], names)
         self.assertNotIn("{{", xml)
         self.assertIn("Prof. Alice Adams", xml)
+
+
+class ProjectTitleTests(_GradingFixture):
+    def test_the_documents_use_the_submitted_title(self):
+        from apps.management.services.docx import project_title
+        from apps.submissions.models import Submission
+
+        # Submitted as "Plant Sensors", then a new draft title typed since.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant Sensors", project_title="A Later Draft"
+        )
+        self.assertEqual(project_title(self.group), "Plant Sensors")
+        Submission.objects.filter(group=self.group).update(submitted_project_title="")
+        self.assertEqual(project_title(self.group), "")

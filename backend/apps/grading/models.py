@@ -1,9 +1,6 @@
 from django.conf import settings
 from django.db import models
 
-# The old grading migrations name it here, from when the settings lived here.
-from apps.management.models import template_upload_to  # noqa: F401
-
 
 class SubmissionComponent(models.Model):
     """The gradeable parts of a team's entry (SAQ / POSTER / REPORT / PROTOTYPE).
@@ -221,15 +218,6 @@ class FinalistFlag(models.Model):
         null=True,
         blank=True,
         related_name="finalist_notifications",
-    )
-    # The presentation time allocated on the Finalist Presentation tab;
-    # cleared when that time is removed.
-    presentation_slot = models.ForeignKey(
-        "management.PresentationSlot",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="allocated_flags",
     )
 
     class Meta:

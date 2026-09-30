@@ -26,7 +26,8 @@ from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Submission
 from apps.users.models import StudentProfile, SupervisorProfile, User
 
-from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture
+from tests.apps.management.fixtures import _seed_doc_templates
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 

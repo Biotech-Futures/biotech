@@ -148,11 +148,6 @@ import {
   type BulkUploadResponse,
   type BulkUploadRowEntry
 } from '@/utils/gradingAPI'
-import {
-  challengeYear,
-  fetchSubmissionDeadline,
-  type SubmissionDeadline
-} from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 // Flow:
@@ -163,7 +158,8 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 // Single dialog rather than a wizard: fewer clicks, admin can swap the file
 // and it re-previews in place. The backend re-parses on apply so the committed
 // diff reflects current DB state, not just what was previewed.
-const props = defineProps<{ code: string }>()
+// ``year``: the challenge year, as the component table has it.
+const props = defineProps<{ code: string; year: number | null }>()
 
 // Friendly type labels, matching the sheet's `type` column values.
 const TYPE_LABELS: Record<string, string> = {
@@ -187,12 +183,8 @@ const busy = ref<'idle' | 'preview' | 'apply'>('idle')
 const fileInput = ref<HTMLInputElement | null>(null)
 
 // The year every row must carry: the current challenge year. The preview's
-// answer from the server wins once there is one; until then it is worked out
-// from the deadline the same way.
-const deadline = ref<SubmissionDeadline | null>(null)
-const shownYear = computed(
-  () => preview.value?.checks?.expected_year ?? challengeYear(deadline.value)
-)
+// answer from the server wins once there is one.
+const shownYear = computed(() => preview.value?.checks?.expected_year ?? props.year)
 
 // The four preview report lines, from the parser's categorised checks.
 const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-upload__check--bad')
@@ -331,10 +323,6 @@ const reset = () => {
 const openDialog = () => {
   reset()
   open.value = true
-  // Best-effort: without it the calendar year stands in.
-  fetchSubmissionDeadline()
-    .then((r) => (deadline.value = r.deadline))
-    .catch(() => {})
 }
 
 const closeDialog = () => {

@@ -22,6 +22,7 @@ from apps.services.system_email import RenderedEmail, build_message
 from ..models import FinalistEmailSettings, ResultsEmailSettings
 from . import results_notify, symposium_emails
 from .finalist_notify import render_finalist_email
+from .send_guard import person_name
 
 _ROLES = GroupMembership.MembershipRoleChoices
 # Students first on each team, then mentors, then supervisors.
@@ -44,7 +45,7 @@ def _member_options(teams, *, roles=None) -> list[dict]:
         memberships = memberships.filter(membership_role__in=roles)
     rows = {}
     for m in memberships:
-        name = results_notify._person_name(m.user)
+        name = person_name(m.user)
         role = "" if m.membership_role == _ROLES.STUDENT else f", {m.membership_role}"
         team = teams[m.group_id]
         rows[f"{m.group_id}:{m.user_id}"] = (
@@ -123,16 +124,16 @@ def _results_groups_render(value: str, fields: dict):
 
 def _results_supervisors_options() -> list[dict]:
     return [
-        {"value": str(s.id), "label": results_notify._person_name(s)}
+        {"value": str(s.id), "label": person_name(s)}
         for s in sorted(
             results_notify.results_audience().supervisors,
-            key=lambda s: results_notify._person_name(s).lower(),
+            key=lambda s: person_name(s).lower(),
         )
     ]
 
 
 def _supervisor_name(value: str) -> str:
-    return results_notify._person_name(get_user_model().objects.get(id=int(value)))
+    return person_name(get_user_model().objects.get(id=int(value)))
 
 
 def _results_supervisors_render(value: str, fields: dict):
@@ -140,7 +141,7 @@ def _results_supervisors_render(value: str, fields: dict):
     supervisor = next((s for s in audience.supervisors if str(s.id) == value), None)
     if supervisor is None:
         raise TestEmailError("That supervisor isn't due the results email.")
-    rendered = results_notify.render_supervisor_email(results_notify._person_name(supervisor), audience.year)
+    rendered = results_notify.render_supervisor_email(person_name(supervisor), audience.year)
     files = results_notify.supervisor_files(results_notify.Documents(audience.year), audience, supervisor)
     return rendered, files
 

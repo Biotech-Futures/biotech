@@ -4,8 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import generics
 
+from apps.common.rbac import IsStaffOrAdmin
+
 from ..models import ComponentFeedback, Grade, RubricCriterion
-from ..permissions import IsGrader
 from ..serializers import GradeBulkRequestSerializer, GradeSerializer
 from ..services import content
 
@@ -15,7 +16,7 @@ class GradeUpdateView(generics.UpdateAPIView):
 
     queryset = Grade.objects.all()
     serializer_class = GradeSerializer
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     http_method_names = ["patch"]
 
     def perform_update(self, serializer):
@@ -54,7 +55,7 @@ class GradeBulkView(APIView):
         changed, rather than writing over their marks.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @transaction.atomic
     def post(self, request):

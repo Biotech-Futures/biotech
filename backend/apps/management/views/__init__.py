@@ -1,5 +1,6 @@
 from .deadline import GroupExtensionDetailView, GroupExtensionListView, SubmissionDeadlineView
 from .finalist import FinalistEmailPreviewView, FinalistEmailSettingsView, FinalistNotifyAllView
+from .group_results import GroupResultsCertificateView, GroupResultsSummaryView, GroupResultsView
 from .nonfinalist import (
     NonFinalistEmailPreviewView,
     NonFinalistEmailSendView,
@@ -41,6 +42,9 @@ __all__ = [
     "GradingSettingsView",
     "GroupExtensionDetailView",
     "GroupExtensionListView",
+    "GroupResultsCertificateView",
+    "GroupResultsSummaryView",
+    "GroupResultsView",
     "MarksReleaseView",
     "NonFinalistEmailPreviewView",
     "NonFinalistEmailSendView",

@@ -3,8 +3,9 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
+
 from ..models import CertificatesRelease, MarksRelease
-from apps.grading.permissions import IsGrader
 
 
 def _released_by_label(rel):
@@ -25,7 +26,7 @@ class _SingletonReleaseView(APIView):
     Turning a gate OFF is always allowed.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     model = None  # subclasses set the singleton model
 
     @staticmethod

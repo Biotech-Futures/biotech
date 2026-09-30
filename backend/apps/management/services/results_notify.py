@@ -34,24 +34,10 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
 
-from apps.grading.services.docx import (
-    _open_template,
-    _ordinal_suffix,
-    _sample_components,
-    certificate_context,
-    marks_release_fields,
-    marks_summary_context,
-    project_title,
-    render_certificate_data,
-    render_marks_summary_data,
-    render_mentor_certificate_data,
-    sample_marks_summary_context,
-    signature_images,
-)
 from apps.grading.services.marks import grades_payload
 from apps.grading.services.text import natural_key
 from apps.grading.services.xlsx import build_team_marks_xlsx
-from apps.grading.services.zip import _safe
+from apps.grading.services.zip import safe_name
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_branding import brand_context
@@ -73,6 +59,20 @@ from ..models import (
     ResultsEmailSettings,
     ResultsSupervisorEmail,
     ResultsTeamEmail,
+)
+from .docx import (
+    certificate_context,
+    marks_release_fields,
+    marks_summary_context,
+    open_template,
+    ordinal_suffix,
+    project_title,
+    render_certificate_data,
+    render_marks_summary_data,
+    render_mentor_certificate_data,
+    sample_components,
+    sample_marks_summary_context,
+    signature_images,
 )
 from .finalist_notify import NOT_SET, symposium_today
 from .send_guard import Work, person_name, start_run, submissions_open_reason
@@ -134,17 +134,13 @@ def _closes_text(day: date | None) -> str:
     """"30th of November", as the client's email words it."""
     if day is None:
         return NOT_SET
-    return f"{day.day}{_ordinal_suffix(day.day)} of {day:%B}"
-
-
-def _person_name(user) -> str:
-    return f"{user.first_name} {user.last_name}".strip() or user.email
+    return f"{day.day}{ordinal_suffix(day.day)} of {day:%B}"
 
 
 # --- who gets them -------------------------------------------------------------
 
 
-def _team_members(teams, role) -> dict[int, list]:
+def team_members(teams, role) -> dict[int, list]:
     """Each team's active members in ``role``, by name: its students or its
     mentors, who its certificates are for."""
     members: dict[int, list] = {}
@@ -155,7 +151,7 @@ def _team_members(teams, role) -> dict[int, list]:
         if m.user and m.user.is_active:
             members.setdefault(m.group_id, []).append(m.user)
     for users in members.values():
-        users.sort(key=lambda user: _person_name(user).lower())
+        users.sort(key=lambda user: person_name(user).lower())
     return members
 
 
@@ -195,8 +191,8 @@ def results_audience(year: int | None = None) -> ResultsAudience:
         # Their certificates come at the Symposium, so this email isn't theirs yet.
         teams = teams.exclude(finalist_flag__isnull=False)
     team_list = list(teams.order_by("id"))
-    students = _team_members(team_list, _STUDENT_ROLE)
-    mentors = _team_members(team_list, _MENTOR_ROLE)
+    students = team_members(team_list, _STUDENT_ROLE)
+    mentors = team_members(team_list, _MENTOR_ROLE)
     recipients = {
         team.id: sorted({
             user.email
@@ -219,7 +215,7 @@ def results_audience(year: int | None = None) -> ResultsAudience:
             (profile.user, student_team[profile.user_id])
         )
     for pairs in supervisor_students.values():
-        pairs.sort(key=lambda pair: (natural_key(pair[1].group_name), _person_name(pair[0]).lower()))
+        pairs.sort(key=lambda pair: (natural_key(pair[1].group_name), person_name(pair[0]).lower()))
     supervisors = list(
         get_user_model()
         .objects.filter(id__in=list(supervisor_students), is_active=True)
@@ -319,9 +315,9 @@ class ResultsFile:
     make: Callable[[], bytes]
 
 
-def _file_name(year: int, kind: str, name: str, extension: str) -> str:
+def file_name(year: int, kind: str, name: str, extension: str) -> str:
     """As the downloads name them: "2026_BTF_Student_Certificate_Amy_Chen.docx"."""
-    return f"{year}_BTF_{kind}_{_safe(name)}.{extension}"
+    return f"{year}_BTF_{kind}_{safe_name(name)}.{extension}"
 
 
 def _numbered(files: list[ResultsFile]) -> list[ResultsFile]:
@@ -350,7 +346,7 @@ class Documents:
 
     def _template(self, field_name: str) -> bytes:
         if field_name not in self._templates:
-            with _open_template(getattr(self._grading, field_name)) as fh:
+            with open_template(getattr(self._grading, field_name)) as fh:
                 self._templates[field_name] = fh.read()
         return self._templates[field_name]
 
@@ -361,7 +357,7 @@ class Documents:
 
     def certificate(self, student, team) -> bytes:
         context = certificate_context(
-            _person_name(student), team.group_name, self.year,
+            person_name(student), team.group_name, self.year,
             first_name=student.first_name, last_name=student.last_name,
             project_title=project_title(team),
         )
@@ -369,7 +365,7 @@ class Documents:
 
     def mentor_certificate(self, mentor, team) -> bytes:
         context = certificate_context(
-            _person_name(mentor), team.group_name, self.year,
+            person_name(mentor), team.group_name, self.year,
             first_name=mentor.first_name, last_name=mentor.last_name,
             project_title=project_title(team),
         )
@@ -394,7 +390,7 @@ class Documents:
 def _certificates(docs: Documents, students) -> list[ResultsFile]:
     return [
         ResultsFile(
-            _file_name(docs.year, "Student_Certificate", _person_name(student), "docx"),
+            file_name(docs.year, "Student_Certificate", person_name(student), "docx"),
             DOCX,
             lambda student=student, team=team: docs.certificate(student, team),
         )
@@ -438,7 +434,7 @@ def sample_marks_sheet(year: int) -> bytes:
             project_title=title,
             students=students,
             mentors=mentors,
-            components=_sample_components(year, shift=n - 1),
+            components=sample_components(year, shift=n - 1),
         )
         rows.append(_sheet_row(marks_release_fields(context)))
     return _marks_sheet(rows)
@@ -447,7 +443,7 @@ def sample_marks_sheet(year: int) -> bytes:
 def _mentor_certificates(docs: Documents, audience: ResultsAudience, teams) -> list[ResultsFile]:
     return [
         ResultsFile(
-            _file_name(docs.year, "Mentor_Certificate", _person_name(mentor), "docx"),
+            file_name(docs.year, "Mentor_Certificate", person_name(mentor), "docx"),
             DOCX,
             lambda mentor=mentor, team=team: docs.mentor_certificate(mentor, team),
         )
@@ -465,7 +461,7 @@ def team_files(docs: Documents, audience: ResultsAudience, team) -> list[Results
         *_certificates(docs, students),
         *_mentor_certificates(docs, audience, [team]),
         ResultsFile(
-            _file_name(docs.year, "Marks", team.group_name, "docx"),
+            file_name(docs.year, "Marks", team.group_name, "docx"),
             DOCX,
             lambda: docs.marks_summary(team),
         ),
@@ -480,7 +476,7 @@ def _supervisor_teams(audience: ResultsAudience, supervisor) -> list:
 
 def supervisor_sheet_name(year: int, supervisor) -> str:
     """"2026_BTF_Student_Marks_Sam_Lee.xlsx": whose spreadsheet it is."""
-    return _file_name(year, "Student_Marks", _person_name(supervisor), "xlsx")
+    return file_name(year, "Student_Marks", person_name(supervisor), "xlsx")
 
 
 def supervisor_marks_sheet(audience: ResultsAudience, supervisor) -> bytes:
@@ -494,7 +490,7 @@ def supervisor_files(docs: Documents, audience: ResultsAudience, supervisor) -> 
     certificates, the certificates of those groups' mentors, then one
     spreadsheet of those groups' marks, a row per group."""
     students = audience.supervisor_students.get(supervisor.id, [])
-    by_name = sorted(students, key=lambda pair: _person_name(pair[0]).lower())
+    by_name = sorted(students, key=lambda pair: person_name(pair[0]).lower())
     teams = _supervisor_teams(audience, supervisor)
     return _numbered([
         *_certificates(docs, by_name),
@@ -521,10 +517,10 @@ def document_people(kind: str) -> list[dict]:
     groups that submitted (the marks summary is their group's), or their
     mentors for the mentor certificate. "(Team) Name" options, by team."""
     teams = list(_submitted_teams(current_cohort()))
-    members = _team_members(teams, _test_role(kind))
+    members = team_members(teams, _test_role(kind))
     rows = sorted(
-        (natural_key(team.group_name), _person_name(user).lower(), f"{team.id}:{user.id}",
-         f"({team.group_name}) {_person_name(user)}")
+        (natural_key(team.group_name), person_name(user).lower(), f"{team.id}:{user.id}",
+         f"({team.group_name}) {person_name(user)}")
         for team in teams
         for user in members.get(team.id, [])
     )
@@ -541,32 +537,32 @@ def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[
     except ValueError:
         raise ValueError("Pick someone from the list.") from None
     team = _submitted_teams(year).filter(id=team_id).first()
-    members = _team_members([team], _test_role(kind)).get(team_id, []) if team else []
+    members = team_members([team], _test_role(kind)).get(team_id, []) if team else []
     person = next((user for user in members if user.id == user_id), None)
     if person is None:
         raise ValueError("That person isn't on this year's list.")
     field_name = _TEMPLATE_FIELDS[kind]
     docs = Documents(year, {field_name: template} if template else None)
     if kind == "marks-summary":
-        return _file_name(year, "Marks", team.group_name, "docx"), docs.marks_summary(team)
+        return file_name(year, "Marks", team.group_name, "docx"), docs.marks_summary(team)
     if kind == "mentor-certificate":
         return (
-            _file_name(year, "Mentor_Certificate", _person_name(person), "docx"),
+            file_name(year, "Mentor_Certificate", person_name(person), "docx"),
             docs.mentor_certificate(person, team),
         )
     return (
-        _file_name(year, "Student_Certificate", _person_name(person), "docx"),
+        file_name(year, "Student_Certificate", person_name(person), "docx"),
         docs.certificate(person, team),
     )
 
 
 def example_file_names(audience: str, year: int) -> list[str]:
     """The attachments' names for a preview while nobody is due the email."""
-    student = _file_name(year, "Student_Certificate", "Name", "docx")
-    mentor = _file_name(year, "Mentor_Certificate", "Name", "docx")
+    student = file_name(year, "Student_Certificate", "Name", "docx")
+    mentor = file_name(year, "Mentor_Certificate", "Name", "docx")
     if audience == GROUPS:
-        return [student, mentor, _file_name(year, "Marks", "Team name", "docx")]
-    return [student, mentor, _file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
+        return [student, mentor, file_name(year, "Marks", "Team name", "docx")]
+    return [student, mentor, file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
 
 
 def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> list[str]:
@@ -616,7 +612,7 @@ def _send_item(
             rendered = render_team_email(item.group_name, details, result.year)
             planned = team_files(docs, result, item)
         else:
-            rendered = render_supervisor_email(_person_name(item), result.year)
+            rendered = render_supervisor_email(person_name(item), result.year)
             planned = supervisor_files(docs, result, item)
         # Made once: every copy carries the same files.
         files = [(f.name, f.make(), f.mimetype) for f in planned]

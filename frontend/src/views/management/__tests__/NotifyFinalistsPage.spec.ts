@@ -56,6 +56,7 @@ const details = (over: Record<string, unknown> = {}) => ({
   submissions_open: '',
   sending: false,
   run: null,
+  counts: COUNTS,
   ...over
 })
 
@@ -67,7 +68,6 @@ const finalist = (group_id: number, over: Record<string, unknown> = {}) => ({
   notified: false,
   notified_at: null,
   notified_by: null,
-  students: 3,
   ...over
 })
 
@@ -102,9 +102,7 @@ beforeEach(() => {
         notified_at: '2026-09-10T00:00:00Z',
         notified_by: 'Ada Admin'
       })
-    ],
-    counts: COUNTS
-  })
+    ] })
 })
 
 describe('the finalist roster', () => {
@@ -132,7 +130,7 @@ describe('the finalist roster', () => {
   })
 
   it('says so when no finalists exist yet', async () => {
-    listMock.mockResolvedValue({ finalists: [], counts: COUNTS })
+    listMock.mockResolvedValue({ finalists: [] })
     const wrapper = await mountPage()
     expect(wrapper.find('.notify-finalists__empty').text()).toBe('No finalists yet.')
     expect(wrapper.find('.notify-finalists__status').exists()).toBe(false)
@@ -153,9 +151,7 @@ describe('the finalist roster', () => {
 
   it('says every member was emailed once all teams are notified', async () => {
     listMock.mockResolvedValue({
-      finalists: [finalist(1, { notified: true, notified_at: '2026-09-10T00:00:00Z' })],
-      counts: COUNTS
-    })
+      finalists: [finalist(1, { notified: true, notified_at: '2026-09-10T00:00:00Z' })] })
     const wrapper = await mountPage()
     const status = wrapper.find('.notify-finalists__status')
     expect(status.text()).toBe('Emails are sent to every group member')

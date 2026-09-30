@@ -25,18 +25,18 @@ from zoneinfo import ZoneInfo
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
-from apps.submissions.services import current_cohort
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.text.run import Run
 
-from apps.management.models import CertificatesRelease, GradingSettings, MarksRelease
+from apps.grading.models import GroupMarkingCategories, Rubric, SubmissionComponent
+from apps.grading.services.text import xml_safe
+from apps.grading.services.xlsx import format_product_category, format_solution_category
+from apps.submissions.services import current_cohort
 
-from ..models import GroupMarkingCategories, Rubric, SubmissionComponent
-from .text import xml_safe
-from .xlsx import _format_product_category, _format_solution_category
+from ..models import CertificatesRelease, GradingSettings, MarksRelease
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class TemplateNotConfigured(FileNotFoundError):
     """No template uploaded via Document Setup."""
 
 
-def _open_template(setting_field):
+def open_template(setting_field):
     """Open the admin-uploaded docx — Document Setup is the only source."""
     if not setting_field:
         raise TemplateNotConfigured(
@@ -273,7 +273,7 @@ def _render_token_template(data: bytes, fields: dict, images: dict | None = None
 # Field mappings for the client's 2025 templates
 
 
-def _sum_marks(criteria: list[dict]) -> Decimal:
+def sum_marks(criteria: list[dict]) -> Decimal:
     total = Decimal("0")
     for c in criteria:
         try:
@@ -283,7 +283,7 @@ def _sum_marks(criteria: list[dict]) -> Decimal:
     return total
 
 
-def _mark_text(value) -> str:
+def mark_text(value) -> str:
     """A mark or total as printed: whole numbers without decimals ("4", "40"),
     a fractional mark without trailing zeros ("4.5"); blank stays blank."""
     if value in (None, ""):
@@ -354,14 +354,14 @@ def marks_release_fields(context: dict) -> dict:
         for i in range(count):
             c = rows[i] if i < len(rows) else None
             fields[f"{rubric}{i + 1}"] = (c.get("name") or "") if c else ""
-            fields[f"{mark}{i + 1}"] = _mark_text(c.get("mark")) if c else ""
+            fields[f"{mark}{i + 1}"] = mark_text(c.get("mark")) if c else ""
             fields[f"{comment}{i + 1}"] = (c.get("comment") or "") if c else ""
 
-    poster_total = _sum_marks(poster)
-    saq_total = _sum_marks(saq)
-    fields["PMTotal"] = _mark_text(poster_total)
-    fields["SMTotal"] = _mark_text(saq_total)
-    fields["CombinedTotal"] = _mark_text(poster_total + saq_total)
+    poster_total = sum_marks(poster)
+    saq_total = sum_marks(saq)
+    fields["PMTotal"] = mark_text(poster_total)
+    fields["SMTotal"] = mark_text(saq_total)
+    fields["CombinedTotal"] = mark_text(poster_total + saq_total)
     return fields
 
 
@@ -398,7 +398,7 @@ def mentor_certificate_fields(context: dict) -> dict:
     return fields
 
 
-def _ordinal_suffix(day: int) -> str:
+def ordinal_suffix(day: int) -> str:
     """1 -> "st", 2 -> "nd", 3 -> "rd", 11-13 -> "th", 21 -> "st"..."""
     if 11 <= day % 100 <= 13:
         return "th"
@@ -411,7 +411,7 @@ def _long_date(iso: str | None) -> str:
     if not iso:
         return ""
     day = date.fromisoformat(str(iso))
-    return f"{day.day}{_RAISE_START}{_ordinal_suffix(day.day)}{_RAISE_END} {day:%B %Y}"
+    return f"{day.day}{_RAISE_START}{ordinal_suffix(day.day)}{_RAISE_END} {day:%B %Y}"
 
 
 def _year_of(iso: str | None) -> str:
@@ -471,7 +471,7 @@ def render_marks_summary_data(data: bytes, context: dict, images: dict | None = 
 def render_marks_summary(context: dict) -> bytes:
     """Materialise a marks summary docx (see ``marks_summary_context``)."""
     settings = GradingSettings.load()
-    with _open_template(settings.marks_summary_template) as fh:
+    with open_template(settings.marks_summary_template) as fh:
         data = fh.read()
     return render_marks_summary_data(data, context)
 
@@ -504,7 +504,7 @@ def render_mentor_certificate_data(data: bytes, context: dict, images: dict | No
 def render_mentor_certificate(context: dict) -> bytes:
     """Materialise a mentor certificate docx (see ``certificate_context``)."""
     settings = GradingSettings.load()
-    with _open_template(settings.mentor_certificate_template) as fh:
+    with open_template(settings.mentor_certificate_template) as fh:
         data = fh.read()
     return render_mentor_certificate_data(data, context)
 
@@ -512,7 +512,7 @@ def render_mentor_certificate(context: dict) -> bytes:
 def render_participation_certificate(context: dict) -> bytes:
     """Materialise a certificate docx (see ``certificate_context``)."""
     settings = GradingSettings.load()
-    with _open_template(settings.certificate_template) as fh:
+    with open_template(settings.certificate_template) as fh:
         data = fh.read()
     return render_certificate_data(data, context)
 
@@ -525,7 +525,7 @@ def render_participation_certificate(context: dict) -> bytes:
 _SAMPLE_MARK_SHARES = (Decimal("0.6"), Decimal("0.7"), Decimal("0.8"), Decimal("0.9"))
 
 
-def _sample_components(year: int, shift: int = 0) -> list[dict]:
+def sample_components(year: int, shift: int = 0) -> list[dict]:
     """Every component with its real rubric, as a released summary would show
     it: this year's active rubric, else the component's latest active one.
     Marks and comments are made up; ``shift`` varies them, so several sample
@@ -570,7 +570,7 @@ def sample_marks_summary_context() -> dict:
         "project_category": "Sample Project Category",
         "solution_category": "Sample Solution Category",
         "year": current_cohort(),
-        "components": _sample_components(current_cohort()),
+        "components": sample_components(current_cohort()),
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "director_1_position": settings.director_1_position or "Sample Position One",
@@ -678,7 +678,7 @@ def scan_template(kind: str) -> dict:
     field = getattr(GradingSettings.load(), TEMPLATE_FIELDS[kind])
 
     try:
-        with _open_template(field) as fh:
+        with open_template(field) as fh:
             data = fh.read()
     except TemplateNotConfigured:
         # Nothing uploaded: an empty report, not an error — the settings page
@@ -773,7 +773,7 @@ def _team_details(group) -> dict:
 def project_title(group) -> str:
     """The title the team submitted with its entry; "" when it gave none
     (an entry made before titles were asked for, or none yet)."""
-    from .content import submitted_titles
+    from apps.grading.services.content import submitted_titles
 
     return submitted_titles([group.id]).get(group.id, "")
 
@@ -787,9 +787,9 @@ def marks_summary_context(group, year: int, components: list[dict]) -> dict:
         "project_title": project_title(group),
         "year": year,
         "components": components,
-        "project_category": _format_product_category(categories),
+        "project_category": format_product_category(categories),
         "project_category_count": len(categories.product_categories or []) if categories else 0,
-        "solution_category": _format_solution_category(categories),
+        "solution_category": format_solution_category(categories),
         "director_1_name": settings.director_1_name or "",
         "director_2_name": settings.director_2_name or "",
         "director_1_position": settings.director_1_position or "",

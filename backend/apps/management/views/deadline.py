@@ -9,7 +9,7 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.grading.permissions import IsGrader
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..services import deadline as deadlines
@@ -38,7 +38,7 @@ class GroupExtensionListView(APIView):
     accepting for the extension's own grace hours after it.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         return Response({"extensions": deadlines.group_extensions()})
@@ -77,7 +77,7 @@ class GroupExtensionDetailView(APIView):
     Idempotent 204 either way, so a double-click can't 500.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def delete(self, request, group_id: int):
         deadlines.remove_group_extension(group_id, revoked_by=request.user)
@@ -92,7 +92,7 @@ class SubmissionDeadlineView(APIView):
     rows are kept as the record, the newest wins.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         return Response({"deadline": deadlines.deadline_status()})

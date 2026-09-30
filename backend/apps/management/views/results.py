@@ -8,13 +8,13 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.grading.permissions import IsGrader
+from apps.common.rbac import IsStaffOrAdmin
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 
 from ..models import CertificatesRelease, MarksRelease, ResultsEmailSettings
 from ..services import results_notify, test_email
 from ..services.finalist_notify import symposium_today
-from ..services.send_guard import AlreadySending, run_state, submissions_open_reason
+from ..services.send_guard import AlreadySending, person_name, run_state, submissions_open_reason
 
 
 class ResultsEmailSettingsSerializer(serializers.ModelSerializer):
@@ -57,7 +57,7 @@ class ResultsEmailSettingsView(APIView):
     """GET/PATCH /api/v1/management/results-email/ — the survey details the team
     email gives, whether sending may start, and how many are emailed."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         return Response(_payload(ResultsEmailSettings.load()))
@@ -75,7 +75,7 @@ class ResultsSampleSheetView(APIView):
     the supervisor email carries, filled with made-up groups, so an admin can
     see what supervisors will get."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
         year = results_notify.results_audience().year
@@ -91,7 +91,7 @@ class ResultsSupervisorSheetView(APIView):
     the real marks spreadsheet that supervisor's email would carry, to check
     before sending. Only for a supervisor due the email."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, supervisor_id: int):
         audience = results_notify.results_audience()
@@ -118,7 +118,7 @@ class ResultsEmailPreviewView(APIView):
     picked in Send Test Email), else the first team or supervisor due to get
     it."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         audience_kind = request.data.get("audience")
@@ -155,7 +155,7 @@ class ResultsEmailPreviewView(APIView):
                 attachments = [f.name for f in results_notify.team_files(docs, audience, team)]
         else:
             supervisor = audience.supervisors[0] if audience.supervisors else None
-            to = results_notify._person_name(supervisor) if supervisor else "Supervisor name"
+            to = person_name(supervisor) if supervisor else "Supervisor name"
             rendered = results_notify.render_supervisor_email(to, audience.year)
             if supervisor:
                 attachments = [f.name for f in results_notify.supervisor_files(docs, audience, supervisor)]
@@ -172,7 +172,7 @@ class ResultsEmailSendView(APIView):
     released, for groups until the survey details are set, while submissions
     are open, and while a run of that email is going."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         audience = request.data.get("audience")

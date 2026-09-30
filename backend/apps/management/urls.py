@@ -8,6 +8,9 @@ from .views import (
     GradingSettingsView,
     GroupExtensionDetailView,
     GroupExtensionListView,
+    GroupResultsCertificateView,
+    GroupResultsSummaryView,
+    GroupResultsView,
     MarksReleaseView,
     NonFinalistEmailPreviewView,
     NonFinalistEmailSendView,
@@ -128,6 +131,19 @@ urlpatterns = [
 
     # Send Test Email beside each email tab's preview.
     path("test-email/<str:kind>/", TestEmailView.as_view(), name="test-email"),
+
+    # The Results section on a group's own page, for its members and admins.
+    path("groups/<int:group_id>/results/", GroupResultsView.as_view(), name="group-results"),
+    path(
+        "groups/<int:group_id>/results/summary/",
+        GroupResultsSummaryView.as_view(),
+        name="group-results-summary",
+    ),
+    path(
+        "groups/<int:group_id>/results/certificate/<int:user_id>/",
+        GroupResultsCertificateView.as_view(),
+        name="group-results-certificate",
+    ),
 
     # Results emails to teams and supervisors, from the Release Results tab.
     path("results-email/", ResultsEmailSettingsView.as_view(), name="results-email"),

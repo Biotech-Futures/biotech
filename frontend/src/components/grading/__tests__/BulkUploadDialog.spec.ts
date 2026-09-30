@@ -5,19 +5,12 @@ import {
   bulkUploadMarks,
   type BulkUploadResponse
 } from '@/utils/gradingAPI'
-import { fetchSubmissionDeadline } from '@/utils/managementAPI'
 
-// The real challengeYear, so the dialog's year follows the same rule as the app.
 vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/gradingAPI')>()),
   bulkUploadMarks: vi.fn()
 }))
-vi.mock('@/utils/managementAPI', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/utils/managementAPI')>()),
-  fetchSubmissionDeadline: vi.fn()
-}))
 const uploadMock = vi.mocked(bulkUploadMarks)
-const deadlineMock = vi.mocked(fetchSubmissionDeadline)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
@@ -57,9 +50,9 @@ const response = (over: Partial<BulkUploadResponse> = {}): BulkUploadResponse =>
   ...over
 })
 
-const mountDialog = (code = 'SAQ') =>
+const mountDialog = (code = 'SAQ', year = 2026) =>
   mount(BulkUploadDialog, {
-    props: { code },
+    props: { code, year },
     global: { stubs: { teleport: true } }
   })
 
@@ -87,7 +80,6 @@ const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'mar
 
 beforeEach(() => {
   uploadMock.mockReset()
-  deadlineMock.mockReset().mockResolvedValue({ deadline: null })
 })
 
 describe('opening the dialog', () => {
@@ -136,17 +128,8 @@ describe('opening the dialog', () => {
   })
 
   it('asks for year and group_name, not group_id, and gives the year every row carries', async () => {
-    // The challenge year follows the deadline, like the backend's current_cohort.
-    deadlineMock.mockResolvedValue({
-      deadline: {
-        closes_at: '2027-09-18T03:59:00Z',
-        grace_hours: 0,
-        is_open: true,
-        set_by: null,
-        created_at: '2027-01-01T00:00:00Z'
-      }
-    })
-    const wrapper = mountDialog('POSTER')
+    // The challenge year, as the component table has it from the server.
+    const wrapper = mountDialog('POSTER', 2027)
     await openDialog(wrapper)
     await flushPromises()
     const text = wrapper.text()
@@ -154,13 +137,6 @@ describe('opening the dialog', () => {
     expect(text).not.toContain('group_id')
     // The year line sits just before the type line.
     expect(text).toMatch(/Value of year is 2027 for all rows\s*Value of type is Poster for all rows/)
-  })
-
-  it('without a deadline, the year shown is this calendar year', async () => {
-    const wrapper = mountDialog('SAQ')
-    await openDialog(wrapper)
-    await flushPromises()
-    expect(wrapper.text()).toContain(`Value of year is ${new Date().getFullYear()} for all rows`)
   })
 
   it("once a file is previewed, the server's year is the one shown", async () => {

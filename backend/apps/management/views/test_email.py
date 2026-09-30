@@ -8,7 +8,8 @@ from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.grading.permissions import IsGrader
+
+from apps.common.rbac import IsStaffOrAdmin
 
 from ..services import test_email
 
@@ -28,7 +29,7 @@ class TestEmailView(APIView):
     The finalist and results emails also take the page's unsaved details,
     as their previews do. Nothing is recorded as sent."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, kind: str):
         if kind not in test_email.KINDS:

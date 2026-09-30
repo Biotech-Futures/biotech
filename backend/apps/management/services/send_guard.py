@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
@@ -116,18 +115,6 @@ def _take(key: str, **fields) -> bool:
         .filter(Q(held_until__isnull=True) | Q(held_until__lt=now))
         .update(held_until=now + SEND_LEASE, **fields)
     )
-
-
-@contextmanager
-def holding_send(key: str):
-    """Hold ``key``'s email for one send made in the request itself (flagging
-    a finalist with notify). Raises ``AlreadySending`` while a run holds it."""
-    if not _take(key):
-        raise AlreadySending
-    try:
-        yield
-    finally:
-        EmailSendRun.objects.filter(key=key).update(held_until=None)
 
 
 def start_run(key: str, actor, work: list[Work]) -> None:

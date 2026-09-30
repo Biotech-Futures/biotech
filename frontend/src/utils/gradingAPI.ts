@@ -115,70 +115,6 @@ export async function downloadSubmissionFile(url: string, fallbackName: string):
 }
 
 // ---------------------------------------------------------------------------
-// The Results section on a group's page
-
-/** The marks summary's details and total, as its document has them. */
-export interface GroupResultsSummary {
-  project_title: string
-  /** "Project Category", or "Project Categories" for more than one. */
-  project_category_heading: string
-  project_category: string
-  solution_category: string
-  /** SAQ and Poster marks together, e.g. "40.5". */
-  combined_total: string
-  /** The most they could be, e.g. "70". */
-  combined_max: string
-}
-
-/** A student's or mentor's certificate in the group. */
-export interface GroupCertificate {
-  user_id: number
-  name: string
-  kind: 'student' | 'mentor'
-  file_name: string
-}
-
-export interface GroupResults {
-  marks_released: boolean
-  certificates_released: boolean
-  /** A finalist team's certificates, while certificates exclude finalists. */
-  certificates_withheld: boolean
-  /** Results are only for a group that made a submission. */
-  has_submission: boolean
-  year: number
-  /** Once marks are released: SAQ and Poster marks and comments. */
-  components: ComponentBlock[]
-  /** Once marks are released: as the marks summary fills them. */
-  summary: GroupResultsSummary | null
-  /** The marks summary's download name; "" until marks are released. */
-  summary_file_name: string
-  /** Once certificates are released: every student's, then mentor's. */
-  certificates: GroupCertificate[]
-}
-
-// GET /api/v1/grading/groups/{id}/results/ — what's out for the group.
-export function fetchGroupResults(groupId: number | string): Promise<GroupResults> {
-  return requestJson<GroupResults>(`/api/v1/grading/groups/${groupId}/results/`)
-}
-
-// GET /api/v1/grading/groups/{id}/results/summary/ — the marks summary docx.
-export async function downloadGroupSummary(groupId: number | string, fallbackName: string): Promise<void> {
-  const { blob, filename } = await requestBlob(`/api/v1/grading/groups/${groupId}/results/summary/`)
-  triggerBlobDownload(blob, filename ?? fallbackName)
-}
-
-// GET /api/v1/grading/groups/{id}/results/certificate/{userId}/ — one certificate docx.
-export async function downloadGroupCertificate(
-  groupId: number | string,
-  certificate: GroupCertificate
-): Promise<void> {
-  const { blob, filename } = await requestBlob(
-    `/api/v1/grading/groups/${groupId}/results/certificate/${certificate.user_id}/`
-  )
-  triggerBlobDownload(blob, filename ?? certificate.file_name)
-}
-
-// ---------------------------------------------------------------------------
 // Admin marking API — ported from adminweb (src/query/grading.ts + type/
 // grading.ts). Decimal fields (mark, max_mark) come down as strings because
 // Django's DecimalField serialises that way — convert to Number only at the
@@ -414,27 +350,10 @@ export interface FinalistRow {
   notified: boolean
   notified_at: string | null
   notified_by: string | null
-  /** Students on the team with an address to be emailed at. */
-  students: number
 }
 
 export interface FinalistListResponse {
   finalists: FinalistRow[]
-  /** Everyone the finalist email goes to, by role; a notified team's
-   *  members count as emailed. */
-  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
-}
-
-export interface EmailedCount {
-  total: number
-  emailed: number
-}
-
-/** This year's teams due the email, and how many have it. */
-/** People due an email and emailed (at least once), and how many emails
- *  that is: someone on several teams gets one per team. */
-export interface PeopleEmailedCount extends EmailedCount {
-  times: EmailedCount
 }
 
 // GET /api/v1/grading/groups/{id}/ — composite marking payload for one group.
@@ -602,13 +521,10 @@ export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
-// POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
-// fires the notification email (once the email details are set).
-export function addFinalist(groupId: number, notify = false): Promise<void> {
-  return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, {
-    method: 'POST',
-    body: JSON.stringify({ notify })
-  })
+// POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert. Telling
+// the team is Notify Finalists' job.
+export function addFinalist(groupId: number): Promise<void> {
+  return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, { method: 'POST' })
 }
 
 // DELETE /api/v1/grading/groups/{id}/finalist/ — idempotent removal.

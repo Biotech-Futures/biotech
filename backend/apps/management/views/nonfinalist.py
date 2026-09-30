@@ -8,7 +8,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.grading.permissions import IsGrader
+from apps.common.rbac import IsStaffOrAdmin
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 
 from ..models import FinalistEmailSettings
@@ -31,7 +31,7 @@ def _status(email) -> dict:
 class _StatusView(APIView):
     """GET — this year's teams due the email (see ``_status``)."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     email = NONFINALIST
 
     def get(self, request):
@@ -43,7 +43,7 @@ class _PreviewView(APIView):
     ``recipient``'s team (a person picked in Send Test Email), else the first
     team due to get it."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     email = NONFINALIST
     # Its Send Test Email list.
     test_kind = "nonfinalists"
@@ -71,7 +71,7 @@ class _SendView(APIView):
     progress. Refused until the Symposium date and link are set, while
     submissions are open, and while a run is going."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     email = NONFINALIST
 
     def post(self, request):

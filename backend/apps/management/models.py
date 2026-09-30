@@ -160,6 +160,23 @@ class PresentationSlot(models.Model):
         return f"{self.year} {self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
 
 
+class PresentationAllocation(models.Model):
+    """The time a finalist team presents at the Symposium, given on the
+    Finalist Presentation tab. It goes when the team stops being a finalist
+    or the time is removed. Several teams may share a time."""
+
+    flag = models.OneToOneField(
+        "grading.FinalistFlag", on_delete=models.CASCADE, related_name="presentation_allocation"
+    )
+    slot = models.ForeignKey(PresentationSlot, on_delete=models.CASCADE, related_name="allocations")
+
+    class Meta:
+        db_table = "presentation_allocation"
+
+    def __str__(self):
+        return f"{self.flag_id}: {self.slot_id}"
+
+
 class PresentationAvailability(models.Model):
     """A finalist team's answer: every presentation time the team can make.
     Anyone on the team (students, mentors, supervisors) or an admin submits

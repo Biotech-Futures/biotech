@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('the JSON request core', () => {
   it('reads a payload without sending a CSRF token on GET', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ finalists: [], counts: {} }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ finalists: [] }))
     const list = await api.fetchFinalists()
     expect(list.finalists).toEqual([])
     const { url, init } = lastCall()
@@ -51,11 +51,10 @@ describe('the JSON request core', () => {
 
   it('sends the CSRF token on writes', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-    await api.addFinalist(4, true)
+    await api.addFinalist(4)
     const { init } = lastCall()
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>)['X-CSRFToken']).toBe('csrf-test')
-    expect(JSON.parse(String(init.body))).toEqual({ notify: true })
   })
 
   it('refuses to write when the secure session cannot be initialised', async () => {
@@ -141,13 +140,7 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     },
     { name: 'fetchFinalistCandidates', call: () => api.fetchFinalistCandidates(), reply: { rows: [] }, url: '/api/v1/grading/finalists/candidates/' },
     { name: 'fetchFinalists', call: () => api.fetchFinalists(), reply: { finalists: [] }, url: '/api/v1/grading/finalists/' },
-    {
-      name: 'addFinalist',
-      call: () => api.addFinalist(4, true),
-      url: '/api/v1/grading/groups/4/finalist/',
-      method: 'POST',
-      body: { notify: true }
-    },
+    { name: 'addFinalist', call: () => api.addFinalist(4), url: '/api/v1/grading/groups/4/finalist/', method: 'POST' },
     { name: 'removeFinalist', call: () => api.removeFinalist(4), url: '/api/v1/grading/groups/4/finalist/', method: 'DELETE' }
   ]
 

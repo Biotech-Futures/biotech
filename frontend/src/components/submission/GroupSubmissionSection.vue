@@ -89,7 +89,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/gradingAPI'
+import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/managementAPI'
 import { fetchFinalist } from '@/utils/finalistAPI'
 
 // vue-router silently replaces a route that reuses this name, so keep it unique.

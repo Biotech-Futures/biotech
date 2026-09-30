@@ -1,10 +1,10 @@
-"""The title a team submits with its entry: in the documents and on the
-marking page. It's the submitted title, not a later draft."""
+"""The title a team submits with its entry, on the marking page. It's the
+submitted title, not a later draft. The documents' use of it is tested with
+them (tests/apps/management/test_documents.py)."""
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.services.docx import project_title
 from apps.submissions.models import Submission
 
 from .fixtures import _GradingFixture
@@ -23,11 +23,6 @@ class ProjectTitleTests(_GradingFixture):
         r = self.client.get(reverse(name, args=args))
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         return r.json()
-
-    def test_the_documents_use_the_submitted_title(self):
-        self.assertEqual(project_title(self.group), "Plant Sensors")
-        Submission.objects.filter(group=self.group).update(submitted_project_title="")
-        self.assertEqual(project_title(self.group), "")
 
     def test_the_marking_page_carries_it(self):
         marking = self._get("grading:group-marking", self.group.id)

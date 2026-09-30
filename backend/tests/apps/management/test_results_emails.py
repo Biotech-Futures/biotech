@@ -32,7 +32,8 @@ from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Submission
 from apps.users.models import StudentProfile, SupervisorProfile, User
 
-from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
+from tests.apps.grading.fixtures import _GradingFixture
+from tests.apps.management.fixtures import _seed_doc_templates
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 SEND = "management:results-email-send"
@@ -687,7 +688,7 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_picked_file_is_tested_with_a_person_before_it_is_saved(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        from tests.apps.grading.fixtures import _build_docx
+        from tests.apps.management.fixtures import _build_docx
 
         url = reverse("management:settings-test-render", args=["certificate"])
         r = self.client.post(url, {

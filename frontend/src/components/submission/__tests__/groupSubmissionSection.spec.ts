@@ -27,7 +27,7 @@ const results = vi.hoisted(() => ({
     certificates: []
   } as Record<string, unknown>
 }))
-vi.mock('@/utils/gradingAPI', () => ({
+vi.mock('@/utils/managementAPI', () => ({
   fetchGroupResults: vi.fn(async () => results.current)
 }))
 // Whether the group is a finalist: the server answers, or refuses.

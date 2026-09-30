@@ -14,21 +14,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.rbac import group_participant_qs, is_admin
+from apps.grading.models import FinalistFlag
+from apps.grading.services import content
+from apps.grading.services.marks import RELEASED_PARTS, grades_payload
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.management.models import CertificatesRelease, MarksRelease
-from apps.management.services import results_notify
 
-from ..models import FinalistFlag
-from ..services import content
-from ..services.marks import RELEASED_PARTS, grades_payload
+from ..models import CertificatesRelease, MarksRelease
+from ..services import results_notify
 from ..services.docx import (
     TemplateNotConfigured,
-    _mark_text,
-    _sum_marks,
+    mark_text,
     marks_release_fields,
     marks_summary_context,
+    sum_marks,
 )
+from ..services.send_guard import person_name
 
 _ROLES = GroupMembership.MembershipRoleChoices
 NOT_SET_UP = "The document template has not been set up yet."
@@ -66,13 +67,13 @@ def _people(group) -> list[tuple[str, object]]:
     return [
         (kind, user)
         for kind, role in (("student", _ROLES.STUDENT), ("mentor", _ROLES.MENTOR))
-        for user in results_notify._team_members([group], role).get(group.id, [])
+        for user in results_notify.team_members([group], role).get(group.id, [])
     ]
 
 
 def _certificate_name(year: int, kind: str, user) -> str:
     label = "Student_Certificate" if kind == "student" else "Mentor_Certificate"
-    return results_notify._file_name(year, label, results_notify._person_name(user), "docx")
+    return results_notify.file_name(year, label, person_name(user), "docx")
 
 
 def _docx(payload: bytes, filename: str) -> HttpResponse:
@@ -89,11 +90,11 @@ def _results_part(part: dict) -> dict:
     return {
         **part,
         "criteria": [
-            {**criterion, "mark": _mark_text(criterion["mark"]), "max_mark": _mark_text(criterion["max_mark"])}
+            {**criterion, "mark": mark_text(criterion["mark"]), "max_mark": mark_text(criterion["max_mark"])}
             for criterion in part["criteria"]
         ],
-        "subtotal": _mark_text(_sum_marks(part["criteria"])),
-        "subtotal_max": _mark_text(most),
+        "subtotal": mark_text(sum_marks(part["criteria"])),
+        "subtotal_max": mark_text(most),
     }
 
 
@@ -108,12 +109,12 @@ def _summary(group, year: int, components: list[dict], parts: list[dict]) -> dic
         "project_category": fields["ProjectCategory"],
         "solution_category": fields["SolutionCategory"],
         "combined_total": fields["CombinedTotal"],
-        "combined_max": _mark_text(most),
+        "combined_max": mark_text(most),
     }
 
 
 class GroupResultsView(APIView):
-    """GET /api/v1/grading/groups/<id>/results/ — what the group's Results
+    """GET /api/v1/management/groups/<id>/results/ — what the group's Results
     section shows. The page shows the section once marks or certificates
     are released.
 
@@ -150,12 +151,12 @@ class GroupResultsView(APIView):
             "components": parts,
             "summary": _summary(group, year, components, parts) if shows_marks else None,
             "summary_file_name": (
-                results_notify._file_name(year, "Marks", group.group_name, "docx") if shows_marks else ""
+                results_notify.file_name(year, "Marks", group.group_name, "docx") if shows_marks else ""
             ),
             "certificates": [
                 {
                     "user_id": user.id,
-                    "name": results_notify._person_name(user),
+                    "name": person_name(user),
                     "kind": kind,
                     "file_name": _certificate_name(year, kind, user),
                 }
@@ -165,7 +166,7 @@ class GroupResultsView(APIView):
 
 
 class GroupResultsSummaryView(APIView):
-    """GET /api/v1/grading/groups/<id>/results/summary/ — the group's marks
+    """GET /api/v1/management/groups/<id>/results/summary/ — the group's marks
     summary, once marks are released."""
 
     permission_classes = [permissions.IsAuthenticated]
@@ -181,11 +182,11 @@ class GroupResultsSummaryView(APIView):
             payload = results_notify.Documents(group.year).marks_summary(group)
         except TemplateNotConfigured:
             return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-        return _docx(payload, results_notify._file_name(group.year, "Marks", group.group_name, "docx"))
+        return _docx(payload, results_notify.file_name(group.year, "Marks", group.group_name, "docx"))
 
 
 class GroupResultsCertificateView(APIView):
-    """GET /api/v1/grading/groups/<id>/results/certificate/<user_id>/ — one
+    """GET /api/v1/management/groups/<id>/results/certificate/<user_id>/ — one
     of the group's students' or mentors' certificates, once certificates are
     released (and not held back for a finalist team)."""
 

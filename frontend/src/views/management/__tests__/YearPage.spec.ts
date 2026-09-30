@@ -33,16 +33,9 @@ const finalist = (notified: boolean) => ({
   flagged_by: 'Ada Admin',
   notified,
   notified_at: notified ? '2026-09-02T00:00:00Z' : null,
-  notified_by: notified ? 'Ada Admin' : null,
-  students: 3
+  notified_by: notified ? 'Ada Admin' : null
 })
 
-// Everyone the finalist email goes to, by role (none emailed yet).
-const COUNTS = {
-  students: { total: 6, emailed: 3, times: { total: 6, emailed: 3 } },
-  mentors: { total: 1, emailed: 1, times: { total: 2, emailed: 1 } },
-  supervisors: { total: 2, emailed: 1, times: { total: 3, emailed: 1 } }
-}
 
 
 const extension = (until: string) => ({
@@ -64,7 +57,7 @@ const fact = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
 beforeEach(() => {
   certsMock.mockReset().mockResolvedValue({ released_at: null, released_by: null })
   marksMock.mockReset().mockResolvedValue({ released_at: '2026-09-20T00:00:00Z', released_by: 'Ada' })
-  finalistsMock.mockReset().mockResolvedValue({ finalists: [finalist(true), finalist(false)], counts: COUNTS })
+  finalistsMock.mockReset().mockResolvedValue({ finalists: [finalist(true), finalist(false)] })
   extensionsMock.mockReset().mockResolvedValue({
     extensions: [extension('2026-11-01T00:00:00Z'), extension('2026-11-08T00:00:00Z')]
   })
@@ -106,7 +99,7 @@ describe('the year dashboard', () => {
     const wrapper = await mountPage()
     expect(fact(wrapper, 'Notify finalists').text()).toContain('1 of 2 notified')
 
-    finalistsMock.mockResolvedValue({ finalists: [], counts: COUNTS })
+    finalistsMock.mockResolvedValue({ finalists: [] })
     const empty = await mountPage()
     expect(fact(empty, 'Notify finalists').text()).toContain('no finalists')
   })

@@ -1,10 +1,10 @@
-"""Finalist flagging. The finalist email and Notify Finalists are
-Management's (``apps.management.views.finalist``).
+"""Finalist flagging, on Select Finalists. Telling the teams (Notify
+Finalists) and scheduling them (Finalist Presentation) are Management's.
 
 Admins mark the top ~30 groups as finalists after marking closes. Flagging is
-idempotent — re-POSTing an already-flagged group updates ``flagged_at`` and
-optionally re-fires the notification. The ``notified`` bool on the flag lets
-the notification path avoid spamming groups when admins toggle repeatedly.
+idempotent — re-POSTing an already-flagged group updates ``flagged_at``. The
+``notified`` bool on the flag, set by Notify Finalists, keeps a team from
+being emailed twice.
 """
 from __future__ import annotations
 
@@ -18,15 +18,8 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
-from apps.management.services.finalist_notify import notify_finalist
-from apps.management.services.send_guard import (
-    FINALIST_SEND,
-    AlreadySending,
-    holding_send,
-    submissions_open_reason,
-)
-from apps.management.services.symposium_emails import member_ids, role_counts
 
 from ..models import (
     FinalistFlag,
@@ -35,14 +28,13 @@ from ..models import (
     Rubric,
     SubmissionComponent,
 )
-from ..permissions import IsGrader
 from ..services import content
-from ..services.xlsx import _format_product_category, _format_solution_category
+from ..services.xlsx import format_product_category, format_solution_category
 
 class FinalistListView(APIView):
     """GET /api/v1/grading/finalists/ — list every currently-flagged group."""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _user_name(user) -> str | None:
@@ -52,13 +44,9 @@ class FinalistListView(APIView):
         return full_name or user.email
 
     def get(self, request):
-        flags = list(
-            FinalistFlag.objects.select_related("group", "flagged_by", "notified_by")
-            .order_by("group__group_name")
+        flags = FinalistFlag.objects.select_related("group", "flagged_by", "notified_by").order_by(
+            "group__group_name"
         )
-        # Students, mentors and supervisors on each team who have an address
-        # to be emailed at.
-        members = member_ids(f.group_id for f in flags)
         return Response({
             "finalists": [
                 {
@@ -69,15 +57,9 @@ class FinalistListView(APIView):
                     "notified": f.notified,
                     "notified_at": f.notified_at,
                     "notified_by": self._user_name(f.notified_by),
-                    "students": len(members["students"].get(f.group_id, ())),
                 }
                 for f in flags
             ],
-            # Everyone due the email and emailed, by role; a notified team's
-            # members count as emailed (see ``role_counts``).
-            "counts": role_counts(
-                members, [f.group_id for f in flags], {f.group_id for f in flags if f.notified}
-            ),
         })
 
 
@@ -106,7 +88,7 @@ class FinalistCandidatesView(APIView):
     bottom alphabetically.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _fmt(value) -> str:
@@ -260,8 +242,8 @@ class FinalistCandidatesView(APIView):
                 # [{"label": "SAQ 1", "marker": "Ada"}, ...] in rubric order.
                 "criterion_markers": criterion_markers_by_group.get(g["id"], []),
                 "project_title": titles.get(g["id"]) or "",
-                "project_category": _format_product_category(categories.get(g["id"])),
-                "solution_category": _format_solution_category(categories.get(g["id"])),
+                "project_category": format_product_category(categories.get(g["id"])),
+                "solution_category": format_solution_category(categories.get(g["id"])),
                 "is_finalist": g["id"] in finalist_ids,
                 "has_submission": g["id"] in submitted_group_ids,
                 "incomplete": [
@@ -285,15 +267,12 @@ class FinalistCandidatesView(APIView):
 class FinalistToggleView(APIView):
     """POST/DELETE /api/v1/grading/groups/<id>/finalist/
 
-    POST body:
-        ``{"notify": true|false}`` — optional; default false.
-
     POST is upsert semantics. DELETE unflags (idempotent 204 either way —
     unflagging a non-flagged group is a no-op, not an error, so double-clicks
     don't 500).
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @transaction.atomic
     def post(self, request, group_id: int):
@@ -307,24 +286,11 @@ class FinalistToggleView(APIView):
             flag.flagged_by = request.user
             flag.save(update_fields=["flagged_at", "flagged_by"])
 
-        should_notify = bool(request.data.get("notify"))
-        notified_now = False
-        # The team is flagged either way; the email waits for submissions to
-        # close, and for any send already running.
-        if should_notify and not submissions_open_reason():
-            try:
-                with holding_send(FINALIST_SEND):
-                    notify_finalist(flag, actor=request.user)
-            except AlreadySending:
-                pass
-            notified_now = flag.notified  # notify_finalist sets it if it actually sent
-
         return Response(
             {
                 "group_id": flag.group_id,
                 "flagged_at": flag.flagged_at,
                 "notified": flag.notified,
-                "notified_now": notified_now,
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )

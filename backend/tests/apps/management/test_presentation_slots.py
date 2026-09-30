@@ -15,6 +15,7 @@ from apps.groups.models import GroupMembership, Groups
 from apps.management.models import (
     FinalistEmailSettings,
     FinalistSlides,
+    PresentationAllocation,
     PresentationAvailability,
     PresentationSlot,
 )
@@ -173,6 +174,14 @@ class PresentationResponseTests(_GradingFixture):
     def test_removing_a_time_clears_it_from_the_teams_given_it(self):
         self._allocate(self.btf2, self.noon.id)
         self.client.delete(reverse("management:presentation-slot-detail", args=[self.noon.id]))
+        self.assertIsNone(self._teams()[0]["allocated_slot_id"])
+
+    def test_a_team_no_longer_a_finalist_loses_its_time(self):
+        self._allocate(self.btf2, self.noon.id)
+        FinalistFlag.objects.filter(group=self.btf2).delete()
+        self.assertFalse(PresentationAllocation.objects.exists())
+        # Picked again, it starts without one.
+        FinalistFlag.objects.create(group=self.btf2, flagged_by=self.staff)
         self.assertIsNone(self._teams()[0]["allocated_slot_id"])
 
     def test_a_removed_time_drops_out_of_the_answers(self):

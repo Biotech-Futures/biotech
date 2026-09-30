@@ -34,7 +34,7 @@ from .text import natural_key, xml_safe
 from .upload import TYPE_LABELS
 
 
-def _format_product_category(cats: GroupMarkingCategories | None) -> str:
+def format_product_category(cats: GroupMarkingCategories | None) -> str:
     """The ticked options, with Other's text written in its place as plain
     text ("Health and Medicine, Wearables"); a bare "Other" when it has none."""
     if cats is None:
@@ -48,7 +48,7 @@ def _format_product_category(cats: GroupMarkingCategories | None) -> str:
     return ", ".join(labels)
 
 
-def _format_solution_category(cats: GroupMarkingCategories | None) -> str:
+def format_solution_category(cats: GroupMarkingCategories | None) -> str:
     """The picked option, or Other's text as plain text ("App")."""
     if cats is None:
         return ""
@@ -139,7 +139,7 @@ def build_saq_xlsx(
             _answer_cell(prompt, answers[prompt]) if prompt in answers else ""
             for prompt in prompts
         ]
-        row += [_format_product_category(cats), _format_solution_category(cats)]
+        row += [format_product_category(cats), format_solution_category(cats)]
         for criterion in criteria_list:
             existing = grades_by_pair.get((entry.submission_id, criterion.id))
             row += [

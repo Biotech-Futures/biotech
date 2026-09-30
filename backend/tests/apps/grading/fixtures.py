@@ -2,56 +2,21 @@
 
 Split out of the original monolithic test module: every test file in this
 package builds on ``_GradingFixture`` (one group with a submitted entry, the
-seeded components, SAQ + POSTER rubrics, a staff user) and the docx template
-helpers below.
+seeded components, SAQ + POSTER rubrics, a staff user). The document
+templates' helpers are Management's (tests/apps/management/fixtures.py).
 """
-import io
 from datetime import datetime, timedelta
 from decimal import Decimal
 from importlib import import_module
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.utils import timezone
 
 from apps.grading.models import Rubric, RubricCriterion, SubmissionComponent
 from apps.groups.models.groups import Groups
-from apps.management.models import GradingSettings
 from apps.submissions.models import Submission, SubmissionQuestion
 from apps.submissions.services import current_cohort
 from apps.users.models import User
-
-
-def _build_docx(text: str) -> bytes:
-    """A one-paragraph docx for template fixtures."""
-    from docx import Document as NewDocument
-
-    doc = NewDocument()
-    doc.add_paragraph(text)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-def _seed_doc_templates():
-    """Upload token templates — no fallbacks ship in the repo any more."""
-    row = GradingSettings.load()
-    row.marks_summary_template = SimpleUploadedFile(
-        "marks.docx",
-        _build_docx(
-            "Team {{TeamCode}} S1 {{SM1}} ({{ShortAnswerQuestionComment1}}) total {{CombinedTotal}} "
-            "poster: {{PosterOverallComment}}"
-        ),
-    )
-    row.certificate_template = SimpleUploadedFile(
-        "cert.docx", _build_docx("{{Name}} — {{ProjectTitle}}")
-    )
-    row.mentor_certificate_template = SimpleUploadedFile(
-        "mentor.docx", _build_docx("{{Name}} mentored {{ProjectTitle}}")
-    )
-    row.save()
-    return row
-
 
 
 def just_closed(hours: float = 24) -> datetime:
