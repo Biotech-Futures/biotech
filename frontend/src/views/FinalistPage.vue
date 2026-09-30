@@ -74,8 +74,6 @@
         </button>
       </div>
 
-      <slot name="steps" />
-
       <section class="card">
         <div class="finalist-part" data-testid="finalist-availability">
         <header class="section-head">
@@ -224,20 +222,6 @@
           {{ saveStateLabel }}
         </span>
 
-        <div class="submission-steps-nav">
-          <button
-            v-if="previousLabel"
-            class="btn btn-outline btn-icon"
-            type="button"
-            :disabled="isBusy"
-            :aria-label="`Back: ${previousLabel}`"
-            :title="`Back: ${previousLabel}`"
-            @click="emit('back')"
-          >
-            <i class="fas fa-arrow-left" aria-hidden="true"></i>
-          </button>
-        </div>
-
         <button v-if="isEditable" class="btn btn-primary" type="button" :disabled="isBusy" @click="onSubmit">
           {{ isSubmitting ? 'Submitting…' : 'Submit' }}
         </button>
@@ -264,9 +248,6 @@ import {
 } from '@/utils/finalistAPI'
 import { describeTimeRemaining, formatFileSize, isDeadlineNear as deadlineIsNear } from '@/utils/submissionFormat'
 import { useFileDragging } from '@/components/submission/useFileDragging'
-
-defineProps<{ previousLabel?: string }>()
-const emit = defineEmits<{ back: [] }>()
 
 const MESSAGE_TIMEOUT_MS = 4000
 const SAVE_DELAY_MS = 600
