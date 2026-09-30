@@ -21,6 +21,7 @@ const deadlineMock = vi.mocked(fetchSubmissionDeadline)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
+  header_order: '',
   bad_group_rows: [],
   bad_marks: [],
   ...over
@@ -116,10 +117,11 @@ describe('opening the dialog', () => {
     await openDialog(saq)
     const saqText = saq.text()
     expect(saqText).toContain('one row per group')
-    expect(saqText).toContain('q1')
-    expect(saqText).toContain('r1_mark')
-    expect(saqText).toContain('product_category')
-    expect(saqText).toContain('category_of_solution')
+    // The categories, then the marks and the overall comment.
+    expect(saqText).toMatch(
+      /year, group_name, type,\s*Then product_category, category_of_solution,\s*Then r1_mark\/r1_comment per criterion, and\s*overall_comment/
+    )
+    expect(saqText).toContain('Column headers must match exactly and need to be in order.')
     expect(saqText).toContain('SAQs')
     expect(saqText).not.toContain('criteria_no')
     // The comma rule sits just before the closing "Extra columns" line.
@@ -465,6 +467,26 @@ describe('the preview report', () => {
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): r2_comment')
     expect(text).not.toContain('Incorrect group details')
+  })
+
+  it('headers out of order stop the report there, saying which is out of place', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({ header_order: 'product_category should come before r1_mark' }),
+        errors: [{ row: 1, message: 'column headers out of order: product_category should come before r1_mark' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const headers = wrapper
+      .findAll('.bulk-upload__checks li')
+      .find((li) => li.text().startsWith('Missing Column Header(s):'))!
+    expect(headers.text()).toBe('Missing Column Header(s): product_category should come before r1_mark')
+    expect(headers.find('.bulk-upload__check--bad').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Incorrect mark format')
+    expect(wrapper.find('.bulk-upload__footer button').attributes('disabled')).toBeDefined()
   })
 
   it('wide-shape sheets (non SAQ) keep the Type check line', async () => {

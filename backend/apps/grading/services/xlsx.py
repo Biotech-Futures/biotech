@@ -4,12 +4,14 @@ Client explicitly said spreadsheet is easier than PDF for SAQ marking off-
 platform, so this is the primary text-export path. Shape — one row per
 group:
 
-    | year | group_name | type ("SAQs")      (year: the team's challenge year)
+    | year | group_name | type ("SAQs") | project_title   (year: the team's challenge year)
     | q1 | q2 | …            (each answer under its question, in bold)
+    | product_category | category_of_solution
     | r1_mark | r1_comment | r2_mark | r2_comment | …   (one pair per criterion)
-    | overall_comment | product_category | category_of_solution
+    | overall_comment
 
-``qN`` columns line up by question across groups (a group that skipped an
+Teams come in natural order, as the rest of the app lists them: BTF2
+before BTF10. ``qN`` columns line up by question across groups (a group that skipped an
 optional question gets a blank cell), in the questions' form order. Marks
 and comments are pre-filled from existing grades. The bulk upload identifies
 teams by a ``group_id`` column, which this sheet no longer carries.
@@ -28,7 +30,7 @@ from openpyxl.utils import get_column_letter
 
 from ..models import Grade, GroupMarkingCategories, RubricCriterion
 from .content import ComponentEntry
-from .text import xml_safe
+from .text import natural_key, xml_safe
 from .upload import TYPE_LABELS
 
 
@@ -106,7 +108,7 @@ def build_saq_xlsx(
     id to its challenge year for the ``year`` column. All data is pushed from
     the caller so the export layer stays ORM-free.
     """
-    entries = list(entries)
+    entries = sorted(entries, key=lambda entry: (natural_key(entry.group_name), entry.group_id))
     criteria_list = list(criteria)
     grades_by_pair = grades_by_pair or {}
     feedback_by_group = feedback_by_group or {}
@@ -114,11 +116,12 @@ def build_saq_xlsx(
     years_by_group = years_by_group or {}
     prompts = _question_columns(entries, questions)
 
-    headers = ["year", "group_name", "project_title", "type"]
+    headers = ["year", "group_name", "type", "project_title"]
     headers += [f"q{i}" for i in range(1, len(prompts) + 1)]
+    headers += ["product_category", "category_of_solution"]
     for i in range(1, len(criteria_list) + 1):
         headers += [f"r{i}_mark", f"r{i}_comment"]
-    headers += ["overall_comment", "product_category", "category_of_solution"]
+    headers += ["overall_comment"]
 
     wb = Workbook()
     ws = wb.active
@@ -131,22 +134,19 @@ def build_saq_xlsx(
     for entry in entries:
         cats = categories_by_group.get(entry.group_id)
         answers = dict(entry.answers)
-        row = [years_by_group.get(entry.group_id), entry.group_name, entry.project_title, TYPE_LABELS["SAQ"]]
+        row = [years_by_group.get(entry.group_id), entry.group_name, TYPE_LABELS["SAQ"], entry.project_title]
         row += [
             _answer_cell(prompt, answers[prompt]) if prompt in answers else ""
             for prompt in prompts
         ]
+        row += [_format_product_category(cats), _format_solution_category(cats)]
         for criterion in criteria_list:
             existing = grades_by_pair.get((entry.submission_id, criterion.id))
             row += [
                 float(existing.mark) if existing and existing.mark is not None else None,
                 existing.comment if existing else "",
             ]
-        row += [
-            feedback_by_group.get(entry.group_id, ""),
-            _format_product_category(cats),
-            _format_solution_category(cats),
-        ]
+        row.append(feedback_by_group.get(entry.group_id, ""))
         ws.append([_text(value) for value in row])
 
     # Answers, comments, the title and the category columns wrap in fixed-width

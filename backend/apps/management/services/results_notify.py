@@ -23,7 +23,6 @@ Who gets them, for the challenge year (``current_cohort``):
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -49,6 +48,7 @@ from apps.grading.services.docx import (
     sample_marks_summary_context,
     signature_images,
 )
+from apps.grading.services.text import natural_key
 from apps.grading.services.xlsx import build_team_marks_xlsx
 from apps.grading.services.zip import _safe
 from apps.groups.models.group_members import GroupMembership
@@ -138,13 +138,6 @@ def _closes_text(day: date | None) -> str:
 
 def _person_name(user) -> str:
     return f"{user.first_name} {user.last_name}".strip() or user.email
-
-
-def natural_key(text: str) -> tuple:
-    """Sorts "BTF2" before "BTF10": runs of digits compare as numbers."""
-    # Splitting on a captured group puts the digit runs at the odd places.
-    parts = re.split(r"(\d+)", text.lower())
-    return tuple(int(part) if i % 2 else part for i, part in enumerate(parts))
 
 
 # --- who gets them -------------------------------------------------------------

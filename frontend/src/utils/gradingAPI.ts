@@ -351,6 +351,9 @@ export interface BulkUploadSummary {
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
+  /** Why the known headers are out of order, e.g. "product_category should
+   *  come before r1_mark"; "" when they are in order. */
+  header_order?: string
   // The sheet's type column check ("SAQs", "Poster", …).
   expected_type?: string
   /** The only year the sheet's rows may carry: the current challenge year. */

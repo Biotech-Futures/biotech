@@ -22,10 +22,9 @@
           .xlsx or .csv in the export's shape (one row per group)<br />
           <code>year</code>, <code>group_name</code>, <code>type</code>,<br />
           <template v-if="code === 'SAQ'">
-            Then <code>q1</code>, <code>q2</code> … (the answers, not read on upload),<br />
-            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion,<br />
-            Then <code>overall_comment</code>, <code>product_category</code> and
-            <code>category_of_solution</code>
+            Then <code>product_category</code>, <code>category_of_solution</code>,<br />
+            Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
+            <code>overall_comment</code>
           </template>
           <template v-else>
             Then <code>r1_mark</code>/<code>r1_comment</code> per criterion, and
@@ -33,7 +32,7 @@
           </template>
         </p>
         <p class="bulk-upload__desc">
-          Column headers must match exactly.<br />
+          Column headers must match exactly and need to be in order.<br />
           Value of <code>year</code> is <code>{{ shownYear }}</code> for all rows<br />
           Value of <code>type</code> is <code>{{ typeLabel }}</code> for all rows<br />
           <template v-if="code === 'SAQ'">
@@ -63,13 +62,15 @@
           <ul v-if="preview.checks" class="bulk-upload__checks">
             <li>
               Missing Column Header(s):
-              <span :class="checkClass(!preview.checks.missing_headers.length)">
+              <span
+                :class="checkClass(!preview.checks.missing_headers.length && !preview.checks.header_order)"
+              >
                 {{ checkHeaderText }}
               </span>
             </li>
             <!-- A failed header check stops parsing, so the checks below
                  never ran — hide them rather than show a misleading None. -->
-            <template v-if="!preview.checks.missing_headers.length">
+            <template v-if="!preview.checks.missing_headers.length && !preview.checks.header_order">
               <!-- The sheet's year column check, then its teams, then its type. -->
               <li v-if="preview.checks.year_ok !== undefined">
                 Year:
@@ -199,7 +200,9 @@ const checkClass = (ok: boolean) => (ok ? 'bulk-upload__check--ok' : 'bulk-uploa
 const checkHeaderText = computed(() => {
   const c = preview.value?.checks
   if (!c) return ''
-  return c.missing_headers.length ? c.missing_headers.join(', ') : 'None'
+  // Headers out of order are reported here too.
+  if (c.missing_headers.length) return c.missing_headers.join(', ')
+  return c.header_order || 'None'
 })
 
 const checkTypeText = computed(() => {
