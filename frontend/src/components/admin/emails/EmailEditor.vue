@@ -385,4 +385,122 @@ const insertIntoSubject = (token: string) => {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+/* Dark theme: the note, subject and body editor take the grey other pages
+   give their boxes, with light text. */
+:root[data-theme='dark'] .email-editor__title {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor__switch-label {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .email-editor__note--muted,
+:root[data-theme='dark'] .email-editor__subject {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor__note--muted {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .email-editor__actions {
+  border-top-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.rich-editor-container) {
+  background-color: var(--surface-elevated);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.rich-editor-toolbar) {
+  background-color: var(--surface-elevated);
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn) {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn:hover:not(:disabled)),
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item:hover) {
+  background-color: var(--border-light);
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn.active),
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item.active) {
+  background-color: rgba(96, 165, 250, 0.18);
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-sep),
+:root[data-theme='dark'] .email-editor :deep(.email-look-sep) {
+  background-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.heading-dropdown-menu) {
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item) {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.table-context-bar) {
+  background-color: rgba(96, 165, 250, 0.12);
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.table-context-heading),
+:root[data-theme='dark'] .email-editor :deep(.table-context-title),
+:root[data-theme='dark'] .email-editor :deep(.table-action-btn:not(.danger)) {
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.raw-html-textarea),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h1),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h2),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h3),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h4) {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror blockquote) {
+  color: var(--text-muted);
+  border-left-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror a) {
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror code),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th) {
+  background-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror td) {
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror hr) {
+  border-top-color: var(--border-light);
+}
+
+/* The email's own boxes keep their light backgrounds, so their text stays
+   dark and their links blue. */
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box) {
+  color: #1f2937;
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box a:not([style])) {
+  color: #2563eb;
+}
 </style>

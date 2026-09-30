@@ -881,6 +881,21 @@ select {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.24);
 }
 
+/* Dark theme: grey like other pages' inputs, rather than white. */
+:root[data-theme='dark'] .search-bar {
+  border-color: var(--border-light);
+  background: var(--surface-elevated);
+}
+
+:root[data-theme='dark'] .search-bar:focus {
+  border-color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .search-bar::placeholder,
+:root[data-theme='dark'] .program-search i {
+  color: var(--charcoal);
+}
+
 .theme-toggle {
   width: 40px;
   height: 40px;

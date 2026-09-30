@@ -78,30 +78,33 @@
               </div>
             </div>
             <div>
-              <!-- The name is a dropdown of the user's groups (an admin's is
-                   every group): picking one opens it on the same section. -->
-              <h2 class="gd-title">
-                <!-- The name shows at title size; an invisible dropdown lies
-                     over it, so its list opens at normal size, as the other
-                     dropdowns do, rather than at the title's. -->
-                <span v-if="availableGroups.length > 1" class="gd-title-picker">
-                  <span>{{ group.name }}</span>
-                  <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
-                  <select
-                    class="gd-title-picker__select"
-                    aria-label="Group"
-                    :value="routeGroupId"
-                    @change="switchGroup"
-                  >
-                    <option v-for="option in availableGroups" :key="option.id" :value="option.id">
-                      {{ option.name }}
-                    </option>
-                  </select>
-                </span>
-                <template v-else>{{ group.name }}</template>
-              </h2>
-              <div v-if="groupMetaItems.length" class="gd-meta-row">
-                <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+              <!-- The name, with the Mentor chip to its right. -->
+              <div class="gd-title-line">
+                <!-- The name is a dropdown of the user's groups (an admin's is
+                     every group): picking one opens it on the same section. -->
+                <h2 class="gd-title">
+                  <!-- The name shows at title size; an invisible dropdown lies
+                       over it, so its list opens at normal size, as the other
+                       dropdowns do, rather than at the title's. -->
+                  <span v-if="availableGroups.length > 1" class="gd-title-picker">
+                    <span>{{ group.name }}</span>
+                    <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
+                    <select
+                      class="gd-title-picker__select"
+                      aria-label="Group"
+                      :value="routeGroupId"
+                      @change="switchGroup"
+                    >
+                      <option v-for="option in availableGroups" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
+                  </span>
+                  <template v-else>{{ group.name }}</template>
+                </h2>
+                <div v-if="groupMetaItems.length" class="gd-meta-row">
+                  <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+                </div>
               </div>
               <p v-if="neverLoggedInNotice" class="gd-onboarding-notice">
                 <i class="fas fa-circle-info"></i>
@@ -9266,6 +9269,18 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+/* The Mentor chip beside the name, wrapping under it when there's no room. */
+.gd-title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.gd-title-line .gd-meta-row {
+  margin-top: 0;
+}
+
 /* Reads as the title; the arrow and a border on hover say it can change. */
 .gd-title-picker {
   position: relative;
@@ -10425,5 +10440,43 @@ onBeforeUnmount(() => {
   .skeleton-filter {
     width: 100%;
   }
+}
+
+/* Dark theme: the task and chat boxes take the grey other pages give their
+   inputs, rather than staying white. Light mode is unchanged. */
+:root[data-theme='dark'] .gd-meta-row span,
+:root[data-theme='dark'] .task-mode-toggle:not(.is-active),
+:root[data-theme='dark'] .task-search-input,
+:root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
+:root[data-theme='dark'] .task-toolbar-sort select,
+:root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
+:root[data-theme='dark'] .task-filter-panel,
+:root[data-theme='dark'] .task-filter-row select,
+:root[data-theme='dark'] .task-filter-clear,
+:root[data-theme='dark'] .task-filter-close,
+:root[data-theme='dark'] .task-state-menu,
+:root[data-theme='dark'] .task-list,
+:root[data-theme='dark'] .pane--discussion .chat-messages {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .task-state-menu-item {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .task-state-menu-item:hover {
+  background: var(--border-light);
+}
+
+/* Tasks keep their depth stripe, on the same grey. */
+:root[data-theme='dark'] .task-depth-0,
+:root[data-theme='dark'] .task-depth-1,
+:root[data-theme='dark'] .task-depth-2,
+:root[data-theme='dark'] .task-depth-3,
+:root[data-theme='dark'] .task-depth-4,
+:root[data-theme='dark'] .task-depth-flat {
+  --task-depth-bg: var(--surface-elevated);
+  --task-depth-border: var(--border-light);
 }
 </style>
