@@ -35,7 +35,7 @@ class ClientDocxTemplateTests(_GradingFixture):
 
     def test_marks_release_tokens_filled(self):
         from apps.grading.services.docx import marks_summary_context, render_marks_summary
-        from apps.grading.views.student import _grades_payload
+        from apps.grading.services.marks import grades_payload
 
         _seed_doc_templates()
         Grade.objects.create(
@@ -49,7 +49,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         ComponentFeedback.objects.create(
             group=self.group, component=self.poster, comment="Strong poster overall.",
         )
-        components = _grades_payload(self.group, self.year)
+        components = grades_payload(self.group, self.year)
         data = render_marks_summary(marks_summary_context(self.group, self.year, components))
         xml = self._document_xml(data)
         self.assertNotIn("<<[", xml)
@@ -92,7 +92,7 @@ class ClientDocxTemplateTests(_GradingFixture):
             render_marks_summary_data,
             scan_template_data,
         )
-        from apps.grading.views.student import _grades_payload
+        from apps.grading.services.marks import grades_payload
 
         ComponentFeedback.objects.create(
             group=self.group, component=self.poster, comment="Strong poster overall.",
@@ -103,7 +103,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         template = _build_docx(
             "Poster: {{PosterOverallComment}} | SAQ: {{ShortAnswerQuestionOverallComment}}"
         )
-        context = marks_summary_context(self.group, self.year, _grades_payload(self.group, self.year))
+        context = marks_summary_context(self.group, self.year, grades_payload(self.group, self.year))
         xml = self._document_xml(render_marks_summary_data(template, context))
         self.assertIn("Poster: Strong poster overall. | SAQ: Clear, well argued answers.", xml)
 

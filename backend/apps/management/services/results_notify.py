@@ -48,6 +48,7 @@ from apps.grading.services.docx import (
     sample_marks_summary_context,
     signature_images,
 )
+from apps.grading.services.marks import grades_payload
 from apps.grading.services.text import natural_key
 from apps.grading.services.xlsx import build_team_marks_xlsx
 from apps.grading.services.zip import _safe
@@ -377,18 +378,14 @@ class Documents:
         )
 
     def marks_summary(self, team) -> bytes:
-        from apps.grading.views.student import _grades_payload  # the views import this module
-
-        context = marks_summary_context(team, self.year, _grades_payload(team, self.year))
+        context = marks_summary_context(team, self.year, grades_payload(team, self.year))
         return render_marks_summary_data(self._template("marks_summary_template"), context, self._signatures())
 
     def marks_sheet(self, teams) -> bytes:
         """One row per group, filled exactly as its marks summary is."""
-        from apps.grading.views.student import _grades_payload
-
         return _marks_sheet([
             _sheet_row(marks_release_fields(
-                marks_summary_context(team, self.year, _grades_payload(team, self.year))
+                marks_summary_context(team, self.year, grades_payload(team, self.year))
             ))
             for team in teams
         ])

@@ -3,7 +3,6 @@ from django.urls import path
 from .views import (
     AllSubmissionsDownloadView,
     BulkUploadMarksView,
-    ComponentAnalyticsView,
     ComponentDownloadView,
     ComponentMarkingListView,
     FinalistCandidatesView,
@@ -19,11 +18,6 @@ from .views import (
     GroupResultsCertificateView,
     GroupResultsSummaryView,
     GroupResultsView,
-    MyCertificateView,
-    MyGradesView,
-    MySummaryView,
-    SupervisorDownloadView,
-    SupervisorGradesView,
 )
 
 app_name = "grading"
@@ -65,19 +59,8 @@ urlpatterns = [
     # PATCH a single grade — used by inline edits and quick amendments.
     path("grades/<int:pk>/", GradeUpdateView.as_view(), name="grade-detail"),
 
-    # Student-facing read views (gated on MarksRelease.released_at).
-    path("me/grades/", MyGradesView.as_view(), name="me-grades"),
-    path("me/summary/", MySummaryView.as_view(), name="me-summary"),
-    path("me/certificate/", MyCertificateView.as_view(), name="me-certificate"),
-
-    # Supervisor-facing (gated on release + student.supervisor FK).
-    path("supervisor/students/grades/", SupervisorGradesView.as_view(), name="supervisor-grades"),
-    path("supervisor/download/", SupervisorDownloadView.as_view(), name="supervisor-download"),
-
     # M8 — finalist flagging (the finalist email is Management's).
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
     path("finalists/candidates/", FinalistCandidatesView.as_view(), name="finalist-candidates"),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
-    # M9 — read-only analytics for Team 4's dashboards.
-    path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),
 ]

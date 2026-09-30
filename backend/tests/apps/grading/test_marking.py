@@ -1,5 +1,5 @@
 """Marker-facing read views: URL mounts, the group marking page, the
-per-component table, its analytics panel, and group categories."""
+per-component table, and group categories."""
 from decimal import Decimal
 
 from django.test import TestCase
@@ -9,7 +9,6 @@ from rest_framework.test import APIClient
 
 from apps.grading.models import Grade
 from apps.groups.models.groups import Groups
-from apps.submissions.models import Submission
 from apps.users.models import AdminScope, User
 
 from .fixtures import _GradingFixture
@@ -27,14 +26,8 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:component-download", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/download/")
         self.assertEqual(reverse("grading:job-detail", kwargs={"pk": 1}), "/api/v1/grading/jobs/1/")
         self.assertEqual(reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/bulk-upload/")
-        self.assertEqual(reverse("grading:me-grades"), "/api/v1/grading/me/grades/")
-        self.assertEqual(reverse("grading:me-summary"), "/api/v1/grading/me/summary/")
-        self.assertEqual(reverse("grading:me-certificate"), "/api/v1/grading/me/certificate/")
-        self.assertEqual(reverse("grading:supervisor-grades"), "/api/v1/grading/supervisor/students/grades/")
-        self.assertEqual(reverse("grading:supervisor-download"), "/api/v1/grading/supervisor/download/")
         self.assertEqual(reverse("grading:finalist-list"), "/api/v1/grading/finalists/")
         self.assertEqual(reverse("grading:finalist-toggle", kwargs={"group_id": 1}), "/api/v1/grading/groups/1/finalist/")
-        self.assertEqual(reverse("grading:component-analytics", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/analytics/")
 
 
 class GroupMarkingViewTests(_GradingFixture):
@@ -189,90 +182,6 @@ class ComponentMarkingListViewTests(_GradingFixture):
         empty = next(r for r in resp.json()["rows"] if r["group_name"] == "BTF-TEST-2")
         self.assertEqual(empty["criterion_markers"], [])
         self.assertEqual(empty["grader_names"], [])
-
-
-class ComponentAnalyticsTests(_GradingFixture):
-    def setUp(self):
-        self.client = APIClient()
-        self.url = reverse("grading:component-analytics", kwargs={"code": "SAQ"})
-
-    def test_non_staff_denied(self):
-        self.client.force_authenticate(self.non_staff)
-        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_unknown_component_returns_404(self):
-        self.client.force_authenticate(self.staff)
-        self.assertEqual(
-            self.client.get(reverse("grading:component-analytics", kwargs={"code": "MISSING"})).status_code,
-            status.HTTP_404_NOT_FOUND,
-        )
-
-    def test_aggregates_match_hand_computation(self):
-        # Second group without a submission — should count as pending / unmarked.
-        Groups.objects.create(group_name="BTF-TEST-2")
-
-        # Fully mark fixture group's SAQ submission across both criteria.
-        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("8.00"))
-        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.00"))
-
-        self.client.force_authenticate(self.staff)
-        r = self.client.get(self.url + f"?year={self.year}")
-        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        data = r.json()
-
-        self.assertEqual(data["component"]["code"], "SAQ")
-        self.assertEqual(data["year"], self.year)
-        self.assertEqual(data["criteria_total"], 2)
-        self.assertEqual(data["groups_total"], 2)
-        self.assertEqual(data["submissions"], {"submitted": 1, "pending": 1})
-        self.assertEqual(data["grading"], {"fully_marked": 1, "partially_marked": 0, "unmarked": 0})
-        self.assertEqual(data["marks"]["count"], 1)
-        self.assertEqual(data["marks"]["mean"], 12.0)
-        self.assertEqual(data["marks"]["min"], 12.0)
-        self.assertEqual(data["marks"]["max"], 12.0)
-
-        rankings = data["rankings"]
-        self.assertEqual(len(rankings), 1)
-        self.assertEqual(rankings[0]["group_name"], "BTF-TEST-1")
-        self.assertEqual(rankings[0]["total"], 12.0)
-
-    def test_no_grades_yields_null_stats(self):
-        self.client.force_authenticate(self.staff)
-        r = self.client.get(self.url)
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        marks = r.json()["marks"]
-        self.assertEqual(marks["count"], 0)
-        self.assertIsNone(marks["mean"])
-        self.assertEqual(marks["histogram"], [])
-
-    def test_histogram_buckets_span_different_totals(self):
-        """Two groups with different totals exercise the real bucketing —
-        a single total takes the collapse-to-one-row shortcut instead."""
-        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("8.00"))
-        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.00"))
-
-        other = Groups.objects.create(group_name="BTF-TEST-3")
-        other_submission = Submission.objects.create(
-            group=other, answers={"q_answers": "Other answers."},
-        )
-        other_submission.snapshot(self.staff)
-        other_submission.save()
-        Grade.objects.create(submission=other_submission, criterion=self.saq_c1, mark=Decimal("4.00"))
-
-        self.client.force_authenticate(self.staff)
-        r = self.client.get(self.url)
-        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        marks = r.json()["marks"]
-        self.assertEqual(marks["count"], 2)
-        self.assertEqual(marks["min"], 4.0)
-        self.assertEqual(marks["max"], 12.0)
-        histogram = marks["histogram"]
-        self.assertGreater(len(histogram), 1)
-        # Every group total lands in exactly one bucket.
-        self.assertEqual(sum(b["count"] for b in histogram), 2)
-        # The bottom bucket starts at the minimum, the top ends at the maximum.
-        self.assertTrue(histogram[0]["bucket"].startswith("4.00-"))
-        self.assertTrue(histogram[-1]["bucket"].endswith("-12.00"))
 
 
 class GroupCategoriesViewTests(_GradingFixture):

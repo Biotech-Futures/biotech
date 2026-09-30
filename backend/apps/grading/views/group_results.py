@@ -21,6 +21,7 @@ from apps.management.services import results_notify
 
 from ..models import FinalistFlag
 from ..services import content
+from ..services.marks import RELEASED_PARTS, grades_payload
 from ..services.docx import (
     TemplateNotConfigured,
     _mark_text,
@@ -28,7 +29,6 @@ from ..services.docx import (
     marks_release_fields,
     marks_summary_context,
 )
-from .student import RELEASED_PARTS, _grades_payload
 
 _ROLES = GroupMembership.MembershipRoleChoices
 NOT_SET_UP = "The document template has not been set up yet."
@@ -142,7 +142,7 @@ class GroupResultsView(APIView):
         shows_certificates = (
             state["certificates_released"] and state["has_submission"] and not state["certificates_withheld"]
         )
-        components = _grades_payload(group, year) if shows_marks else []
+        components = grades_payload(group, year) if shows_marks else []
         parts = [_results_part(component) for component in components if component["code"] in RELEASED_PARTS]
         return Response({
             **state,

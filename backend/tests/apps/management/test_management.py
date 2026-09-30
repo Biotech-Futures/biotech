@@ -14,7 +14,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.management.models import GradingSettings
+from apps.management.models import GradingSettings, MarksRelease
 from apps.submissions.models import Deadline, GroupExtension
 
 from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
@@ -293,6 +293,40 @@ class MarksReleaseViewTests(_GradingFixture):
         )
         r = self.client.post(reverse("management:release"), {"release": "false"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+
+class CertificatesReleaseViewTests(_GradingFixture):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.url = reverse("management:certificates-release")
+
+    def test_certificates_release_toggle(self):
+        r = self.client.get(self.url)
+        self.assertIsNone(r.json()["released_at"])
+
+        r = self.client.post(self.url, {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(r.json()["released_at"])
+        # Marks gate untouched by the certificates toggle.
+        self.assertIsNone(MarksRelease.load().released_at)
+
+        r = self.client.post(self.url, {"release": "false"}, format="json")
+        self.assertIsNone(r.json()["released_at"])
+
+    def test_exclusion_is_on_by_default(self):
+        self.assertTrue(self.client.get(self.url).json()["exclude_finalists"])
+
+    def test_exclusion_only_post_does_not_restamp_release(self):
+        released_at = self.client.post(self.url, {}, format="json").json()["released_at"]
+
+        r = self.client.post(self.url, {"exclude_finalists": "true"}, format="json")
+        self.assertTrue(r.json()["exclude_finalists"])
+        self.assertEqual(r.json()["released_at"], released_at)
+
+        r = self.client.post(self.url, {"exclude_finalists": "false"}, format="json")
+        self.assertFalse(r.json()["exclude_finalists"])
+        self.assertEqual(r.json()["released_at"], released_at)
 
 
 class GradingSettingsViewTests(_GradingFixture):

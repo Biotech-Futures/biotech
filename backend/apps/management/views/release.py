@@ -83,8 +83,8 @@ class _SingletonReleaseView(APIView):
 class MarksReleaseView(_SingletonReleaseView):
     """GET/POST /api/v1/management/release/ — the "marks visible" gate.
 
-    Every student/supervisor read view checks this row via the
-    ``MarksReleased`` permission, so the entire visibility contract lives here.
+    The group page's Results section and the results emails check this row
+    before showing anyone their marks.
     """
 
     model = MarksRelease
@@ -94,7 +94,7 @@ class CertificatesReleaseView(_SingletonReleaseView):
     """GET/POST /api/v1/management/certificates-release/ — certificate gate.
 
     Separate from marks so certificates can go out on a different day (e.g. at
-    the ceremony) than the grades. Checked by ``CertificatesReleased``.
+    the ceremony) than the grades.
 
     Also carries ``exclude_finalists``: finalist teams receive merit
     certificates separately, so their participation certificates can stay
