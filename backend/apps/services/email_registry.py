@@ -286,7 +286,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_supervisor",
-        name="Results (To Supervisors)",
+        name="Results (To supervisors)",
         description="Sent to their supervisors from Release Results.",
         default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_supervisor.html",

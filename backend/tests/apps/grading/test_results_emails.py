@@ -383,7 +383,7 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_switched_off_email_is_refused(self):
         SystemEmailTemplate.objects.create(key="results_supervisor", is_enabled=False)
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
-        self.assertEqual(r.json()["detail"], "Results (To Supervisors) is switched off on System Emails.")
+        self.assertEqual(r.json()["detail"], "Results (To supervisors) is switched off on System Emails.")
         r = self.client.get(reverse("grading:results-email"))
         self.assertEqual(r.json()["emails_on"], {"groups": True, "supervisors": False})
 
