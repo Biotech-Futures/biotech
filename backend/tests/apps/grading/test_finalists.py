@@ -12,7 +12,7 @@ from apps.groups.models.groups import Groups
 from apps.submissions.models import Submission
 from apps.users.models import User
 
-from .fixtures import _GradingFixture
+from .fixtures import _GradingFixture, just_closed
 
 
 def _days_ahead(days: int):
@@ -178,7 +178,7 @@ class FinalistToggleTests(_GradingFixture):
         # A two-criterion report rubric makes REPORT a column; the fixture
         # team hands in a report with only one of its criteria marked.
         report = SubmissionComponent.objects.get(code="REPORT")
-        rubric = Rubric.objects.create(component=report, year=2026, active=True)
+        rubric = Rubric.objects.create(component=report, year=self.year, active=True)
         method = RubricCriterion.objects.create(
             rubric=rubric, name="Method", max_mark=Decimal("5"), order=1
         )
@@ -555,7 +555,7 @@ class FinalistEmailTests(_GradingFixture):
         _set_email_details()
         self._member("stu@example.com", "student")
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
-        deadline = Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=1), grace_hours=3)
+        deadline = Deadline.objects.create(closes_at=just_closed(hours=1), grace_hours=3)
         body = self.client.get(reverse("grading:finalist-email")).json()
         self.assertTrue(body["submissions_open"].startswith("Submissions are open until "), body)
         r = self.client.post(reverse("grading:finalist-notify"))

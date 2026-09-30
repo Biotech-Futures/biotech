@@ -287,7 +287,7 @@ class ResultsEmailTests(_GradingFixture):
         # Only Poster and SAQ, as on the marks summary: another marked component stays out.
         report = SubmissionComponent.objects.exclude(code__in=("SAQ", "POSTER")).first()
         RubricCriterion.objects.create(
-            rubric=Rubric.objects.create(component=report, year=2026, active=True),
+            rubric=Rubric.objects.create(component=report, year=self.year, active=True),
             name="Structure", max_mark=Decimal("5.00"), order=10,
         )
         Grade.objects.filter(criterion=self.poster_c1).update(comment="Bold, clear layout.")

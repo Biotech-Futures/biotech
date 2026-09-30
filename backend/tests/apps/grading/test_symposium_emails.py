@@ -20,7 +20,7 @@ from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Deadline, GroupExtension, Submission
 from apps.users.models import User
 
-from .fixtures import _GradingFixture
+from .fixtures import _GradingFixture, just_closed
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 SEND = "grading:nonfinalist-email-send"
@@ -185,7 +185,7 @@ class NonFinalistEmailTests(_GradingFixture):
     def test_neither_email_goes_out_while_any_extension_is_open(self):
         # The deadline has closed, but one team's extension, with its grace
         # hours, hasn't: that team may yet submit, or be picked.
-        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        Deadline.objects.create(closes_at=just_closed())
         extension = GroupExtension.objects.create(
             group=Groups.objects.create(group_name="Extended"),
             extended_until=timezone.now() - timedelta(hours=1), grace_hours=2,
@@ -368,7 +368,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         self.assertEqual(mail.outbox, [])
 
     def test_a_team_on_an_extension_blocks_it_for_everyone(self):
-        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        Deadline.objects.create(closes_at=just_closed())
         GroupExtension.objects.create(group=self.no_entry, extended_until=timezone.now() + timedelta(hours=5))
         blocked = self.client.get(reverse("grading:nonsubmission-email")).json()["blocked"]
         self.assertTrue(blocked.startswith("A team's extension is open until "), blocked)
@@ -377,7 +377,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         self.assertEqual(mail.outbox, [])
 
     def test_an_extension_from_another_year_does_not_block_it(self):
-        Deadline.objects.create(closes_at=timezone.now() - timedelta(days=1))
+        Deadline.objects.create(closes_at=just_closed())
         past_team = Groups.objects.create(group_name="Last Year", year=self.no_entry.year - 1)
         GroupExtension.objects.create(group=past_team, extended_until=timezone.now() + timedelta(days=1))
         self.assertEqual(self.client.get(reverse("grading:nonsubmission-email")).json()["blocked"], "")

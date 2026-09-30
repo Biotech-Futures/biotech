@@ -312,7 +312,7 @@ class StudentReadViewsTests(_GradingFixture):
         })
         report = SubmissionComponent.objects.get(code="REPORT")
         criterion = RubricCriterion.objects.create(
-            rubric=Rubric.objects.create(component=report, year=2026, active=True),
+            rubric=Rubric.objects.create(component=report, year=self.year, active=True),
             name="Structure", max_mark=Decimal("5.00"), order=10,
         )
         Grade.objects.create(
@@ -329,7 +329,7 @@ class StudentReadViewsTests(_GradingFixture):
 
         self._mark_the_report()
         # The marks are there to leak: the full payload carries them.
-        self.assertIn("Withheld report note.", str(_grades_payload(self.group, 2026)))
+        self.assertIn("Withheld report note.", str(_grades_payload(self.group, self.year)))
         supervisor = User.objects.create_user(
             email="parts-super@example.com", first_name="Sue", last_name="Pervisor", password="pw12345!",
         )
@@ -341,12 +341,12 @@ class StudentReadViewsTests(_GradingFixture):
         self._release_now()
 
         self.client.force_authenticate(self.student_user)
-        mine = self.client.get(reverse("grading:me-grades"), {"year": 2026})
+        mine = self.client.get(reverse("grading:me-grades"), {"year": self.year})
         self.assertEqual([c["code"] for c in mine.json()["components"]], ["SAQ", "POSTER"])
         self.assertNotIn("Withheld report", mine.content.decode())
 
         self.client.force_authenticate(supervisor)
-        theirs = self.client.get(reverse("grading:supervisor-grades"), {"year": 2026})
+        theirs = self.client.get(reverse("grading:supervisor-grades"), {"year": self.year})
         row = theirs.json()["students"][0]
         self.assertEqual([c["code"] for c in row["components"]], ["SAQ", "POSTER"])
         self.assertNotIn("Withheld report", theirs.content.decode())

@@ -19,6 +19,11 @@ from apps.submissions.models import Deadline, GroupExtension
 from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
 
 
+def _days_from_now(days: int) -> str:
+    """A closing time ``days`` from now, so the tests never go stale."""
+    return (timezone.now() + timedelta(days=days)).isoformat()
+
+
 class SubmissionDeadlineViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
@@ -38,7 +43,7 @@ class SubmissionDeadlineViewTests(_GradingFixture):
         self.client.force_authenticate(self.staff)
         r = self.client.post(
             self.url,
-            {"closes_at": "2026-10-30T13:00:00Z", "grace_hours": 6},
+            {"closes_at": _days_from_now(30), "grace_hours": 6},
             format="json",
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
@@ -60,7 +65,7 @@ class SubmissionDeadlineViewTests(_GradingFixture):
         )
         self.assertEqual(
             self.client.post(
-                self.url, {"closes_at": "2026-10-30T13:00:00Z", "grace_hours": -1},
+                self.url, {"closes_at": _days_from_now(30), "grace_hours": -1},
                 format="json",
             ).status_code,
             status.HTTP_400_BAD_REQUEST,

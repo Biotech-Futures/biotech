@@ -53,8 +53,8 @@ class ClientDocxTemplateTests(_GradingFixture):
         ComponentFeedback.objects.create(
             group=self.group, component=self.poster, comment="Strong poster overall.",
         )
-        components = _grades_payload(self.group, 2026)
-        data = render_marks_summary(marks_summary_context(self.group, 2026, components))
+        components = _grades_payload(self.group, self.year)
+        data = render_marks_summary(marks_summary_context(self.group, self.year, components))
         xml = self._document_xml(data)
         self.assertNotIn("<<[", xml)
         self.assertNotIn("{{", xml)
@@ -76,7 +76,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         row.director_1_position, row.director_2_position = "Chair", "Co-Chair"
         row.save()
         template = _build_docx("{{Director1Position}} and {{Director2Position}}")
-        summary = render_marks_summary_data(template, marks_summary_context(self.group, 2026, []))
+        summary = render_marks_summary_data(template, marks_summary_context(self.group, self.year, []))
         certificate = render_certificate_data(
             template, certificate_context("Ada Grader", "BTF-TEST-1", 2026)
         )
@@ -107,7 +107,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         template = _build_docx(
             "Poster: {{PosterOverallComment}} | SAQ: {{ShortAnswerQuestionOverallComment}}"
         )
-        context = marks_summary_context(self.group, 2026, _grades_payload(self.group, 2026))
+        context = marks_summary_context(self.group, self.year, _grades_payload(self.group, self.year))
         xml = self._document_xml(render_marks_summary_data(template, context))
         self.assertIn("Poster: Strong poster overall. | SAQ: Clear, well argued answers.", xml)
 
@@ -130,7 +130,7 @@ class ClientDocxTemplateTests(_GradingFixture):
             solution_category_other="App",
         )
         xml = self._document_xml(render_marks_summary(
-            marks_summary_context(self.group, 2026, [])
+            marks_summary_context(self.group, self.year, [])
         ))
         self.assertIn("Project: Health and Medicine, Wearables | Solution: App", xml)
 
@@ -162,7 +162,7 @@ class ClientDocxTemplateTests(_GradingFixture):
             "{{SupervisorHeading}}: {{Supervisors}} | {{SchoolHeading}}: {{Schools}}"
         )
         xml = self._document_xml(render_marks_summary_data(
-            template, marks_summary_context(self.group, 2026, [])
+            template, marks_summary_context(self.group, self.year, [])
         ))
         self.assertIn(
             "Project Categories: Health and Medicine, Regulation Ethics | "
@@ -173,7 +173,7 @@ class ClientDocxTemplateTests(_GradingFixture):
     def test_marks_summary_categories_blank_when_none_chosen(self):
         from apps.grading.services.docx import marks_summary_context
 
-        context = marks_summary_context(self.group, 2026, [])
+        context = marks_summary_context(self.group, self.year, [])
         self.assertEqual(context["project_category"], "")
         self.assertEqual(context["solution_category"], "")
 
@@ -694,7 +694,7 @@ class DirectorSignatureTests(_GradingFixture):
     def _render(self):
         from apps.grading.services.docx import marks_summary_context, render_marks_summary
 
-        return render_marks_summary(marks_summary_context(self.group, 2026, []))
+        return render_marks_summary(marks_summary_context(self.group, self.year, []))
 
     def test_director_names_fill_their_tokens(self):
         self._configure(

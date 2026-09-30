@@ -74,12 +74,12 @@ class GroupMarkingViewTests(_GradingFixture):
     def test_payload_shape(self):
         self.client.force_authenticate(self.staff)
         resp = self.client.get(
-            reverse("grading:group-marking", kwargs={"group_id": self.group.id}) + "?year=2026"
+            reverse("grading:group-marking", kwargs={"group_id": self.group.id}) + f"?year={self.year}"
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
         self.assertEqual(data["group"]["id"], self.group.id)
-        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["year"], self.year)
         # Four seeded components; every one appears even if no submission exists.
         codes = [c["component"]["code"] for c in data["components"]]
         self.assertEqual(sorted(codes), sorted(["SAQ", "POSTER", "REPORT", "PROTOTYPE"]))
@@ -143,13 +143,13 @@ class ComponentMarkingListViewTests(_GradingFixture):
 
         self.client.force_authenticate(self.staff)
         resp = self.client.get(
-            reverse("grading:component-list", kwargs={"code": "SAQ"}) + "?year=2026"
+            reverse("grading:component-list", kwargs={"code": "SAQ"}) + f"?year={self.year}"
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         data = resp.json()
 
         self.assertEqual(data["component"]["code"], "SAQ")
-        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["year"], self.year)
         self.assertEqual(data["criteria_total"], 2)  # saq_c1 + saq_c2
 
         rows_by_group = {r["group_name"]: r for r in data["rows"]}
@@ -218,12 +218,12 @@ class ComponentAnalyticsTests(_GradingFixture):
         Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c2, mark=Decimal("4.00"))
 
         self.client.force_authenticate(self.staff)
-        r = self.client.get(self.url + "?year=2026")
+        r = self.client.get(self.url + f"?year={self.year}")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         data = r.json()
 
         self.assertEqual(data["component"]["code"], "SAQ")
-        self.assertEqual(data["year"], 2026)
+        self.assertEqual(data["year"], self.year)
         self.assertEqual(data["criteria_total"], 2)
         self.assertEqual(data["groups_total"], 2)
         self.assertEqual(data["submissions"], {"submitted": 1, "pending": 1})

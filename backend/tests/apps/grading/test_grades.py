@@ -186,7 +186,7 @@ class GradeBulkViewTests(_GradingFixture):
         # A REPORT criterion exists but the entry has no submitted report, so
         # binding it to this submission is a client bug and must be rejected.
         report = SubmissionComponent.objects.get(code="REPORT")
-        report_rubric = Rubric.objects.create(component=report, year=2026, active=True)
+        report_rubric = Rubric.objects.create(component=report, year=self.year, active=True)
         report_c1 = RubricCriterion.objects.create(
             rubric=report_rubric, name="Rigour", max_mark=Decimal("10.00"), order=10,
         )
