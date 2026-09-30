@@ -90,7 +90,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/groups/:id/finalist', name: 'group-finalist', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/results', name: 'group-results', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
-  { path: '/submission', redirect: '/groups' },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
@@ -111,8 +110,6 @@ const routes: RouteRecordRaw[] = [
     meta: { adminOnly: true },
     children: [
       { path: '', redirect: '/grading/components/SAQ' },
-      // Legacy path from before the component-picker landing was removed.
-      { path: 'by-component', redirect: '/grading/components/SAQ' },
       { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
       { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
       // Both marking routes render the same page — the route name decides the
@@ -121,20 +118,7 @@ const routes: RouteRecordRaw[] = [
       // the full width.
       { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
       { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
-      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') },
-      // Legacy paths — Management moved to its own /management section.
-      { path: 'management', redirect: '/management' },
-      {
-        path: 'management/:rest(.*)*',
-        redirect: (to) => {
-          const rest = to.params.rest
-          return `/management/${Array.isArray(rest) ? rest.join('/') : rest}`
-        }
-      },
-      { path: 'deadline', redirect: '/management/submission-deadline' },
-      { path: 'release', redirect: '/management/release-results' },
-      { path: 'settings', redirect: '/management/document-setup' },
-      { path: 'notify-finalists', redirect: '/management/notify-finalists' }
+      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') }
     ]
   },
   {
@@ -146,14 +130,9 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/management/submission-deadline' },
       { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
-      // Legacy path from before the Season → Year rename.
-      { path: 'new-season', redirect: '/management/new-year' },
       { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
       { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
       { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
-      // Marks and certificates used to be released from tabs of their own.
-      { path: 'release-marks', redirect: '/management/release-results' },
-      { path: 'release-certificates', redirect: '/management/release-results' },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
       { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
