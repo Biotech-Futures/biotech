@@ -274,6 +274,16 @@ export interface GradeBulkItem {
   criterion: number
   mark: string | null
   comment: string
+  /** The mark and comment the marker started from: the server refuses the
+   *  save if another marker has changed them since. */
+  expected_mark?: string | null
+  expected_comment?: string
+}
+
+/** An overall comment edited on the marking page, and the one it started from. */
+export interface OverallCommentEdit {
+  comment: string
+  expected: string
 }
 
 // One row per group, whether or not they've submitted. Powers the
@@ -577,7 +587,7 @@ export function saveGradesBulk(
   // server whenever the entry has content for more than one component: a
   // submission id covers the group's whole entry, so the id alone cannot say
   // which component's comment this is.
-  overallComments?: { submission: number; component?: string; comment: string }[]
+  overallComments?: { submission: number; component?: string; comment: string; expected_comment?: string }[]
 ): Promise<Grade[]> {
   return requestJson<Grade[]>('/api/v1/grading/grades/bulk/', {
     method: 'POST',

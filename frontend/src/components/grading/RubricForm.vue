@@ -58,7 +58,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import type { Grade, GradeBulkItem, RubricCriterion, Submission } from '@/utils/gradingAPI'
+import type {
+  Grade,
+  GradeBulkItem,
+  OverallCommentEdit,
+  RubricCriterion,
+  Submission
+} from '@/utils/gradingAPI'
 
 const props = defineProps<{
   submission: Submission | null
@@ -73,14 +79,21 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** overallComment is null when the box is hidden for this component. */
-  save: [items: GradeBulkItem[], overallComment: string | null]
+  /** Only the rows edited here; the overall comment is null when it wasn't
+   *  edited, or its box is hidden for this component. */
+  save: [items: GradeBulkItem[], overallComment: OverallCommentEdit | null]
 }>()
 
 type FormRow = { mark: string; comment: string }
 
 const state = reactive<Record<number, FormRow>>({})
 const overallComment = ref('')
+// What each row started from: as loaded, or as another marker has since left
+// it, for a row not touched here. A row is an edit only when it differs from
+// this, and a save names it, so the server can refuse a save over another
+// marker's change rather than write stale values over it.
+const base = reactive<Record<number, FormRow>>({})
+const baseOverall = ref('')
 
 // "5" and "5.00" are the same mark — the server normalises decimals, so a
 // plain string compare would flag a just-saved value as an edit.
@@ -92,11 +105,20 @@ const sameMark = (a: string, b: string) => {
   return Number.isFinite(na) && Number.isFinite(nb) && na === nb
 }
 
+const sameRow = (a: FormRow, b: FormRow) => sameMark(a.mark, b.mark) && a.comment === b.comment
+const edited = (criterionId: number) => {
+  const row = state[criterionId]
+  const was = base[criterionId]
+  return row != null && was != null && !sameRow(row, was)
+}
+
 // Preload form state from existing grades keyed by criterion id, with empty
 // defaults for un-graded criteria. Re-runs when the payload refetches after a
 // save round-trip. A refetch of the SAME entry (e.g. the combined SAQs &
-// Poster view saving the other section) must not wipe edits in progress
-// here, so dirty rows survive it; a different entry resets everything.
+// Poster view saving the other section) keeps edits the server doesn't hold
+// yet; every other row takes the server's value, so a row left alone shows
+// another marker's change instead of staying stale. A different entry resets
+// everything.
 let boundSubmissionId: number | null = null
 watch(
   () => [props.submission, props.criteria, props.grades] as const,
@@ -107,45 +129,42 @@ watch(
     const byCriterion = new Map<number, Grade>()
     for (const g of grades) byCriterion.set(g.criterion, g)
     for (const key of Object.keys(state)) {
-      if (!criteria.some((c) => c.id === Number(key))) delete state[Number(key)]
+      if (!criteria.some((c) => c.id === Number(key))) {
+        delete state[Number(key)]
+        delete base[Number(key)]
+      }
     }
     for (const c of criteria) {
       const g = byCriterion.get(c.id)
       const server: FormRow = { mark: g?.mark ?? '', comment: g?.comment ?? '' }
       const row = state[c.id]
-      const keepLocal =
-        sameEntry &&
-        row != null &&
-        (!sameMark(row.mark, server.mark) || row.comment !== server.comment)
-      if (!keepLocal) state[c.id] = server
+      const keepEdit = sameEntry && row != null && edited(c.id) && !sameRow(row, server)
+      if (!keepEdit) {
+        state[c.id] = { ...server }
+        base[c.id] = { ...server }
+      }
     }
 
     const serverOverall = submission?.overall_comment ?? ''
-    if (!(sameEntry && overallComment.value !== serverOverall)) {
+    const keepOverall =
+      sameEntry && overallComment.value !== baseOverall.value && overallComment.value !== serverOverall
+    if (!keepOverall) {
       overallComment.value = serverOverall
+      baseOverall.value = serverOverall
     }
   },
   { immediate: true }
 )
 
-// Unsaved edits: any mark, comment, or overall comment differing from the
-// last server payload, or edits the parent reports via extraDirty.
-// Retyping the exact stored value counts as clean.
-const isDirty = computed(() => {
-  if (props.extraDirty) return true
-  const byCriterion = new Map<number, Grade>()
-  for (const g of props.grades) byCriterion.set(g.criterion, g)
-  const rowsDirty = props.criteria.some((c) => {
-    const row = state[c.id]
-    if (!row) return false
-    const g = byCriterion.get(c.id)
-    return !sameMark(row.mark, g?.mark ?? '') || row.comment !== (g?.comment ?? '')
-  })
-  const overallDirty = props.overallCommentLabel
-    ? overallComment.value !== (props.submission?.overall_comment ?? '')
-    : false
-  return rowsDirty || overallDirty
-})
+// Unsaved edits: any mark, comment, or overall comment changed from what it
+// started from, or edits the parent reports via extraDirty. Retyping the
+// starting value counts as clean.
+const overallEdited = computed(() =>
+  Boolean(props.overallCommentLabel) && overallComment.value !== baseOverall.value
+)
+const isDirty = computed(
+  () => Boolean(props.extraDirty) || props.criteria.some((c) => edited(c.id)) || overallEdited.value
+)
 
 const UNSAVED_MESSAGE = 'You have unsaved marks or comments. Leave without saving?'
 
@@ -183,18 +202,30 @@ const setComment = (criterionId: number, comment: string) => {
   if (state[criterionId]) state[criterionId].comment = comment
 }
 
+// Empty -> null, so a mark reads as "not graded yet" rather than 0. Numeric
+// validation is loose here: DRF's DecimalField rejects anything unparseable
+// and the error surfaces to the caller.
+const markOrNull = (mark: string) => (mark.trim() ? mark : null)
+
+// Only the rows edited here, each with what it started from: rows left alone
+// are never written, and the server refuses a save over another marker's
+// change instead of replacing it.
 const handleSubmit = () => {
   if (!props.submission) return
-  const items: GradeBulkItem[] = props.criteria.map((c) => ({
-    submission: props.submission!.id,
-    criterion: c.id,
-    // Empty string -> null so the mark is stored as "not graded yet" rather
-    // than 0. Numeric validation is loose here — DRF's DecimalField rejects
-    // anything unparseable and the error surfaces to the caller.
-    mark: state[c.id]?.mark?.trim() ? state[c.id].mark : null,
-    comment: state[c.id]?.comment ?? ''
-  }))
-  emit('save', items, props.overallCommentLabel ? overallComment.value : null)
+  const items: GradeBulkItem[] = props.criteria
+    .filter((c) => edited(c.id))
+    .map((c) => ({
+      submission: props.submission!.id,
+      criterion: c.id,
+      mark: markOrNull(state[c.id]!.mark),
+      comment: state[c.id]!.comment,
+      expected_mark: markOrNull(base[c.id]!.mark),
+      expected_comment: base[c.id]!.comment
+    }))
+  const overall = overallEdited.value
+    ? { comment: overallComment.value, expected: baseOverall.value }
+    : null
+  emit('save', items, overall)
 }
 </script>
 

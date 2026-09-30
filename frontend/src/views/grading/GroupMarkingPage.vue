@@ -348,6 +348,7 @@ import {
   saveGradesBulk,
   type ComponentListPayload,
   type GradeBulkItem,
+  type OverallCommentEdit,
   type GroupMarkingPayload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -747,7 +748,7 @@ watch(
 const saveMarksForBlock = async (
   block: ComponentBlock,
   items: GradeBulkItem[],
-  overallComment: string | null,
+  overallComment: OverallCommentEdit | null,
   withCategories = false
 ) => {
   saveStatus.value = 'saving'
@@ -756,12 +757,18 @@ const saveMarksForBlock = async (
   try {
     const submissionId = block.submission?.id
     const componentCode = block.component.code
-    await saveGradesBulk(
-      items,
+    const overall =
       overallComment !== null && submissionId != null && componentCode
-        ? [{ submission: submissionId, component: componentCode, comment: overallComment }]
+        ? [{
+            submission: submissionId,
+            component: componentCode,
+            comment: overallComment.comment,
+            expected_comment: overallComment.expected
+          }]
         : undefined
-    )
+    // Only edits go; the category boxes may be all that changed. A 409 here
+    // is another marker's change, named in the error.
+    if (items.length || overall) await saveGradesBulk(items, overall)
     // The SAQ Save also stores the category boxes (a no-op when unchanged).
     if (withCategories) await categoriesForm.value?.save()
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.
@@ -781,18 +788,18 @@ const saveMarksForBlock = async (
   }
 }
 
-const saveMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const saveMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   const block = activeBlock.value
   if (block) {
     void saveMarksForBlock(block, items, overallComment, block.component.code === 'SAQ')
   }
 }
 
-const saveSaqMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const saveSaqMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment, true)
 }
 
-const savePosterMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const savePosterMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   if (posterBlock.value) void saveMarksForBlock(posterBlock.value, items, overallComment)
 }
 

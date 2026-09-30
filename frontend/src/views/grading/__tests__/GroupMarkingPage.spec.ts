@@ -65,7 +65,7 @@ const RubricFormStub = defineComponent({
     }
   },
   template:
-    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
+    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? { comment: \'Great\', expected: \'\' } : null)">save</button><slot name="actions" /></div>'
 })
 
 // The page reads isDirty and calls save() on the category boxes through a
@@ -289,7 +289,7 @@ describe('saving marks', () => {
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith(
       [{ submission: 11, criterion: 2, mark: '5', comment: '' }],
-      [{ submission: 11, component: 'POSTER', comment: 'Great' }]
+      [{ submission: 11, component: 'POSTER', comment: 'Great', expected_comment: '' }]
     )
     expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
     expect(markingMock).toHaveBeenCalledTimes(2) // refetch after the upsert

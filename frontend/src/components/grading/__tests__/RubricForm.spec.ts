@@ -152,16 +152,26 @@ describe('what counts as an unsaved edit', () => {
 })
 
 describe('what a save sends', () => {
-  it('sends every criterion, with empty marks as null so nothing reads as a zero', async () => {
-    const wrapper = mountForm()
+  it('sends only the rows edited, each with what it started from, empty marks as null', async () => {
+    const wrapper = mountForm({ grades: [grade(2, '4.00', 'Tidy')] })
     await markInputs(wrapper)[0]!.setValue('8.5')
+    await markInputs(wrapper)[1]!.setValue('')
     await wrapper.find('form').trigger('submit')
     const [items, overall] = wrapper.emitted('save')![0]!
     expect(items).toEqual([
-      { submission: 1, criterion: 1, mark: '8.5', comment: '' },
-      { submission: 1, criterion: 2, mark: null, comment: '' }
+      { submission: 1, criterion: 1, mark: '8.5', comment: '', expected_mark: null, expected_comment: '' },
+      { submission: 1, criterion: 2, mark: null, comment: 'Tidy', expected_mark: '4.00', expected_comment: 'Tidy' }
     ])
     expect(overall).toBeNull()
+  })
+
+  it('leaves out a row that was not touched, so it is never written', async () => {
+    const wrapper = mountForm({ grades: [grade(2, '4.00')] })
+    await markInputs(wrapper)[0]!.setValue('6')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 1, mark: '6', comment: '', expected_mark: null, expected_comment: '' }
+    ])
   })
 
   it('keeps a mark to two decimal places', async () => {
@@ -169,15 +179,23 @@ describe('what a save sends', () => {
     await markInputs(wrapper)[0]!.setValue('7.256')
     expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('7.25')
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.emitted('save')![0]![0]).toContainEqual({ submission: 1, criterion: 1, mark: '7.25', comment: '' })
+    expect(wrapper.emitted('save')![0]![0]).toContainEqual(
+      expect.objectContaining({ submission: 1, criterion: 1, mark: '7.25' })
+    )
   })
 
-  it('sends the overall comment when its box is shown', async () => {
-    const wrapper = mountForm({ overallCommentLabel: 'Overall comment' })
-    await markInputs(wrapper)[0]!.setValue('8')
+  it('sends the overall comment once edited, with the one it started from', async () => {
+    const wrapper = mountForm({ submission: submission(1, 'Draft.'), overallCommentLabel: 'Overall comment' })
     await wrapper.find('.rubric-form__overall-input').setValue('Well argued.')
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.emitted('save')![0]![1]).toBe('Well argued.')
+    expect(wrapper.emitted('save')![0]![1]).toEqual({ comment: 'Well argued.', expected: 'Draft.' })
+  })
+
+  it('leaves the overall comment out when only marks changed', async () => {
+    const wrapper = mountForm({ submission: submission(1, 'Draft.'), overallCommentLabel: 'Overall comment' })
+    await markInputs(wrapper)[0]!.setValue('8')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![1]).toBeNull()
   })
 })
 
@@ -196,6 +214,31 @@ describe('a refetch after saving', () => {
     await wrapper.setProps({ grades: [grade(1, '9.00')] })
     expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('9.00')
     expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it("shows another marker's change on a row left alone, instead of keeping it stale", async () => {
+    const wrapper = mountForm({ grades: [grade(1, '7.00')] })
+    await markInputs(wrapper)[1]!.setValue('3')
+    // The refetch after saving the other section brings their 8 for row one.
+    await wrapper.setProps({ grades: [grade(1, '8.00', 'Theirs')] })
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('8.00')
+    expect((markInputs(wrapper)[1]!.element as HTMLInputElement).value).toBe('3')
+    // Only the real edit is sent, not their row.
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 2, mark: '3', comment: '', expected_mark: null, expected_comment: '' }
+    ])
+  })
+
+  it('an edit of a row another marker also changed keeps where it started, so the server can refuse it', async () => {
+    const wrapper = mountForm({ grades: [grade(1, '7.00')] })
+    await markInputs(wrapper)[0]!.setValue('9')
+    await wrapper.setProps({ grades: [grade(1, '8.00')] })
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('9')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 1, mark: '9', comment: '', expected_mark: '7.00', expected_comment: '' }
+    ])
   })
 
   it('drops edits when a different entry loads', async () => {
