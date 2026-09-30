@@ -89,7 +89,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/gradingAPI'
+import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/managementAPI'
 import { fetchFinalist } from '@/utils/finalistAPI'
 
 // vue-router silently replaces a route that reuses this name, so keep it unique.
@@ -239,10 +239,9 @@ function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
   display: none;
 }
 
-/* .group-detail hides overflow on desktop, so the form scrolls itself. */
+/* The page takes the section's height while one is open, so it scrolls
+   with the page rather than within itself. */
 .group-section-body {
   flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 </style>

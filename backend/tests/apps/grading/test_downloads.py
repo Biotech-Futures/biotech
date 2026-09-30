@@ -256,14 +256,14 @@ class SaqXlsxExportTests(_GradingFixture):
         # One answered question and a two-criterion rubric.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "project_title", "type", "q1",
-             "r1_mark", "r1_comment", "r2_mark", "r2_comment",
-             "overall_comment", "product_category", "category_of_solution"],
+            ["year", "group_name", "type", "project_title", "q1",
+             "product_category", "category_of_solution",
+             "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
         )
         # One row per group.
         self.assertEqual(len(rows), 2)
-        (year, group_name, project_title, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
-         overall_comment, product_category, category_of_solution) = rows[1]
+        (year, group_name, row_type, project_title, q1, product_category, category_of_solution,
+         r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
         self.assertEqual(year, self.group.year)  # the team's challenge year
         self.assertEqual(group_name, "BTF-TEST-1")
         # The title the team submitted.
@@ -283,6 +283,25 @@ class SaqXlsxExportTests(_GradingFixture):
         # its place (no "Other:" prefix).
         self.assertEqual(product_category, "Health, Wearables")
         self.assertEqual(category_of_solution, "App")
+
+    def test_control_characters_pasted_from_word_are_cleaned_not_fatal(self):
+        # Word's Shift+Enter (a vertical tab) and page break (a form feed), and
+        # a stray control character, in every kind of text the sheet carries.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant\x0cSensors",
+            submitted_answers={"q_answers": "Some\x0bstudent answers.\x01"},
+        )
+        Grade.objects.filter(criterion=self.saq_c1).update(comment="Great\x0bclaim.\x02")
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Other"], product_category_other="Wear\x01ables",
+        )
+        rows = list(load_workbook(io.BytesIO(self._export_xlsx())).active.iter_rows(values_only=True))
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(row["project_title"], "Plant Sensors")
+        self.assertIn("Some student answers.", row["q1"])
+        self.assertNotIn("\x01", row["q1"])
+        self.assertEqual(row["r1_comment"], "Great claim.")
+        self.assertEqual(row["product_category"], "Wearables")
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -320,7 +339,10 @@ class SaqXlsxExportTests(_GradingFixture):
         )
         payload = self._export_xlsx()
         rows = list(load_workbook(io.BytesIO(payload)).active.iter_rows(values_only=True))
-        self.assertEqual(rows[1][-2:], ("Health and Medicine, Wearables, apps", "Other"))
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(
+            (row["product_category"], row["category_of_solution"]), ("Health and Medicine, Wearables, apps", "Other")
+        )
 
         upload = SimpleUploadedFile(
             "saq-export.xlsx", payload,
@@ -361,8 +383,8 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         # nobody answered gets no column.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "project_title", "type", "q1", "q2", "q3",
-             "overall_comment", "product_category", "category_of_solution"],
+            ["year", "group_name", "type", "project_title", "q1", "q2", "q3",
+             "product_category", "category_of_solution", "overall_comment"],
         )
         answers = [[cell or None for cell in row[4:7]] for row in rows[1:]]
         self.assertEqual(answers, [
@@ -370,6 +392,21 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
             [None, "Q two\nb2", None],
             ["Q one\nc1", None, "retired_key\nc9"],
         ])
+
+    def test_teams_come_in_natural_order(self):
+        # BTF2 before BTF10, as the Send Test Email list has them, not as text sorts.
+        entries = [
+            ComponentEntry(
+                submission_id=i, group_id=i, group_name=name,
+                component_id=1, component_code="SAQ",
+                submitted_at=None, is_late=False,
+                file=None, text="", link="", answers=(("Q one", name),),
+            )
+            for i, name in enumerate(["BTF10", "BTF2", "btf1", "BTF21"], start=1)
+        ]
+        rows = list(load_workbook(io.BytesIO(build_saq_xlsx(entries, questions=["Q one"]))).active
+                    .iter_rows(values_only=True))
+        self.assertEqual([row[1] for row in rows[1:]], ["btf1", "BTF2", "BTF10", "BTF21"])
 
     def test_layout_bold_questions_top_aligned_rows_fit_content(self):
         payload = build_saq_xlsx(

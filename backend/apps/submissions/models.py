@@ -1,4 +1,5 @@
 """Models for team competition submissions: questions, deadlines and entries."""
+from django.apps import apps
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -313,7 +314,7 @@ class FinalistDeadline(models.Model):
 class FinalistEntry(models.Model):
     """A finalist team's presentation, as it works on it and submits it.
 
-    The times it can present are each student's own answer, kept with the
+    The times it can present are the team's one answer, kept with the
     Finalist Presentation tab's times (grading's PresentationAvailability);
     the submitted slides are also kept for that tab (grading's FinalistSlides).
     """
@@ -363,8 +364,11 @@ class FinalistEntry(models.Model):
     @property
     def stage(self) -> str:
         if self.submitted_at is None:
-            # A student's answer counts as the team having started.
-            has_content = bool(self.presentation) or self.group.presentation_availability.filter(
+            # The team's times, even unsubmitted, count as it having started.
+            has_content = bool(self.presentation) or apps.get_model(
+                "management", "PresentationAvailability"
+            ).objects.filter(
+                group_id=self.group_id,
                 slots__isnull=False
             ).exists()
             return STAGE_IN_PROGRESS if has_content else STAGE_NOT_STARTED

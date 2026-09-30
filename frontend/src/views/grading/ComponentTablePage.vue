@@ -63,7 +63,7 @@
             >
               <i class="fas fa-download" aria-hidden="true"></i> Download
             </button>
-            <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+            <BulkUploadDialog :code="code" :year="payload.year" @applied="onUploadApplied" />
           </div>
       </div>
 

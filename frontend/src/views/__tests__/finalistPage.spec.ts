@@ -6,7 +6,7 @@ import type { FinalistDetail, FinalistEntry } from '@/utils/finalistAPI'
 import { ApiError } from '@/utils/apiError'
 
 const fetchFinalist = vi.fn()
-const saveAvailability = vi.fn()
+const submitAvailability = vi.fn()
 const uploadPresentation = vi.fn()
 const submitFinalist = vi.fn()
 const reopenFinalist = vi.fn()
@@ -16,7 +16,7 @@ vi.mock('@/utils/finalistAPI', async (importOriginal) => {
   return {
     ...actual,
     fetchFinalist: (...args: unknown[]) => fetchFinalist(...args),
-    saveAvailability: (...args: unknown[]) => saveAvailability(...args),
+    submitAvailability: (...args: unknown[]) => submitAvailability(...args),
     uploadPresentation: (...args: unknown[]) => uploadPresentation(...args),
     submitFinalist: (...args: unknown[]) => submitFinalist(...args),
     reopenFinalist: (...args: unknown[]) => reopenFinalist(...args),
@@ -37,8 +37,9 @@ const PPTX = { ...PDF, storage_key: 'f/deck.pptx', name: 'deck.pptx' }
 
 const blankEntry = (): FinalistEntry => ({
   available_session_ids: [],
+  availability_submitted_at: null,
+  availability_submitted_by_name: '',
   presentation: null,
-  submitted_session_ids: [],
   submitted_presentation: null,
   submitted_at: null,
   submitted_by_name: '',
@@ -49,7 +50,6 @@ const blankEntry = (): FinalistEntry => ({
   updated_at: new Date().toISOString(),
 })
 
-// A student's view unless said otherwise: each student ticks their own times.
 const buildDetail = (
   entry: Partial<FinalistEntry> | null = {},
   isOpen = true,
@@ -59,16 +59,21 @@ const buildDetail = (
   deadline: { closes_at: new Date(Date.now() + 5 * 86_400_000).toISOString(), is_extended: false, is_open: isOpen },
   sessions: SESSIONS,
   symposium_date: null,
-  can_choose_sessions: true,
   max_file_size: 25 * 1024 * 1024,
   entry: entry === null ? null : { ...blankEntry(), ...entry },
   ...over,
 })
 
+// The team's times, submitted by one of it.
+const answered = (ids: number[]): Partial<FinalistEntry> => ({
+  available_session_ids: ids,
+  availability_submitted_at: '2026-10-05T03:30:00Z',
+  availability_submitted_by_name: 'Amy Chen',
+})
+
 const lockedEntry = (): Partial<FinalistEntry> => ({
-  available_session_ids: [1],
+  ...answered([1]),
   presentation: PDF,
-  submitted_session_ids: [1],
   submitted_presentation: PDF,
   submitted_at: new Date().toISOString(),
   stage: 'submitted',
@@ -95,6 +100,7 @@ const mountPage = async (detail: FinalistDetail) => {
 
 const button = (label: RegExp) => wrapper!.findAll('button').find((b) => label.test(b.text().trim()))
 const checkbox = (id: number) => wrapper!.find(`[data-testid="session-${id}"]`)
+const submitTimes = () => wrapper!.find('[data-testid="submit-availability"]')
 const result = (entry: Partial<FinalistEntry>) => ({
   deadline: buildDetail().deadline,
   entry: { ...blankEntry(), ...entry },
@@ -137,40 +143,6 @@ describe('what the fixes cover', () => {
     await flushPromises()
     expect(root.classes()).not.toContain('is-dragging-file')
   })
-
-  it('says when availability was saved', async () => {
-    await mountPage(buildDetail(null))
-    saveAvailability.mockResolvedValue(result({ available_session_ids: [2] }))
-
-    await checkbox(2).trigger('change')
-    expect(wrapper!.find('[data-testid="finalist-savestate"]').text()).toBe('Unsaved changes')
-
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    await flushPromises()
-    expect(wrapper!.find('[data-testid="finalist-savestate"]').text()).toMatch(/^Saved /)
-  })
-
-  it('says when availability could not be saved', async () => {
-    await mountPage(buildDetail(null))
-    saveAvailability.mockRejectedValue(new Error('Network down'))
-
-    await checkbox(2).trigger('change')
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    await flushPromises()
-
-    expect(wrapper!.find('[data-testid="finalist-savestate"]').text()).toBe('Could not save')
-  })
-
-  it('still sends a tick made just before leaving the page', async () => {
-    await mountPage(buildDetail(null))
-    saveAvailability.mockResolvedValue(result({ available_session_ids: [3] }))
-
-    await checkbox(3).trigger('change')
-    wrapper!.unmount()
-    wrapper = null
-
-    expect(saveAvailability).toHaveBeenCalledWith('1', [3])
-  })
 })
 
 describe('availability', () => {
@@ -182,24 +154,60 @@ describe('availability', () => {
     expect(wrapper!.find('.status-line').text()).toContain('Not Started')
   })
 
-  it('saves the chosen times after a short pause', async () => {
+  it('sends nothing until Submit Availability is pressed', async () => {
     await mountPage(buildDetail(null))
-    saveAvailability.mockResolvedValue(result({ available_session_ids: [1, 3] }))
+    expect(submitTimes().attributes('disabled')).toBeDefined()
 
     await checkbox(1).trigger('change')
     await checkbox(3).trigger('change')
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    await flushPromises()
-
-    expect(saveAvailability).toHaveBeenCalledTimes(1)
-    expect(saveAvailability).toHaveBeenCalledWith('1', [1, 3])
+    expect(submitAvailability).not.toHaveBeenCalled()
+    expect(submitTimes().attributes('disabled')).toBeUndefined()
   })
 
-  it('shows the saved choices as ticked', async () => {
-    await mountPage(buildDetail({ available_session_ids: [2], stage: 'in_progress' }))
+  it('submits the ticked times for the team and says who did, when', async () => {
+    await mountPage(buildDetail(null))
+    submitAvailability.mockResolvedValue(result({ ...answered([1, 3]), stage: 'in_progress' }))
+
+    await checkbox(1).trigger('change')
+    await checkbox(3).trigger('change')
+    await submitTimes().trigger('click')
+    await flushPromises()
+
+    expect(submitAvailability).toHaveBeenCalledWith('1', [1, 3])
+    const line = wrapper!.find('[data-testid="availability-submitted"]').text()
+    // Day first, 24 hour, in the viewer's time.
+    expect(line).toMatch(/^Submitted by Amy Chen on 5\/10\/2026 \d{2}:30$/)
+    // Nothing new to send until a tick changes.
+    expect(submitTimes().attributes('disabled')).toBeDefined()
+  })
+
+  it('says when the times could not be submitted', async () => {
+    await mountPage(buildDetail(null))
+    submitAvailability.mockRejectedValue(new Error('Network down'))
+
+    await checkbox(2).trigger('change')
+    await submitTimes().trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message--error').exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="availability-submitted"]').exists()).toBe(false)
+  })
+
+  it("shows the team's times as ticked, for anyone on it", async () => {
+    await mountPage(buildDetail({ ...answered([2]), stage: 'in_progress' }))
 
     expect((checkbox(2).element as HTMLInputElement).checked).toBe(true)
     expect((checkbox(1).element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper!.find('fieldset').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('[data-testid="availability-submitted"]').text()).toContain('Submitted by Amy Chen on ')
+  })
+
+  it('cannot submit no times at all', async () => {
+    await mountPage(buildDetail({ ...answered([2]), stage: 'in_progress' }))
+
+    await checkbox(2).trigger('change')
+
+    expect(submitTimes().attributes('disabled')).toBeDefined()
   })
 })
 
@@ -244,21 +252,33 @@ describe('the presentation', () => {
 })
 
 describe('submitting', () => {
-  it('sends a student to availability when they have chosen no times', async () => {
-    await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }))
+  it('sends the team to availability until its times are submitted', async () => {
+    // Ticked, as carried over from before, but never submitted.
+    await mountPage(buildDetail({ available_session_ids: [1], presentation: PDF, stage: 'in_progress' }))
 
     await button(/^Submit$/)!.trigger('click')
     await flushPromises()
 
     expect(submitFinalist).not.toHaveBeenCalled()
-    expect(wrapper!.find('.submission-message').text()).toContain('Choose at least one session you can attend')
+    expect(wrapper!.find('.submission-message').text()).toContain("Submit your team's availability first.")
   })
 
-  it("leaves a mentor's submit to the server, which says when no student has chosen times", async () => {
-    await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }, true, { can_choose_sessions: false }))
+  it('sends the team to availability when a tick changed since it was submitted', async () => {
+    await mountPage(buildDetail({ ...answered([1]), presentation: PDF, stage: 'in_progress' }))
+
+    await checkbox(2).trigger('change')
+    await button(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(submitFinalist).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain("Submit your team's availability first.")
+  })
+
+  it('shows what the server says when it still wants the times', async () => {
+    await mountPage(buildDetail({ ...answered([1]), presentation: PDF, stage: 'in_progress' }))
     submitFinalist.mockRejectedValue(
       new ApiError({
-        error: 'At least one student needs to choose the sessions they can attend first.',
+        error: 'Submit the sessions your team can attend first.',
         code: 'availability_required',
         request_id: 'x',
       })
@@ -268,11 +288,11 @@ describe('submitting', () => {
     await flushPromises()
 
     expect(submitFinalist).toHaveBeenCalledWith('1')
-    expect(wrapper!.find('.submission-message').text()).toContain('At least one student needs to choose')
+    expect(wrapper!.find('.submission-message').text()).toContain('Submit the sessions your team can attend first.')
   })
 
   it('sends the team to the presentation step when nothing is uploaded', async () => {
-    await mountPage(buildDetail({ available_session_ids: [1], stage: 'in_progress' }))
+    await mountPage(buildDetail({ ...answered([1]), stage: 'in_progress' }))
 
     await button(/^Submit$/)!.trigger('click')
     await flushPromises()
@@ -282,7 +302,7 @@ describe('submitting', () => {
   })
 
   it('submits a complete entry', async () => {
-    await mountPage(buildDetail({ available_session_ids: [1], presentation: PDF, stage: 'in_progress' }))
+    await mountPage(buildDetail({ ...answered([1]), presentation: PDF, stage: 'in_progress' }))
     submitFinalist.mockResolvedValue(result(lockedEntry()))
 
     await button(/^Submit$/)!.trigger('click')
@@ -298,6 +318,9 @@ describe('submitting', () => {
 
     expect(wrapper!.find('fieldset').attributes('disabled')).toBeDefined()
     expect(button(/^Submit$/)).toBeUndefined()
+    expect(submitTimes().exists()).toBe(false)
+    // Who submitted the times still shows.
+    expect(wrapper!.find('[data-testid="availability-submitted"]').exists()).toBe(true)
 
     await wrapper!.find('[data-testid="finalist-resubmit"]').trigger('click')
     await flushPromises()
@@ -318,13 +341,6 @@ describe('times', () => {
     expect(wrapper!.text()).toContain('The sessions are on Friday 23 October 2026.')
   })
 
-  it('shows the times to a mentor without letting them tick for the students', async () => {
-    await mountPage(buildDetail(null, true, { can_choose_sessions: false }))
-
-    expect(wrapper!.find('fieldset').attributes('disabled')).toBeDefined()
-    expect(wrapper!.find('[data-testid="students-choose"]').text()).toBe('Each student chooses their own sessions.')
-  })
-
   it('says when no times have been set up yet', async () => {
     await mountPage(buildDetail(null, true, { sessions: [] }))
 
@@ -342,12 +358,11 @@ describe('after the deadline', () => {
     expect(wrapper!.find('.status-line').text()).toContain('Not Submitted')
   })
 
-  it('shows what was submitted rather than an unfinished revision', async () => {
+  it('shows the submitted slides rather than an unfinished revision', async () => {
     await mountPage(
       buildDetail(
         {
           ...lockedEntry(),
-          available_session_ids: [3],
           presentation: PPTX,
           is_locked: false,
           stage: 'revising',
@@ -357,8 +372,8 @@ describe('after the deadline', () => {
       ),
     )
 
+    expect(wrapper!.find('.submission-file').text()).toContain('deck.pdf')
     expect((checkbox(1).element as HTMLInputElement).checked).toBe(true)
-    expect((checkbox(3).element as HTMLInputElement).checked).toBe(false)
   })
 
   it('reopens when the window regains focus after the deadline is extended', async () => {

@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def _safe(name: str) -> str:
+def safe_name(name: str) -> str:
     """Filesystem-safe segment. Collapses runs of unsafe chars to ``_`` and
     trims leading/trailing dots to keep Windows extractors happy."""
     cleaned = _UNSAFE.sub("_", (name or "").strip())
@@ -127,7 +127,7 @@ def build_submissions_zip(
             top_up()
 
             label = _COMPONENT_LABELS.get(entry.component_code, entry.component_code)
-            stem = f"{year}_{_safe(entry.group_name)}"
+            stem = f"{year}_{safe_name(entry.group_name)}"
             # Single-group downloads skip the folder — the zip itself is
             # already named after the group, so a same-named subfolder
             # would just be an extra layer to click through.
@@ -142,7 +142,7 @@ def build_submissions_zip(
                     )
                 else:
                     ext = os.path.splitext(original)[1]
-                    ext = f".{_safe(ext[1:])}" if ext else ".bin"
+                    ext = f".{safe_name(ext[1:])}" if ext else ".bin"
                     zf.writestr(f"{base}{ext}", data)
 
             if entry.text:

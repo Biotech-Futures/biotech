@@ -405,7 +405,7 @@ const describeIssues = (error: z.ZodError): string => {
 const toResult = <T>(result: z.ZodSafeParseResult<T>, label: string): ParseResult<T> =>
   result.success
     ? { ok: true, data: result.data }
-    : { ok: false, message: `${label} returned an unexpected format — ${describeIssues(result.error)}` }
+    : { ok: false, message: `${label} returned an unexpected format - ${describeIssues(result.error)}` }
 
 export const parseStudentMatchData = (payload: unknown): ParseResult<StudentMatchData> =>
   toResult(studentMatchDataSchema.safeParse(payload), 'Student matching')

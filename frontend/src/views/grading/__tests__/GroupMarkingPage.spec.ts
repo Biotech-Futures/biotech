@@ -65,7 +65,7 @@ const RubricFormStub = defineComponent({
     }
   },
   template:
-    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
+    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? { comment: \'Great\', expected: \'\' } : null)">save</button><slot name="actions" /></div>'
 })
 
 // The page reads isDirty and calls save() on the category boxes through a
@@ -289,7 +289,7 @@ describe('saving marks', () => {
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith(
       [{ submission: 11, criterion: 2, mark: '5', comment: '' }],
-      [{ submission: 11, component: 'POSTER', comment: 'Great' }]
+      [{ submission: 11, component: 'POSTER', comment: 'Great', expected_comment: '' }]
     )
     expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
     expect(markingMock).toHaveBeenCalledTimes(2) // refetch after the upsert
@@ -379,6 +379,21 @@ describe('walking the cohort', () => {
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /Next Unmarked/.test(b.text()))!.trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/5')
+  })
+
+  it('keeps the page where it was scrolled while the next group loads', async () => {
+    await mountPage()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { value: 640, configurable: true })
+    try {
+      routeState.params = { groupId: '5' }
+      await flushPromises()
+      expect(markingMock).toHaveBeenLastCalledWith(5)
+      expect(scrollTo).toHaveBeenCalledWith({ top: 640 })
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+      scrollTo.mockRestore()
+    }
   })
 
   it('search opens the resolved group and refuses an unknown one', async () => {

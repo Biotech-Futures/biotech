@@ -5,13 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import (
-    ComponentFeedback,
-    Grade,
-    Rubric,
-    RubricCriterion,
-    SubmissionComponent,
-)
+from apps.grading.models import ComponentFeedback, Grade, Rubric, RubricCriterion, SubmissionComponent
 
 from .fixtures import _GradingFixture
 
@@ -108,12 +102,85 @@ class GradeBulkViewTests(_GradingFixture):
             status.HTTP_400_BAD_REQUEST,
         )
 
+    def _other_marker_saves(self, criterion, mark, comment=""):
+        from apps.users.models import User
+
+        other = User.objects.create_user(email="other.marker@example.com", password="pw12345!", is_staff=True)
+        Grade.objects.update_or_create(
+            submission=self.saq_submission, criterion=criterion,
+            defaults={"mark": Decimal(mark) if mark else None, "comment": comment, "graded_by": other},
+        )
+        return other
+
+    def test_a_save_started_from_what_is_stored_goes_ahead(self):
+        Grade.objects.create(submission=self.saq_submission, criterion=self.saq_c1, mark=Decimal("7.00"), graded_by=self.staff)
+        resp = self.client.post(reverse("grading:grade-bulk"), {"items": [
+            {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "8.00", "comment": "Better.",
+             "expected_mark": "7", "expected_comment": ""},
+            # Nothing stored yet, and the marker started from nothing.
+            {"submission": self.saq_submission.id, "criterion": self.saq_c2.id, "mark": "3.00", "comment": "",
+             "expected_mark": None, "expected_comment": ""},
+        ]}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(Grade.objects.get(criterion=self.saq_c1).mark, Decimal("8.00"))
+        self.assertEqual(Grade.objects.get(criterion=self.saq_c2).mark, Decimal("3.00"))
+
+    def test_a_save_over_another_markers_change_is_refused_and_writes_nothing(self):
+        # Opened with Content empty; another marker has since given it 8.
+        other = self._other_marker_saves(self.saq_c1, "8.00")
+        resp = self.client.post(reverse("grading:grade-bulk"), {"items": [
+            {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "5.00", "comment": "",
+             "expected_mark": None, "expected_comment": ""},
+            {"submission": self.saq_submission.id, "criterion": self.saq_c2.id, "mark": "3.00", "comment": "",
+             "expected_mark": None, "expected_comment": ""},
+        ]}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            resp.json()["detail"],
+            "Another marker changed Content since you opened this group. Reload to see their marks.",
+        )
+        self.assertEqual(resp.json()["changed"], ["Content"])
+        grade = Grade.objects.get(criterion=self.saq_c1)
+        self.assertEqual((grade.mark, grade.graded_by), (Decimal("8.00"), other))
+        # All or nothing: the other row wasn't written either.
+        self.assertFalse(Grade.objects.filter(criterion=self.saq_c2).exists())
+
+    def test_a_changed_comment_and_overall_comment_are_caught_too(self):
+        self._other_marker_saves(self.poster_c1, "", comment="Their comment.")
+        ComponentFeedback.objects.create(group=self.group, component=self.poster, comment="Their overall.")
+        resp = self.client.post(reverse("grading:grade-bulk"), {
+            "items": [
+                {"submission": self.poster_submission.id, "criterion": self.poster_c1.id, "mark": "6.00",
+                 "comment": "", "expected_mark": None, "expected_comment": ""},
+            ],
+            "overall_comments": [
+                {"submission": self.poster_submission.id, "component": "POSTER", "comment": "Mine.",
+                 "expected_comment": ""},
+            ],
+        }, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            resp.json()["detail"],
+            "Another marker changed Design and the overall comment since you opened this group. "
+            "Reload to see their marks.",
+        )
+        self.assertEqual(ComponentFeedback.objects.get(component=self.poster).comment, "Their overall.")
+
+    def test_a_save_without_starting_values_is_not_checked(self):
+        # The bulk upload and older clients send marks without them.
+        self._other_marker_saves(self.saq_c1, "8.00")
+        resp = self.client.post(reverse("grading:grade-bulk"), {"items": [
+            {"submission": self.saq_submission.id, "criterion": self.saq_c1.id, "mark": "5.00", "comment": ""},
+        ]}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(Grade.objects.get(criterion=self.saq_c1).mark, Decimal("5.00"))
+
     def test_component_mismatch_rejected_atomically(self):
         url = reverse("grading:grade-bulk")
         # A REPORT criterion exists but the entry has no submitted report, so
         # binding it to this submission is a client bug and must be rejected.
         report = SubmissionComponent.objects.get(code="REPORT")
-        report_rubric = Rubric.objects.create(component=report, year=2026, active=True)
+        report_rubric = Rubric.objects.create(component=report, year=self.year, active=True)
         report_c1 = RubricCriterion.objects.create(
             rubric=report_rubric, name="Rigour", max_mark=Decimal("10.00"), order=10,
         )

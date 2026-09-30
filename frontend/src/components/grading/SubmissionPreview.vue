@@ -301,18 +301,20 @@ const markerTooltip = computed(() => {
 .submission-preview__answers {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  /* The same space above each question as below it. */
+  gap: 0.4rem;
   background: var(--surface-elevated);
-  padding: 0.85rem;
+  /* Little at the sides, so the answers get the width. */
+  padding: 0.85rem 0.35rem;
   border-radius: 8px;
-  max-height: 70vh;
+  max-height: 100vh;
   overflow: auto;
 }
 
 .submission-preview__question {
   margin: 0 0 0.4rem;
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--charcoal);
 }
 

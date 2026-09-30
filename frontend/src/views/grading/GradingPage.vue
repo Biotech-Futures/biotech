@@ -1,5 +1,5 @@
 <template>
-  <div class="content-area grading">
+  <div class="content-area grading" :class="{ 'grading--marking': route.meta.hideSidebar === true }">
     <header class="grading__hero">
       <div>
         <h1 class="grading__title">Grading</h1>
@@ -61,6 +61,12 @@ const isTabActive = (tab: GradingTab) => {
 </script>
 
 <style scoped>
+/* The marking panes reach a little past this area's right edge; that
+   overhang is cut off rather than giving the page a sideways scrollbar. */
+.grading--marking {
+  overflow-x: hidden;
+}
+
 .grading__hero {
   margin-bottom: 1.25rem;
 }

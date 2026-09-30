@@ -82,7 +82,7 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(checkboxes.length).toBe(4) // 2 roles + 2 groups
 
     // Notice for global visibility
-    expect(wrapper.text()).toContain('No roles or groups selected — announcement will be visible to all users (Global)')
+    expect(wrapper.text()).toContain('No roles or groups selected - announcement will be visible to all users (Global)')
   })
 
   it('populates fields in edit mode and fetches full detail if body is missing', async () => {

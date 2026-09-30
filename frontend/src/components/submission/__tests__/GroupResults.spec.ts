@@ -5,10 +5,10 @@ import {
   downloadGroupCertificate,
   downloadGroupSummary,
   type GroupResults as GroupResultsData
-} from '@/utils/gradingAPI'
+} from '@/utils/managementAPI'
 import { ApiError } from '@/utils/apiError'
 
-vi.mock('@/utils/gradingAPI', () => ({
+vi.mock('@/utils/managementAPI', () => ({
   downloadGroupCertificate: vi.fn(),
   downloadGroupSummary: vi.fn()
 }))

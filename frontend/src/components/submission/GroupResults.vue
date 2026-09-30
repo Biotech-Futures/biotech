@@ -141,7 +141,7 @@ import {
   downloadGroupSummary,
   type GroupCertificate,
   type GroupResults
-} from '@/utils/gradingAPI'
+} from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const props = defineProps<{ groupId: string; results: GroupResults }>()

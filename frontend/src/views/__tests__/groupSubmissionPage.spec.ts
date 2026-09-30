@@ -20,8 +20,6 @@ vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
     submitEntry: (...args: unknown[]) => submitEntry(...args),
     reopenEntry: (...args: unknown[]) => reopenEntry(...args),
     uploadSubmissionFile: (...args: unknown[]) => uploadSubmissionFile(...args),
-    fetchPreviewObjectUrl: vi.fn().mockResolvedValue(''),
-    releasePreview: vi.fn(),
   }
 })
 

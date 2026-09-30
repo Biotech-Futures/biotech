@@ -761,7 +761,7 @@ def send_announcement_email(
     if succeeded == 0:
         status_value = AnnouncementDelivery.Status.FAILED
         msg = (
-            "Announcement send failed — no recipients accepted the message"
+            "Announcement send failed - no recipients accepted the message"
             if failure_count
             else "Announcement send failed"
         )

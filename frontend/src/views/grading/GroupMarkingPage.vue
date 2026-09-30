@@ -126,7 +126,7 @@
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
            starts at the same height beneath it. -->
-      <ResizableSplit v-if="isCombined && saqBlock && posterBlock" right-max="23rem">
+      <ResizableSplit v-if="isCombined && saqBlock && posterBlock" right-max="21rem">
         <template #left>
           <div>
             <!-- The stamp row lives inside the left pane so its actions hug
@@ -245,7 +245,7 @@
         </template>
       </ResizableSplit>
       <template v-else-if="activeBlock">
-        <ResizableSplit v-if="activeBlock.submission" right-max="23rem">
+        <ResizableSplit v-if="activeBlock.submission" right-max="21rem">
           <template #left>
             <div>
               <!-- Stamp row inside the pane: actions hug the preview's right
@@ -329,7 +329,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { useFlashMessage } from '@/composables/useFlashMessage'
@@ -348,6 +348,7 @@ import {
   saveGradesBulk,
   type ComponentListPayload,
   type GradeBulkItem,
+  type OverallCommentEdit,
   type GroupMarkingPayload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -702,6 +703,9 @@ const onRubricsKeydown = (e: KeyboardEvent) => {
 const load = async () => {
   if (!Number.isFinite(groupId.value) || groupId.value <= 0) return
   if (isComponentMode.value && !code.value) return
+  // The Loading line briefly shortens the page, which would leave the marker
+  // at its top after Prev, Next or Next Unmarked; they stay where they were.
+  const scrolledTo = window.scrollY
   isLoading.value = true
   loadError.value = ''
   try {
@@ -720,6 +724,10 @@ const load = async () => {
     loadError.value = apiErrorFromUnknown(err).message
   } finally {
     isLoading.value = false
+  }
+  if (scrolledTo > 0) {
+    await nextTick()
+    window.scrollTo({ top: scrolledTo })
   }
 }
 
@@ -740,7 +748,7 @@ watch(
 const saveMarksForBlock = async (
   block: ComponentBlock,
   items: GradeBulkItem[],
-  overallComment: string | null,
+  overallComment: OverallCommentEdit | null,
   withCategories = false
 ) => {
   saveStatus.value = 'saving'
@@ -749,12 +757,18 @@ const saveMarksForBlock = async (
   try {
     const submissionId = block.submission?.id
     const componentCode = block.component.code
-    await saveGradesBulk(
-      items,
+    const overall =
       overallComment !== null && submissionId != null && componentCode
-        ? [{ submission: submissionId, component: componentCode, comment: overallComment }]
+        ? [{
+            submission: submissionId,
+            component: componentCode,
+            comment: overallComment.comment,
+            expected_comment: overallComment.expected
+          }]
         : undefined
-    )
+    // Only edits go; the category boxes may be all that changed. A 409 here
+    // is another marker's change, named in the error.
+    if (items.length || overall) await saveGradesBulk(items, overall)
     // The SAQ Save also stores the category boxes (a no-op when unchanged).
     if (withCategories) await categoriesForm.value?.save()
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.
@@ -774,18 +788,18 @@ const saveMarksForBlock = async (
   }
 }
 
-const saveMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const saveMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   const block = activeBlock.value
   if (block) {
     void saveMarksForBlock(block, items, overallComment, block.component.code === 'SAQ')
   }
 }
 
-const saveSaqMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const saveSaqMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment, true)
 }
 
-const savePosterMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const savePosterMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   if (posterBlock.value) void saveMarksForBlock(posterBlock.value, items, overallComment)
 }
 
@@ -895,6 +909,7 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
+  font-weight: 400;
 }
 
 /* The team's submitted title, on its own line above the Marker line. The
@@ -1039,13 +1054,29 @@ const downloadAll = async () => {
   color: var(--text-muted);
 }
 
+/* The answers, preview and rubric reach further out to both sides than the
+   heading, tabs and search above them (on the left, up to the sidebar's
+   arrow at the page's edge). */
+@media (min-width: 769px) {
+  .group-marking > .split {
+    margin-left: -1.75rem;
+    margin-right: -2.5rem;
+  }
+
+  /* That runs 0.5rem past the grading area, which clips it; Save stays
+     clear of the cut. */
+  .group-marking > .split :deep(.rubric-form__actions) {
+    padding-right: 0.85rem;
+  }
+}
+
 .group-marking__combined-rubrics {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0;
   /* Scrolls within its own pane, like the answers and PDF beside it, so a
      long rubric stack doesn't stretch the page. */
-  max-height: 94vh;
+  max-height: 100vh;
   overflow-y: auto;
   padding-right: 0.25rem;
 }

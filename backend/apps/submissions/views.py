@@ -59,7 +59,7 @@ def _require_can_view(user, group_id: int) -> None:
     """Any member of the team can read it; so can admins.
 
     Staff and superusers pass alongside AdminScope admins so the definition
-    matches grading's ``IsGrader``: anyone who can mark an entry can read the
+    matches ``common.rbac.IsStaffOrAdmin``: anyone who can mark an entry can read the
     files they are marking.
     """
     if is_admin(user) or user.is_staff or user.is_superuser:
