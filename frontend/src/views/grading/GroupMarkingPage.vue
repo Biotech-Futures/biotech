@@ -902,6 +902,7 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
+  font-weight: 400;
 }
 
 /* The team's submitted title, on its own line above the Marker line. The

@@ -1,7 +1,12 @@
 
 
 <template>
-  <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
+  <div
+    class="content-area group-detail"
+    :class="{ 'group-detail--section': onSectionPage }"
+    :data-active="activeTab"
+    :aria-busy="isLoadingGroupDetail"
+  >
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
       <span class="sr-only">Loading group details...</span>
       <div class="group-hero-card group-loading-hero">
@@ -113,7 +118,7 @@
             </div>
           </div>
           <div class="gd-head-actions">
-            <!-- "1 member - Group since 24 Sept 2026", beside the Members button. -->
+            <!-- "Group since 24 Sept 2026", beside the Members button. -->
             <p class="gd-subtitle gd-subtitle--beside-members">{{ groupSubtitle }}</p>
             <button
               type="button"
@@ -1810,6 +1815,10 @@ import {
 } from '@/utils/tasksAPI'
 
 const route = useRoute()
+// Submission, Finalist or Results open: the page scrolls as a whole, rather
+// than holding the group's card and tabs while the section scrolls below.
+const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results']
+const onSectionPage = computed(() => SECTION_ROUTES.includes(String(route.name)))
 const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -2170,11 +2179,10 @@ const groupInitials = computed(() => {
   return initials.slice(0, 2) || 'G'
 })
 
+// The member count shows on the Members button beside it.
 const groupSubtitle = computed(() => {
-  const memberCount = Number(group.value?.members || 0)
-  const memberLabel = memberCount === 1 ? '1 member' : `${memberCount} members`
   const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
-  return `${memberLabel} - Group since ${createdLabel}`
+  return `Group since ${createdLabel}`
 })
 
 const myGroupRole = computed(() => {
@@ -2460,9 +2468,7 @@ const switchGroup = (event) => {
   const id = event.target.value
   if (!id || id === routeGroupId.value) return
   // Stays on the section open (Submission, Finalist or Results).
-  const name = ['group-submission', 'group-finalist', 'group-results'].includes(String(route.name))
-    ? String(route.name)
-    : 'group-detail'
+  const name = onSectionPage.value ? String(route.name) : 'group-detail'
   void router.push({ name, params: { id } })
 }
 
@@ -9333,11 +9339,20 @@ onBeforeUnmount(() => {
   .group-detail {
     /* Tasks and the Discussion Board are never shorter than this. */
     --group-panes-min-height: 520px;
-    height: calc(100vh - 64px - 2rem);
+    /* The window below the top bar, then 6% more for Tasks and the
+       Discussion Board: the window alone would give them about
+       (100vh - 284px). Their minimum below stays as it is. */
+    height: calc(100vh - 64px - 2rem + (100vh - 284px) * 0.06);
     /* A short window scrolls the page rather than squashing them: room for
        their minimum plus the group's card, the section tabs and the gaps. */
     min-height: calc(var(--group-panes-min-height) + 13rem);
     overflow: visible;
+  }
+
+  /* Submission, Finalist and Results: the page's own height, so they scroll
+     with the group's card and tabs rather than beneath them. */
+  .group-detail.group-detail--section {
+    height: auto;
   }
 
   .group-hero-card {
