@@ -18,7 +18,6 @@ const criterion = (id: number, name = `Criterion ${id}`, max = '10.00'): RubricC
   id,
   rubric: 1,
   name,
-  description: '',
   max_mark: max,
   order: id * 10
 })
@@ -163,6 +162,14 @@ describe('what a save sends', () => {
       { submission: 1, criterion: 2, mark: null, comment: '' }
     ])
     expect(overall).toBeNull()
+  })
+
+  it('keeps a mark to two decimal places', async () => {
+    const wrapper = mountForm()
+    await markInputs(wrapper)[0]!.setValue('7.256')
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('7.25')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toContainEqual({ submission: 1, criterion: 1, mark: '7.25', comment: '' })
   })
 
   it('sends the overall comment when its box is shown', async () => {

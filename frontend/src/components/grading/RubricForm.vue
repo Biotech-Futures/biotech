@@ -7,12 +7,11 @@
 
     <form v-else class="rubric-form" @submit.prevent="handleSubmit">
       <div v-for="c in criteria" :key="c.id" class="rubric-form__criterion">
+        <!-- The most first, floated right, so the criterion's words run on
+             under it rather than leaving a column empty beneath it. -->
         <div class="rubric-form__criterion-head">
-          <div>
-            <p class="rubric-form__name">{{ c.name }}</p>
-            <p v-if="c.description" class="rubric-form__description">{{ c.description }}</p>
-          </div>
           <span class="rubric-form__max">/ {{ c.max_mark }}</span>
+          <p class="rubric-form__name">{{ c.name }}</p>
         </div>
         <div class="rubric-form__fields">
           <input
@@ -24,7 +23,7 @@
             placeholder="Mark"
             class="rubric-form__mark"
             :value="state[c.id]?.mark ?? ''"
-            @input="setMark(c.id, ($event.target as HTMLInputElement).value)"
+            @input="onMarkInput(c.id, $event.target as HTMLInputElement)"
           />
           <textarea
             placeholder="Comment (optional)"
@@ -172,6 +171,14 @@ const setMark = (criterionId: number, mark: string) => {
   if (state[criterionId]) state[criterionId].mark = mark
 }
 
+// At most two decimal places: a third typed (or pasted) digit is dropped.
+const PAST_TWO_DECIMALS = /^(\d*\.\d{2})\d+$/
+const onMarkInput = (criterionId: number, input: HTMLInputElement) => {
+  const mark = input.value.replace(PAST_TWO_DECIMALS, '$1')
+  if (mark !== input.value) input.value = mark
+  setMark(criterionId, mark)
+}
+
 const setComment = (criterionId: number, comment: string) => {
   if (state[criterionId]) state[criterionId].comment = comment
 }
@@ -207,11 +214,14 @@ const handleSubmit = () => {
   max-width: 22rem;
 }
 
-/* Criteria read as one seamless panel: no gaps, no dividers between them. */
+/* Criteria read as one seamless panel: no gaps, no dividers between them.
+   The one above's bottom padding is the space above each criterion, the
+   same as the space below its name. */
 .rubric-form__criterion + .rubric-form__criterion {
   border-top: none;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+  padding-top: 0;
 }
 
 .rubric-form__criterion:has(+ .rubric-form__criterion) {
@@ -228,26 +238,19 @@ const handleSubmit = () => {
 }
 
 .rubric-form__criterion-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: flow-root;
   margin-bottom: 0.5rem;
 }
 
 .rubric-form__name {
   font-weight: 400;
-  font-size: 0.85rem;
-  margin: 0;
-}
-
-.rubric-form__description {
   font-size: 0.8rem;
-  color: var(--text-muted);
   margin: 0;
 }
 
 .rubric-form__max {
+  float: right;
+  margin-left: 0.75rem;
   font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
@@ -255,13 +258,41 @@ const handleSubmit = () => {
 
 .rubric-form__fields {
   display: grid;
-  grid-template-columns: 3.5rem 1fr;
-  gap: 0.5rem;
+  grid-template-columns: 2.75rem 1fr;
+}
+
+/* The mark and comment boxes join into one: square where they meet, sharing
+   the border between them; the focused one's border shows over the other's. */
+.rubric-form__fields .rubric-form__mark {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  /* Narrower sides, so "10.00" still fits the narrower box. */
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.rubric-form__fields .rubric-form__comment {
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.rubric-form__fields .rubric-form__mark:focus,
+.rubric-form__fields .rubric-form__comment:focus {
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 640px) {
   .rubric-form__fields {
     grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .rubric-form__fields .rubric-form__mark,
+  .rubric-form__fields .rubric-form__comment {
+    margin-left: 0;
+    border-radius: 6px;
   }
 }
 
@@ -270,7 +301,7 @@ const handleSubmit = () => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
   color: var(--charcoal);

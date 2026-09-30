@@ -1,6 +1,8 @@
 <template>
   <div class="app-container">
-    <header class="header" v-if="!isLoginPage">
+    <!-- Hidden on the marking pages, so the preview and rubric get the
+         height; the arrow below brings it back. -->
+    <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
       <div class="header-content">
         <div class="logo-section">
           <RouterLink to="/dashboard" class="logo">
@@ -47,14 +49,39 @@
           </div>
         </div>
       </div>
+      <button
+        v-if="onMarkingPage"
+        type="button"
+        class="header-collapse-toggle"
+        aria-label="Hide top bar"
+        title="Hide top bar"
+        :aria-expanded="true"
+        @click="isHeaderHidden = true"
+      >
+        <i class="fas fa-chevron-up" aria-hidden="true"></i>
+      </button>
     </header>
+    <button
+      v-if="!isLoginPage && onMarkingPage && isHeaderHidden"
+      type="button"
+      class="header-collapse-toggle header-collapse-toggle--pinned"
+      aria-label="Show top bar"
+      title="Show top bar"
+      :aria-expanded="false"
+      @click="isHeaderHidden = false"
+    >
+      <i class="fas fa-chevron-down" aria-hidden="true"></i>
+    </button>
 
     <div
       class="main-layout"
       v-if="!isLoginPage"
       :class="{ 'main-layout--full': markingFullWidth }"
     >
-      <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
+      <aside
+        class="sidebar"
+        :class="{ 'is-collapsed': isSidebarCollapsed, 'is-marking': onMarkingPage }"
+      >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
             <li class="sidebar-item">
@@ -391,11 +418,14 @@ const isSidebarCollapsed = ref(false)
 // route) so the preview/rubric split gets the width — the toggle stays, so
 // it can still be opened. Leaving restores how the user had it.
 const onMarkingPage = computed(() => route.meta.hideSidebar === true)
+// They hide the top bar too, until its arrow brings it back.
+const isHeaderHidden = ref(true)
 let sidebarStateBeforeMarking = false
 watch(
   onMarkingPage,
   (entering, was) => {
     if (entering) {
+      isHeaderHidden.value = true
       sidebarStateBeforeMarking = isSidebarCollapsed.value
       isSidebarCollapsed.value = true
     } else if (was) {
@@ -786,6 +816,55 @@ select {
   box-shadow: 0 2px 4px var(--shadow);
 }
 
+/* The marking pages' arrow for the top bar, shaped as the sidebar's and in
+   the bar's green: it hangs below the bar's middle, or sits at the top while
+   the bar is hidden. */
+.header-collapse-toggle {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  z-index: 900;
+  width: 32px;
+  height: 18px;
+  border: 1px solid var(--dark-green);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  background: var(--dark-green);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(17, 30, 25, 0.08);
+  transform: translateX(-50%);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Hangs from the top edge, as a tab. */
+.header-collapse-toggle--pinned {
+  position: fixed;
+  top: 0;
+  bottom: auto;
+  z-index: 1000;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.header-collapse-toggle:hover {
+  border-color: #015c42;
+  background: #015c42;
+  box-shadow: 0 10px 22px rgba(17, 30, 25, 0.18);
+}
+
+.header-collapse-toggle:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
+}
+
 .header-content {
   width: 100%;
   max-width: 1680px;
@@ -1005,6 +1084,36 @@ select {
   min-width: 72px;
 }
 
+/* Marking pages: collapsed, the sidebar gives up its strip of icons too,
+   leaving only its arrow at the page's edge. Not on phones, where it stacks
+   above the page without an arrow. */
+@media (min-width: 769px) {
+  .sidebar.is-collapsed.is-marking {
+    --sidebar-toggle-offset: 20px;
+
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    border-right: none;
+  }
+
+  .sidebar.is-collapsed.is-marking > :not(.sidebar-collapse-toggle) {
+    display: none;
+  }
+
+  /* Its arrow becomes a tab against the page's left edge, as the top bar's
+     is against the top. */
+  .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle,
+  .main-layout--full .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle {
+    left: 0;
+    width: 18px;
+    height: 32px;
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.7rem;
+  }
+}
+
 .sidebar-collapse-toggle {
   position: fixed;
   top: 50vh;
@@ -1052,6 +1161,12 @@ select {
      centred-layout shift above would float the toggle over the content. */
   .main-layout--full .sidebar-collapse-toggle {
     left: calc(var(--sidebar-toggle-offset) - 14px);
+  }
+
+  /* A marking tab that keeps the centred layout (Prototype): the edge tab
+     sits at the layout's edge, not the screen's. */
+  .main-layout:not(.main-layout--full) .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle {
+    left: calc(50vw - 840px);
   }
 }
 

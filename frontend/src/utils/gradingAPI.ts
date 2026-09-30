@@ -261,7 +261,6 @@ export interface RubricCriterion {
   id: number
   rubric: number
   name: string
-  description: string
   max_mark: string
   order: number
 }

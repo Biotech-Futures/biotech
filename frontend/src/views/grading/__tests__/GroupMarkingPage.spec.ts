@@ -381,6 +381,21 @@ describe('walking the cohort', () => {
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/5')
   })
 
+  it('keeps the page where it was scrolled while the next group loads', async () => {
+    await mountPage()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { value: 640, configurable: true })
+    try {
+      routeState.params = { groupId: '5' }
+      await flushPromises()
+      expect(markingMock).toHaveBeenLastCalledWith(5)
+      expect(scrollTo).toHaveBeenCalledWith({ top: 640 })
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+      scrollTo.mockRestore()
+    }
+  })
+
   it('search opens the resolved group and refuses an unknown one', async () => {
     resolveIdMock.mockReturnValue(5)
     const wrapper = await mountPage()
