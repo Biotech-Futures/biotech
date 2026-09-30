@@ -288,6 +288,16 @@ class ResultsEmailTests(_GradingFixture):
         )
         self.assertEqual([f.get_content_disposition() for f in files], ["attachment"] * 4)
 
+    def test_a_comment_pasted_from_word_still_reaches_the_supervisor(self):
+        # A vertical tab (Word's Shift+Enter) and a stray control character.
+        Grade.objects.filter(criterion=self.poster_c1).update(comment="Bold\x0blayout.\x01")
+        run = self._send_all("supervisors")[-1]["run"]
+        self.assertEqual((run["emailed"], run["failed"], run["missed"]), (1, 0, []))
+        files = _files(mail.outbox[0])
+        sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
+        rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
+        self.assertEqual(dict(zip(rows[0], rows[1]))["PosterComment1"], "Bold layout.")
+
     def test_supervisors_get_their_students_and_mentors_certificates_and_a_marks_sheet(self):
         # Only Poster and SAQ, as on the marks summary: another marked component stays out.
         report = SubmissionComponent.objects.exclude(code__in=("SAQ", "POSTER")).first()

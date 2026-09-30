@@ -28,6 +28,7 @@ from openpyxl.utils import get_column_letter
 
 from ..models import Grade, GroupMarkingCategories, RubricCriterion
 from .content import ComponentEntry
+from .text import xml_safe
 from .upload import TYPE_LABELS
 
 
@@ -59,10 +60,16 @@ QUESTION_COLUMN_WIDTH = 43
 COMMENT_COLUMN_WIDTH = 30
 
 
+def _text(value):
+    """A cell's text with the characters a spreadsheet can't hold cleaned out
+    (see ``text.xml_safe``); anything else as it is."""
+    return xml_safe(value) if isinstance(value, str) else value
+
+
 def _answer_cell(prompt: str, answer: str) -> CellRichText:
     """The question in bold, the team's answer on the line below it. Uploads
     read the cell back as plain text (and never parse it)."""
-    return CellRichText(TextBlock(InlineFont(b=True), prompt), f"\n{answer}")
+    return CellRichText(TextBlock(InlineFont(b=True), xml_safe(prompt)), f"\n{xml_safe(answer)}")
 
 
 def _question_columns(entries: list[ComponentEntry], questions: Iterable[str]) -> list[str]:
@@ -140,7 +147,7 @@ def build_saq_xlsx(
             _format_product_category(cats),
             _format_solution_category(cats),
         ]
-        ws.append(row)
+        ws.append([_text(value) for value in row])
 
     # Answers, comments, the title and the category columns wrap in fixed-width
     # columns (the title and categories treated like comments); year, group
@@ -205,7 +212,7 @@ def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set
         cell.font = Font(bold=True)
     for fields in rows:
         ws.append([
-            _number(fields.get(column)) if column in numeric else (fields.get(column) or None)
+            _number(fields.get(column)) if column in numeric else _text(fields.get(column) or None)
             for column in columns
         ])
 

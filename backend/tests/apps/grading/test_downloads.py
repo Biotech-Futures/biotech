@@ -284,6 +284,25 @@ class SaqXlsxExportTests(_GradingFixture):
         self.assertEqual(product_category, "Health, Wearables")
         self.assertEqual(category_of_solution, "App")
 
+    def test_control_characters_pasted_from_word_are_cleaned_not_fatal(self):
+        # Word's Shift+Enter (a vertical tab) and page break (a form feed), and
+        # a stray control character, in every kind of text the sheet carries.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant\x0cSensors",
+            submitted_answers={"q_answers": "Some\x0bstudent answers.\x01"},
+        )
+        Grade.objects.filter(criterion=self.saq_c1).update(comment="Great\x0bclaim.\x02")
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Other"], product_category_other="Wear\x01ables",
+        )
+        rows = list(load_workbook(io.BytesIO(self._export_xlsx())).active.iter_rows(values_only=True))
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(row["project_title"], "Plant Sensors")
+        self.assertIn("Some student answers.", row["q1"])
+        self.assertNotIn("\x01", row["q1"])
+        self.assertEqual(row["r1_comment"], "Great claim.")
+        self.assertEqual(row["product_category"], "Wearables")
+
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 

@@ -40,6 +40,7 @@ from ..models import (
     Rubric,
     SubmissionComponent,
 )
+from .text import xml_safe
 from .xlsx import _format_product_category, _format_solution_category
 
 
@@ -59,17 +60,6 @@ _TOKEN_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 def _token_name(match: re.Match) -> str:
     return match.group(1)
-
-
-# Characters a .docx cannot hold. One pasted into a comment (Word's Shift+Enter
-# is a vertical tab, its page break a form feed) would otherwise abort the
-# whole document, so Word's two breaks become spaces and the rest are dropped.
-_WORD_BREAKS = str.maketrans({"\x0b": " ", "\x0c": " "})
-_NOT_XML_RE = re.compile(r"[\x00-\x08\x0e-\x1f\ud800-\udfff￾￿]")
-
-
-def _xml_safe(text: str) -> str:
-    return _NOT_XML_RE.sub("", text.translate(_WORD_BREAKS))
 
 
 class TemplateNotConfigured(FileNotFoundError):
@@ -136,7 +126,7 @@ def _replace_tokens_in_paragraph(paragraph, fields: dict, *, only_known: bool = 
     for m in reversed(matches):
         if only_known and _token_name(m) not in fields:
             continue
-        value = _xml_safe(str(fields.get(_token_name(m), "")))
+        value = xml_safe(str(fields.get(_token_name(m), "")))
         s, e = m.span()
         start_i = end_i = None
         start_off = end_off = 0
