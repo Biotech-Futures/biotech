@@ -3,14 +3,17 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import {
   bulkUploadMarks,
-  fetchSubmissionDeadline,
   type BulkUploadResponse
 } from '@/utils/gradingAPI'
+import { fetchSubmissionDeadline } from '@/utils/managementAPI'
 
 // The real challengeYear, so the dialog's year follows the same rule as the app.
 vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/gradingAPI')>()),
-  bulkUploadMarks: vi.fn(),
+  bulkUploadMarks: vi.fn()
+}))
+vi.mock('@/utils/managementAPI', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/managementAPI')>()),
   fetchSubmissionDeadline: vi.fn()
 }))
 const uploadMock = vi.mocked(bulkUploadMarks)

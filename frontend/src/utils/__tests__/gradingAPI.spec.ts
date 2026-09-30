@@ -40,35 +40,35 @@ afterEach(() => {
 
 describe('the JSON request core', () => {
   it('reads a payload without sending a CSRF token on GET', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ released_at: null, released_by: null }))
-    const status = await api.fetchRelease()
-    expect(status.released_at).toBeNull()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ finalists: [], counts: {} }))
+    const list = await api.fetchFinalists()
+    expect(list.finalists).toEqual([])
     const { url, init } = lastCall()
-    expect(url).toContain('/api/v1/grading/release/')
+    expect(url).toContain('/api/v1/grading/finalists/')
     expect(init.credentials).toBe('include')
     expect((init.headers as Record<string, string>)['X-CSRFToken']).toBeUndefined()
   })
 
   it('sends the CSRF token on writes', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ released_at: 'now', released_by: 'Ada' }))
-    await api.toggleRelease(true)
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await api.addFinalist(4, true)
     const { init } = lastCall()
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>)['X-CSRFToken']).toBe('csrf-test')
-    expect(JSON.parse(String(init.body))).toEqual({ release: true })
+    expect(JSON.parse(String(init.body))).toEqual({ notify: true })
   })
 
   it('refuses to write when the secure session cannot be initialised', async () => {
     csrfMock.mockResolvedValue(false)
-    await expect(api.toggleRelease(true)).rejects.toThrow(/secure session/i)
+    await expect(api.addFinalist(4)).rejects.toThrow(/secure session/i)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('turns a non-ok response into an ApiError carrying the server message', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'Marks are not released.' }, 403))
-    await expect(api.fetchRelease()).rejects.toMatchObject({ status: 403 })
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'Admins only.' }, 403))
+    await expect(api.fetchFinalists()).rejects.toMatchObject({ status: 403 })
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'nope' }, 403))
-    await expect(api.fetchRelease()).rejects.toBeInstanceOf(ApiError)
+    await expect(api.fetchFinalists()).rejects.toBeInstanceOf(ApiError)
   })
 
   it('treats an empty body as null instead of failing to parse', async () => {
@@ -87,42 +87,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     body?: unknown
   }
   const cases: Case[] = [
-    { name: 'fetchCertificatesRelease', call: () => api.fetchCertificatesRelease(), reply: {}, url: '/api/v1/grading/certificates-release/' },
-    {
-      name: 'toggleCertificatesRelease',
-      call: () => api.toggleCertificatesRelease(false),
-      reply: {},
-      url: '/api/v1/grading/certificates-release/',
-      method: 'POST',
-      body: { release: false }
-    },
-    {
-      name: 'setCertificatesFinalistExclusion',
-      call: () => api.setCertificatesFinalistExclusion(true),
-      reply: {},
-      url: '/api/v1/grading/certificates-release/',
-      method: 'POST',
-      body: { exclude_finalists: true }
-    },
-    { name: 'fetchGroupExtensions', call: () => api.fetchGroupExtensions(), reply: { extensions: [] }, url: '/api/v1/grading/deadline/extensions/' },
-    {
-      name: 'saveGroupExtension',
-      call: () => api.saveGroupExtension(4, '2026-11-05T13:00:00Z', 2, 'Flood'),
-      reply: { extension: {} },
-      url: '/api/v1/grading/deadline/extensions/',
-      method: 'POST',
-      body: { group_id: 4, extended_until: '2026-11-05T13:00:00Z', grace_hours: 2, reason: 'Flood' }
-    },
-    { name: 'removeGroupExtension', call: () => api.removeGroupExtension(4), url: '/api/v1/grading/deadline/extensions/4/', method: 'DELETE' },
-    { name: 'fetchSubmissionDeadline', call: () => api.fetchSubmissionDeadline(), reply: { deadline: null }, url: '/api/v1/grading/deadline/' },
-    {
-      name: 'saveSubmissionDeadline',
-      call: () => api.saveSubmissionDeadline('2026-10-30T13:00:00Z', 6),
-      reply: { deadline: null },
-      url: '/api/v1/grading/deadline/',
-      method: 'POST',
-      body: { closes_at: '2026-10-30T13:00:00Z', grace_hours: 6 }
-    },
     { name: 'fetchGroupMarking', call: () => api.fetchGroupMarking(7), reply: { components: [] }, url: '/api/v1/grading/groups/7/' },
     { name: 'fetchGroupMarking with year', call: () => api.fetchGroupMarking(7, 2026), reply: { components: [] }, url: '/api/v1/grading/groups/7/?year=2026' },
     {
@@ -152,7 +116,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     },
     { name: 'fetchComponentRows', call: () => api.fetchComponentRows('SAQ'), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/' },
     { name: 'fetchComponentRows with year', call: () => api.fetchComponentRows('SAQ', 2026), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/?year=2026' },
-    { name: 'fetchTemplateScan', call: () => api.fetchTemplateScan('certificate'), reply: {}, url: '/api/v1/grading/settings/template-scan/certificate/' },
     {
       name: 'startComponentDownload',
       call: () => api.startComponentDownload('SAQ', 'zip', [1, 2]),
@@ -170,15 +133,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
       body: {}
     },
     { name: 'fetchJobStatus', call: () => api.fetchJobStatus(11), reply: { id: 11 }, url: '/api/v1/grading/jobs/11/' },
-    { name: 'fetchGradingSettings', call: () => api.fetchGradingSettings(), reply: {}, url: '/api/v1/grading/settings/' },
-    {
-      name: 'updateGradingSettings with JSON',
-      call: () => api.updateGradingSettings({ director_1_name: 'Ada' }),
-      reply: {},
-      url: '/api/v1/grading/settings/',
-      method: 'PATCH',
-      body: { director_1_name: 'Ada' }
-    },
     { name: 'fetchGroupCategories', call: () => api.fetchGroupCategories(7), reply: {}, url: '/api/v1/grading/groups/7/categories/' },
     {
       name: 'saveGroupCategories',
@@ -194,22 +148,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
       method: 'POST'
     },
     { name: 'fetchFinalistCandidates', call: () => api.fetchFinalistCandidates(), reply: { rows: [] }, url: '/api/v1/grading/finalists/candidates/' },
-    {
-      name: 'notifyFinalists targeted',
-      call: () => api.notifyFinalists([4]),
-      reply: { sent: 1, pending: 0 },
-      url: '/api/v1/grading/finalists/notify/',
-      method: 'POST',
-      body: { group_ids: [4] }
-    },
-    {
-      name: 'notifyFinalists all',
-      call: () => api.notifyFinalists(),
-      reply: { sent: 0, pending: 0 },
-      url: '/api/v1/grading/finalists/notify/',
-      method: 'POST',
-      body: {}
-    },
     { name: 'fetchFinalists', call: () => api.fetchFinalists(), reply: { finalists: [] }, url: '/api/v1/grading/finalists/' },
     {
       name: 'addFinalist',
@@ -221,18 +159,16 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     { name: 'removeFinalist', call: () => api.removeFinalist(4), url: '/api/v1/grading/groups/4/finalist/', method: 'DELETE' }
   ]
 
-  for (const c of cases) {
-    it(c.name, async () => {
-      fetchMock.mockResolvedValueOnce(
-        c.reply === undefined ? new Response(null, { status: 204 }) : jsonResponse(c.reply)
-      )
-      await c.call()
-      const { url, init } = lastCall()
-      expect(url.endsWith(c.url)).toBe(true)
-      expect(String(init.method || 'GET')).toBe(c.method ?? 'GET')
-      if (c.body !== undefined) expect(JSON.parse(String(init.body))).toEqual(c.body)
-    })
-  }
+  it.each(cases)('$name', async (c) => {
+    fetchMock.mockResolvedValueOnce(
+      c.reply === undefined ? new Response(null, { status: 204 }) : jsonResponse(c.reply)
+    )
+    await c.call()
+    const { url, init } = lastCall()
+    expect(url.endsWith(c.url)).toBe(true)
+    expect(String(init.method || 'GET')).toBe(c.method ?? 'GET')
+    if (c.body !== undefined) expect(JSON.parse(String(init.body))).toEqual(c.body)
+  })
 
   it('bulkUploadMarks posts the file as multipart with the dry-run flag', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ summary: {} }))
@@ -246,22 +182,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
     expect((form.get('file') as File).name).toBe('marks.csv')
     // Multipart requests must not carry a JSON content type.
     expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined()
-  })
-
-  it('scanTemplateCandidate posts the picked file without saving semantics', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ uploaded: false }))
-    await api.scanTemplateCandidate('marks-summary', new File(['x'], 'draft.docx'))
-    const { url, init } = lastCall()
-    expect(url).toContain('/settings/template-scan/marks-summary/')
-    expect(init.body).toBeInstanceOf(FormData)
-  })
-
-  it('updateGradingSettings passes FormData through untouched for file uploads', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({}))
-    const fd = new FormData()
-    fd.append('director_1_signature', new File(['x'], 'sig.png'))
-    await api.updateGradingSettings(fd)
-    expect(lastCall().init.body).toBe(fd)
   })
 })
 
@@ -319,18 +239,6 @@ describe('blob downloads', () => {
     await api.downloadSubmissionFile('https://blob.example/poster.pdf', 'poster.pdf')
     expect(lastCall().url).toBe('https://blob.example/poster.pdf')
     expect(clicks).toEqual(['poster.pdf'])
-  })
-
-  it('template test renders download for both the stored and a candidate file', async () => {
-    fetchMock.mockResolvedValueOnce(blobResponse('attachment; filename="render.docx"'))
-    await api.downloadTemplateTestRender('certificate')
-    expect(lastCall().init.method ?? 'GET').toBe('GET')
-
-    fetchMock.mockResolvedValueOnce(blobResponse())
-    await api.downloadCandidateTestRender('certificate', new File(['x'], 'draft.docx'))
-    expect(lastCall().init.method).toBe('POST')
-    expect(lastCall().init.body).toBeInstanceOf(FormData)
-    expect(clicks).toEqual(['render.docx', 'test-certificate.docx'])
   })
 
   it('downloadJobResult refuses a job with no URL and saves one that has it', async () => {

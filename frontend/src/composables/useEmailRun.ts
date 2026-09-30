@@ -1,5 +1,5 @@
 import { onBeforeUnmount, watch } from 'vue'
-import type { EmailRun, EmailRunState } from '@/utils/gradingAPI'
+import type { EmailRun, EmailRunState } from '@/utils/managementAPI'
 
 /** How often a page checks on a run while it sends. */
 const CHECK_MS = 2000

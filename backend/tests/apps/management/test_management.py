@@ -1,6 +1,6 @@
 """Management-tab endpoints: the submission deadline, per-group extensions,
-the marks/certificates release gates, and grading settings (director names,
-docx templates, signatures)."""
+the marks/certificates release gates, and the document setup (director
+names, docx templates, signatures)."""
 import base64
 import io
 import zipfile
@@ -8,12 +8,13 @@ from datetime import timedelta
 
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import GradingSettings
+from apps.management.models import GradingSettings
 from apps.submissions.models import Deadline, GroupExtension
 
 from tests.apps.grading.fixtures import _GradingFixture, _seed_doc_templates
@@ -24,10 +25,29 @@ def _days_from_now(days: int) -> str:
     return (timezone.now() + timedelta(days=days)).isoformat()
 
 
+class ManagementURLsMountedTests(TestCase):
+    """Sanity: Management's URLs resolve under their own prefix."""
+
+    def test_urls_resolve(self):
+        self.assertEqual(reverse("management:deadline"), "/api/v1/management/deadline/")
+        self.assertEqual(reverse("management:release"), "/api/v1/management/release/")
+        self.assertEqual(reverse("management:certificates-release"), "/api/v1/management/certificates-release/")
+        self.assertEqual(reverse("management:settings"), "/api/v1/management/settings/")
+        self.assertEqual(reverse("management:finalist-notify"), "/api/v1/management/finalists/notify/")
+        self.assertEqual(reverse("management:nonfinalist-email"), "/api/v1/management/nonfinalists/")
+        self.assertEqual(
+            reverse("management:presentation-slots"), "/api/v1/management/finalists/presentation-slots/"
+        )
+        self.assertEqual(reverse("management:results-email"), "/api/v1/management/results-email/")
+        self.assertEqual(
+            reverse("management:test-email", kwargs={"kind": "finalist"}), "/api/v1/management/test-email/finalist/"
+        )
+
+
 class SubmissionDeadlineViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
-        self.url = reverse("grading:deadline")
+        self.url = reverse("management:deadline")
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
@@ -75,7 +95,7 @@ class SubmissionDeadlineViewTests(_GradingFixture):
 class GroupExtensionViewTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
-        self.url = reverse("grading:deadline-extensions")
+        self.url = reverse("management:deadline-extensions")
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
@@ -111,7 +131,7 @@ class GroupExtensionViewTests(_GradingFixture):
         self.assertEqual(listed[1]["revoked_by"], "Ada Grader")
         self.assertIn("2026-11-05", listed[1]["extended_until"])
 
-        detail = reverse("grading:deadline-extension-detail", kwargs={"group_id": self.group.id})
+        detail = reverse("management:deadline-extension-detail", kwargs={"group_id": self.group.id})
         self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
         # Idempotent revoke.
         self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
@@ -213,16 +233,16 @@ class MarksReleaseViewTests(_GradingFixture):
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
-        resp = self.client.get(reverse("grading:release"))
+        resp = self.client.get(reverse("management:release"))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_flip_on_then_off(self):
         self.client.force_authenticate(self.staff)
-        r = self.client.post(reverse("grading:release"), {}, format="json")
+        r = self.client.post(reverse("management:release"), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(r.json()["released_at"])
 
-        r = self.client.post(reverse("grading:release"), {"release": "false"}, format="json")
+        r = self.client.post(reverse("management:release"), {"release": "false"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIsNone(r.json()["released_at"])
 
@@ -232,7 +252,7 @@ class MarksReleaseViewTests(_GradingFixture):
         Deadline.objects.create(
             closes_at=timezone.now() + timedelta(days=1), grace_hours=0, is_active=True
         )
-        for name in ("grading:release", "grading:certificates-release"):
+        for name in ("management:release", "management:certificates-release"):
             r = self.client.post(reverse(name), {}, format="json")
             self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, name)
             current = self.client.get(reverse(name)).json()
@@ -249,7 +269,7 @@ class MarksReleaseViewTests(_GradingFixture):
         GroupExtension.objects.create(
             group=self.group, extended_until=timezone.now() + timedelta(hours=2)
         )
-        r = self.client.post(reverse("grading:release"), {}, format="json")
+        r = self.client.post(reverse("management:release"), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_release_allowed_once_window_has_closed(self):
@@ -260,7 +280,7 @@ class MarksReleaseViewTests(_GradingFixture):
         GroupExtension.objects.create(
             group=self.group, extended_until=timezone.now() - timedelta(hours=1)
         )
-        r = self.client.post(reverse("grading:release"), {}, format="json")
+        r = self.client.post(reverse("management:release"), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertIsNotNone(r.json()["released_at"])
         self.assertFalse(r.json()["submissions_open"])
@@ -271,7 +291,7 @@ class MarksReleaseViewTests(_GradingFixture):
         Deadline.objects.create(
             closes_at=timezone.now() + timedelta(days=1), grace_hours=0, is_active=True
         )
-        r = self.client.post(reverse("grading:release"), {"release": "false"}, format="json")
+        r = self.client.post(reverse("management:release"), {"release": "false"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
 
@@ -282,33 +302,33 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_get_and_patch_director_names(self):
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"director_1_name": "Alice A", "director_2_name": "Bob B"},
             format="json",
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual(r.json()["director_1_name"], "Alice A")
 
-        r2 = self.client.get(reverse("grading:settings"))
+        r2 = self.client.get(reverse("management:settings"))
         self.assertEqual(r2.json()["director_2_name"], "Bob B")
 
     def test_get_and_patch_director_positions(self):
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"director_1_position": "Chair", "director_2_position": "Co-Chair"},
             format="json",
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual(r.json()["director_1_position"], "Chair")
 
-        r2 = self.client.get(reverse("grading:settings"))
+        r2 = self.client.get(reverse("management:settings"))
         self.assertEqual(r2.json()["director_2_position"], "Co-Chair")
 
     def test_template_test_render_streams_synthetic_docx(self):
         _seed_doc_templates()
         for kind in ("marks-summary", "certificate"):
             r = self.client.get(
-                reverse("grading:settings-test-render", kwargs={"kind": kind})
+                reverse("management:settings-test-render", kwargs={"kind": kind})
             )
             self.assertEqual(r.status_code, status.HTTP_200_OK, kind)
             self.assertIn("wordprocessingml", r["Content-Type"])
@@ -323,7 +343,7 @@ class GradingSettingsViewTests(_GradingFixture):
             ("marks-summary", "marks_summary_template", "BTF_Marks_Summary_Template.docx"),
             ("certificate", "certificate_template", "BTF_Student_Certificate_Template.docx"),
         ):
-            r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": kind}))
+            r = self.client.get(reverse("management:settings-template-download", kwargs={"kind": kind}))
             self.assertEqual(r.status_code, status.HTTP_200_OK, kind)
             self.assertIn("wordprocessingml", r["Content-Type"])
             stored = getattr(row, field)
@@ -335,7 +355,7 @@ class GradingSettingsViewTests(_GradingFixture):
     def test_the_mentor_certificate_template_is_uploaded_checked_tested_and_downloaded(self):
         template = self._docx_bytes("{{Name}} for {{ProjectTitle}} ({{Director1Name}}) {{FirstName}}")
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"mentor_certificate_template": SimpleUploadedFile("BTF_Mentor_Certificate_Template.docx", template)},
             format="multipart",
         )
@@ -343,19 +363,19 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertTrue(r.json()["mentor_certificate_template"].endswith("/BTF_Mentor_Certificate_Template.docx"))
 
         # {{Name}} is the mentor's whole name; a student's {{FirstName}} isn't one of its variables.
-        r = self.client.get(reverse("grading:settings-template-scan", kwargs={"kind": "mentor-certificate"}))
+        r = self.client.get(reverse("management:settings-template-scan", kwargs={"kind": "mentor-certificate"}))
         self.assertEqual(r.json(), {
             "uploaded": True, "present": ["Director1Name", "Name", "ProjectTitle"], "unknown": ["FirstName"],
         })
 
-        r = self.client.get(reverse("grading:settings-test-render", kwargs={"kind": "mentor-certificate"}))
+        r = self.client.get(reverse("management:settings-test-render", kwargs={"kind": "mentor-certificate"}))
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         with zipfile.ZipFile(io.BytesIO(r.content)) as z:
             xml = z.read("word/document.xml").decode("utf8")
         self.assertIn("Dr Sam Mentor for Sample Project Title", xml)
         self.assertNotIn("{{", xml)
 
-        r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": "mentor-certificate"}))
+        r = self.client.get(reverse("management:settings-template-download", kwargs={"kind": "mentor-certificate"}))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.content, template)
         self.assertEqual(r["Content-Disposition"], 'attachment; filename="BTF_Mentor_Certificate_Template.docx"')
@@ -363,7 +383,7 @@ class GradingSettingsViewTests(_GradingFixture):
     def test_a_mentor_certificate_candidate_is_checked_and_tested_without_saving(self):
         candidate = SimpleUploadedFile("draft.docx", self._docx_bytes("Awarded to {{Name}}"))
         r = self.client.post(
-            reverse("grading:settings-test-render", kwargs={"kind": "mentor-certificate"}),
+            reverse("management:settings-test-render", kwargs={"kind": "mentor-certificate"}),
             {"file": candidate}, format="multipart",
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
@@ -371,7 +391,7 @@ class GradingSettingsViewTests(_GradingFixture):
             self.assertIn("Awarded to Dr Sam Mentor", z.read("word/document.xml").decode("utf8"))
         self.assertFalse(GradingSettings.load().mentor_certificate_template)
         # Nothing saved: no test render or download of a saved one yet.
-        for name in ("grading:settings-test-render", "grading:settings-template-download"):
+        for name in ("management:settings-test-render", "management:settings-template-download"):
             r = self.client.get(reverse(name, kwargs={"kind": "mentor-certificate"}))
             self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, name)
 
@@ -381,7 +401,7 @@ class GradingSettingsViewTests(_GradingFixture):
         names = []
         for _ in range(2):
             r = self.client.patch(
-                reverse("grading:settings"),
+                reverse("management:settings"),
                 {"certificate_template": SimpleUploadedFile(
                     "BTF_Marks_Release_Template.docx", self._docx_bytes("{{FirstName}}"),
                 )},
@@ -396,25 +416,25 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_download_current_template_404s_when_none_or_unknown(self):
         for kind in ("marks-summary", "poster"):
-            r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": kind}))
+            r = self.client.get(reverse("management:settings-template-download", kwargs={"kind": kind}))
             self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, kind)
 
     def test_download_current_template_requires_grader(self):
         _seed_doc_templates()
         self.client.force_authenticate(self.non_staff)
-        r = self.client.get(reverse("grading:settings-template-download", kwargs={"kind": "certificate"}))
+        r = self.client.get(reverse("management:settings-template-download", kwargs={"kind": "certificate"}))
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_template_test_render_404s_when_nothing_uploaded(self):
         r = self.client.get(
-            reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"})
+            reverse("management:settings-test-render", kwargs={"kind": "marks-summary"})
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND, r.content)
 
     def test_template_scan_empty_when_nothing_uploaded(self):
         for kind in ("marks-summary", "certificate"):
             r = self.client.get(
-                reverse("grading:settings-template-scan", kwargs={"kind": kind})
+                reverse("management:settings-template-scan", kwargs={"kind": kind})
             )
             self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
             self.assertEqual(
@@ -425,7 +445,7 @@ class GradingSettingsViewTests(_GradingFixture):
     def test_template_scan_flags_unrecognised_tokens(self):
         from docx import Document as NewDocument
 
-        from apps.grading.models import GradingSettings
+        from apps.management.models import GradingSettings
 
         doc = NewDocument()
         doc.add_paragraph("{{TeamCode}} {{Typoed}} {{Director1Signature}}")
@@ -437,7 +457,7 @@ class GradingSettingsViewTests(_GradingFixture):
         settings_row.save()
 
         data = self.client.get(
-            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"})
+            reverse("management:settings-template-scan", kwargs={"kind": "marks-summary"})
         ).json()
         self.assertTrue(data["uploaded"])
         self.assertIn("TeamCode", data["present"])
@@ -448,20 +468,20 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_template_scan_unknown_kind_404s(self):
         r = self.client.get(
-            reverse("grading:settings-template-scan", kwargs={"kind": "poster"})
+            reverse("management:settings-template-scan", kwargs={"kind": "poster"})
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_template_test_render_unknown_kind_404s(self):
         r = self.client.get(
-            reverse("grading:settings-test-render", kwargs={"kind": "poster"})
+            reverse("management:settings-test-render", kwargs={"kind": "poster"})
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_template_test_render_requires_grader(self):
         self.client.force_authenticate(self.non_staff)
         r = self.client.get(
-            reverse("grading:settings-test-render", kwargs={"kind": "certificate"})
+            reverse("management:settings-test-render", kwargs={"kind": "certificate"})
         )
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -483,7 +503,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_upload_rejects_file_that_is_not_a_docx(self):
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"marks_summary_template": SimpleUploadedFile("tpl.docx", b"not a zip at all")},
             format="multipart",
         )
@@ -493,7 +513,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_upload_rejects_signature_that_is_not_an_image(self):
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"director_1_signature": SimpleUploadedFile("sig.png", b"plainly not pixels")},
             format="multipart",
         )
@@ -504,7 +524,7 @@ class GradingSettingsViewTests(_GradingFixture):
     def test_bad_file_rejects_the_whole_patch(self):
         """One bad upload must not let the rest of the request half-apply."""
         r = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {
                 "director_1_name": "Dr. Half Applied",
                 "certificate_template": SimpleUploadedFile("c.docx", b"broken"),
@@ -516,7 +536,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_replacing_template_deletes_the_old_blob(self):
         first = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {
                 "marks_summary_template": SimpleUploadedFile(
                     "a.docx", self._docx_bytes("{{TeamCode}}")
@@ -529,7 +549,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertTrue(default_storage.exists(old_name))
 
         second = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {
                 "marks_summary_template": SimpleUploadedFile(
                     "b.docx", self._docx_bytes("{{TeamCode}}")
@@ -546,7 +566,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_clearing_a_signature_deletes_its_blob(self):
         upload = self.client.patch(
-            reverse("grading:settings"),
+            reverse("management:settings"),
             {"director_1_signature": SimpleUploadedFile("sig.png", self._PNG)},
             format="multipart",
         )
@@ -555,7 +575,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertTrue(default_storage.exists(name))
 
         cleared = self.client.patch(
-            reverse("grading:settings"), {"director_1_signature": None}, format="json"
+            reverse("management:settings"), {"director_1_signature": None}, format="json"
         )
         self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
         self.assertFalse(GradingSettings.load().director_1_signature)
@@ -563,7 +583,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_candidate_scan_previews_without_saving(self):
         r = self.client.post(
-            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
+            reverse("management:settings-template-scan", kwargs={"kind": "marks-summary"}),
             {
                 "file": SimpleUploadedFile(
                     "draft.docx", self._docx_bytes("{{TeamCode}} {{Typoed}}")
@@ -580,7 +600,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_candidate_scan_rejects_unreadable_file(self):
         r = self.client.post(
-            reverse("grading:settings-template-scan", kwargs={"kind": "certificate"}),
+            reverse("management:settings-template-scan", kwargs={"kind": "certificate"}),
             {"file": SimpleUploadedFile("draft.docx", b"broken")},
             format="multipart",
         )
@@ -589,7 +609,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_candidate_test_render_streams_without_saving(self):
         r = self.client.post(
-            reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"}),
+            reverse("management:settings-test-render", kwargs={"kind": "marks-summary"}),
             {
                 "file": SimpleUploadedFile(
                     "draft.docx", self._docx_bytes("Team {{TeamCode}}")
@@ -607,7 +627,7 @@ class GradingSettingsViewTests(_GradingFixture):
     def test_curly_tokens_scan_and_render(self):
         """The {{Name}} token syntax works through scan and test render."""
         scan = self.client.post(
-            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
+            reverse("management:settings-template-scan", kwargs={"kind": "marks-summary"}),
             {
                 "file": SimpleUploadedFile(
                     "draft.docx", self._docx_bytes("{{TeamCode}} {{Typoed}}")
@@ -620,7 +640,7 @@ class GradingSettingsViewTests(_GradingFixture):
         self.assertEqual(scan.json()["unknown"], ["Typoed"])
 
         render = self.client.post(
-            reverse("grading:settings-test-render", kwargs={"kind": "marks-summary"}),
+            reverse("management:settings-test-render", kwargs={"kind": "marks-summary"}),
             {"file": SimpleUploadedFile("draft.docx", self._docx_bytes("Team {{TeamCode}}"))},
             format="multipart",
         )
@@ -631,7 +651,7 @@ class GradingSettingsViewTests(_GradingFixture):
 
     def test_candidate_post_without_file_400s(self):
         r = self.client.post(
-            reverse("grading:settings-template-scan", kwargs={"kind": "marks-summary"}),
+            reverse("management:settings-template-scan", kwargs={"kind": "marks-summary"}),
             {},
             format="multipart",
         )

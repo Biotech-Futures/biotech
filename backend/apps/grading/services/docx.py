@@ -32,14 +32,9 @@ from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.text.run import Run
 
-from ..models import (
-    CertificatesRelease,
-    GradingSettings,
-    GroupMarkingCategories,
-    MarksRelease,
-    Rubric,
-    SubmissionComponent,
-)
+from apps.management.models import CertificatesRelease, GradingSettings, MarksRelease
+
+from ..models import GroupMarkingCategories, Rubric, SubmissionComponent
 from .text import xml_safe
 from .xlsx import _format_product_category, _format_solution_category
 

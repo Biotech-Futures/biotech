@@ -16,9 +16,11 @@ from rest_framework.views import APIView
 from apps.common.rbac import group_participant_qs, is_admin
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
+from apps.management.models import CertificatesRelease, MarksRelease
+from apps.management.services import results_notify
 
-from ..models import CertificatesRelease, FinalistFlag, MarksRelease
-from ..services import content, results_notify
+from ..models import FinalistFlag
+from ..services import content
 from ..services.docx import (
     TemplateNotConfigured,
     _mark_text,

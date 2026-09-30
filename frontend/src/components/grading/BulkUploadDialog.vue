@@ -142,14 +142,16 @@
 import { computed, ref } from 'vue'
 import {
   bulkUploadMarks,
-  challengeYear,
-  fetchSubmissionDeadline,
-  type SubmissionDeadline,
   type BulkUploadCategoryEntry,
   type BulkUploadOverallCommentEntry,
   type BulkUploadResponse,
   type BulkUploadRowEntry
 } from '@/utils/gradingAPI'
+import {
+  challengeYear,
+  fetchSubmissionDeadline,
+  type SubmissionDeadline
+} from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 // Flow:

@@ -22,9 +22,9 @@ def is_finalist_group(group_id: int) -> bool:
 def slides_due_at() -> datetime | None:
     """When the slides are due: the end of the Slides Due day set on
     Management > Notify Finalists, Sydney time; None until it's set."""
-    from apps.grading.services.finalist_notify import SYMPOSIUM_TZ
+    from apps.management.services.finalist_notify import SYMPOSIUM_TZ
 
-    day = apps.get_model("grading", "FinalistEmailSettings").load().slides_due
+    day = apps.get_model("management", "FinalistEmailSettings").load().slides_due
     if day is None:
         return None
     return datetime.combine(day, time(23, 59), tzinfo=SYMPOSIUM_TZ)
@@ -35,7 +35,7 @@ def slides_due_at() -> datetime | None:
 
 def presentation_times():
     """This year's presentation times, earliest first."""
-    PresentationSlot = apps.get_model("grading", "PresentationSlot")
+    PresentationSlot = apps.get_model("management", "PresentationSlot")
     return PresentationSlot.objects.filter(year=current_cohort())
 
 
@@ -54,12 +54,12 @@ def time_options() -> list[dict]:
 
 def symposium_date():
     """The day the times are on, set on Notify Finalists; None until it is."""
-    return apps.get_model("grading", "FinalistEmailSettings").load().symposium_date
+    return apps.get_model("management", "FinalistEmailSettings").load().symposium_date
 
 
 def team_answer(group_id: int):
     """The team's availability, or None before anyone has given it."""
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     return PresentationAvailability.objects.filter(group_id=group_id).select_related("submitted_by").first()
 
 
@@ -73,7 +73,7 @@ def team_time_ids(answer) -> list[int]:
 def submit_team_times(user, group, slot_ids: list[int]) -> None:
     """The times the whole team can make, submitted by ``user``: anyone on
     the team, or an admin on its behalf."""
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     answer, _ = PresentationAvailability.objects.get_or_create(group=group)
     answer.slots.set(slot_ids)
     answer.submitted_by = user
@@ -83,7 +83,7 @@ def submit_team_times(user, group, slot_ids: list[int]) -> None:
 
 def team_has_availability(group_id: int) -> bool:
     """The team has submitted at least one of this year's times."""
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     return PresentationAvailability.objects.filter(
         group_id=group_id, submitted_at__isnull=False, slots__year=current_cohort()
     ).exists()
@@ -91,7 +91,7 @@ def team_has_availability(group_id: int) -> bool:
 
 def record_submitted_slides(entry: FinalistEntry) -> None:
     """The submitted slides, for the Finalist Presentation tab's table."""
-    FinalistSlides = apps.get_model("grading", "FinalistSlides")
+    FinalistSlides = apps.get_model("management", "FinalistSlides")
     FinalistSlides.objects.update_or_create(
         group=entry.group,
         defaults={

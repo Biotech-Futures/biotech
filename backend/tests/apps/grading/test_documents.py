@@ -8,16 +8,12 @@ from decimal import Decimal
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
-from apps.grading.models import (
-    ComponentFeedback,
-    Grade,
-    GradingSettings,
-    GroupMarkingCategories,
-)
+from apps.grading.models import ComponentFeedback, Grade, GroupMarkingCategories
 from apps.grading.services.docx import (
     _render_token_template,
     _sum_marks,
 )
+from apps.management.models import GradingSettings
 
 from .fixtures import _GradingFixture, _build_docx, _seed_doc_templates
 
@@ -190,7 +186,7 @@ class ClientDocxTemplateTests(_GradingFixture):
     def test_certificate_date_is_the_release_date_not_the_download_date(self):
         from datetime import datetime, timezone as dt_timezone
 
-        from apps.grading.models import CertificatesRelease
+        from apps.management.models import CertificatesRelease
 
         release = CertificatesRelease.load()
         release.released_at = datetime(2026, 3, 14, 3, 0, tzinfo=dt_timezone.utc)
@@ -202,7 +198,7 @@ class ClientDocxTemplateTests(_GradingFixture):
     def test_certificate_date_is_the_release_day_in_sydney(self):
         from datetime import datetime, timezone as dt_timezone
 
-        from apps.grading.models import CertificatesRelease
+        from apps.management.models import CertificatesRelease
 
         # 20:00 UTC on 13 March is 7am on 14 March in Sydney (AEDT, UTC+11).
         release = CertificatesRelease.load()
@@ -225,8 +221,8 @@ class ClientDocxTemplateTests(_GradingFixture):
         from datetime import datetime, timezone as dt_timezone
         from unittest import mock
 
-        from apps.grading.models import CertificatesRelease
         from apps.grading.services.docx import render_certificate_data, sample_certificate_context
+        from apps.management.models import CertificatesRelease
 
         release = CertificatesRelease.load()
         release.released_at = datetime(2025, 12, 1, 3, 0, tzinfo=dt_timezone.utc)
@@ -288,7 +284,7 @@ class ClientDocxTemplateTests(_GradingFixture):
 
     @staticmethod
     def _release_both_at(moment):
-        from apps.grading.models import CertificatesRelease, MarksRelease
+        from apps.management.models import CertificatesRelease, MarksRelease
 
         for model in (MarksRelease, CertificatesRelease):
             release = model.load()
@@ -677,7 +673,7 @@ class DirectorSignatureTests(_GradingFixture):
         return buf.getvalue()
 
     def _configure(self, template_text: str, *, with_signatures: bool):
-        from apps.grading.models import GradingSettings
+        from apps.management.models import GradingSettings
 
         settings_row = GradingSettings.load()
         settings_row.director_1_name = "Prof. Alice Adams"

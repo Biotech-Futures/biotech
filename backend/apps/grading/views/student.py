@@ -13,9 +13,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.groups.models.group_members import GroupMembership
+from apps.management.models import CertificatesRelease
 from apps.submissions.services import current_cohort
 
-from ..models import CertificatesRelease, FinalistFlag, Grade, Rubric, SubmissionComponent
+from ..models import FinalistFlag, Grade, Rubric, SubmissionComponent
 from ..permissions import CertificatesReleased, MarksReleased
 from ..services import content
 from ..services.docx import (

@@ -187,7 +187,7 @@ def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
     import io
     import zipfile
 
-    from ..models import CertificatesRelease, MarksRelease
+    from apps.management.models import CertificatesRelease, MarksRelease
     # Local import to avoid a circular between views.student and services.dispatch.
     from ..views.student import _grades_payload
 

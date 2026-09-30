@@ -5,13 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import (
-    ComponentFeedback,
-    Grade,
-    Rubric,
-    RubricCriterion,
-    SubmissionComponent,
-)
+from apps.grading.models import ComponentFeedback, Grade, Rubric, RubricCriterion, SubmissionComponent
 
 from .fixtures import _GradingFixture
 

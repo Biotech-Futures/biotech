@@ -27,8 +27,6 @@ class GradingURLsMountedTests(TestCase):
         self.assertEqual(reverse("grading:component-download", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/download/")
         self.assertEqual(reverse("grading:job-detail", kwargs={"pk": 1}), "/api/v1/grading/jobs/1/")
         self.assertEqual(reverse("grading:component-bulk-upload", kwargs={"code": "SAQ"}), "/api/v1/grading/components/SAQ/bulk-upload/")
-        self.assertEqual(reverse("grading:release"), "/api/v1/grading/release/")
-        self.assertEqual(reverse("grading:settings"), "/api/v1/grading/settings/")
         self.assertEqual(reverse("grading:me-grades"), "/api/v1/grading/me/grades/")
         self.assertEqual(reverse("grading:me-summary"), "/api/v1/grading/me/summary/")
         self.assertEqual(reverse("grading:me-certificate"), "/api/v1/grading/me/certificate/")

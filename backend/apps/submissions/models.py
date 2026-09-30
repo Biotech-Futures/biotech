@@ -366,7 +366,7 @@ class FinalistEntry(models.Model):
         if self.submitted_at is None:
             # The team's times, even unsubmitted, count as it having started.
             has_content = bool(self.presentation) or apps.get_model(
-                "grading", "PresentationAvailability"
+                "management", "PresentationAvailability"
             ).objects.filter(
                 group_id=self.group_id,
                 slots__isnull=False

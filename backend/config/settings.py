@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.submissions',
     'apps.grading',
+    'apps.management',
     'apps.services',
     'drf_spectacular',
     'rest_framework',

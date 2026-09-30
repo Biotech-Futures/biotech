@@ -7,8 +7,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import CertificatesRelease, FinalistFlag, Grade, MarksRelease
+from apps.grading.models import FinalistFlag, Grade
 from apps.groups.models import GroupMembership, Groups
+from apps.management.models import CertificatesRelease, MarksRelease
 from apps.users.models import User
 
 from .fixtures import _GradingFixture, _seed_doc_templates

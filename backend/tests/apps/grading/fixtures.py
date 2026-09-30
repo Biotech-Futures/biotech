@@ -14,13 +14,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.grading.models import (
-    GradingSettings,
-    Rubric,
-    RubricCriterion,
-    SubmissionComponent,
-)
+from apps.grading.models import Rubric, RubricCriterion, SubmissionComponent
 from apps.groups.models.groups import Groups
+from apps.management.models import GradingSettings
 from apps.submissions.models import Submission, SubmissionQuestion
 from apps.submissions.services import current_cohort
 from apps.users.models import User

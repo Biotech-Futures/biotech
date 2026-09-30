@@ -141,23 +141,23 @@ const routes: RouteRecordRaw[] = [
     // Admin-only management section — the run-the-competition levers. Same
     // adminOnly meta merge as /grading above.
     path: '/management',
-    component: () => import('@/views/grading/ManagementPage.vue'),
+    component: () => import('@/views/management/ManagementPage.vue'),
     meta: { adminOnly: true },
     children: [
       { path: '', redirect: '/management/submission-deadline' },
-      { path: 'new-year', name: 'management-new-year', component: () => import('@/views/grading/YearPage.vue') },
+      { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
       // Legacy path from before the Season → Year rename.
       { path: 'new-season', redirect: '/management/new-year' },
-      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/grading/SetDeadlinePage.vue') },
-      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/grading/DeadlineExtensionPage.vue') },
-      { path: 'release-results', name: 'management-release-results', component: () => import('@/views/grading/ReleaseResultsPage.vue') },
+      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
+      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
+      { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
       // Marks and certificates used to be released from tabs of their own.
       { path: 'release-marks', redirect: '/management/release-results' },
       { path: 'release-certificates', redirect: '/management/release-results' },
-      { path: 'document-setup', name: 'management-settings', component: () => import('@/views/grading/GradingSettingsPage.vue') },
-      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/grading/NotifyFinalistsPage.vue') },
-      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/grading/NonFinalistPage.vue') },
-      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/grading/FinalistPresentationPage.vue') }
+      { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
+      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
+      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

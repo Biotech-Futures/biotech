@@ -12,8 +12,9 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.common.storage import reset_managed_storage_caches
-from apps.grading.models import FinalistFlag, FinalistSlides, PresentationAvailability, PresentationSlot
+from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
+from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSlot
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
@@ -312,7 +313,7 @@ class FinalistTests(TestCase):
         slides = FinalistSlides.objects.get(group=self.group)
         self.assertEqual((slides.file["name"], slides.submitted_by), ("deck.pdf", self.supervisor))
         opened = self._client(self.admin).get(
-            reverse("grading:presentation-slides-file", kwargs={"group_id": self.group.id})
+            reverse("management:presentation-slides-file", kwargs={"group_id": self.group.id})
         )
         self.assertEqual(opened.status_code, 200)
         self.assertEqual(b"".join(opened.streaming_content), b"%PDF-1.7\nslides\n%%EOF\n")
@@ -349,7 +350,7 @@ class FinalistTests(TestCase):
         from datetime import date, datetime
         from zoneinfo import ZoneInfo
 
-        from apps.grading.models import FinalistEmailSettings
+        from apps.management.models import FinalistEmailSettings
 
         FinalistEmailSettings.objects.update_or_create(pk=1, defaults={"slides_due": date(2026, 10, 16)})
         deadline = self._client(self.student).get(self.url).data["deadline"]

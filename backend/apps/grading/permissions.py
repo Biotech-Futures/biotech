@@ -1,8 +1,7 @@
 from rest_framework.permissions import BasePermission
 
+from apps.management.models import CertificatesRelease, MarksRelease
 from apps.users.models import AdminScope
-
-from .models import CertificatesRelease, MarksRelease
 
 
 class IsGrader(BasePermission):

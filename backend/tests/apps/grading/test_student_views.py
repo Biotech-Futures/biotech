@@ -10,15 +10,10 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.grading.models import (
-    CertificatesRelease,
-    FinalistFlag,
-    Grade,
-    GradingJob,
-    MarksRelease,
-)
+from apps.grading.models import FinalistFlag, Grade, GradingJob
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
+from apps.management.models import CertificatesRelease, MarksRelease
 from apps.users.models import User
 
 from .fixtures import _GradingFixture, _seed_doc_templates
@@ -223,7 +218,7 @@ class StudentReadViewsTests(_GradingFixture):
 
     def test_certificates_release_toggle(self):
         self.client.force_authenticate(self.staff)
-        url = reverse("grading:certificates-release")
+        url = reverse("management:certificates-release")
         r = self.client.get(url)
         self.assertIsNone(r.json()["released_at"])
 
@@ -238,12 +233,12 @@ class StudentReadViewsTests(_GradingFixture):
 
     def test_exclusion_is_on_by_default(self):
         self.client.force_authenticate(self.staff)
-        r = self.client.get(reverse("grading:certificates-release"))
+        r = self.client.get(reverse("management:certificates-release"))
         self.assertTrue(r.json()["exclude_finalists"])
 
     def test_exclusion_only_post_does_not_restamp_release(self):
         self.client.force_authenticate(self.staff)
-        url = reverse("grading:certificates-release")
+        url = reverse("management:certificates-release")
         released_at = self.client.post(url, {}, format="json").json()["released_at"]
 
         r = self.client.post(url, {"exclude_finalists": "true"}, format="json")

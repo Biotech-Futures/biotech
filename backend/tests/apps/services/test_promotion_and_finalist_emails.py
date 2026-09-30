@@ -11,9 +11,10 @@ from django.test import TestCase, override_settings
 
 from apps.events.models import Events
 from apps.events.promotion_email import notify_waitlist_promoted
-from apps.grading.models import FinalistEmailSettings, FinalistFlag
-from apps.grading.services.finalist_notify import notify_finalist
+from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
+from apps.management.models import FinalistEmailSettings
+from apps.management.services.finalist_notify import notify_finalist
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
 from apps.users.models import User
 
@@ -115,7 +116,7 @@ class WaitlistPromotionEmailTests(TestCase):
 
 class FinalistEmailTests(TestCase):
     def setUp(self):
-        from apps.grading.services.finalist_notify import symposium_today
+        from apps.management.services.finalist_notify import symposium_today
 
         # The email isn't sent until its dates and link are set.
         today = symposium_today()
@@ -168,7 +169,7 @@ class FinalistEmailTests(TestCase):
 
     def test_nothing_delivered_leaves_flag_unnotified_for_a_retry(self):
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("smtp down")), \
-                self.assertLogs("apps.grading.services.finalist_notify", level="ERROR") as logs:
+                self.assertLogs("apps.management.services.finalist_notify", level="ERROR") as logs:
             self.assertFalse(notify_finalist(self.flag))
         self.flag.refresh_from_db()
         self.assertFalse(self.flag.notified)
@@ -183,7 +184,7 @@ class FinalistEmailTests(TestCase):
             return real_send(message, *args, **kwargs)
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_one), \
-                self.assertLogs("apps.grading.services.finalist_notify", level="ERROR"):
+                self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             self.assertFalse(notify_finalist(self.flag))
         self.assertEqual([m.to for m in mail.outbox], [["two@example.com"]])
         self.flag.refresh_from_db()
