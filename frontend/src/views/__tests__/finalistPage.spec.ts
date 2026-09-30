@@ -122,25 +122,6 @@ describe('layout', () => {
     expect(wrapper!.find('[data-testid="finalist-availability"]').isVisible()).toBe(true)
     expect(wrapper!.find('[data-testid="finalist-presentation"]').isVisible()).toBe(true)
   })
-
-  it('places the portal step strip it is given between the status and the card', async () => {
-    fetchFinalist.mockResolvedValue(buildDetail(null))
-    const router = createRouter({
-      history: createWebHashHistory(),
-      routes: [{ path: '/groups/:id/finalist', name: 'group-finalist', component: { template: '<div />' } }],
-    })
-    await router.push('/groups/1/finalist')
-    await router.isReady()
-    wrapper = mount(FinalistPage, {
-      global: { plugins: [router, pinia] },
-      slots: { steps: '<nav data-testid="strip" />' },
-    })
-    await flushPromises()
-
-    const html = wrapper.html()
-    expect(html.indexOf('status-line')).toBeLessThan(html.indexOf('data-testid="strip"'))
-    expect(html.indexOf('data-testid="strip"')).toBeLessThan(html.indexOf('finalist-availability'))
-  })
 })
 
 describe('what the fixes cover', () => {

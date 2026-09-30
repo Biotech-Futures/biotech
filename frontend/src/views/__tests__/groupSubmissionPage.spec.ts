@@ -30,15 +30,6 @@ vi.mock('@/utils/finalistAPI', () => ({
   fetchFinalist: (...args: unknown[]) => fetchFinalist(...args),
 }))
 
-vi.mock('@/views/FinalistPage.vue', () => ({
-  __esModule: true,
-  default: {
-    name: 'FinalistPageStub',
-    props: ['previousLabel'],
-    template: '<div data-testid="finalist-stub"><slot name="steps" /></div>',
-  },
-}))
-
 // Imported after the mock is registered so the component picks up the stubs.
 const GroupSubmissionPage = (await import('../GroupSubmissionPage.vue')).default
 
