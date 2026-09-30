@@ -106,14 +106,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
       method: 'POST',
       body: { items: [], overall_comments: [{ submission: 1, component: 'POSTER', comment: 'Nice' }] }
     },
-    {
-      name: 'updateGrade',
-      call: () => api.updateGrade(3, { mark: '6.5' }),
-      reply: {},
-      url: '/api/v1/grading/grades/3/',
-      method: 'PATCH',
-      body: { mark: '6.5' }
-    },
     { name: 'fetchComponentRows', call: () => api.fetchComponentRows('SAQ'), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/' },
     { name: 'fetchComponentRows with year', call: () => api.fetchComponentRows('SAQ', 2026), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/?year=2026' },
     {

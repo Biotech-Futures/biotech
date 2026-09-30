@@ -105,7 +105,6 @@ urlpatterns = [
     path("announcements/", include("apps.announcements.urls")),
     path("audit/", include("apps.audit.urls")),
     path("matching/", include("apps.matching_runtime.urls")),
-    path("certificates/", include("apps.certificates.urls")),
 
     path("api-auth/", include("rest_framework.urls")),  # browsable API login
 

@@ -51,7 +51,7 @@
             <button
               type="button"
               class="btn btn-outline btn-sm"
-              :disabled="loadingPreview !== null"
+              :disabled="loadingPreview !== false"
               @click="openPreview('groups')"
             >
               {{ loadingPreview === 'groups' ? 'Loading…' : 'Preview Group Email' }}
@@ -62,7 +62,7 @@
             <button
               type="button"
               class="btn btn-outline btn-sm"
-              :disabled="loadingPreview !== null"
+              :disabled="loadingPreview !== false"
               @click="openPreview('supervisors')"
             >
               {{ loadingPreview === 'supervisors' ? 'Loading…' : 'Preview Supervisor Email' }}
@@ -255,7 +255,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useEmailRun } from '@/composables/useEmailRun'
+import { useEmailPreview } from '@/composables/useEmailPreview'
+import { describeRun, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadResultsSampleSheet,
@@ -269,10 +270,10 @@ import {
   type ResultsAudience,
   type ResultsEmailDetails,
   type ResultsEmailFields,
-  type ResultsEmailPreview,
   type TestEmailRecipient
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { plural } from '@/utils/string'
 import ReleaseCertificatesPage from '@/views/management/ReleaseCertificatesPage.vue'
 import ReleasePage from '@/views/management/ReleasePage.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
@@ -282,8 +283,6 @@ const AUDIENCES: { value: ResultsAudience; noun: string }[] = [
   { value: 'groups', noun: 'Groups' },
   { value: 'supervisors', noun: 'Supervisors' }
 ]
-
-const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`
 
 const actionError = ref('')
 const { message: actionMessage, show: flashAction } = useFlashMessage()
@@ -352,29 +351,13 @@ const saveDetails = async () => {
 
 // -- Preview ----------------------------------------------------------------
 
-const preview = ref<ResultsEmailPreview | null>(null)
-const loadingPreview = ref<ResultsAudience | null>(null)
 // The person picked in each Send Test Email: the preview is their email.
 const testRecipients = ref<Record<ResultsAudience, string>>({ groups: '', supervisors: '' })
-
-const openPreview = async (audience: ResultsAudience) => {
-  actionError.value = ''
-  loadingPreview.value = audience
-  try {
-    preview.value = await previewResultsEmail(audience, formFields(), testRecipients.value[audience])
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    loadingPreview.value = null
-  }
-}
-
-// Grow the frame to the whole email, so only the dialog's box scrolls.
-const fitPreview = (event: Event) => {
-  const frame = event.target as HTMLIFrameElement
-  const page = frame.contentDocument?.documentElement
-  if (page) frame.style.height = `${page.scrollHeight}px`
-}
+// Which audience's email is loading its preview.
+const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
+  (audience: ResultsAudience) => previewResultsEmail(audience, formFields(), testRecipients.value[audience]),
+  actionError
+)
 
 // -- Sample spreadsheet -----------------------------------------------------
 
@@ -515,18 +498,14 @@ const sendAll = async (audience: ResultsAudience) => {
 
 // How a run went, once this page saw it finish.
 const reportRun = (audience: ResultsAudience, run: EmailRun) => {
-  const sent = `Emailed ${audience === 'groups' ? plural(run.emailed, 'person', 'people') : plural(run.emailed, 'supervisor')}.`
-  const button = audience === 'groups' ? 'Email Groups' : 'Email Supervisors'
-  if (run.error) {
-    actionError.value = `${sent} ${run.error}`
-  } else if (run.failed) {
-    const missed = audience === 'groups'
-      ? `${plural(run.failed, 'group')} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
-      : `${plural(run.failed, 'supervisor')} couldn't be emailed`
-    actionError.value = `${sent} ${missed}; press ${button} again to retry.`
-  } else {
-    flashAction(sent)
-  }
+  const { text, isError } = describeRun(
+    run,
+    audience === 'groups'
+      ? { emailed: ['person', 'people'], failed: 'group', button: 'Email Groups' }
+      : { emailed: ['supervisor'], failed: 'supervisor', failedWhole: true, button: 'Email Supervisors' }
+  )
+  if (isError) actionError.value = text
+  else flashAction(text)
 }
 for (const audience of ['groups', 'supervisors'] as const) {
   useEmailRun(() => details.value?.runs[audience], loadDetails, (run) => reportRun(audience, run))

@@ -472,17 +472,6 @@ export function saveGradesBulk(
   })
 }
 
-// PATCH /api/v1/grading/grades/{id}/ — inline edit for a single grade.
-export function updateGrade(
-  gradeId: number,
-  patch: { mark?: string | null; comment?: string }
-): Promise<Grade> {
-  return requestJson<Grade>(`/api/v1/grading/grades/${gradeId}/`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch)
-  })
-}
-
 // GET /api/v1/grading/components/{code}/ — table payload for the
 // per-component marking flow ("sit down and mark all posters").
 export function fetchComponentRows(code: string, year?: number): Promise<ComponentListPayload> {

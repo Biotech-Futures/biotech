@@ -1,5 +1,6 @@
 import { onBeforeUnmount, watch } from 'vue'
 import type { EmailRun, EmailRunState } from '@/utils/managementAPI'
+import { plural } from '@/utils/string'
 
 /** How often a page checks on a run while it sends. */
 const CHECK_MS = 2000
@@ -33,4 +34,33 @@ export function useEmailRun(
     }
   )
   onBeforeUnmount(stop)
+}
+
+/** How a page words a finished run. */
+export interface RunWording {
+  /** Who was emailed: ['person', 'people'], or ['supervisor']. */
+  emailed: [string, string?]
+  /** What a failure counts: 'team', 'group' or 'supervisor'. */
+  failed: string
+  /** Each failure is one email ("couldn't be emailed"), not a team some of
+   *  whose members were missed ("wasn't emailed in full"). */
+  failedWhole?: boolean
+  /** The button that retries, e.g. "Email Groups". */
+  button: string
+  /** Said instead of "Emailed 0 people." when nobody was due the email. */
+  nobodyDue?: string
+}
+
+/** What a page says once a run finishes, and whether it's an error: how
+ *  many were emailed, then why it stopped short and how to retry. */
+export function describeRun(run: EmailRun, wording: RunWording): { text: string; isError: boolean } {
+  const sent = `Emailed ${plural(run.emailed, ...wording.emailed)}.`
+  if (run.error) return { text: `${sent} ${run.error}`, isError: true }
+  if (run.failed) {
+    const missed = wording.failedWhole
+      ? `${plural(run.failed, wording.failed)} couldn't be emailed`
+      : `${plural(run.failed, wording.failed)} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
+    return { text: `${sent} ${missed}; press ${wording.button} again to retry.`, isError: true }
+  }
+  return { text: run.due > 0 || !wording.nobodyDue ? sent : wording.nobodyDue, isError: false }
 }

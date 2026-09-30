@@ -43,7 +43,7 @@
             type="button"
             class="btn btn-outline btn-sm"
             :disabled="loadingPreview"
-            @click="openPreview"
+            @click="openPreview()"
           >
             {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
           </button>
@@ -240,7 +240,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useEmailRun } from '@/composables/useEmailRun'
+import { useEmailPreview } from '@/composables/useEmailPreview'
+import { describeRun, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
@@ -250,10 +251,10 @@ import {
   previewFinalistEmail,
   updateFinalistEmailDetails,
   type FinalistEmailDetails,
-  type FinalistEmailFields,
-  type FinalistEmailPreview
+  type FinalistEmailFields
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { plural } from '@/utils/string'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const list = ref<FinalistListResponse | null>(null)
@@ -398,29 +399,12 @@ const canSend = computed(
 )
 
 // The email exactly as a finalist would get it, for the details as typed.
-const preview = ref<FinalistEmailPreview | null>(null)
-const loadingPreview = ref(false)
 // The person picked in Send Test Email: the preview is their team's email.
 const testRecipient = ref('')
-
-// Grow the frame to the whole email, so only the dialog's box scrolls.
-const fitPreview = (event: Event) => {
-  const frame = event.target as HTMLIFrameElement
-  const page = frame.contentDocument?.documentElement
-  if (page) frame.style.height = `${page.scrollHeight}px`
-}
-
-const openPreview = async () => {
-  actionError.value = ''
-  loadingPreview.value = true
-  try {
-    preview.value = await previewFinalistEmail(formFields(), testRecipient.value)
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    loadingPreview.value = false
-  }
-}
+const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
+  () => previewFinalistEmail(formFields(), testRecipient.value),
+  actionError
+)
 
 onMounted(() => {
   void load()
@@ -450,8 +434,6 @@ const sendEmails = (mode: 'all' | 'selected') => {
   pendingSendMode.value = mode
 }
 
-const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`
-
 const confirmSend = async () => {
   const mode = pendingSendMode.value
   if (!mode) return
@@ -476,20 +458,14 @@ const confirmSend = async () => {
 
 // How the run went, once this page saw it finish; then who it reached.
 const reportRun = (run: EmailRun) => {
-  const sent = `Emailed ${plural(run.emailed, 'person', 'people')}.`
-  if (run.error) {
-    actionError.value = `${sent} ${run.error}`
-  } else if (run.failed) {
-    actionError.value =
-      `${sent} ${plural(run.failed, 'team')} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full; ` +
-      'press Send Email to All Groups again to retry.'
-  } else {
-    flashAction(
-      run.due > 0
-        ? sent
-        : 'No emails sent - every finalist team is already notified or has no members to email.'
-    )
-  }
+  const { text, isError } = describeRun(run, {
+    emailed: ['person', 'people'],
+    failed: 'team',
+    button: 'Send Email to All Groups',
+    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.'
+  })
+  if (isError) actionError.value = text
+  else flashAction(text)
   void load()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
