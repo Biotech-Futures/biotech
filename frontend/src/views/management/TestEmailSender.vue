@@ -131,7 +131,7 @@ const send = async () => {
 }
 
 .test-email__to {
-  width: 12rem;
+  width: 11rem;
 }
 
 .test-email__select:focus,

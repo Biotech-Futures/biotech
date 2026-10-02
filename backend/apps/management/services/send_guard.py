@@ -267,6 +267,12 @@ def _missed_entry(entry) -> dict:
     return entry if isinstance(entry, dict) else {"who": str(entry), "reason": ""}
 
 
+def last_missed(key: str) -> list[str]:
+    """Who ``key``'s last run missed, as the page lists them."""
+    run = EmailSendRun.objects.filter(key=key).first()
+    return [_missed_entry(entry)["who"] for entry in run.missed] if run else []
+
+
 def run_state(key: str) -> dict:
     """Whether ``key``'s email is sending now, and its run's progress (the
     one going, or the last): people due and emailed, teams or supervisors

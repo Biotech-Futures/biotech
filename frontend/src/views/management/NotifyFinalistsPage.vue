@@ -39,6 +39,9 @@
           >
             {{ savingDetails ? 'Saving…' : 'Save' }}
           </button>
+        </div>
+        <!-- Preview and test on their own line, under Save. -->
+        <div class="notify-finalists__email-actions">
           <button
             type="button"
             class="btn btn-outline btn-sm"
@@ -90,7 +93,23 @@
           :disabled="sendingMode !== null || !canSend"
           @click="sendEmails('all')"
         >
-          {{ sendingMode === 'all' || (details?.sending && sendingMode === null) ? 'Sending…' : 'Send Email to All Groups' }}
+          {{ sendingMode === 'all' || (details?.sending && sendingMode === null) ? 'Sending…' : 'Email All' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.new.teams"
+          @click="sendEmails('new')"
+        >
+          {{ sendingMode === 'new' ? 'Sending…' : 'Email Newly Added' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.missed.teams"
+          @click="sendEmails('missed')"
+        >
+          {{ sendingMode === 'missed' ? 'Sending…' : 'Resend Email Those Missed' }}
         </button>
         <button
           type="button"
@@ -98,7 +117,7 @@
           :disabled="sendingMode !== null || !canSend || selectedIds.size === 0"
           @click="sendEmails('selected')"
         >
-          {{ sendingMode === 'selected' ? 'Sending…' : 'Send Email to Selected Groups' }}
+          {{ sendingMode === 'selected' ? 'Sending…' : 'Email Selected' }}
         </button>
         <span v-if="details?.sending && details.run" class="notify-finalists__progress" role="status">
           Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
@@ -254,7 +273,8 @@ import {
   previewFinalistEmail,
   updateFinalistEmailDetails,
   type FinalistEmailDetails,
-  type FinalistEmailFields
+  type FinalistEmailFields,
+  type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
@@ -265,7 +285,8 @@ const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
 const { message: actionMessage, show: flashAction } = useFlashMessage()
-const sendingMode = ref<'all' | 'selected' | null>(null)
+type SendMode = 'all' | 'selected' | FinalistSendWhich
+const sendingMode = ref<SendMode | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
 const allNotified = computed(() => finalists.value.every((f) => f.notified))
@@ -422,17 +443,27 @@ const lastEmailed = computed(() => {
 })
 
 // Which send is awaiting confirmation in the dialog; null = dialog closed.
-const pendingSendMode = ref<'all' | 'selected' | null>(null)
+const pendingSendMode = ref<SendMode | null>(null)
 
 const confirmText = computed(() => {
   if (pendingSendMode.value === 'all') {
     return 'This will send the notification email to every finalist team that has not been notified yet.'
   }
+  const waiting = details.value?.waiting
+  if (pendingSendMode.value === 'new' && waiting) {
+    return `This will send the notification email to the ${plural(waiting.new.teams, 'finalist team')} not emailed yet.`
+  }
+  if (pendingSendMode.value === 'missed' && waiting) {
+    return (
+      `This will email only the ${plural(waiting.missed.people, 'person', 'people')} earlier sends missed, ` +
+      `on ${plural(waiting.missed.teams, 'team')}.`
+    )
+  }
   const count = selectedIds.value.size
   return `This will send the notification email to the ${count} selected ${count === 1 ? 'team' : 'teams'}.`
 })
 
-const sendEmails = (mode: 'all' | 'selected') => {
+const sendEmails = (mode: SendMode) => {
   if (mode === 'selected' && selectedIds.value.size === 0) return
   pendingSendMode.value = mode
 }
@@ -447,7 +478,9 @@ const confirmSend = async () => {
   actionError.value = ''
   sendingMode.value = mode
   try {
-    const result = await notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined)
+    const result = await (mode === 'new' || mode === 'missed'
+      ? notifyFinalists(undefined, mode)
+      : notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined))
     if (details.value) details.value = { ...details.value, sending: result.sending, run: result.run }
     selectedIds.value = new Set()
     // A run with little or nothing to send can be over by the reply.
@@ -464,7 +497,7 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: 'Send Email to All Groups',
+    button: 'Resend Email Those Missed',
     nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.',
     sentFrom: details.value?.sent_from
   })
@@ -614,6 +647,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+.notify-finalists__email-actions + .notify-finalists__email-actions {
+  margin-top: 0.75rem;
 }
 
 .notify-finalists__progress {

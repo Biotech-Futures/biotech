@@ -246,7 +246,7 @@ describe('Email Nonfinalist', () => {
     await dialogButton(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--error`).text()).toBe(
-      "Emailed 1 person. 1 team wasn't emailed in full; press Email Nonfinalists again to email only those it missed."
+      "Emailed 1 person. 1 team wasn't emailed in full; press Email Nonfinalists to email only those it missed."
     )
   })
 

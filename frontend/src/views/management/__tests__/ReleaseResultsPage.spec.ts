@@ -381,7 +381,7 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.release-results__banner--error').text()).toBe(
-      "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups again to email only those it missed."
+      "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups to email only those it missed."
     )
   })
 

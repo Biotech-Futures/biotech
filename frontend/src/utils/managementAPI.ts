@@ -385,12 +385,21 @@ export interface FinalistNotifyResult extends EmailRunState {
 }
 
 // Starts a run on the server that emails them, so the page can be closed.
-export function notifyFinalists(groupIds?: number[]): Promise<FinalistNotifyResult> {
+// Or pass which: 'new' for the teams no send has tried yet, 'missed' for
+// only the people earlier sends missed.
+export function notifyFinalists(
+  groupIds?: number[],
+  which?: FinalistSendWhich
+): Promise<FinalistNotifyResult> {
   return requestJson<FinalistNotifyResult>('/api/v1/management/finalists/notify/', {
     method: 'POST',
-    body: JSON.stringify(groupIds?.length ? { group_ids: groupIds } : {})
+    body: JSON.stringify(which ? { which } : groupIds?.length ? { group_ids: groupIds } : {})
   })
 }
+
+/** A send limited to the teams no send has tried yet, or to the people
+ *  earlier sends missed. */
+export type FinalistSendWhich = 'new' | 'missed'
 
 /** What the finalist email tells teams about the Symposium (dates as YYYY-MM-DD). */
 export interface FinalistEmailFields {
@@ -412,6 +421,8 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   /** Everyone the finalist email goes to, by role; a notified team's
    *  members count as emailed. */
   counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
+  /** The teams, and people on them, each limited send would email. */
+  waiting: Record<FinalistSendWhich, { teams: number; people: number }>
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

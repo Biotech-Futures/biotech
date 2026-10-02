@@ -74,7 +74,7 @@ export function describeRun(run: EmailRun, wording: RunWording): { text: string;
       ? `${plural(run.failed, wording.failed)} couldn't be emailed`
       : `${plural(run.failed, wording.failed)} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
     return {
-      text: `${sent} ${missed}; press ${wording.button} again to email only those it missed.${note}`,
+      text: `${sent} ${missed}; press ${wording.button} to email only those it missed.${note}`,
       isError: true,
     }
   }
