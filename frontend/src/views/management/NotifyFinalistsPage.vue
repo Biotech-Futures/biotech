@@ -439,7 +439,7 @@ const canSend = computed(
 )
 
 // The email exactly as a finalist would get it, for the details as typed.
-// The person picked in Send Test Email: the preview is their team's email.
+// The group picked in Send Test Email: the preview is its email.
 const testRecipient = ref('')
 const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewFinalistEmail(formFields(), testRecipient.value),

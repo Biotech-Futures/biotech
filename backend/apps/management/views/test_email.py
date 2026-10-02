@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class TestEmailSerializer(serializers.Serializer):
-    recipient = serializers.CharField(error_messages={"blank": "Pick someone from the list."})
+    recipient = serializers.CharField(error_messages={"blank": "Pick one from the list."})
     to = serializers.EmailField(
         error_messages={"invalid": "Enter a valid email address.", "blank": "Enter an email address."}
     )

@@ -370,7 +370,7 @@ const saveDetails = async () => {
 
 // -- Preview ----------------------------------------------------------------
 
-// The person picked in each Send Test Email: the preview is their email.
+// The group or supervisor picked in each Send Test Email: the preview is their email.
 const testRecipients = ref<Record<ResultsAudience, string>>({ groups: '', supervisors: '' })
 // Which audience's email is loading its preview.
 const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
@@ -635,6 +635,13 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   gap: 0.75rem 1.25rem;
 }
 
+/* Each Send Test Email row fits beside its preview button here: the
+   address box is at least 8.5rem (13rem elsewhere), still growing to 17rem. */
+.release-results__details-actions :deep(.test-email__to) {
+  flex-basis: 8.5rem;
+  min-width: 8.5rem;
+}
+
 .release-results__send-rows {
   display: flex;
   flex-direction: column;
@@ -665,6 +672,11 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+/* The preview rows span the card, so the test address box has room to grow. */
+.release-results__details-actions > .release-results__actions {
+  align-self: stretch;
 }
 
 /* As the Release Marks status line. */

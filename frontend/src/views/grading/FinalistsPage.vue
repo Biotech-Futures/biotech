@@ -601,6 +601,9 @@ const remove = async (id: number) => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /* Stays right-aligned even when the card wraps it onto its own line, as
+     on the component pages. */
+  margin-left: auto;
 }
 
 .finalists__legend {

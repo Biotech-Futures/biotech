@@ -567,7 +567,7 @@ export interface FinalistEmailPreview {
 
 // POST /api/v1/management/finalists/email/preview/ — the email as a finalist
 // would get it, for the given (possibly unsaved) details. Sends nothing.
-// `recipient` is a person picked in Send Test Email: their team's email.
+// `recipient` is a group picked in Send Test Email: its email.
 export function previewFinalistEmail(
   fields: Partial<FinalistEmailFields>,
   recipient = ''
@@ -641,7 +641,7 @@ export function updateResultsEmailDetails(
 
 // POST /api/v1/management/results-email/preview/ — one email as it would go out,
 // for the given (possibly unsaved) details. Sends nothing. `recipient` is a
-// person picked in Send Test Email: their email and files.
+// group or supervisor picked in Send Test Email: their email and files.
 export function previewResultsEmail(
   audience: ResultsAudience,
   fields: Partial<ResultsEmailFields>,
@@ -716,7 +716,7 @@ export function fetchSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEma
 }
 
 // POST /api/v1/management/{email}/preview/ — the email as `recipient`'s team (a
-// person picked in Send Test Email) would get it, else the first team due.
+// group picked in Send Test Email) would get it, else the first team due.
 // Nothing is sent.
 export function previewSymposiumEmail(
   email: SymposiumEmail,

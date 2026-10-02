@@ -202,7 +202,7 @@ const canSend = computed(() =>
 
 // -- Preview ----------------------------------------------------------------
 
-// The person picked in Send Test Email: the preview is their team's email.
+// The group picked in Send Test Email: the preview is its email.
 const testRecipient = ref('')
 const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewSymposiumEmail(props.email, testRecipient.value),
