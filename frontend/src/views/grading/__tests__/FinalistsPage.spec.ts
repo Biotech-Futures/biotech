@@ -131,7 +131,7 @@ describe('the group marks ranking', () => {
         .findAll('tbody tr')
         .find((r) => r.text().includes(name))!
         .findAll('td')
-        .slice(2, 7) // SAQ, POSTER, SAQ&P., REPORT, PROT.
+        .slice(2, 7) // SAQ, POSTER, SAQ&P., REPORT, PRO.
     const hover = (cell: ReturnType<typeof cells>[number]) =>
       cell.find('[title]').exists() ? cell.find('[title]').attributes('title') : null
 

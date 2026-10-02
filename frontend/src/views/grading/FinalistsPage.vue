@@ -347,7 +347,7 @@ const saqPoster = (r: FinalistCandidateRow): string | null => {
 // A mark column per part, SAQ&P. straight after the poster's.
 const markColumns = computed(() =>
   candidateComponents.value.flatMap((c) => {
-    const column = { key: c.code, label: c.code === 'PROTOTYPE' ? 'PROT.' : c.code, title: c.name }
+    const column = { key: c.code, label: c.code === 'PROTOTYPE' ? 'PRO.' : c.code, title: c.name }
     return c.code === 'POSTER'
       ? [column, { key: SAQ_POSTER, label: 'SAQ&P.', title: 'SAQ and Poster together' }]
       : [column]
