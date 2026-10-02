@@ -7,14 +7,19 @@ extension, grace hours included. Until then who submitted, who is a
 finalist, and the marks can all still change.
 
 Sending: pressing Send starts a run on the server that emails everyone due,
-whether or not the page stays open, over several mail server connections at
-once (``BULK_EMAIL_WORKERS``). One run at a time per email, so nobody is
-emailed twice; the page shows the run's progress (see ``run_state``).
+whether or not the page stays open, over a few mail server connections at
+once (``BULK_EMAIL_WORKERS``). Once every email has been tried, it waits a few
+seconds (``BULK_EMAIL_RETRY_SECONDS``) and tries once more the ones that
+missed someone. One run at a time per email, and each copy that goes is
+recorded (see ``delivery``), so nobody is emailed twice: pressing Send again
+emails only the people a run missed. The page shows the run's progress and
+who it missed, and why (see ``run_state``).
 """
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
@@ -43,6 +48,10 @@ FINALIST_SEND = "finalist_notification"
 SEND_LEASE = timedelta(minutes=5)
 
 UNREACHABLE = "Couldn't reach the mail server. Press Send again to email the rest."
+# Why someone was missed, when the run couldn't connect to send it.
+NO_SERVER = "couldn't reach the mail server"
+# Why someone was missed, when the whole team's email failed before sending.
+NOT_SENT = "couldn't be sent"
 
 
 def _long_time(moment: datetime) -> str:
@@ -93,16 +102,22 @@ def member_labels(group, addresses) -> dict[str, str]:
     return {address: f"({group.group_name}) {names.get(address, address)}" for address in addresses}
 
 
+def missed_people(people: dict[str, str], failed: dict[str, str]) -> list[dict]:
+    """Who a team's email missed, as the page lists them: ``people`` labels
+    each address, ``failed`` gives each one's reason."""
+    return [{"who": people.get(address, address), "reason": reason} for address, reason in failed.items()]
+
+
 @dataclass
 class Work:
-    """One team's or supervisor's email: everyone it goes to, as the page
+    """One team's or supervisor's email: everyone it's still due, as the page
     would list them, and sending it. ``send(connection, cache)`` gives those
-    it didn't reach, empty when everyone got it (only then is it recorded as
-    emailed); ``cache`` lasts one worker's share of the run, e.g. for
-    templates read once."""
+    it didn't reach, as ``{"who", "reason"}``, empty when everyone got it
+    (only then is it recorded as emailed); ``cache`` lasts one worker's share
+    of the run, e.g. for templates read once."""
 
     people: list[str]
-    send: Callable[[object, dict], list[str]]
+    send: Callable[[object, dict], list[dict]]
 
 
 def _take(key: str, **fields) -> bool:
@@ -120,7 +135,8 @@ def _take(key: str, **fields) -> bool:
 def start_run(key: str, actor, work: list[Work]) -> None:
     """Start a run emailing every item of ``work``, on the server, so the page
     can be closed: the items are shared across ``BULK_EMAIL_WORKERS`` threads,
-    each with its own mail server connection. Raises ``AlreadySending`` while
+    each with its own mail server connection, then those that missed someone
+    are tried once more (see ``_retry``). Raises ``AlreadySending`` while
     another run is going."""
     if not _take(
         key, started_at=timezone.now(), started_by=actor, finished_at=None,
@@ -140,15 +156,21 @@ def start_run(key: str, actor, work: list[Work]) -> None:
 def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
     try:
         shares = [share for share in (work[i::workers] for i in range(workers)) if share]
+        # Each item that missed someone, with who: added to by every worker.
+        failures: list[tuple[Work, list[dict]]] = []
         if threaded:
-            threads = [threading.Thread(target=_work, args=(key, share, True), daemon=True) for share in shares]
+            threads = [
+                threading.Thread(target=_work, args=(key, share, failures, True), daemon=True) for share in shares
+            ]
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join()
         else:
             for share in shares:
-                _work(key, share, False)
+                _work(key, share, failures, False)
+        if failures:
+            _retry(key, failures)
     except Exception:  # noqa: BLE001
         logger.exception("email run %s failed", key)
     finally:
@@ -157,36 +179,74 @@ def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
             db_connection.close()
 
 
-def _work(key: str, items: list[Work], threaded: bool) -> None:
-    """One worker's share of a run, over one mail server connection."""
+def _send(key: str, item: Work, connection, cache: dict) -> list[dict]:
+    """``item``'s email: who it missed, and why."""
+    try:
+        return item.send(connection, cache)
+    except Exception:  # noqa: BLE001
+        logger.exception("email run %s: an email failed", key)
+        return [{"who": p, "reason": NOT_SENT} for p in item.people]
+
+
+def _close(connection) -> None:
+    try:
+        connection.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
+    """One worker's share of a run, over one mail server connection. Who each
+    item reaches counts at once; those that missed someone go on
+    ``failures`` for ``_retry``."""
     connection = get_connection(fail_silently=False)
     try:
         try:
             connection.open()
         except Exception as exc:  # noqa: BLE001
             logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-            _note(key, emailed=0, failed=len(items), missed=[p for item in items for p in item.people],
-                  error=UNREACHABLE)
+            failures.extend((item, [{"who": p, "reason": NO_SERVER} for p in item.people]) for item in items)
             return
         cache: dict = {}
         for item in items:
-            try:
-                missed = item.send(connection, cache)
-            except Exception:  # noqa: BLE001
-                logger.exception("email run %s: an email failed", key)
-                missed = list(item.people)
-            _note(key, emailed=len(item.people) - len(missed), failed=1 if missed else 0, missed=missed)
+            missed = _send(key, item, connection, cache)
+            _note(key, emailed=len(item.people) - len(missed))
+            if missed:
+                failures.append((item, missed))
     finally:
-        try:
-            connection.close()
-        except Exception:  # noqa: BLE001
-            pass
+        _close(connection)
         if threaded:
             db_connection.close()
 
 
-def _note(key: str, *, emailed: int, failed: int, missed: list[str], error: str = "") -> None:
-    """Add one item's outcome to the run, and renew its hold."""
+def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
+    """After every email has been tried, a few seconds' wait, then each that
+    missed someone once more, over a fresh connection. Only those it missed
+    are emailed again (see ``delivery``); whoever it still misses is the
+    run's missed list."""
+    time.sleep(settings.BULK_EMAIL_RETRY_SECONDS)
+    logger.warning("email run %s: trying %s emails once more", key, len(failures))
+    connection = get_connection(fail_silently=False)
+    try:
+        connection.open()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
+        for _, missed in failures:
+            _note(key, failed=1, missed=missed, error=UNREACHABLE)
+        return
+    try:
+        cache: dict = {}
+        for item, missed in failures:
+            # Only someone missed the first time can still be missed.
+            first = {m["who"] for m in missed}
+            still = [m for m in _send(key, item, connection, cache) if m["who"] in first]
+            _note(key, emailed=len(missed) - len(still), failed=1 if still else 0, missed=still)
+    finally:
+        _close(connection)
+
+
+def _note(key: str, *, emailed: int = 0, failed: int = 0, missed: list[dict] = (), error: str = "") -> None:
+    """Add an item's outcome to the run, and renew its hold."""
     held_until = timezone.now() + SEND_LEASE
     if not missed:
         EmailSendRun.objects.filter(key=key).update(emailed=F("emailed") + emailed, held_until=held_until)
@@ -200,6 +260,11 @@ def _note(key: str, *, emailed: int, failed: int, missed: list[str], error: str 
         run.error = error or run.error
         run.held_until = held_until
         run.save(update_fields=["emailed", "failed", "missed", "error", "held_until"])
+
+
+def _missed_entry(entry) -> dict:
+    """``{"who", "reason"}``; a run from before reasons were kept has the name only."""
+    return entry if isinstance(entry, dict) else {"who": str(entry), "reason": ""}
 
 
 def run_state(key: str) -> dict:
@@ -217,8 +282,8 @@ def run_state(key: str) -> dict:
             "emailed": run.emailed,
             "failed": run.failed,
             "error": run.error,
-            # Who it couldn't reach: "(BTF07) Amy Chen".
-            "missed": run.missed,
+            # Who it couldn't reach, and why.
+            "missed": [_missed_entry(entry) for entry in run.missed],
             "started_at": run.started_at,
             "finished_at": run.finished_at,
         } if run and run.started_at else None,

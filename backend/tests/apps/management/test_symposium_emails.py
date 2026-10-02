@@ -135,16 +135,22 @@ class NonFinalistEmailTests(_GradingFixture):
             return real_send(message, *args, **kwargs)
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
-                self.assertLogs("apps.management.services.symposium_emails", level="ERROR"):
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
-        # The page lists who it couldn't reach.
-        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Mem ben"])
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+        # The page lists who it couldn't reach, and why.
+        self.assertEqual(
+            results[-1]["run"]["missed"], [{"who": f"({self.group.group_name}) Mem ben", "reason": "lost the mail server connection"}],
+        )
+        # The student it reached counts as emailed; ben doesn't.
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 1, "times": {"total": 2, "emailed": 1}})
         self.assertFalse(NonFinalistEmail.objects.filter(group=self.group).exists())
 
-        # The next press reaches the team again.
-        self._send_all()
+        # The next press emails only the member it missed.
+        mail.outbox = []
+        result = self._send_all()[-1]
+        self.assertEqual([m.to for m in mail.outbox], [["ben@example.com"]])
+        self.assertEqual(result["run"]["due"], 1)
         self.assertTrue(NonFinalistEmail.objects.filter(group=self.group).exists())
 
     def test_sending_waits_for_the_symposium_details_on_notify_finalists(self):

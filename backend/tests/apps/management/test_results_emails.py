@@ -247,8 +247,9 @@ class ResultsEmailTests(_GradingFixture):
         # Nobody it was for got it, so all are listed.
         group = self.group.group_name
         self.assertEqual(
-            sorted(run["missed"]), [f"({group}) Mo Mentor", f"({group}) Stu amy", f"({group}) Stu ben"],
+            sorted(m["who"] for m in run["missed"]), [f"({group}) Mo Mentor", f"({group}) Stu amy", f"({group}) Stu ben"],
         )
+        self.assertEqual({m["reason"] for m in run["missed"]}, {"couldn't reach the mail server"})
         self.assertFalse(ResultsTeamEmail.objects.exists())
         # Pressing again sends it.
         self._send_all("groups")
@@ -384,9 +385,9 @@ class ResultsEmailTests(_GradingFixture):
 
     def test_a_supervisor_it_could_not_reach_is_listed_with_their_groups(self):
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=OSError("rejected")), \
-                self.assertLogs("apps.management.services.results_notify", level="ERROR"):
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             run = self._send_all("supervisors")[-1]["run"]
-        self.assertEqual(run["missed"], [f"({self.group.group_name}) Sam Lee"])
+        self.assertEqual(run["missed"], [{"who": f"({self.group.group_name}) Sam Lee", "reason": "lost the mail server connection"}])
 
     def test_one_press_emails_every_group(self):
         for n in range(6):
@@ -406,17 +407,21 @@ class ResultsEmailTests(_GradingFixture):
             return real_send(message, *args, **kwargs)
 
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
-                self.assertLogs("apps.management.services.results_notify", level="ERROR"):
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all("groups")
         self.assertEqual(sum(r["failed"] for r in results), 1)
-        # The page lists who it couldn't reach.
-        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Stu ben"])
+        # The page lists who it couldn't reach, and why.
+        self.assertEqual(
+            results[-1]["run"]["missed"], [{"who": f"({self.group.group_name}) Stu ben", "reason": "lost the mail server connection"}],
+        )
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
 
-        # The next press reaches the team again.
+        # The next press emails only the student it missed, files and all.
         mail.outbox = []
         self._send_all("groups")
+        self.assertEqual([m.to for m in mail.outbox], [["ben@example.com"]])
+        self.assertEqual(len(_files(mail.outbox[0])), 4)
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     # -- when it may be sent ----------------------------------------------------------

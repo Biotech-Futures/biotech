@@ -40,7 +40,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   emailed: 0,
   failed: 0,
   error: '',
-  missed: [] as string[],
+  missed: [] as { who: string; reason: string }[],
   started_at: '2026-10-20T00:00:00Z',
   finished_at: null as string | null,
   ...over
@@ -381,24 +381,24 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.release-results__banner--error').text()).toBe(
-      "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups again to retry."
+      "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups again to email only those it missed."
     )
   })
 
   it("lists, under the buttons, who each email couldn't reach", async () => {
     detailsMock.mockResolvedValue(details({
       runs: {
-        groups: finishedRun({ failed: 1, missed: ['(BTF07) Amy Chen', '(BTF07) Ben Lee'] }),
-        supervisors: finishedRun({ due: 2, emailed: 1, failed: 1, missed: ['(BTF07, BTF12) Sam Lee'] })
+        groups: finishedRun({ failed: 1, missed: [{ who: '(BTF07) Amy Chen', reason: 'address refused' }, { who: '(BTF07) Ben Lee', reason: 'address refused' }] }),
+        supervisors: finishedRun({ due: 2, emailed: 1, failed: 1, missed: [{ who: '(BTF07, BTF12) Sam Lee', reason: 'sending limit reached' }] })
       }
     }))
     const wrapper = await mountPage()
     const listed = (audience: string) =>
       wrapper.find(`[data-testid="missed-${audience}"]`).findAll('li').map((li) => li.text())
     expect(wrapper.find('[data-testid="missed-groups"]').text()).toContain("The group email couldn't reach:")
-    expect(listed('groups')).toEqual(['(BTF07) Amy Chen', '(BTF07) Ben Lee'])
+    expect(listed('groups')).toEqual(['(BTF07) Amy Chen · address refused', '(BTF07) Ben Lee · address refused'])
     expect(wrapper.find('[data-testid="missed-supervisors"]').text()).toContain("The supervisor email couldn't reach:")
-    expect(listed('supervisors')).toEqual(['(BTF07, BTF12) Sam Lee'])
+    expect(listed('supervisors')).toEqual(['(BTF07, BTF12) Sam Lee · sending limit reached'])
   })
 
   it('shows no list when everyone was reached', async () => {

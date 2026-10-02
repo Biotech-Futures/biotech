@@ -632,8 +632,11 @@ GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false",
 # on the server once started, over this many mail server connections at once.
 # Raise it only as far as the mailbox's sending limits allow. Tests set the
 # sync flag to send inline, one at a time.
-BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=4, cast=int)
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed.
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

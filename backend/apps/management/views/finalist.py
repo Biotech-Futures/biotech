@@ -16,17 +16,20 @@ from apps.submissions.emails import recipients_for
 
 from ..models import FinalistEmailSettings
 from ..services import test_email
-from ..services.finalist_notify import notify_finalist, render_finalist_email, symposium_today
+from ..services.delivery import still_due
+from ..services.finalist_notify import EMAIL_KEY, notify_finalist, render_finalist_email, symposium_today
 from ..services.send_guard import (
     FINALIST_SEND,
+    NOT_SENT,
     AlreadySending,
     Work,
     member_labels,
+    missed_people,
     run_state,
     start_run,
     submissions_open_reason,
 )
-from ..services.symposium_emails import member_ids, role_counts
+from ..services.symposium_emails import member_ids, reached_ids, role_counts
 
 MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
@@ -58,13 +61,15 @@ class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
 
 def _email_counts() -> dict:
     """The finalist teams' students, mentors and supervisors with an address
-    to be emailed at, and how many have been; a notified team's members
-    count as emailed (see ``role_counts``)."""
+    to be emailed at, and how many have been: everyone on a notified team,
+    and whoever a run reached on the others (see ``role_counts``)."""
     flags = list(FinalistFlag.objects.values_list("group_id", "notified"))
+    group_ids = [group_id for group_id, _ in flags]
     return role_counts(
-        member_ids(group_id for group_id, _ in flags),
-        [group_id for group_id, _ in flags],
+        member_ids(group_ids),
+        group_ids,
         {group_id for group_id, notified in flags if notified},
+        reached_ids(EMAIL_KEY, group_ids),
     )
 
 
@@ -174,9 +179,12 @@ class FinalistNotifyAllView(APIView):
             flags = flags.filter(group_id__in=group_ids)
         work = []
         for flag in flags:
-            people = member_labels(flag.group, recipients_for(flag.group))
-            # A team with nobody to email has nothing to send.
-            if people:
+            recipients = recipients_for(flag.group)
+            # A team with nobody to email has nothing to send. One whose
+            # members all got it in earlier runs is sent to nobody and only
+            # marked notified.
+            if recipients:
+                people = member_labels(flag.group, still_due(EMAIL_KEY, flag.group, recipients))
                 work.append(Work(list(people.values()), partial(_notify, flag, people, details, request.user)))
         try:
             start_run(FINALIST_SEND, request.user, work)
@@ -188,10 +196,12 @@ class FinalistNotifyAllView(APIView):
         })
 
 
-def _notify(flag, people: dict[str, str], details, actor, connection, cache) -> list[str]:
-    """One finalist team's email, as a run sends it: who it didn't reach, as
-    ``people`` labels them (everyone, when it didn't go at all)."""
-    missed: list[str] = []
-    if notify_finalist(flag, actor=actor, details=details, connection=connection, missed=missed):
+def _notify(flag, people: dict[str, str], details, actor, connection, cache) -> list[dict]:
+    """One finalist team's email, as a run sends it: who it didn't reach and
+    why, as ``people`` labels them (everyone, when it didn't go at all)."""
+    failed: dict[str, str] = {}
+    if notify_finalist(flag, actor=actor, details=details, connection=connection, missed=failed):
         return []
-    return [people.get(address, address) for address in missed] if missed else list(people.values())
+    if failed:
+        return missed_people(people, failed)
+    return [{"who": who, "reason": NOT_SENT} for who in people.values()]

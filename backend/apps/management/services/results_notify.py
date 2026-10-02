@@ -29,7 +29,6 @@ from decimal import Decimal
 from functools import partial
 from typing import Callable
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
@@ -44,7 +43,6 @@ from apps.services.email_branding import brand_context
 from apps.services.email_registry import get_email_type
 from apps.services.system_email import (
     RenderedEmail,
-    build_message,
     is_email_enabled,
     render_system_email,
 )
@@ -74,8 +72,9 @@ from .docx import (
     sample_marks_summary_context,
     signature_images,
 )
+from .delivery import send_each, still_due
 from .finalist_notify import NOT_SET, symposium_today
-from .send_guard import Work, person_name, start_run, submissions_open_reason
+from .send_guard import NOT_SENT, Work, missed_people, person_name, start_run, submissions_open_reason
 
 logger = logging.getLogger(__name__)
 
@@ -565,26 +564,6 @@ def example_file_names(audience: str, year: int) -> list[str]:
     return [student, mentor, file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
 
 
-def _send_each(rendered: RenderedEmail, recipients, connection, *, who: str, files=()) -> list[str]:
-    """One copy per address, so nobody sees the others. Returns the addresses
-    it couldn't reach."""
-    missed = []
-    for address in recipients:
-        message = build_message(
-            rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
-            files=files,
-        )
-        # The supervisor email asks for feedback by reply: replies reach support.
-        message.reply_to = [settings.SUPPORT_EMAIL]
-        try:
-            message.send(fail_silently=False)
-        except Exception as exc:  # noqa: BLE001
-            # Error type only: SMTP errors carry the recipient address.
-            logger.error("results email: send failed %s error=%s", who, type(exc).__name__)
-            missed.append(address)
-    return missed
-
-
 def _record(model, **fields) -> None:
     """Mark as emailed; a second sender racing this one already did it."""
     try:
@@ -598,10 +577,10 @@ def _send_item(
     audience: str, item, people: dict[str, str], result: ResultsAudience, details: ResultsEmailSettings, actor,
     connection, cache: dict,
 ) -> list[str]:
-    """One group's or supervisor's email with its files; recorded as emailed
-    only once everyone it goes to got it. Returns who it didn't reach, as
-    ``people`` labels them. ``cache`` keeps the templates read once per
-    worker."""
+    """One group's or supervisor's email with its files, to everyone still due
+    it; recorded as emailed only once everyone it goes to has it. Returns who
+    it didn't reach and why, as ``people`` labels them. ``cache`` keeps the
+    templates read once per worker."""
     if "docs" not in cache:
         cache["docs"] = Documents(result.year)
     docs = cache["docs"]
@@ -618,10 +597,15 @@ def _send_item(
         files = [(f.name, f.make(), f.mimetype) for f in planned]
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
-        return list(people.values())
-    missed = _send_each(rendered, recipients, connection, who=who, files=files)
-    if missed:
-        return [people[address] for address in missed]
+        return [{"who": label, "reason": NOT_SENT} for label in people.values()]
+    # A group's copies are recorded per person, so a retry skips who has one;
+    # a supervisor's email has the one address.
+    failed = send_each(
+        rendered, recipients, connection, email=EMAIL_KEYS[audience],
+        group=item if audience == GROUPS else None, files=files, log_as=who,
+    )
+    if failed:
+        return missed_people(people, failed)
     if audience == GROUPS:
         _record(ResultsTeamEmail, group=item, sent_by=actor)
     else:
@@ -662,5 +646,9 @@ def start_send(actor, audience: str) -> None:
     work = []
     for item in pending:
         people = labels(result, item)
+        if audience == GROUPS:
+            # Anyone a run already reached isn't emailed again.
+            due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
+            people = {address: label for address, label in people.items() if address in due}
         work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
     start_run(EMAIL_KEYS[audience], actor, work)

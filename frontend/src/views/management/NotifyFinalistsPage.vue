@@ -107,7 +107,9 @@
       <div v-if="details?.run?.missed.length" class="notify-finalists__missed" data-testid="missed">
         <p class="notify-finalists__missed-title">Couldn't be emailed:</p>
         <ul>
-          <li v-for="(who, i) in details.run.missed" :key="i">{{ who }}</li>
+          <li v-for="(m, i) in details.run.missed" :key="i">
+            {{ m.who }}<span v-if="m.reason" class="notify-finalists__missed-reason"> · {{ m.reason }}</span>
+          </li>
         </ul>
       </div>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
@@ -633,6 +635,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 .notify-finalists__missed ul {
   margin: 0;
   padding-left: 1.2rem;
+}
+
+.notify-finalists__missed-reason {
+  color: var(--text-muted);
 }
 
 .notify-finalists__last-emailed {
