@@ -716,7 +716,8 @@ class ResultsEmailTests(_GradingFixture):
             [o["label"] for o in self._people("certificate")],
             ["(BTF-TEST-1) Stu amy", "(BTF-TEST-1) Stu ben", "(Finalist Team) Stu fin"],
         )
-        self.assertEqual(self._people("marks-summary"), self._people("certificate"))
+        # The marks summary is a group's: the groups, by name.
+        self.assertEqual([o["label"] for o in self._people("marks-summary")], ["BTF-TEST-1", "Finalist Team"])
         self.assertEqual([o["label"] for o in self._people("mentor-certificate")], ["(BTF-TEST-1) Mo Mentor"])
         self.assertEqual(
             self.client.get(reverse("management:settings-test-people", args=["nope"])).status_code,
@@ -738,9 +739,9 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn(f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx", r["Content-Disposition"])
         self.assertIn("Mo Mentor mentored BTF-TEST-1", _docx_text(r.content))
 
-        # The marks summary is the student's group's, with its real marks.
+        # The marks summary is the group's, with its real marks.
         url = reverse("management:settings-test-render", args=["marks-summary"])
-        r = self.client.get(url, {"person": self._value("marks-summary", "(BTF-TEST-1) Stu ben")})
+        r = self.client.get(url, {"person": self._value("marks-summary", "BTF-TEST-1")})
         self.assertIn(f"{year}_BTF_Marks_BTF-TEST-1.docx", r["Content-Disposition"])
         self.assertIn("Team BTF-TEST-1 S1 8", _docx_text(r.content))
 

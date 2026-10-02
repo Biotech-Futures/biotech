@@ -184,10 +184,10 @@ describe('Finalist Presentation', () => {
     expect(allocation(wrapper).find('.finalist-presentation__empty').attributes('colspan')).toBe('5')
   })
 
-  it("Allocate Slot shows when each team answered and the times it can make", async () => {
+  it("Allocate Slots shows when each team answered and the times it can make", async () => {
     const wrapper = await mountPage()
     const titles = wrapper.findAll('.finalist-presentation__section-title').map((h) => h.text())
-    expect(titles).toEqual(['Presentation Times', 'Allocate Slot', 'Finalist Submission'])
+    expect(titles).toEqual(['Presentation Times', 'Allocate Slots', 'Finalist Submission'])
     expect(allocation(wrapper).text()).toContain(
       'Give each finalist team a time. Ticks show the times each team said it can make.'
     )
