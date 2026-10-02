@@ -256,7 +256,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadResultsSampleSheet,
@@ -498,14 +498,15 @@ const sendAll = async (audience: ResultsAudience) => {
 
 // How a run went, once this page saw it finish.
 const reportRun = (audience: ResultsAudience, run: EmailRun) => {
+  const sentFrom = details.value?.runs[audience].sent_from
   const { text, isError } = describeRun(
     run,
     audience === 'groups'
-      ? { emailed: ['person', 'people'], failed: 'group', button: 'Email Groups' }
-      : { emailed: ['supervisor'], failed: 'supervisor', failedWhole: true, button: 'Email Supervisors' }
+      ? { emailed: ['person', 'people'], failed: 'group', button: 'Email Groups', sentFrom }
+      : { emailed: ['supervisor'], failed: 'supervisor', failedWhole: true, button: 'Email Supervisors', sentFrom }
   )
   if (isError) actionError.value = text
-  else flashAction(text)
+  else flashAction(text, RUN_MESSAGE_MS)
 }
 for (const audience of ['groups', 'supervisors'] as const) {
   useEmailRun(() => details.value?.runs[audience], loadDetails, (run) => reportRun(audience, run))

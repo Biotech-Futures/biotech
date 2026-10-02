@@ -203,7 +203,9 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
 
     def test_the_page_is_told_the_runs_progress(self):
-        self.assertEqual(self._runs()["groups"], {"sending": False, "run": None})
+        self.assertEqual(
+            self._runs()["groups"], {"sending": False, "sent_from": "info@biotechfutures.org", "run": None}
+        )
         self._send_all("groups")
         run = self._runs()["groups"]
         self.assertFalse(run["sending"])

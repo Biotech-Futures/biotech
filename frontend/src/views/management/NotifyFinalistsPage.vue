@@ -241,7 +241,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
@@ -462,10 +462,11 @@ const reportRun = (run: EmailRun) => {
     emailed: ['person', 'people'],
     failed: 'team',
     button: 'Send Email to All Groups',
-    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.'
+    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.',
+    sentFrom: details.value?.sent_from
   })
   if (isError) actionError.value = text
-  else flashAction(text)
+  else flashAction(text, RUN_MESSAGE_MS)
   void load()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)

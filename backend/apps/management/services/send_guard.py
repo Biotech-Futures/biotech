@@ -210,6 +210,8 @@ def run_state(key: str) -> dict:
     sending = bool(run and run.held_until and run.held_until >= timezone.now())
     return {
         "sending": sending,
+        # Where mail that can't be delivered comes back to: the address it's sent from.
+        "sent_from": settings.EMAIL_FROM_ADDRESS,
         "run": {
             "due": run.due,
             "emailed": run.emailed,

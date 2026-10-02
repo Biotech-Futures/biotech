@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -58,4 +59,5 @@ class TestEmailView(APIView):
                 {"detail": "The test email couldn't be sent. Try again shortly."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({"sent_to": to})
+        # Undeliverable mail comes back to the address it's sent from.
+        return Response({"sent_to": to, "sent_from": settings.EMAIL_FROM_ADDRESS})

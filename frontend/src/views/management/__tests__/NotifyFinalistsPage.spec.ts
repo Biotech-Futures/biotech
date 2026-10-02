@@ -184,6 +184,19 @@ describe('sending', () => {
     expect(listMock).toHaveBeenCalledTimes(2) // roster refreshes after a send
   })
 
+  it('says emails can take a while, and where undeliverable ones come back to', async () => {
+    detailsMock.mockResolvedValue(details({ sent_from: 'info@biotechfutures.org' }))
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 3, emailed: 3 }), pending: 0 })
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe(
+      "Emailed 3 people. Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+    )
+  })
+
   it('explains, with a plain dash, a send that had nobody left to email', async () => {
     notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 0, emailed: 0 }), pending: 0 })
     const wrapper = await mountPage()

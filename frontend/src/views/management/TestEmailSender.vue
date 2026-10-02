@@ -89,7 +89,11 @@ const send = async () => {
   result.value = null
   try {
     const sent = await sendTestEmail(props.kind, recipient.value, to.value.trim(), props.fields?.() ?? {})
-    result.value = { ok: true, text: `Test sent to ${sent.sent_to}.` }
+    // A test can take a few minutes too, and bounces like the real thing.
+    const note = sent.sent_from
+      ? ` It can take a few minutes to arrive. If it can't be delivered, it comes back to ${sent.sent_from}.`
+      : ''
+    result.value = { ok: true, text: `Test sent to ${sent.sent_to}.${note}` }
   } catch (err) {
     result.value = { ok: false, text: apiErrorFromUnknown(err).message }
   } finally {

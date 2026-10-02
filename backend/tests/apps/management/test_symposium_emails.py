@@ -250,6 +250,7 @@ class NonFinalistEmailTests(_GradingFixture):
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
             "sending": False,
+            "sent_from": "info@biotechfutures.org",
             "run": None,
         })
 
@@ -309,6 +310,7 @@ class NonSubmissionEmailTests(_GradingFixture):
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "blocked": "",
             "sending": False,
+            "sent_from": "info@biotechfutures.org",
             "run": None,
         })
 

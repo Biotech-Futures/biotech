@@ -373,6 +373,8 @@ export interface EmailRun {
 export interface EmailRunState {
   /** A run is sending the email now. */
   sending: boolean
+  /** The address emails go out from, where undeliverable ones come back to. */
+  sent_from?: string
   run: EmailRun | null
 }
 
@@ -732,8 +734,8 @@ export function sendTestEmail(
   recipient: string,
   to: string,
   fields: object = {}
-): Promise<{ sent_to: string }> {
-  return requestJson<{ sent_to: string }>(`/api/v1/management/test-email/${kind}/`, {
+): Promise<{ sent_to: string; sent_from?: string }> {
+  return requestJson<{ sent_to: string; sent_from?: string }>(`/api/v1/management/test-email/${kind}/`, {
     method: 'POST',
     body: JSON.stringify({ ...fields, recipient, to })
   })
