@@ -202,16 +202,16 @@ describe('the group marks ranking', () => {
     expect(order()).toEqual(['BTF2', 'BTF10', 'BTF3'])
   })
 
-  it('counts the groups that submitted and those fully marked, above the table', async () => {
+  it('counts the groups that submitted, those fully marked and those added as finalists', async () => {
     const rows = [
       candidate(),
-      candidate({ group_id: 3, group_name: 'BTF-3', incomplete: ['POSTER'] }),
+      candidate({ group_id: 3, group_name: 'BTF-3', incomplete: ['POSTER'], is_finalist: true }),
       candidate({ group_id: 4, group_name: 'BTF-4', has_submission: false, marks: {}, total: null })
     ]
     candidatesMock.mockResolvedValue({ components: [{ code: 'SAQ', name: 'SAQ' }, { code: 'POSTER', name: 'Poster' }], rows })
     const wrapper = await mountPage()
-    // Two submitted, one of them with a part still to mark.
-    expect(wrapper.find('.finalists__stats').text()).toBe('1/2 Fully Marked')
+    // Two submitted, one of them with a part still to mark; one a finalist.
+    expect(wrapper.find('.finalists__stats').text()).toBe('1/2 Fully Marked · 1 Added as Finalist')
   })
 
   it('leaves out the asterisk key when there is no report or prototype column', async () => {
@@ -294,6 +294,22 @@ describe('the group marks ranking', () => {
     expect(candidatesMock).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the tables on screen while they refresh after an add', async () => {
+    const wrapper = await mountPage()
+    let finish!: () => void
+    candidatesMock.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = () => resolve({ components: [], rows: [] })))
+    )
+    const table = wrapper.findAll('.finalists__table')[0]!.element
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Add')!.trigger('click')
+    await flushPromises()
+    // Still the same table, never swapped for Loading…, while the refresh is out.
+    expect(wrapper.findAll('.finalists__table')[0]!.element).toBe(table)
+    expect(wrapper.text()).not.toContain('Loading…')
+    finish()
+    await flushPromises()
+  })
+
   it('pressing Enter in the search only filters, never flags', async () => {
     const wrapper = await mountPage()
     await wrapper.find('.picker').setValue('BTF-1')
@@ -314,7 +330,7 @@ describe('the group marks ranking', () => {
 })
 
 describe('the current finalists', () => {
-  it('numbers them in the order they were flagged, the earliest first', async () => {
+  it('lists them the latest flagged first, each numbered in the order picked', async () => {
     const flagged = (group_id: number, group_name: string, flagged_at: string) => ({
       group_id, group_name, flagged_at, flagged_by: 'Ada Admin', notified: false, notified_at: null, notified_by: null
     })
@@ -329,7 +345,7 @@ describe('the current finalists', () => {
     const table = wrapper.findAll('table')[1]!
     expect(table.find('thead th').text()).toBe('#')
     const rows = table.findAll('tbody tr').map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
-    expect(rows).toEqual([['1', 'BTF-9'], ['2', 'BTF-5'], ['3', 'BTF-1']])
+    expect(rows).toEqual([['3', 'BTF-1'], ['2', 'BTF-5'], ['1', 'BTF-9']])
   })
 
   it('lists who was flagged, when and by whom', async () => {
