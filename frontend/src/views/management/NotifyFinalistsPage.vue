@@ -110,7 +110,7 @@
           :disabled="sendingMode !== null || !canSend || !details?.waiting.missed.teams"
           @click="sendEmails('missed')"
         >
-          {{ sendingMode === 'missed' ? 'Sending…' : 'Resend Email Those Missed' }}
+          {{ sendingMode === 'missed' ? 'Sending…' : 'Resend Email To Missed Individuals' }}
         </button>
         <button
           type="button"
@@ -157,7 +157,7 @@
     </p>
 
     <section>
-      <h3 class="card-title notify-finalists__list-title">Finalist Teams</h3>
+      <h3 class="card-title notify-finalists__list-title">Finalist Groups</h3>
       <p v-if="isLoading" class="notify-finalists__hint">Loading…</p>
       <div v-else-if="loadError" class="card">
         <p class="notify-finalists__load-error">Failed to load. {{ loadError }}</p>
@@ -517,7 +517,7 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: 'Resend Email Those Missed',
+    button: 'Resend Email To Missed Individuals',
     nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.',
     sentFrom: details.value?.sent_from
   })

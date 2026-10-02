@@ -64,7 +64,7 @@
             :disabled="starting !== null || !canSend || !status.waiting.missed.teams"
             @click="confirming = 'missed'"
           >
-            {{ starting === 'missed' ? 'Sending…' : 'Resend Email Those Missed' }}
+            {{ starting === 'missed' ? 'Sending…' : 'Resend Email To Missed Individuals' }}
           </button>
           <span v-if="status.sending && status.run" class="symposium-email__progress" role="status">
             Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
@@ -243,7 +243,7 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: 'Resend Email Those Missed',
+    button: 'Resend Email To Missed Individuals',
     sentFrom: status.value?.sent_from
   })
   if (isError) actionError.value = text

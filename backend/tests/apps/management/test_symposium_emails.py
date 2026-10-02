@@ -61,7 +61,7 @@ def _press(test, name):
 
 
 def _press_which(test, name, which):
-    """Email Newly Added (``"new"``) or Resend Email Those Missed
+    """Email Newly Added (``"new"``) or Resend Email To Missed Individuals
     (``"missed"``): the run's result, with the counts after it."""
     r = test.client.post(reverse(name), {"which": which}, format="json")
     test.assertEqual(r.status_code, status.HTTP_200_OK, r.content)

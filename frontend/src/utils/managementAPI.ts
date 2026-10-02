@@ -607,6 +607,10 @@ export interface ResultsEmailDetails extends ResultsEmailFields {
   /** Groups due the group email, which goes to their students and mentors. */
   groups: EmailedCount
   supervisors: EmailedCount
+  /** The group email's students and mentors, due it and emailed. */
+  people: Record<'students' | 'mentors', PeopleEmailedCount>
+  /** The groups or supervisors, and people, Resend Email To Missed Individuals would email. */
+  missed: Record<ResultsAudience, { count: number; people: number }>
 }
 
 export type ResultsAudience = 'groups' | 'supervisors'
@@ -667,10 +671,11 @@ export async function downloadSupervisorMarksSheet(supervisorId: string): Promis
 // supervisors; call again with the returned cursor until done.
 // POST /api/v1/management/results-email/send/ — start a run on the server that
 // emails ``audience``, so the page can be closed; the details, with its progress.
-export function startResultsEmail(audience: ResultsAudience): Promise<ResultsEmailDetails> {
+// With 'missed', only those an earlier send missed.
+export function startResultsEmail(audience: ResultsAudience, which?: 'missed'): Promise<ResultsEmailDetails> {
   return requestJson<ResultsEmailDetails>('/api/v1/management/results-email/send/', {
     method: 'POST',
-    body: JSON.stringify({ audience })
+    body: JSON.stringify(which ? { audience, which } : { audience })
   })
 }
 
@@ -693,8 +698,8 @@ export interface SymposiumEmailStatus extends EmailRunState {
   /** Why sending is refused (details missing on Notify Finalists, switched
    *  off, submissions still open), or "" when it may go ahead. */
   blocked: string
-  /** The teams, and people on them, Email Newly Added and Resend Email
-   *  Those Missed would email. */
+  /** The teams, and people on them, Email Newly Added and Resend Email To
+   *  Missed Individuals would email. */
   waiting: Record<'new' | 'missed', { teams: number; people: number }>
 }
 

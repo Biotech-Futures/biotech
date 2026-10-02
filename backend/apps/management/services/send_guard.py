@@ -398,7 +398,7 @@ def last_missed(key: str) -> list[str]:
 def tried_teams(key: str, teams) -> set[int]:
     """Which of these teams a send of ``key``'s email has already tried:
     someone on it has the email, or the last run missed someone on it.
-    Resend Email Those Missed emails the people on these still due it."""
+    Resend Email To Missed Individuals emails the people on these still due it."""
     teams = list(teams)
     tried = set(already_sent(key, [team.id for team in teams]))
     missed = last_missed(key)

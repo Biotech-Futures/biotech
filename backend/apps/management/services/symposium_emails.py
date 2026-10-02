@@ -16,8 +16,8 @@ have been notified, which is when the picks are settled.
 Pressing Send queues a run on the server that emails every team due (see
 ``send_guard``). A team is recorded as emailed only once every member got it,
 so the next run reaches whoever missed it, and is skipped after that. Email
-Newly Added emails only the teams no run has tried yet, and Resend Email Those
-Missed only the people earlier runs missed.
+Newly Added emails only the teams no run has tried yet, and Resend Email To
+Missed Individuals only the people earlier runs missed.
 """
 from __future__ import annotations
 
@@ -203,8 +203,8 @@ class TeamAudience:
 
     def counts(self) -> dict:
         """Teams, and each role's people, due the email and emailed (see
-        ``role_counts``), and who Email Newly Added and Resend Email Those
-        Missed would email. ``teams`` counts a team emailed once everyone on
+        ``role_counts``), and who Email Newly Added and Resend Email To
+        Missed Individuals would email. ``teams`` counts a team emailed once everyone on
         it has the email; ``groups``, for the page's count, once its email
         went, even if someone on it missed it."""
         reached = {group_id for group_id, ids in self.reached.items() if ids}

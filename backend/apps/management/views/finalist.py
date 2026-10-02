@@ -136,7 +136,7 @@ class FinalistEmailSettingsView(APIView):
             **run_state(FINALIST_SEND),
             # Everyone due the email and emailed, by role.
             "counts": _email_counts(),
-            # Who Email Newly Added and Resend Email Those Missed would email.
+            # Who Email Newly Added and Resend Email To Missed Individuals would email.
             "waiting": _waiting(),
         }
 

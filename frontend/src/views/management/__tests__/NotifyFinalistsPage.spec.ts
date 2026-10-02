@@ -244,7 +244,7 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.notify-finalists__banner--error').text()).toBe(
-      "Emailed 2 people. 1 team wasn't emailed in full; press Resend Email Those Missed to email only " +
+      "Emailed 2 people. 1 team wasn't emailed in full; press Resend Email To Missed Individuals to email only " +
         "those it missed. Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
         "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org " +
         'and the rest of the group still gets it.'
@@ -356,7 +356,7 @@ describe('sending', () => {
     expect(notifyMock).toHaveBeenCalledWith([1])
   })
 
-  it('has Newly Added and Those Missed between All and Selected', async () => {
+  it('has Newly Added and Missed Individuals between All and Selected', async () => {
     const wrapper = await mountPage()
     // The send buttons, not the details' Save, Preview and Test.
     const labels = wrapper
@@ -366,7 +366,7 @@ describe('sending', () => {
     expect(labels).toEqual([
       'Email All',
       'Email Newly Added',
-      'Resend Email Those Missed',
+      'Resend Email To Missed Individuals',
       'Email Selected'
     ])
   })
@@ -386,7 +386,7 @@ describe('sending', () => {
   it('retrying names who was missed and asks for only them', async () => {
     notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 2, emailed: 2 }), pending: 1 })
     const wrapper = await mountPage()
-    await buttonNamed(wrapper, /Resend Email Those Missed/).trigger('click')
+    await buttonNamed(wrapper, /Resend Email To Missed Individuals/).trigger('click')
     expect(wrapper.find('[role="dialog"]').text()).toContain(
       'This will email only the 2 people earlier sends missed, on 1 team.'
     )
@@ -395,13 +395,13 @@ describe('sending', () => {
     expect(notifyMock).toHaveBeenCalledWith(undefined, 'missed')
   })
 
-  it('Newly Added and Those Missed are off when they have nobody to email', async () => {
+  it('Newly Added and Missed Individuals are off when they have nobody to email', async () => {
     detailsMock.mockResolvedValue(
       details({ waiting: { new: { teams: 0, people: 0, groups: [] }, missed: { teams: 0, people: 0, groups: [] } } })
     )
     const wrapper = await mountPage()
     expect(buttonNamed(wrapper, /Email Newly Added/).attributes('disabled')).toBeDefined()
-    expect(buttonNamed(wrapper, /Resend Email Those Missed/).attributes('disabled')).toBeDefined()
+    expect(buttonNamed(wrapper, /Resend Email To Missed Individuals/).attributes('disabled')).toBeDefined()
     expect(buttonNamed(wrapper, /Email All/).attributes('disabled')).toBeUndefined()
   })
 

@@ -110,16 +110,15 @@
     <ReleaseCertificatesPage @changed="loadDetails" />
 
     <section class="card release-results__send">
-      <h3 class="release-results__section-title">Send Results Emails</h3>
+      <h3 class="release-results__section-title">Email Results</h3>
       <p class="release-results__hint">
         Emails every group that submitted, and its students' supervisors, that their results
         are out. Each is emailed once.
       </p>
       <p class="release-results__hint">
-        Each group gets one email, its students in To and its mentors in CC, with every certificate
-        in the group attached, so students get each other's and their mentor's certificates.
-        Resending emails only those who missed it, with the mentor in To if no student is left.
-        Anyone in multiple groups gets one email for each group.
+        Each group gets one email, its students and mentors in To, with every certificate in the
+        group attached, so students get each other's and their mentor's certificates. Resending
+        emails only those who missed it. Anyone in multiple groups gets one email for each group.
       </p>
       <template v-if="details">
         <p
@@ -137,25 +136,38 @@
               : 'Emails are not sent to every group and supervisor'
           }}
         </p>
+        <!-- Each its own line, spaced like the rest of the card. -->
         <p class="release-results__counts">
-          Groups: {{ details.groups.emailed }} of {{ details.groups.total }} emailed ·
-          Supervisors: {{ details.supervisors.emailed }} of {{ details.supervisors.total }} emailed
+          <strong>Groups: {{ details.groups.emailed }} of {{ details.groups.total }} emailed</strong><br />
+          Students: {{ details.people.students.emailed }} of {{ details.people.students.total }} emailed ·
+          Mentors: {{ details.people.mentors.emailed }} of {{ details.people.mentors.total }} emailed
+          (Times {{ details.people.mentors.times.emailed }} of {{ details.people.mentors.times.total }})
+        </p>
+        <p class="release-results__counts">
+          <strong>Supervisors: {{ details.supervisors.emailed }} of {{ details.supervisors.total }} emailed</strong>
         </p>
         <p v-for="reason in blockedReasons" :key="reason" class="release-results__blocked">
           {{ reason }}
         </p>
-        <div class="release-results__actions">
-          <button
-            v-for="audience in AUDIENCES"
-            :key="audience.value"
-            type="button"
-            class="btn btn-primary btn-sm"
-            :disabled="starting !== null || !canSend[audience.value]"
-            @click="confirming = audience.value"
-          >
-            {{ starting === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
-          </button>
-          <template v-for="audience in AUDIENCES" :key="`progress-${audience.value}`">
+        <!-- Each email on a line of its own: send it, or only to those missed. -->
+        <div class="release-results__send-rows">
+          <div v-for="audience in AUDIENCES" :key="audience.value" class="release-results__actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="starting !== null || !canSend[audience.value]"
+              @click="confirming = { audience: audience.value, missed: false }"
+            >
+              {{ starting === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="starting !== null || !canSend[audience.value] || !details.missed[audience.value].count"
+              @click="confirming = { audience: audience.value, missed: true }"
+            >
+              {{ starting === `${audience.value}-missed` ? 'Sending…' : 'Resend Email To Missed Individuals' }}
+            </button>
             <span
               v-if="runOf(audience.value).sending && runOf(audience.value).run"
               class="release-results__progress"
@@ -168,9 +180,9 @@
               so far…
             </span>
             <span v-if="runOf(audience.value).queued" class="release-results__queued" role="status">
-              {{ audience.noun }}: {{ queuedNote(runOf(audience.value).queued, runOf(audience.value).ahead) }}
+              {{ queuedNote(runOf(audience.value).queued, runOf(audience.value).ahead) }}
             </span>
-          </template>
+          </div>
         </div>
         <template v-for="audience in AUDIENCES" :key="`missed-${audience.value}`">
           <div
@@ -203,14 +215,14 @@
     <div v-if="confirming" class="release-results__overlay" @click.self="confirming = null">
       <div class="release-results__dialog" role="dialog" aria-modal="true" aria-label="Send results emails">
         <h3 class="release-results__dialog-title">
-          <i class="fas fa-envelope" aria-hidden="true"></i> Email {{ confirming }}?
+          <i class="fas fa-envelope" aria-hidden="true"></i> Email {{ confirming.audience }}?
         </h3>
         <p class="release-results__dialog-text">{{ confirmText }}</p>
         <div class="release-results__dialog-actions">
           <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">
             Cancel
           </button>
-          <button type="button" class="btn btn-primary btn-sm" @click="sendAll(confirming)">Send</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="send(confirming)">Send</button>
         </div>
       </div>
     </div>
@@ -473,10 +485,19 @@ const canSend = computed(() => {
   return { groups: can('groups'), supervisors: can('supervisors') }
 })
 
-const confirming = ref<ResultsAudience | null>(null)
+// The send awaiting confirmation: an email, to everyone due or only those
+// missed; null = dialog closed.
+type ResultsSend = { audience: ResultsAudience; missed: boolean }
+const confirming = ref<ResultsSend | null>(null)
 const confirmText = computed(() => {
-  const audience = confirming.value
-  if (!audience) return ''
+  if (!confirming.value) return ''
+  const { audience, missed } = confirming.value
+  if (missed) {
+    const { count, people } = details.value?.missed[audience] ?? { count: 0, people: 0 }
+    return audience === 'groups'
+      ? `This emails only the ${plural(people, 'person', 'people')} earlier sends missed, on ${plural(count, 'group')}.`
+      : `This emails only the ${plural(count, 'supervisor')} earlier sends missed.`
+  }
   const due = pending(audience)
   if (audience === 'groups') {
     return `This emails the students and mentors of the ${plural(due, 'group')} that ${due === 1 ? "hasn't" : "haven't"} had their results email yet.`
@@ -484,15 +505,16 @@ const confirmText = computed(() => {
   return `This emails the ${plural(due, 'supervisor')} who haven't had their results email yet.`
 })
 
-// The Send request itself; the run then sends on the server.
-const starting = ref<ResultsAudience | null>(null)
+// The Send request itself, as "groups" or "groups-missed"; the run then
+// sends on the server.
+const starting = ref<string | null>(null)
 
-const sendAll = async (audience: ResultsAudience) => {
+const send = async ({ audience, missed }: ResultsSend) => {
   confirming.value = null
   actionError.value = ''
-  starting.value = audience
+  starting.value = missed ? `${audience}-missed` : audience
   try {
-    details.value = await startResultsEmail(audience)
+    details.value = await (missed ? startResultsEmail(audience, 'missed') : startResultsEmail(audience))
     // A run with little or nothing to send can be over by the reply.
     const state = details.value.runs[audience]
     if (state.queued) flashAction(queuedMessage(state.ahead))
@@ -510,8 +532,14 @@ const reportRun = (audience: ResultsAudience, run: EmailRun) => {
   const { text, isError } = describeRun(
     run,
     audience === 'groups'
-      ? { emailed: ['person', 'people'], failed: 'group', button: 'Email Groups', sentFrom }
-      : { emailed: ['supervisor'], failed: 'supervisor', failedWhole: true, button: 'Email Supervisors', sentFrom }
+      ? { emailed: ['person', 'people'], failed: 'group', button: 'Resend Email To Missed Individuals', sentFrom }
+      : {
+          emailed: ['supervisor'],
+          failed: 'supervisor',
+          failedWhole: true,
+          button: 'Resend Email To Missed Individuals',
+          sentFrom
+        }
   )
   if (isError) actionError.value = text
   else flashAction(text, RUN_MESSAGE_MS)
@@ -605,6 +633,12 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+.release-results__send-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 /* The button and its dropdown stay together when the line wraps. */

@@ -166,10 +166,11 @@ def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
 
 def send_group(
     rendered: RenderedEmail, addresses, connection=None, *, email: str, group, files=(), log_as: str,
+    cc_staff: bool = True,
 ) -> dict[str, str]:
     """``group``'s one email to those of ``addresses`` it's still due: its
     students in To, its mentors and supervisors in CC (in To when no student
-    is due it), replies going to support. Each address is recorded once it's
+    is due it, or without ``cc_staff``), replies going to support. Each address is recorded once it's
     gone. Without ``connection`` it opens one of its own. Returns
     ``{address: why}`` for everyone it was for when it couldn't go, or for
     those the mail server refused when it took the rest."""
@@ -177,7 +178,7 @@ def send_group(
     due = [address for address in addresses if address.lower() not in done]
     if not due:
         return {}
-    to, cc = to_and_cc(group, due)
+    to, cc = to_and_cc(group, due) if cc_staff else (due, [])
     if not to:
         to, cc = cc, []
     own = connection is None

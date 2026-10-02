@@ -263,11 +263,11 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONSUBMISSIONS} [data-testid="missed"]`).exists()).toBe(false)
   })
 
-  it('Resend Email Those Missed names who was missed and asks for only them', async () => {
+  it('Resend Email To Missed Individuals names who was missed and asks for only them', async () => {
     statuses.nonfinalists = status({ waiting: { new: { teams: 0, people: 0 }, missed: { teams: 1, people: 2 } } })
     sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 2, emailed: 2 }) }))
     const wrapper = await mountPage()
-    await buttonIn(wrapper, NONFINALISTS, /^Resend Email Those Missed$/).trigger('click')
+    await buttonIn(wrapper, NONFINALISTS, /^Resend Email To Missed Individuals$/).trigger('click')
     expect(wrapper.find('[aria-label="Send the email"]').text()).toContain(
       'This emails only the 2 people earlier sends missed, on 1 team.'
     )
@@ -285,7 +285,7 @@ describe('Email Nonfinalist', () => {
       'Send Test Email',
       'Email All Nonfinalists',
       'Email Newly Added',
-      'Resend Email Those Missed'
+      'Resend Email To Missed Individuals'
     ])
     expect(labels(NONSUBMISSIONS)).not.toContain('Email Newly Added')
   })
@@ -308,10 +308,10 @@ describe('Email Nonfinalist', () => {
     expect(buttonIn(wrapper, NONFINALISTS, /^Email Newly Added$/).attributes('disabled')).toBeDefined()
   })
 
-  it('Resend Email Those Missed is off when nobody was missed', async () => {
+  it('Resend Email To Missed Individuals is off when nobody was missed', async () => {
     const wrapper = await mountPage()
     for (const card of [NONFINALISTS, NONSUBMISSIONS]) {
-      expect(buttonIn(wrapper, card, /^Resend Email Those Missed$/).attributes('disabled')).toBeDefined()
+      expect(buttonIn(wrapper, card, /^Resend Email To Missed Individuals$/).attributes('disabled')).toBeDefined()
     }
   })
 
@@ -322,7 +322,7 @@ describe('Email Nonfinalist', () => {
     await dialogButton(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--error`).text()).toBe(
-      "Emailed 1 person. 1 team wasn't emailed in full; press Resend Email Those Missed to email only those it missed."
+      "Emailed 1 person. 1 team wasn't emailed in full; press Resend Email To Missed Individuals to email only those it missed."
     )
   })
 
