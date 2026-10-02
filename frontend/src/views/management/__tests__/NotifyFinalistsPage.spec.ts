@@ -129,6 +129,17 @@ describe('the finalist roster', () => {
     expect(wrapper.text()).toContain('by Ada Admin')
   })
 
+  it('says where undeliverable emails come back to, above the last send', async () => {
+    detailsMock.mockResolvedValue(details({ sent_from: 'info@biotechfutures.org' }))
+    const wrapper = await mountPage()
+    const note = wrapper.find('.notify-finalists__delivery-note')
+    expect(note.text()).toBe(
+      "Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+    )
+    expect(note.element.nextElementSibling?.textContent).toContain('Last Emailed at')
+  })
+
   it('says so when no finalists exist yet', async () => {
     listMock.mockResolvedValue({ finalists: [] })
     const wrapper = await mountPage()

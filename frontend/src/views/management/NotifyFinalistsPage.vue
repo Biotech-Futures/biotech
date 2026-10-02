@@ -112,6 +112,7 @@
           </li>
         </ul>
       </div>
+      <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
         {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
@@ -243,7 +244,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
+import { deliveryNote, describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
@@ -641,11 +642,16 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--text-muted);
 }
 
+.notify-finalists__delivery-note,
 .notify-finalists__last-emailed {
   color: var(--text-muted);
   font-size: 0.85rem;
   font-style: normal;
   margin: 1rem 0 0;
+}
+
+.notify-finalists__delivery-note + .notify-finalists__last-emailed {
+  margin-top: 0.25rem;
 }
 
 .notify-finalists__banner {
