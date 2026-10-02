@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from apps.grading.models import FinalistFlag
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.management.models import FinalistEmailSettings
+from apps.management.models import EmailDelivery, FinalistEmailSettings
 from apps.users.models import User
 
 from tests.apps.grading.fixtures import _GradingFixture, just_closed
@@ -220,7 +220,7 @@ class FinalistEmailTests(_GradingFixture):
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
 
-    def test_each_member_gets_their_own_copy_of_the_clients_email(self):
+    def test_the_team_gets_one_email_students_in_to_and_the_rest_in_cc(self):
         from django.core import mail
 
         details = _set_email_details()
@@ -235,12 +235,9 @@ class FinalistEmailTests(_GradingFixture):
         r = self.client.post(reverse("management:finalist-notify"))
         # The people it went to, for the page's progress.
         self.assertEqual((r.json()["run"]["due"], r.json()["run"]["emailed"]), (3, 3))
-        self.assertEqual(
-            sorted(m.to[0] for m in mail.outbox),
-            ["men@example.com", "stu@example.com", "sup@example.com"],
-        )
+        self.assertEqual(len(mail.outbox), 1)
         message = mail.outbox[0]
-        self.assertEqual(len(message.to), 1)  # nobody sees another member's address
+        self.assertEqual((message.to, sorted(message.cc)), (["stu@example.com"], ["men@example.com", "sup@example.com"]))
         self.assertEqual(message.subject, "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!")
         self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
         html = message.alternatives[0][0]
@@ -273,7 +270,7 @@ class FinalistEmailTests(_GradingFixture):
         self.assertIsNone(flag.notified_at)
         self.assertIsNone(flag.notified_by)
 
-    def test_a_run_names_the_member_it_could_not_reach(self):
+    def test_a_run_names_who_its_team_email_missed(self):
         from unittest import mock
 
         from django.core import mail
@@ -282,19 +279,14 @@ class FinalistEmailTests(_GradingFixture):
         self._member("stu@example.com", "student")
         self._member("men@example.com", "mentor")
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
-        real_send = mail.EmailMultiAlternatives.send
-
-        def fail_for_stu(message, *args, **kwargs):
-            if message.to == ["stu@example.com"]:
-                raise OSError("rejected")
-            return real_send(message, *args, **kwargs)
-
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_stu), \
+        # An earlier send reached the mentor; this one doesn't go at all.
+        EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             run = self.client.post(reverse("management:finalist-notify")).json()["run"]
         self.assertEqual(
             (run["due"], run["emailed"], run["failed"], run["missed"]),
-            (2, 1, 1, [{"who": f"({self.group.group_name}) stu X", "reason": "lost the mail server connection"}]),
+            (1, 0, 1, [{"who": f"stu@example.com ({self.group.group_name}, stu X)", "reason": "lost the mail server connection"}]),
         )
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
         # The mentor it reached counts as emailed; the student doesn't.
@@ -303,11 +295,13 @@ class FinalistEmailTests(_GradingFixture):
             (counts["students"]["emailed"], counts["mentors"], counts["supervisors"]["emailed"]),
             (0, {"total": 1, "emailed": 1, "times": {"total": 1, "emailed": 1}}, 0),
         )
+        # The group counts as emailed, though it isn't notified until the student has it.
+        self.assertEqual(counts["groups"], {"total": 1, "emailed": 1})
 
         # Pressing again emails only the student it missed, and the team is done.
         mail.outbox = []
         run = self.client.post(reverse("management:finalist-notify")).json()["run"]
-        self.assertEqual([m.to for m in mail.outbox], [["stu@example.com"]])
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["stu@example.com"], [])])
         self.assertEqual((run["due"], run["emailed"], run["failed"]), (1, 1, 0))
         self.assertTrue(FinalistFlag.objects.get(group=self.group).notified)
 
@@ -320,14 +314,9 @@ class FinalistEmailTests(_GradingFixture):
         self._member("stu@example.com", "student")
         self._member("men@example.com", "mentor")
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
-        real_send = mail.EmailMultiAlternatives.send
-
-        def fail_for_stu(message, *args, **kwargs):
-            if message.to == ["stu@example.com"]:
-                raise OSError("rejected")
-            return real_send(message, *args, **kwargs)
-
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_stu), \
+        # An earlier send reached the mentor; this one doesn't go at all.
+        EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             self.client.post(reverse("management:finalist-notify"))
         # A team flagged after that send.
@@ -345,7 +334,7 @@ class FinalistEmailTests(_GradingFixture):
         # Retry emails only the student it missed, not the new team.
         mail.outbox = []
         self.client.post(reverse("management:finalist-notify"), {"which": "missed"}, format="json")
-        self.assertEqual([m.to for m in mail.outbox], [["stu@example.com"]])
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["stu@example.com"], [])])
         self.assertTrue(FinalistFlag.objects.get(group=self.group).notified)
         self.assertFalse(FinalistFlag.objects.get(group=late).notified)
 
@@ -536,3 +525,5 @@ class FinalistEmailTests(_GradingFixture):
         counts = self.client.get(reverse("management:finalist-email")).json()["counts"]
         # One mentor, emailed with the notified team; one of their two emails.
         self.assertEqual(counts["mentors"], {"total": 1, "emailed": 1, "times": {"total": 2, "emailed": 1}})
+        # Two finalist groups, one notified.
+        self.assertEqual(counts["groups"], {"total": 2, "emailed": 1})

@@ -72,13 +72,14 @@ from .docx import (
     sample_marks_summary_context,
     signature_images,
 )
-from .delivery import send_each, still_due
+from .delivery import send_each, send_group, still_due
 from .finalist_notify import NOT_SET, symposium_today
 from .send_guard import (
     BUILDERS,
     NOT_SENT,
     Work,
     missed_people,
+    person_label,
     person_name,
     queue_send,
     submissions_open_reason,
@@ -600,17 +601,19 @@ def _send_item(
         else:
             rendered = render_supervisor_email(person_name(item), result.year)
             planned = supervisor_files(docs, result, item)
-        # Made once: every copy carries the same files.
+        # Made once, for the one email.
         files = [(f.name, f.make(), f.mimetype) for f in planned]
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
         return [{"who": label, "reason": NOT_SENT} for label in people.values()]
-    # A group's copies are recorded per person, so a retry skips who has one;
-    # a supervisor's email has the one address.
-    failed = send_each(
-        rendered, recipients, connection, email=EMAIL_KEYS[audience],
-        group=item if audience == GROUPS else None, files=files, log_as=who,
-    )
+    # A group's one email is recorded per person, so a retry skips who has
+    # it; a supervisor's email has the one address.
+    if audience == GROUPS:
+        failed = send_group(
+            rendered, recipients, connection, email=EMAIL_KEYS[GROUPS], group=item, files=files, log_as=who,
+        )
+    else:
+        failed = send_each(rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who)
     if failed:
         return missed_people(people, failed)
     if audience == GROUPS:
@@ -621,21 +624,23 @@ def _send_item(
 
 
 def _group_people(result: ResultsAudience, team) -> dict[str, str]:
-    """The group email's students and mentors: "(BTF07) Amy Chen"."""
+    """The group email's students and mentors: "(BTF07) Amy Chen
+    (amy@example.com)"."""
     users = {u.email: u for u in result.team_students.get(team.id, []) + result.team_mentors.get(team.id, [])}
     return {
-        address: f"({team.group_name}) {person_name(users[address]) if address in users else address}"
+        address: person_label(team.group_name, person_name(users[address]) if address in users else None, address)
         for address in result.team_recipients.get(team.id, [])
     }
 
 
 def _supervisor_people(result: ResultsAudience, supervisor) -> dict[str, str]:
-    """The supervisor with their students' groups: "(BTF07, BTF12) Sam Lee"."""
+    """The supervisor with their students' groups: "(BTF07, BTF12) Sam Lee
+    (sam@example.com)"."""
     groups = []
     for _student, team in result.supervisor_students.get(supervisor.id, []):
         if team.group_name not in groups:
             groups.append(team.group_name)
-    return {supervisor.email: f"({', '.join(groups)}) {person_name(supervisor)}"}
+    return {supervisor.email: person_label(", ".join(groups), person_name(supervisor), supervisor.email)}
 
 
 def start_send(actor, audience: str) -> None:

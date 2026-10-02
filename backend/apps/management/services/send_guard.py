@@ -21,6 +21,7 @@ who it missed, and why (see ``run_state``).
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ from django.db.models import F, Max, Q
 from django.utils import timezone
 
 from apps.groups.models.group_members import GroupMembership
+from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
@@ -96,14 +98,32 @@ def person_name(user) -> str:
     return user.get_full_name() or user.email
 
 
+def person_label(groups: str, name: str | None, address: str) -> str:
+    """Someone as the page lists who an email missed: "amy@example.com
+    (BTF07, Amy Chen)", or "amy@example.com (BTF07)" without a name."""
+    if name and name != address:
+        return f"{address} ({groups}, {name})"
+    return f"{address} ({groups})"
+
+
+def _is_on(who: str, group_name: str) -> bool:
+    """Whether a missed entry is someone on ``group_name``: "amy@x (BTF07,
+    Amy Chen)", "amy@x (BTF07)", or an older run's "(BTF07) Amy Chen"."""
+    return (
+        f" ({group_name}, " in who
+        or who.endswith(f" ({group_name})")
+        or who.startswith(f"({group_name}) ")
+    )
+
+
 def member_labels(group, addresses) -> dict[str, str]:
-    """Each address on ``group`` as the page lists someone an email missed:
-    "(BTF07) Amy Chen"."""
+    """Each address on ``group`` as the page lists someone an email missed
+    (see ``person_label``)."""
     names = {}
     for membership in GroupMembership.objects.filter(group=group, left_at__isnull=True).select_related("user"):
         if membership.user and membership.user.email:
             names.setdefault(membership.user.email, person_name(membership.user))
-    return {address: f"({group.group_name}) {names.get(address, address)}" for address in addresses}
+    return {address: person_label(group.group_name, names.get(address), address) for address in addresses}
 
 
 def missed_people(people: dict[str, str], failed: dict[str, str]) -> list[dict]:
@@ -383,10 +403,38 @@ def tried_teams(key: str, teams) -> set[int]:
     tried = set(already_sent(key, [team.id for team in teams]))
     missed = last_missed(key)
     for team in teams:
-        prefix = f"({team.group_name}) "
-        if any(who.startswith(prefix) for who in missed):
+        if any(_is_on(who, team.group_name) for who in missed):
             tried.add(team.id)
     return tried
+
+
+# An older run's entry: "(BTF07) Amy Chen", without the address.
+_OLD_LABEL = re.compile(r"^\((?P<group>[^)]*)\) (?P<name>.+)$")
+
+
+def _with_addresses(entries: list[dict]) -> list[dict]:
+    """Missed entries as the page lists them. An older run's, which named
+    the person only, gets their address from their team, when it can be
+    found."""
+    members: dict[str, dict[str, str]] = {}
+    shown = []
+    for entry in entries:
+        old = _OLD_LABEL.match(entry["who"])
+        if old and "@" not in entry["who"]:
+            group, name = old["group"], old["name"]
+            if group not in members:
+                team = Groups.objects.filter(group_name=group, deleted_at__isnull=True).order_by("-year").first()
+                memberships = (
+                    GroupMembership.objects.filter(group=team).select_related("user") if team else []
+                )
+                members[group] = {
+                    person_name(m.user): m.user.email for m in memberships if m.user and m.user.email
+                }
+            address = members[group].get(name)
+            if address:
+                entry = {**entry, "who": person_label(group, name, address)}
+        shown.append(entry)
+    return shown
 
 
 def _email_name(key: str) -> str:
@@ -428,7 +476,7 @@ def run_state(key: str) -> dict:
             "failed": run.failed,
             "error": run.error,
             # Who it couldn't reach, and why.
-            "missed": [_missed_entry(entry) for entry in run.missed],
+            "missed": _with_addresses([_missed_entry(entry) for entry in run.missed]),
             "started_at": run.started_at,
             "finished_at": run.finished_at,
         } if run and run.started_at else None,

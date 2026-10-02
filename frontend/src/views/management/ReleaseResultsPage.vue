@@ -116,9 +116,10 @@
         are out. Each is emailed once.
       </p>
       <p class="release-results__hint">
-        Group emails go to the group's students and mentors with every certificate in the group
-        attached, so students get each other's and their mentor's certificates. Anyone in multiple
-        groups gets multiple emails, one for each group.
+        Each group gets one email, its students in To and its mentors in CC, with every certificate
+        in the group attached, so students get each other's and their mentor's certificates.
+        Resending emails only those who missed it, with the mentor in To if no student is left.
+        Anyone in multiple groups gets one email for each group.
       </p>
       <template v-if="details">
         <p
@@ -182,7 +183,7 @@
             </p>
             <ul>
               <li v-for="(m, i) in runOf(audience.value).run!.missed" :key="i">
-                {{ m.who }}<span v-if="m.reason" class="release-results__missed-reason"> · {{ m.reason }}</span>
+                <MissedPerson :who="m.who" /><span v-if="m.reason" class="release-results__missed-reason"> · {{ m.reason }}</span>
               </li>
             </ul>
           </div>
@@ -281,6 +282,7 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
 import ReleaseCertificatesPage from '@/views/management/ReleaseCertificatesPage.vue'
 import ReleasePage from '@/views/management/ReleasePage.vue'
+import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 // Groups (their students and mentors) and supervisors are emailed apart.

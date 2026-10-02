@@ -62,7 +62,7 @@
         to email only those.
       </p>
       <p class="notify-finalists__hint">
-        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+        Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
       </p>
       <!-- Same status line as Release Marks. A team only counts as notified
            once every member got the email. -->
@@ -79,6 +79,7 @@
       </p>
       <!-- A notified team is one where every member got the email. -->
       <p v-if="finalists.length && details" class="notify-finalists__counts">
+        <strong>Groups: {{ details.counts.groups.emailed }} of {{ details.counts.groups.total }} emailed</strong><br />
         Students: {{ details.counts.students.emailed }} of {{ details.counts.students.total }} emailed ·
         Mentors: {{ details.counts.mentors.emailed }} of {{ details.counts.mentors.total }} emailed
         (Times {{ details.counts.mentors.times.emailed }} of {{ details.counts.mentors.times.total }}) ·
@@ -130,7 +131,7 @@
         <p class="notify-finalists__missed-title">Couldn't be emailed:</p>
         <ul>
           <li v-for="(m, i) in details.run.missed" :key="i">
-            {{ m.who }}<span v-if="m.reason" class="notify-finalists__missed-reason"> · {{ m.reason }}</span>
+            <MissedPerson :who="m.who" /><span v-if="m.reason" class="notify-finalists__missed-reason"> · {{ m.reason }}</span>
           </li>
         </ul>
       </div>
@@ -292,6 +293,7 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
+import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const list = ref<FinalistListResponse | null>(null)

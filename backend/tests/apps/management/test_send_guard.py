@@ -135,6 +135,21 @@ class SendRunTests(TestCase):
         )
         self.assertEqual(run_state("test_email")["run"]["missed"], [{"who": "(BTF1) Amy", "reason": ""}])
 
+    def test_an_older_runs_entry_gets_the_address_from_the_team(self):
+        from apps.groups.models import GroupMembership, Groups
+
+        team = Groups.objects.create(group_name="BTF2")
+        amy = User.objects.create_user(email="amy@example.com", first_name="Amy", last_name="Chen", password="pw12345!")
+        GroupMembership.objects.create(group=team, user=amy, membership_role="student")
+        EmailSendRun.objects.create(
+            key="test_email", started_at="2026-10-01T00:00:00Z", due=2, emailed=0, failed=1,
+            missed=[{"who": "(BTF2) Amy Chen", "reason": "address refused"}, {"who": "(BTF2) Gone", "reason": ""}],
+        )
+        # Someone no longer found keeps the name only.
+        self.assertEqual([m["who"] for m in run_state("test_email")["run"]["missed"]], [
+            "amy@example.com (BTF2, Amy Chen)", "(BTF2) Gone",
+        ])
+
     def test_items_are_shared_across_workers_each_with_its_own_connection(self):
         work = [self._item(f"BTF{n}", 1) for n in range(7)]
         send_guard._take("test_email", due=7)

@@ -112,9 +112,10 @@ describe('layout', () => {
     const hints = wrapper.findAll('.release-results__send .release-results__hint').map((p) => p.text())
     expect(hints).toEqual([
       "Emails every group that submitted, and its students' supervisors, that their results are out. Each is emailed once.",
-      "Group emails go to the group's students and mentors with every certificate in the group attached, so " +
-        "students get each other's and their mentor's certificates. Anyone in multiple groups gets multiple emails, " +
-        'one for each group.'
+      "Each group gets one email, its students in To and its mentors in CC, with every certificate in the " +
+        "group attached, so students get each other's and their mentor's certificates. Resending emails only " +
+        'those who missed it, with the mentor in To if no student is left. Anyone in multiple groups gets one ' +
+        'email for each group.'
     ])
   })
 })

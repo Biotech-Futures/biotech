@@ -32,6 +32,7 @@
           {{ allEmailed ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
         </p>
         <p class="symposium-email__counts">
+          <strong>Groups: {{ status.groups.emailed }} of {{ status.groups.total }} emailed</strong><br />
           Students: {{ status.students.emailed }} of {{ status.students.total }} emailed ·
           Mentors: {{ status.mentors.emailed }} of {{ status.mentors.total }} emailed
           (Times {{ status.mentors.times.emailed }} of {{ status.mentors.times.total }}) ·
@@ -76,7 +77,7 @@
           <p class="symposium-email__missed-title">Couldn't be emailed:</p>
           <ul>
             <li v-for="(m, i) in status.run.missed" :key="i">
-              {{ m.who }}<span v-if="m.reason" class="symposium-email__missed-reason"> · {{ m.reason }}</span>
+              <MissedPerson :who="m.who" /><span v-if="m.reason" class="symposium-email__missed-reason"> · {{ m.reason }}</span>
             </li>
           </ul>
         </div>
@@ -166,6 +167,7 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
+import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const props = defineProps<{

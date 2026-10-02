@@ -50,6 +50,7 @@ const people = (total: number, emailed: number, timesTotal = total, timesEmailed
 
 const status = (overrides: Partial<SymposiumEmailStatus> = {}): SymposiumEmailStatus => ({
   teams: { total: 3, emailed: 0 },
+  groups: { total: 3, emailed: 0 },
   students: people(6, 0),
   mentors: people(3, 0, 4),
   supervisors: people(2, 0),
@@ -91,7 +92,7 @@ beforeEach(() => {
   sendMock.mockReset()
   statuses = {
     nonfinalists: status(),
-    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, students: people(1, 0) })
+    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, groups: { total: 1, emailed: 0 }, students: people(1, 0) })
   }
   statusMock.mockImplementation(async (email) => statuses[email])
 })
@@ -107,12 +108,12 @@ describe('Email Nonfinalist', () => {
     // Each sentence on its own line, spaced like the lines around it.
     expect(wrapper.findAll(`${NONFINALISTS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that submitted but weren't selected as finalists.",
-      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.findAll(`${NONSUBMISSIONS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that didn't make a submission.",
-      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')
@@ -123,12 +124,14 @@ describe('Email Nonfinalist', () => {
     for (const [card, count, label] of [
       [
         NONFINALISTS,
-        'Students: 0 of 6 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Groups: 0 of 3 emailed Students: 0 of 6 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · ' +
+          'Supervisors: 0 of 2 emailed (Times 0 of 2)',
         'Email All Nonfinalists'
       ],
       [
         NONSUBMISSIONS,
-        'Students: 0 of 1 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Groups: 0 of 1 emailed Students: 0 of 1 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · ' +
+          'Supervisors: 0 of 2 emailed (Times 0 of 2)',
         'Email All Nonsubmissions'
       ]
     ] as const) {
@@ -210,7 +213,7 @@ describe('Email Nonfinalist', () => {
 
       statuses.nonfinalists = status({
         ...finishedRun({ due: 12, emailed: 12 }),
-        teams: { total: 3, emailed: 3 }, students: people(6, 6),
+        teams: { total: 3, emailed: 3 }, groups: { total: 3, emailed: 3 }, students: people(6, 6),
         mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
       })
       vi.advanceTimersByTime(2000)
@@ -218,7 +221,7 @@ describe('Email Nonfinalist', () => {
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).exists()).toBe(false)
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--ok`).text()).toBe('Emailed 12 people.')
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe(
-        'Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
+        'Groups: 3 of 3 emailed Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
           'Supervisors: 2 of 2 emailed (Times 2 of 2)'
       )
     } finally {

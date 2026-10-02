@@ -81,17 +81,20 @@ export interface RunWording {
 export const RUN_MESSAGE_MS = 15000
 
 /** Once emails have gone: they're not all there yet, and where any that
- *  can't be delivered come back to. */
-export const deliveryNote = (sentFrom: string) =>
+ *  can't be delivered come back to; for a group's one email, the rest of the
+ *  group still gets it. */
+export const deliveryNote = (sentFrom: string, toGroups = true) =>
   "Emails can take a few minutes to arrive. Any that can't be delivered, such as a mistyped address " +
-  `or one a school's mail server refuses, come back to ${sentFrom}.`
+  `or one a school's mail server refuses, come back to ${sentFrom}` +
+  (toGroups ? ' and the rest of the group still gets it.' : '.')
 
 /** What a page says once a run finishes, and whether it's an error: how
  *  many were emailed, then why it stopped short and how to retry. Always
  *  ends with where any that can't be delivered come back to. */
 export function describeRun(run: EmailRun, wording: RunWording): { text: string; isError: boolean } {
   const sent = `Emailed ${plural(run.emailed, ...wording.emailed)}.`
-  const note = wording.sentFrom ? ` ${deliveryNote(wording.sentFrom)}` : ''
+  // An email to each supervisor isn't a group's.
+  const note = wording.sentFrom ? ` ${deliveryNote(wording.sentFrom, !wording.failedWhole)}` : ''
   if (run.error) return { text: `${sent} ${run.error}${note}`, isError: true }
   if (run.failed) {
     const missed = wording.failedWhole

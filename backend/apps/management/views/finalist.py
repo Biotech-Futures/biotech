@@ -63,17 +63,19 @@ class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
 
 
 def _email_counts() -> dict:
-    """The finalist teams' students, mentors and supervisors with an address
-    to be emailed at, and how many have been: everyone on a notified team,
-    and whoever a run reached on the others (see ``role_counts``)."""
+    """The finalist teams, and their students, mentors and supervisors with
+    an address to be emailed at, and how many have been: everyone on a
+    notified team, and whoever a run reached on the others (see
+    ``role_counts``). A team counts as emailed once its email went, even if
+    someone on it missed it."""
     flags = list(FinalistFlag.objects.values_list("group_id", "notified"))
     group_ids = [group_id for group_id, _ in flags]
-    return role_counts(
-        member_ids(group_ids),
-        group_ids,
-        {group_id for group_id, notified in flags if notified},
-        reached_ids(EMAIL_KEY, group_ids),
-    )
+    notified = {group_id for group_id, notified in flags if notified}
+    reached = reached_ids(EMAIL_KEY, group_ids)
+    return {
+        "groups": {"total": len(group_ids), "emailed": len(notified | {g for g, ids in reached.items() if ids})},
+        **role_counts(member_ids(group_ids), group_ids, notified, reached),
+    }
 
 
 def _due(which: str = "", group_ids=None) -> list[tuple[FinalistFlag, list[str]]]:

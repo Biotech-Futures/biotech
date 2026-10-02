@@ -80,6 +80,7 @@ const finalist = (group_id: number, over: Record<string, unknown> = {}) => ({
 // Everyone the finalist email goes to, by role: people emailed, and the
 // emails that makes ("times"), as the server counts them.
 const COUNTS = {
+  groups: { total: 2, emailed: 1 },
   students: { total: 6, emailed: 3, times: { total: 6, emailed: 3 } },
   mentors: { total: 1, emailed: 1, times: { total: 2, emailed: 1 } },
   supervisors: { total: 2, emailed: 1, times: { total: 3, emailed: 1 } }
@@ -141,7 +142,8 @@ describe('the finalist roster', () => {
     const note = wrapper.find('.notify-finalists__delivery-note')
     expect(note.text()).toBe(
       "Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
-        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org " +
+        'and the rest of the group still gets it.'
     )
     expect(note.element.nextElementSibling?.textContent).toContain('Last Emailed at')
   })
@@ -180,7 +182,7 @@ describe('the finalist roster', () => {
     // People, and for mentors and supervisors the emails that makes: the
     // mentor is on both teams, one of them notified.
     expect(wrapper.find('.notify-finalists__counts').text()).toBe(
-      'Students: 3 of 6 emailed · Mentors: 1 of 1 emailed (Times 1 of 2) · ' +
+      'Groups: 1 of 2 emailed Students: 3 of 6 emailed · Mentors: 1 of 1 emailed (Times 1 of 2) · ' +
         'Supervisors: 1 of 2 emailed (Times 1 of 3)'
     )
   })
@@ -229,7 +231,8 @@ describe('sending', () => {
     await flushPromises()
     expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe(
       "Emailed 3 people. Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
-        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org " +
+        'and the rest of the group still gets it.'
     )
   })
 
@@ -243,7 +246,8 @@ describe('sending', () => {
     expect(wrapper.find('.notify-finalists__banner--error').text()).toBe(
       "Emailed 2 people. 1 team wasn't emailed in full; press Resend Email Those Missed to email only " +
         "those it missed. Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
-        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org " +
+        'and the rest of the group still gets it.'
     )
   })
 

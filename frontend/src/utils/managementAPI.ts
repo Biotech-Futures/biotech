@@ -424,7 +424,7 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   submissions_open: string
   /** Everyone the finalist email goes to, by role; a notified team's
    *  members count as emailed. */
-  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
+  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount> & { groups: EmailedCount }
   /** The teams, and people on them, each limited send would email. */
   waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
@@ -682,7 +682,10 @@ export function startResultsEmail(audience: ResultsAudience): Promise<ResultsEma
 export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
 
 export interface SymposiumEmailStatus extends EmailRunState {
+  /** Teams emailed once everyone on them has the email. */
   teams: EmailedCount
+  /** For the count: teams emailed once their email went, even if someone missed it. */
+  groups: EmailedCount
   /** Their members with an address, by role; each gets the email. */
   students: PeopleEmailedCount
   mentors: PeopleEmailedCount

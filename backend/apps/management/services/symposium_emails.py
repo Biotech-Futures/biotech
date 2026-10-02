@@ -3,9 +3,9 @@ Email Nonfinalist tab: the client's invitation for teams that submitted but
 weren't picked as finalists, and their notice for teams that didn't submit.
 
 Same path as the finalist email: the shared system email path, so admins can
-switch them off or reword them on System Emails; every current member of the
-team (students, mentors and supervisors) gets their own copy; and replies go
-to the support mailbox. The Symposium date and registration link are the
+switch them off or reword them on System Emails; each team gets one email,
+its students in To and its mentors and supervisors in CC; and replies go to
+the support mailbox. The Symposium date and registration link are the
 ones set on Notify Finalists, and nothing is sent until both are set.
 
 Neither goes out while submissions are still open, the deadline's or any
@@ -44,7 +44,7 @@ from apps.submissions.models import Submission
 from apps.submissions.services import current_cohort
 
 from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
-from .delivery import already_sent, send_each, still_due
+from .delivery import already_sent, send_group, still_due
 from .finalist_notify import NOT_SET, _long_date, symposium_today
 from .send_guard import (
     BUILDERS,
@@ -204,9 +204,13 @@ class TeamAudience:
     def counts(self) -> dict:
         """Teams, and each role's people, due the email and emailed (see
         ``role_counts``), and who Email Newly Added and Resend Email Those
-        Missed would email."""
+        Missed would email. ``teams`` counts a team emailed once everyone on
+        it has the email; ``groups``, for the page's count, once its email
+        went, even if someone on it missed it."""
+        reached = {group_id for group_id, ids in self.reached.items() if ids}
         return {
             "teams": {"total": len(self.teams), "emailed": len(self.emailed)},
+            "groups": {"total": len(self.teams), "emailed": len(self.emailed | reached)},
             **role_counts(self.members, (t.id for t in self.teams), self.emailed, self.reached),
             "waiting": {
                 which: {"teams": len(due), "people": sum(len(addresses) for addresses in due.values())}
@@ -216,8 +220,8 @@ class TeamAudience:
 
 
 def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
-    """Every current member of this year's teams due ``email`` gets it, each
-    their own copy."""
+    """Every current member of this year's teams due ``email`` gets it, in
+    their team's one email."""
     teams = list(email.teams(year or current_cohort()).order_by("id"))
     recipients = {team.id: recipients_for(team) for team in teams}
     # A team with nobody to email can't be emailed; it isn't counted.
@@ -286,7 +290,7 @@ def _send_team(
     except Exception:  # noqa: BLE001
         logger.exception("%s: failed to render group=%s", email.key, team.id)
         return [{"who": who, "reason": NOT_SENT} for who in people.values()]
-    failed = send_each(rendered, list(people), connection, email=email.key, group=team, log_as=f"group={team.id}")
+    failed = send_group(rendered, list(people), connection, email=email.key, group=team, log_as=f"group={team.id}")
     if failed:
         return missed_people(people, failed)
     try:
