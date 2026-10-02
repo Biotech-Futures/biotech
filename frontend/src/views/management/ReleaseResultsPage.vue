@@ -522,7 +522,6 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 48rem;
 }
 
 /* The flex gap and margins below space the parts; the header's own margin

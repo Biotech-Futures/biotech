@@ -36,6 +36,7 @@ from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
 from ..models import EmailSendRun
+from .delivery import already_sent
 from .finalist_notify import SYMPOSIUM_TZ, _long_date
 
 logger = logging.getLogger(__name__)
@@ -271,6 +272,20 @@ def last_missed(key: str) -> list[str]:
     """Who ``key``'s last run missed, as the page lists them."""
     run = EmailSendRun.objects.filter(key=key).first()
     return [_missed_entry(entry)["who"] for entry in run.missed] if run else []
+
+
+def tried_teams(key: str, teams) -> set[int]:
+    """Which of these teams a send of ``key``'s email has already tried:
+    someone on it has the email, or the last run missed someone on it.
+    Resend Email Those Missed emails the people on these still due it."""
+    teams = list(teams)
+    tried = set(already_sent(key, [team.id for team in teams]))
+    missed = last_missed(key)
+    for team in teams:
+        prefix = f"({team.group_name}) "
+        if any(who.startswith(prefix) for who in missed):
+            tried.add(team.id)
+    return tried
 
 
 def run_state(key: str) -> dict:

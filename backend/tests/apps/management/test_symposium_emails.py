@@ -55,6 +55,13 @@ def _press(test, name):
     return [{**body, "emailed": body["run"]["emailed"], "failed": body["run"]["failed"]}]
 
 
+def _press_missed(test, name):
+    """Resend Email Those Missed: the run's result, with the counts after it."""
+    r = test.client.post(reverse(name), {"which": "missed"}, format="json")
+    test.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+    return r.json()
+
+
 @override_settings(EMAIL_BACKEND=LOCMEM)
 class NonFinalistEmailTests(_GradingFixture):
     def setUp(self):
@@ -152,6 +159,30 @@ class NonFinalistEmailTests(_GradingFixture):
         self.assertEqual([m.to for m in mail.outbox], [["ben@example.com"]])
         self.assertEqual(result["run"]["due"], 1)
         self.assertTrue(NonFinalistEmail.objects.filter(group=self.group).exists())
+
+    def test_resend_to_those_missed_emails_only_them(self):
+        real_send = mail.EmailMultiAlternatives.send
+
+        def fail_for_ben(message, *args, **kwargs):
+            if message.to == ["ben@example.com"]:
+                raise OSError("rejected")
+            return real_send(message, *args, **kwargs)
+
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben),                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
+            result = self._send_all()[-1]
+        self.assertEqual(result["waiting"], {"missed": {"teams": 1, "people": 1}})
+        # A team that submitted since hasn't been tried, so isn't resent to.
+        _member("new@example.com", _submitted_team("Late", self.staff))
+
+        mail.outbox = []
+        result = _press_missed(self, SEND)
+        self.assertEqual([m.to for m in mail.outbox], [["ben@example.com"]])
+        self.assertEqual(result["waiting"], {"missed": {"teams": 0, "people": 0}})
+        self.assertEqual(result["teams"], {"total": 2, "emailed": 1})
+
+    def test_resend_refuses_an_unknown_which(self):
+        r = self.client.post(reverse(SEND), {"which": "everyone"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_sending_waits_for_the_symposium_details_on_notify_finalists(self):
         FinalistEmailSettings.objects.update(symposium_date=None)
@@ -254,6 +285,7 @@ class NonFinalistEmailTests(_GradingFixture):
             "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            "waiting": {"missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
             "sent_from": "info@biotechfutures.org",
@@ -314,6 +346,7 @@ class NonSubmissionEmailTests(_GradingFixture):
             "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            "waiting": {"missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
             "sent_from": "info@biotechfutures.org",

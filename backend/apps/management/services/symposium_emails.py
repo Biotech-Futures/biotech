@@ -15,7 +15,8 @@ have been notified, which is when the picks are settled.
 
 Pressing Send starts a run on the server that emails every team due (see
 ``send_guard``). A team is recorded as emailed only once every member got it,
-so the next run reaches whoever missed it, and is skipped after that.
+so the next run reaches whoever missed it, and is skipped after that. Resend
+Email Those Missed emails only the people earlier runs missed.
 """
 from __future__ import annotations
 
@@ -44,7 +45,15 @@ from apps.submissions.services import current_cohort
 from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
 from .delivery import already_sent, send_each, still_due
 from .finalist_notify import NOT_SET, _long_date, symposium_today
-from .send_guard import NOT_SENT, Work, member_labels, missed_people, start_run, submissions_open_reason
+from .send_guard import (
+    NOT_SENT,
+    Work,
+    member_labels,
+    missed_people,
+    start_run,
+    submissions_open_reason,
+    tried_teams,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,13 +193,19 @@ class TeamAudience:
     emailed: set = field(default_factory=set)
     # Members of teams not yet emailed whom a run reached (see ``reached_ids``).
     reached: dict = field(default_factory=dict)
+    # Teams not yet emailed that a run missed someone on, with the addresses
+    # on each still due it (see ``send_guard.tried_teams``).
+    missed: dict = field(default_factory=dict)
 
     def counts(self) -> dict:
         """Teams, and each role's people, due the email and emailed (see
-        ``role_counts``)."""
+        ``role_counts``), and who Resend Email Those Missed would email."""
         return {
             "teams": {"total": len(self.teams), "emailed": len(self.emailed)},
             **role_counts(self.members, (t.id for t in self.teams), self.emailed, self.reached),
+            "waiting": {"missed": {
+                "teams": len(self.missed), "people": sum(len(addresses) for addresses in self.missed.values()),
+            }},
         }
 
 
@@ -201,14 +216,23 @@ def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
     recipients = {team.id: recipients_for(team) for team in teams}
     # A team with nobody to email can't be emailed; it isn't counted.
     teams = [team for team in teams if recipients[team.id]]
+    emailed = set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True))
+    pending = [team for team in teams if team.id not in emailed]
+    tried = tried_teams(email.key, pending)
+    sent = already_sent(email.key, tried)
 
     return TeamAudience(
         teams=teams,
         recipients={team.id: recipients[team.id] for team in teams},
         # For the page's counts of students, mentors and supervisors.
         members=member_ids(team.id for team in teams),
-        emailed=set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True)),
+        emailed=emailed,
         reached=reached_ids(email.key, (team.id for team in teams)),
+        missed={
+            team.id: [a for a in recipients[team.id] if a.lower() not in sent.get(team.id, set())]
+            for team in pending
+            if team.id in tried
+        },
     )
 
 
@@ -271,15 +295,16 @@ def _send_team(
     return []
 
 
-def start_send(email: TeamEmail, actor) -> None:
+def start_send(email: TeamEmail, actor, *, only_missed: bool = False) -> None:
     """Start a run emailing ``email`` to every team due it and not yet
-    emailed (see ``send_guard.start_run``). Raises ``AlreadySending`` while a
-    run is going."""
+    emailed (see ``send_guard.start_run``), or with ``only_missed``, only the
+    people earlier runs missed (see ``TeamAudience.missed``). Raises
+    ``AlreadySending`` while a run is going."""
     details = FinalistEmailSettings.load()
     due = audience(email)
     work = []
     for team in due.teams:
-        if team.id not in due.emailed:
+        if team.id not in due.emailed and (not only_missed or team.id in due.missed):
             # Anyone a run already reached isn't emailed again.
             people = member_labels(team, still_due(email.key, team, due.recipients[team.id]))
             work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor)))

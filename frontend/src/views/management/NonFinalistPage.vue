@@ -2,7 +2,7 @@
   <div class="non-finalist">
     <SymposiumEmailCard
       email="nonfinalists"
-      button-label="Email Nonfinalists"
+      button-label="Email All Nonfinalists"
       confirm-title="Email non-finalist teams?"
     >
       <div class="card-header">
@@ -25,7 +25,7 @@
 
     <SymposiumEmailCard
       email="nonsubmissions"
-      button-label="Email Nonsubmissions"
+      button-label="Email All Nonsubmissions"
       confirm-title="Email teams without a submission?"
     >
       <h3 class="non-finalist__section-title">Email Nonsubmission</h3>

@@ -23,12 +23,12 @@ from ..services.send_guard import (
     NOT_SENT,
     AlreadySending,
     Work,
-    last_missed,
     member_labels,
     missed_people,
     run_state,
     start_run,
     submissions_open_reason,
+    tried_teams,
 )
 from ..services.symposium_emails import member_ids, reached_ids, role_counts
 
@@ -76,18 +76,6 @@ def _email_counts() -> dict:
     )
 
 
-def _tried(flags) -> set[int]:
-    """Which of these un-notified finalist teams a send has already tried:
-    someone on it has the email, or the last run missed someone on it."""
-    tried = set(already_sent(EMAIL_KEY, [flag.group_id for flag in flags]))
-    missed = last_missed(FINALIST_SEND)
-    for flag in flags:
-        prefix = f"({flag.group.group_name}) "
-        if any(who.startswith(prefix) for who in missed):
-            tried.add(flag.group_id)
-    return tried
-
-
 def _due(which: str = "", group_ids=None) -> list[tuple[FinalistFlag, list[str]]]:
     """The finalist teams not yet notified, each with the addresses on it
     still due the email: all of them, those picked (``group_ids``), those no
@@ -98,7 +86,7 @@ def _due(which: str = "", group_ids=None) -> list[tuple[FinalistFlag, list[str]]
         flags = flags.filter(group_id__in=group_ids)
     flags = list(flags)
     if which:
-        tried = _tried(flags)
+        tried = tried_teams(EMAIL_KEY, [flag.group for flag in flags])
         flags = [flag for flag in flags if (flag.group_id in tried) == (which == "missed")]
     sent = already_sent(EMAIL_KEY, [flag.group_id for flag in flags])
     due = []

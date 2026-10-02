@@ -1,6 +1,6 @@
 <template>
   <div class="notify-finalists">
-    <section class="card notify-finalists__setup">
+    <section class="card">
       <div class="card-header">
         <h3 class="card-title">Notify Finalists</h3>
       </div>
@@ -55,7 +55,7 @@
       </template>
     </section>
 
-    <section class="card notify-finalists__email-section">
+    <section class="card">
       <h3 class="notify-finalists__section-title">Send Email Notification</h3>
       <p class="notify-finalists__hint">
         Send a notification email to the finalist teams. Tick Notify on specific teams
@@ -513,16 +513,6 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.notify-finalists__email-section {
-  max-width: 48rem;
-}
-
-/* Laid out like Document Setup: the page title over a divider, then a
-   section heading ("Directors" there, "Email Details" here). */
-.notify-finalists__setup {
-  max-width: 48rem;
 }
 
 .notify-finalists__section-title {

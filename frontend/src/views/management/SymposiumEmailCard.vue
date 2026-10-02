@@ -1,7 +1,7 @@
 <template>
   <!-- One Symposium email on the Email Nonfinalist tab: the page's headings
-       and text in the slot, then who has it, why it can't go if it can't,
-       sending and a preview. -->
+       and text in the slot, then a preview, who has it, why it can't go if
+       it can't, and sending. -->
   <div class="symposium-email" :class="`symposium-email--${email}`">
     <section class="card">
       <slot />
@@ -9,6 +9,18 @@
         Failed to load the teams. {{ loadError }}
       </p>
       <template v-else-if="status">
+        <!-- Preview and test above who has it. -->
+        <div class="symposium-email__actions symposium-email__actions--preview">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="loadingPreview"
+            @click="openPreview()"
+          >
+            {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
+          </button>
+          <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
+        </div>
         <!-- Same status line and count as Notify Finalists, shown even while
              no team is due it. A team only counts as emailed once every
              member got the email. -->
@@ -31,20 +43,19 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="starting || !canSend"
-            @click="confirming = true"
+            :disabled="starting !== null || !canSend"
+            @click="confirming = 'all'"
           >
-            {{ starting || status.sending ? 'Sending…' : buttonLabel }}
+            {{ starting === 'all' || (status.sending && starting === null) ? 'Sending…' : buttonLabel }}
           </button>
           <button
             type="button"
             class="btn btn-outline btn-sm"
-            :disabled="loadingPreview"
-            @click="openPreview()"
+            :disabled="starting !== null || !canSend || !status.waiting.missed.teams"
+            @click="confirming = 'missed'"
           >
-            {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
+            {{ starting === 'missed' ? 'Sending…' : 'Resend Email Those Missed' }}
           </button>
-          <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
           <span v-if="status.sending && status.run" class="symposium-email__progress" role="status">
             Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
           </span>
@@ -69,18 +80,22 @@
   </div>
 
   <Teleport to="body">
-    <div v-if="confirming" class="symposium-email__overlay" @click.self="confirming = false">
+    <div v-if="confirming" class="symposium-email__overlay" @click.self="confirming = null">
       <div class="symposium-email__dialog" role="dialog" aria-modal="true" aria-label="Send the email">
         <h3 class="symposium-email__dialog-title">
           <i class="fas fa-envelope" aria-hidden="true"></i> {{ confirmTitle }}
         </h3>
-        <p class="symposium-email__dialog-text">
+        <p v-if="confirming === 'missed' && status" class="symposium-email__dialog-text">
+          This emails only the {{ plural(status.waiting.missed.people, 'person', 'people') }} earlier sends
+          missed, on {{ plural(status.waiting.missed.teams, 'team') }}.
+        </p>
+        <p v-else class="symposium-email__dialog-text">
           This emails every member of the {{ plural(pendingTeams, 'team') }} that
           {{ pendingTeams === 1 ? "hasn't" : "haven't" }} had this email yet.
         </p>
         <div class="symposium-email__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirming = false">Cancel</button>
-          <button type="button" class="btn btn-primary btn-sm" @click="sendAll">Send</button>
+          <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="send">Send</button>
         </div>
       </div>
     </div>
@@ -140,7 +155,7 @@ import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const props = defineProps<{
   email: SymposiumEmail
-  /** The send button, e.g. "Email Nonfinalists". */
+  /** The send button, e.g. "Email All Nonfinalists". */
   buttonLabel: string
   /** The confirmation's question, e.g. "Email non-finalist teams?". */
   confirmTitle: string
@@ -177,22 +192,28 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
 
 // -- Sending ----------------------------------------------------------------
 
-const confirming = ref(false)
-// The Send request itself; the run then sends on the server.
-const starting = ref(false)
+// Which send is awaiting confirmation: every team due, or only the people
+// earlier sends missed; null = dialog closed.
+const confirming = ref<'all' | 'missed' | null>(null)
+// Which Send request is going; the run then sends on the server.
+const starting = ref<'all' | 'missed' | null>(null)
 
-const sendAll = async () => {
-  confirming.value = false
+const send = async () => {
+  const mode = confirming.value
+  if (!mode) return
+  confirming.value = null
   actionError.value = ''
-  starting.value = true
+  starting.value = mode
   try {
-    status.value = await startSymposiumEmail(props.email)
+    status.value = await (mode === 'missed'
+      ? startSymposiumEmail(props.email, 'missed')
+      : startSymposiumEmail(props.email))
     // A run with little or nothing to send can be over by the reply.
     if (!status.value.sending && status.value.run) reportRun(status.value.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
-    starting.value = false
+    starting.value = null
   }
 }
 
@@ -201,7 +222,7 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: props.buttonLabel,
+    button: 'Resend Email Those Missed',
     sentFrom: status.value?.sent_from
   })
   if (isError) actionError.value = text
@@ -256,6 +277,10 @@ onMounted(load)
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+.symposium-email__actions--preview {
+  margin: 0 0 0.75rem;
 }
 
 .symposium-email__progress {
