@@ -49,7 +49,18 @@ export interface RunWording {
   button: string
   /** Said instead of "Emailed 0 people." when nobody was due the email. */
   nobodyDue?: string
+  /** The address the emails went out from, for where bounces come back. */
+  sentFrom?: string
 }
+
+/** How long a finished run's message stays: it has more to read. */
+export const RUN_MESSAGE_MS = 15000
+
+/** Once emails have gone: they're not all there yet, and where any that
+ *  can't be delivered come back to. */
+export const deliveryNote = (sentFrom: string) =>
+  "Emails can take a few minutes to arrive. Any that can't be delivered, such as a mistyped address " +
+  `or one a school's mail server refuses, come back to ${sentFrom}.`
 
 /** What a page says once a run finishes, and whether it's an error: how
  *  many were emailed, then why it stopped short and how to retry. */
@@ -62,5 +73,7 @@ export function describeRun(run: EmailRun, wording: RunWording): { text: string;
       : `${plural(run.failed, wording.failed)} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
     return { text: `${sent} ${missed}; press ${wording.button} again to retry.`, isError: true }
   }
-  return { text: run.due > 0 || !wording.nobodyDue ? sent : wording.nobodyDue, isError: false }
+  if (run.due === 0 && wording.nobodyDue) return { text: wording.nobodyDue, isError: false }
+  const note = run.emailed > 0 && wording.sentFrom ? ` ${deliveryNote(wording.sentFrom)}` : ''
+  return { text: `${sent}${note}`, isError: false }
 }

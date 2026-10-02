@@ -202,6 +202,7 @@
         <table class="finalists__table">
           <thead>
             <tr>
+              <th>#</th>
               <th>Group</th>
               <th>Flagged at</th>
               <th>Flagged by</th>
@@ -221,9 +222,10 @@
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="8" class="finalists__empty">No finalists yet.</td>
+              <td colspan="9" class="finalists__empty">No finalists yet.</td>
             </tr>
-            <tr v-for="f in finalists" :key="f.group_id">
+            <tr v-for="(f, i) in finalistsInOrder" :key="f.group_id">
+              <td class="finalists__muted">{{ i + 1 }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
               <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
@@ -327,6 +329,14 @@ const groupQuery = ref('')
 const showDetails = ref(false)
 
 const finalists = computed(() => list.value?.finalists ?? [])
+// In the order they were picked: the earliest flagged first, numbered.
+const finalistsInOrder = computed(() =>
+  [...finalists.value].sort(
+    (a, b) =>
+      new Date(a.flagged_at).getTime() - new Date(b.flagged_at).getTime() ||
+      a.group_name.localeCompare(b.group_name, undefined, { numeric: true })
+  )
+)
 
 // Collapsible sections — both open by default.
 const showGroupMarks = ref(true)

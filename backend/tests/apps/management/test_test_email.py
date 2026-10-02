@@ -120,7 +120,8 @@ class TestEmailTests(_GradingFixture):
         option = self._options("nonfinalists")[0]
         r = self._send("nonfinalists", option["value"])
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        self.assertEqual(r.json(), {"sent_to": "tester@example.com"})
+        # And where it comes back to if it can't be delivered.
+        self.assertEqual(r.json(), {"sent_to": "tester@example.com", "sent_from": "info@biotechfutures.org"})
         [message] = mail.outbox
         self.assertEqual(message.to, ["tester@example.com"])
         self.assertEqual(message.subject, "Thank you for your submission – Invitation to the Symposium")

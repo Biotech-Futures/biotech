@@ -122,7 +122,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchSymposiumEmail,
@@ -199,10 +199,11 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: props.buttonLabel
+    button: props.buttonLabel,
+    sentFrom: status.value?.sent_from
   })
   if (isError) actionError.value = text
-  else flashAction(text)
+  else flashAction(text, RUN_MESSAGE_MS)
 }
 useEmailRun(() => status.value, load, reportRun)
 
