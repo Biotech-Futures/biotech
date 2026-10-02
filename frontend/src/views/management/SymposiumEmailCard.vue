@@ -52,7 +52,9 @@
         <div v-if="status.run?.missed.length" class="symposium-email__missed" data-testid="missed">
           <p class="symposium-email__missed-title">Couldn't be emailed:</p>
           <ul>
-            <li v-for="(who, i) in status.run.missed" :key="i">{{ who }}</li>
+            <li v-for="(m, i) in status.run.missed" :key="i">
+              {{ m.who }}<span v-if="m.reason" class="symposium-email__missed-reason"> · {{ m.reason }}</span>
+            </li>
           </ul>
         </div>
       </template>
@@ -276,6 +278,10 @@ onMounted(load)
 .symposium-email__missed ul {
   margin: 0;
   padding-left: 1.2rem;
+}
+
+.symposium-email__missed-reason {
+  color: var(--text-muted);
 }
 
 .symposium-email__banner {

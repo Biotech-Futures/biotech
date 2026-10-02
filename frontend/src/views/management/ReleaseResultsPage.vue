@@ -178,7 +178,9 @@
               {{ audience.value === 'groups' ? "The group email couldn't reach:" : "The supervisor email couldn't reach:" }}
             </p>
             <ul>
-              <li v-for="(who, i) in runOf(audience.value).run!.missed" :key="i">{{ who }}</li>
+              <li v-for="(m, i) in runOf(audience.value).run!.missed" :key="i">
+                {{ m.who }}<span v-if="m.reason" class="release-results__missed-reason"> · {{ m.reason }}</span>
+              </li>
             </ul>
           </div>
         </template>
@@ -674,6 +676,10 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 .release-results__missed ul {
   margin: 0;
   padding-left: 1.2rem;
+}
+
+.release-results__missed-reason {
+  color: var(--text-muted);
 }
 
 .release-results__banner {

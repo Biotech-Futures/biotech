@@ -33,7 +33,7 @@ const run = (over: Record<string, unknown> = {}) => ({
   emailed: 0,
   failed: 0,
   error: '',
-  missed: [] as string[],
+  missed: [] as { who: string; reason: string }[],
   started_at: '2026-10-20T00:00:00Z',
   finished_at: null as string | null,
   ...over
@@ -197,6 +197,32 @@ describe('sending', () => {
     )
   })
 
+  it('says where undeliverable ones come back to after a run that missed some', async () => {
+    detailsMock.mockResolvedValue(details({ sent_from: 'info@biotechfutures.org' }))
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 3, emailed: 2, failed: 1 }), pending: 1 })
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.notify-finalists__banner--error').text()).toBe(
+      "Emailed 2 people. 1 team wasn't emailed in full; press Send Email to All Groups again to email only " +
+        "those it missed. Emails can take a few minutes to arrive. Any that can't be delivered, such as a " +
+        "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
+    )
+  })
+
+  it('says where undeliverable ones come back to even when nobody was left to email', async () => {
+    detailsMock.mockResolvedValue(details({ sent_from: 'info@biotechfutures.org' }))
+    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 0, emailed: 0 }), pending: 0 })
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /Send Email to All Groups/).trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toContain(
+      'every finalist team is already notified or has no members to email. Emails can take a few minutes to arrive.'
+    )
+  })
+
   it('explains, with a plain dash, a send that had nobody left to email', async () => {
     notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 0, emailed: 0 }), pending: 0 })
     const wrapper = await mountPage()
@@ -240,11 +266,12 @@ describe('sending', () => {
 
   it("lists, under the buttons, who the last run couldn't reach", async () => {
     detailsMock.mockResolvedValue(details({ ...finishedRun({ due: 4, emailed: 2, failed: 1,
-      missed: ['(BTF01) Amy Chen', '(BTF01) Mo Mentor'] }) }))
+      missed: [{ who: '(BTF01) Amy Chen', reason: 'mail server busy' }, { who: '(BTF01) Mo Mentor', reason: '' }] }) }))
     const wrapper = await mountPage()
     const missed = wrapper.find('[data-testid="missed"]')
     expect(missed.text()).toContain("Couldn't be emailed:")
-    expect(missed.findAll('li').map((li) => li.text())).toEqual(['(BTF01) Amy Chen', '(BTF01) Mo Mentor'])
+    // Each with why, when the run kept it.
+    expect(missed.findAll('li').map((li) => li.text())).toEqual(['(BTF01) Amy Chen · mail server busy', '(BTF01) Mo Mentor'])
   })
 
   it('a page opened mid-run shows its progress, with Send off', async () => {

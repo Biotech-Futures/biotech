@@ -294,9 +294,22 @@ class FinalistEmailTests(_GradingFixture):
             run = self.client.post(reverse("management:finalist-notify")).json()["run"]
         self.assertEqual(
             (run["due"], run["emailed"], run["failed"], run["missed"]),
-            (2, 1, 1, [f"({self.group.group_name}) stu X"]),
+            (2, 1, 1, [{"who": f"({self.group.group_name}) stu X", "reason": "lost the mail server connection"}]),
         )
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
+        # The mentor it reached counts as emailed; the student doesn't.
+        counts = self.client.get(reverse("management:finalist-email")).json()["counts"]
+        self.assertEqual(
+            (counts["students"]["emailed"], counts["mentors"], counts["supervisors"]["emailed"]),
+            (0, {"total": 1, "emailed": 1, "times": {"total": 1, "emailed": 1}}, 0),
+        )
+
+        # Pressing again emails only the student it missed, and the team is done.
+        mail.outbox = []
+        run = self.client.post(reverse("management:finalist-notify")).json()["run"]
+        self.assertEqual([m.to for m in mail.outbox], [["stu@example.com"]])
+        self.assertEqual((run["due"], run["emailed"], run["failed"]), (1, 1, 0))
+        self.assertTrue(FinalistFlag.objects.get(group=self.group).notified)
 
     def test_preview_shows_unsaved_details_and_the_logo_inline(self):
         from django.core import mail

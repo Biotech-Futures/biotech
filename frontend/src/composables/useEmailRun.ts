@@ -63,17 +63,21 @@ export const deliveryNote = (sentFrom: string) =>
   `or one a school's mail server refuses, come back to ${sentFrom}.`
 
 /** What a page says once a run finishes, and whether it's an error: how
- *  many were emailed, then why it stopped short and how to retry. */
+ *  many were emailed, then why it stopped short and how to retry. Always
+ *  ends with where any that can't be delivered come back to. */
 export function describeRun(run: EmailRun, wording: RunWording): { text: string; isError: boolean } {
   const sent = `Emailed ${plural(run.emailed, ...wording.emailed)}.`
-  if (run.error) return { text: `${sent} ${run.error}`, isError: true }
+  const note = wording.sentFrom ? ` ${deliveryNote(wording.sentFrom)}` : ''
+  if (run.error) return { text: `${sent} ${run.error}${note}`, isError: true }
   if (run.failed) {
     const missed = wording.failedWhole
       ? `${plural(run.failed, wording.failed)} couldn't be emailed`
       : `${plural(run.failed, wording.failed)} ${run.failed === 1 ? "wasn't" : "weren't"} emailed in full`
-    return { text: `${sent} ${missed}; press ${wording.button} again to retry.`, isError: true }
+    return {
+      text: `${sent} ${missed}; press ${wording.button} again to email only those it missed.${note}`,
+      isError: true,
+    }
   }
-  if (run.due === 0 && wording.nobodyDue) return { text: wording.nobodyDue, isError: false }
-  const note = run.emailed > 0 && wording.sentFrom ? ` ${deliveryNote(wording.sentFrom)}` : ''
+  if (run.due === 0 && wording.nobodyDue) return { text: `${wording.nobodyDue}${note}`, isError: false }
   return { text: `${sent}${note}`, isError: false }
 }

@@ -252,6 +252,27 @@ class ResultsEmailSettings(SingletonModel):
         return bool(self.survey_url and self.survey_closes)
 
 
+class EmailDelivery(models.Model):
+    """One person a team's bulk email reached: the finalist, non-finalist,
+    non-submission or group results email (``email``, the run's key). A team
+    is only recorded as emailed once everyone on it has the email; these let a
+    retry email just the people a run missed, so nobody gets a second copy."""
+
+    email = models.CharField(max_length=64)
+    group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE, related_name="+")
+    address = models.EmailField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "email_delivery"
+        constraints = [
+            models.UniqueConstraint(fields=["email", "group", "address"], name="uniq_email_delivery"),
+        ]
+
+    def __str__(self):
+        return f"{self.email}: {self.group_id} {self.address}"
+
+
 class EmailSendRun(models.Model):
     """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send starts a run on
@@ -278,7 +299,8 @@ class EmailSendRun(models.Model):
     failed = models.PositiveIntegerField(default=0)
     # Why the run stopped short, e.g. the mail server couldn't be reached.
     error = models.CharField(max_length=300, blank=True)
-    # Who it couldn't reach, as the page lists them: "(BTF07) Amy Chen".
+    # Who it couldn't reach and why, as the page lists them:
+    # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
 
     class Meta:
