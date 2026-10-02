@@ -109,7 +109,7 @@
     </section>
 
     <section class="card finalist-presentation__allocate">
-      <h3 class="finalist-presentation__section-title">Allocate Slot</h3>
+      <h3 class="finalist-presentation__section-title">Allocate Slots</h3>
       <p class="finalist-presentation__hint">
         Give each finalist team a time. Ticks show the times each team said it can make.
       </p>
@@ -295,7 +295,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slot: giving a team its time.
+// Allocate Slots: giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
