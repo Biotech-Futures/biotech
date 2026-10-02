@@ -218,7 +218,6 @@ onMounted(() => void load())
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 48rem;
 }
 
 .deadline__hint {

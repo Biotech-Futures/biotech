@@ -2,7 +2,8 @@
   <div class="non-finalist">
     <SymposiumEmailCard
       email="nonfinalists"
-      button-label="Email Nonfinalists"
+      button-label="Email All Nonfinalists"
+      newly-added
       confirm-title="Email non-finalist teams?"
     >
       <div class="card-header">
@@ -15,7 +16,7 @@
         For teams that submitted but weren't selected as finalists.
       </p>
       <p class="non-finalist__hint">
-        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+        Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
       </p>
       <p class="non-finalist__hint">
         The Symposium date and registration link come from Email Details on
@@ -25,13 +26,13 @@
 
     <SymposiumEmailCard
       email="nonsubmissions"
-      button-label="Email Nonsubmissions"
+      button-label="Email All Nonsubmissions"
       confirm-title="Email teams without a submission?"
     >
       <h3 class="non-finalist__section-title">Email Nonsubmission</h3>
       <p class="non-finalist__hint">For teams that didn't make a submission.</p>
       <p class="non-finalist__hint">
-        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+        Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
       </p>
       <p class="non-finalist__hint">
         The Symposium date and registration link come from Email Details on

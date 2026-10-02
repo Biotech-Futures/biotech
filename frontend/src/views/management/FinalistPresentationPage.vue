@@ -435,10 +435,6 @@ const remove = async (id: number) => {
   gap: 1rem;
 }
 
-.finalist-presentation__setup {
-  max-width: 48rem;
-}
-
 .finalist-presentation__section-title {
   font-size: 1.05rem;
   font-weight: 600;

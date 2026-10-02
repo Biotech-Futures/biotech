@@ -374,6 +374,10 @@ export interface EmailRun {
 export interface EmailRunState {
   /** A run is sending the email now. */
   sending: boolean
+  /** Its sends waiting their turn: one bulk email sends at a time. */
+  queued: number
+  /** The emails sending, or queued, ahead of it, e.g. "Finalist notification". */
+  ahead: string[]
   /** The address emails go out from, where undeliverable ones come back to. */
   sent_from?: string
   run: EmailRun | null
@@ -385,12 +389,21 @@ export interface FinalistNotifyResult extends EmailRunState {
 }
 
 // Starts a run on the server that emails them, so the page can be closed.
-export function notifyFinalists(groupIds?: number[]): Promise<FinalistNotifyResult> {
+// Or pass which: 'new' for the teams no send has tried yet, 'missed' for
+// only the people earlier sends missed.
+export function notifyFinalists(
+  groupIds?: number[],
+  which?: FinalistSendWhich
+): Promise<FinalistNotifyResult> {
   return requestJson<FinalistNotifyResult>('/api/v1/management/finalists/notify/', {
     method: 'POST',
-    body: JSON.stringify(groupIds?.length ? { group_ids: groupIds } : {})
+    body: JSON.stringify(which ? { which } : groupIds?.length ? { group_ids: groupIds } : {})
   })
 }
+
+/** A send limited to the teams no send has tried yet, or to the people
+ *  earlier sends missed. */
+export type FinalistSendWhich = 'new' | 'missed'
 
 /** What the finalist email tells teams about the Symposium (dates as YYYY-MM-DD). */
 export interface FinalistEmailFields {
@@ -411,7 +424,9 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   submissions_open: string
   /** Everyone the finalist email goes to, by role; a notified team's
    *  members count as emailed. */
-  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
+  counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount> & { groups: EmailedCount }
+  /** The teams, and people on them, each limited send would email. */
+  waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.
@@ -552,7 +567,7 @@ export interface FinalistEmailPreview {
 
 // POST /api/v1/management/finalists/email/preview/ — the email as a finalist
 // would get it, for the given (possibly unsaved) details. Sends nothing.
-// `recipient` is a person picked in Send Test Email: their team's email.
+// `recipient` is a group picked in Send Test Email: its email.
 export function previewFinalistEmail(
   fields: Partial<FinalistEmailFields>,
   recipient = ''
@@ -592,6 +607,10 @@ export interface ResultsEmailDetails extends ResultsEmailFields {
   /** Groups due the group email, which goes to their students and mentors. */
   groups: EmailedCount
   supervisors: EmailedCount
+  /** The group email's students and mentors, due it and emailed. */
+  people: Record<'students' | 'mentors', PeopleEmailedCount>
+  /** The groups or supervisors, and people, Resend Email To Missed Individuals would email. */
+  missed: Record<ResultsAudience, { count: number; people: number }>
 }
 
 export type ResultsAudience = 'groups' | 'supervisors'
@@ -622,7 +641,7 @@ export function updateResultsEmailDetails(
 
 // POST /api/v1/management/results-email/preview/ — one email as it would go out,
 // for the given (possibly unsaved) details. Sends nothing. `recipient` is a
-// person picked in Send Test Email: their email and files.
+// group or supervisor picked in Send Test Email: their email and files.
 export function previewResultsEmail(
   audience: ResultsAudience,
   fields: Partial<ResultsEmailFields>,
@@ -652,10 +671,11 @@ export async function downloadSupervisorMarksSheet(supervisorId: string): Promis
 // supervisors; call again with the returned cursor until done.
 // POST /api/v1/management/results-email/send/ — start a run on the server that
 // emails ``audience``, so the page can be closed; the details, with its progress.
-export function startResultsEmail(audience: ResultsAudience): Promise<ResultsEmailDetails> {
+// With 'missed', only those an earlier send missed.
+export function startResultsEmail(audience: ResultsAudience, which?: 'missed'): Promise<ResultsEmailDetails> {
   return requestJson<ResultsEmailDetails>('/api/v1/management/results-email/send/', {
     method: 'POST',
-    body: JSON.stringify({ audience })
+    body: JSON.stringify(which ? { audience, which } : { audience })
   })
 }
 
@@ -667,7 +687,10 @@ export function startResultsEmail(audience: ResultsAudience): Promise<ResultsEma
 export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
 
 export interface SymposiumEmailStatus extends EmailRunState {
+  /** Teams emailed once everyone on them has the email. */
   teams: EmailedCount
+  /** For the count: teams emailed once their email went, even if someone missed it. */
+  groups: EmailedCount
   /** Their members with an address, by role; each gets the email. */
   students: PeopleEmailedCount
   mentors: PeopleEmailedCount
@@ -675,6 +698,9 @@ export interface SymposiumEmailStatus extends EmailRunState {
   /** Why sending is refused (details missing on Notify Finalists, switched
    *  off, submissions still open), or "" when it may go ahead. */
   blocked: string
+  /** The teams, and people on them, Email Newly Added and Resend Email To
+   *  Missed Individuals would email. */
+  waiting: Record<'new' | 'missed', { teams: number; people: number }>
 }
 
 export interface SymposiumEmailPreview {
@@ -690,7 +716,7 @@ export function fetchSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEma
 }
 
 // POST /api/v1/management/{email}/preview/ — the email as `recipient`'s team (a
-// person picked in Send Test Email) would get it, else the first team due.
+// group picked in Send Test Email) would get it, else the first team due.
 // Nothing is sent.
 export function previewSymposiumEmail(
   email: SymposiumEmail,
@@ -705,11 +731,16 @@ export function previewSymposiumEmail(
 // POST /api/v1/management/{email}/send/ — email the next few teams; call again
 // with the returned cursor until done.
 // POST /api/v1/management/{nonfinalists|nonsubmissions}/send/ — start a run on
-// the server that emails every team due it, so the page can be closed.
-export function startSymposiumEmail(email: SymposiumEmail): Promise<SymposiumEmailStatus> {
+// the server that emails every team due it, so the page can be closed. With
+// 'new', only the teams no send has tried yet; with 'missed', only the people
+// earlier sends missed.
+export function startSymposiumEmail(
+  email: SymposiumEmail,
+  which?: 'new' | 'missed'
+): Promise<SymposiumEmailStatus> {
   return requestJson<SymposiumEmailStatus>(`/api/v1/management/${email}/send/`, {
     method: 'POST',
-    body: JSON.stringify({})
+    body: JSON.stringify(which ? { which } : {})
   })
 }
 

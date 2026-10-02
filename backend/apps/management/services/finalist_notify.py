@@ -30,7 +30,7 @@ from apps.services.system_email import (
 from apps.submissions.emails import recipients_for
 
 from ..models import FinalistEmailSettings
-from .delivery import send_each
+from .delivery import send_group
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,8 @@ def notify_finalist(
     flag: FinalistFlag, actor=None, details: FinalistEmailSettings | None = None, connection=None,
     missed: dict | None = None,
 ) -> bool:
-    """Email every active member of a finalist team (students, mentors and
-    supervisors), each their own copy.
+    """Email every active member of a finalist team in one email: its
+    students in To, its mentors and supervisors in CC.
 
     No-op when the flag has already been ``notified`` (avoids re-mailing on
     toggle churn), when an admin has switched the email off, when the email
@@ -113,7 +113,7 @@ def notify_finalist(
         logger.exception("finalist notify failed to render: group=%s", flag.group_id)
         return False
 
-    failed = send_each(
+    failed = send_group(
         rendered, recipients, connection, email=EMAIL_KEY, group=flag.group, log_as=f"group={flag.group_id}",
     )
     if failed:

@@ -33,7 +33,8 @@
           </div>
         </div>
         <p v-if="candidatesResp" class="finalists__stats">
-          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked ·
+          {{ finalistCount }} Added as {{ finalistCount === 1 ? 'Finalist' : 'Finalists' }}
         </p>
         <div class="finalists__search-side">
           <!-- Each group's title and categories stay hidden until asked for. -->
@@ -225,7 +226,7 @@
               <td colspan="9" class="finalists__empty">No finalists yet.</td>
             </tr>
             <tr v-for="(f, i) in finalistsInOrder" :key="f.group_id">
-              <td class="finalists__muted">{{ i + 1 }}</td>
+              <td class="finalists__muted">{{ finalistsInOrder.length - i }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
               <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
@@ -329,11 +330,12 @@ const groupQuery = ref('')
 const showDetails = ref(false)
 
 const finalists = computed(() => list.value?.finalists ?? [])
-// In the order they were picked: the earliest flagged first, numbered.
+// The latest flagged first, each numbered in the order picked: the
+// earliest is 1.
 const finalistsInOrder = computed(() =>
   [...finalists.value].sort(
     (a, b) =>
-      new Date(a.flagged_at).getTime() - new Date(b.flagged_at).getTime() ||
+      new Date(b.flagged_at).getTime() - new Date(a.flagged_at).getTime() ||
       a.group_name.localeCompare(b.group_name, undefined, { numeric: true })
   )
 )
@@ -369,6 +371,8 @@ const submittedCount = computed(
 const fullyMarkedCount = computed(
   () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission && !r.incomplete.length).length
 )
+// And how many of the groups have been added as finalists.
+const finalistCount = computed(() => (candidatesResp.value?.rows ?? []).filter((r) => r.is_finalist).length)
 
 // The SAQ and Poster marks together: the released parts, as the marks
 // summary adds them up.
@@ -469,12 +473,20 @@ onMounted(() => {
   void loadCandidates()
 })
 
+// After adding or removing: both tables update in place, without the
+// Loading… that replaces them, so the page keeps its place.
+const refreshInPlace = async () => {
+  const [finalistList, candidateList] = await Promise.all([fetchFinalists(), fetchFinalistCandidates()])
+  list.value = finalistList
+  candidatesResp.value = candidateList
+}
+
 const addFromRow = async (id: number) => {
   actionError.value = ''
   isMutating.value = true
   try {
     await addFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -490,7 +502,7 @@ const remove = async (id: number) => {
   isMutating.value = true
   try {
     await removeFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -589,6 +601,9 @@ const remove = async (id: number) => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /* Stays right-aligned even when the card wraps it onto its own line, as
+     on the component pages. */
+  margin-left: auto;
 }
 
 .finalists__legend {

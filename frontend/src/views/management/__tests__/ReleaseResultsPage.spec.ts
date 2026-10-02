@@ -45,12 +45,14 @@ const run = (over: Record<string, unknown> = {}) => ({
   finished_at: null as string | null,
   ...over
 })
-const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, queued: 0, ahead: [], run: run(over) })
 const finishedRun = (over: Record<string, unknown> = {}) => ({
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
 })
-const IDLE = { sending: false, run: null }
+const IDLE = { sending: false, queued: 0, ahead: [] as string[], run: null }
 
 const status = { released_at: null, released_by: null, submissions_open: false }
 
@@ -69,6 +71,11 @@ const details = (over: Record<string, unknown> = {}) => ({
   runs: { groups: IDLE, supervisors: IDLE },
   groups: { total: 3, emailed: 0 },
   supervisors: { total: 2, emailed: 0 },
+  people: {
+    students: { total: 6, emailed: 0, times: { total: 6, emailed: 0 } },
+    mentors: { total: 2, emailed: 0, times: { total: 3, emailed: 0 } }
+  },
+  missed: { groups: { count: 0, people: 0 }, supervisors: { count: 0, people: 0 } },
   ...over
 })
 
@@ -100,8 +107,11 @@ describe('layout', () => {
     expect(cards[0]!.text()).toContain('Email Details')
     expect(cards[1]!.find('.release__section-title').text()).toBe('Release Marks')
     expect(cards[2]!.find('.release__section-title').text()).toBe('Release Certificates')
-    expect(cards[3]!.text()).toContain('Send Results Emails')
-    expect(cards[3]!.text()).toContain('Groups: 0 of 3 emailed · Supervisors: 0 of 2 emailed')
+    expect(cards[3]!.text()).toContain('Email Results')
+    expect(cards[3]!.findAll('.release-results__counts').map((p) => p.text())).toEqual([
+      'Groups: 0 of 3 emailed Students: 0 of 6 emailed · Mentors: 0 of 2 emailed (Times 0 of 3)',
+      'Supervisors: 0 of 2 emailed'
+    ])
     expect(wrapper.text()).not.toContain('still being built')
   })
 
@@ -110,9 +120,9 @@ describe('layout', () => {
     const hints = wrapper.findAll('.release-results__send .release-results__hint').map((p) => p.text())
     expect(hints).toEqual([
       "Emails every group that submitted, and its students' supervisors, that their results are out. Each is emailed once.",
-      "Group emails go to the group's students and mentors with every certificate in the group attached, so " +
-        "students get each other's and their mentor's certificates. Anyone in multiple groups gets multiple emails, " +
-        'one for each group.'
+      "Each group gets one email, its students and mentors in To, with every certificate in the group " +
+        "attached, so students get each other's and their mentor's certificates. Resending emails only those " +
+        'who missed it. Anyone in multiple groups gets one email for each group.'
     ])
   })
 })
@@ -358,20 +368,62 @@ describe('sending', () => {
       await flushPromises()
       expect(wrapper.find('.release-results__progress').exists()).toBe(false)
       expect(wrapper.text()).toContain('Emailed 9 people.')
-      expect(wrapper.find('.release-results__counts').text()).toBe(
-        'Groups: 3 of 3 emailed · Supervisors: 0 of 2 emailed'
-      )
+      expect(wrapper.findAll('.release-results__counts').map((p) => p.text())).toEqual([
+        'Groups: 3 of 3 emailed Students: 0 of 6 emailed · Mentors: 0 of 2 emailed (Times 0 of 3)',
+        'Supervisors: 0 of 2 emailed'
+      ])
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('a page opened mid-run shows its progress, with that button off', async () => {
+  it('a page opened mid-run shows its progress, and more sends can be queued', async () => {
     detailsMock.mockResolvedValue(details({ runs: { groups: IDLE, supervisors: sendingRun({ due: 2, emailed: 1 }) } }))
     const wrapper = await mountPage()
     expect(wrapper.find('.release-results__progress').text()).toBe('Emailed 1 of 2 supervisors so far…')
-    expect(buttonNamed(wrapper, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeUndefined()
     expect(emailButton(wrapper, 'Groups').attributes('disabled')).toBeUndefined()
+  })
+
+  it('a send pressed while another is going says it is queued', async () => {
+    sendMock.mockResolvedValueOnce(details({ runs: { groups: { ...IDLE, queued: 1 }, supervisors: IDLE } }))
+    // Nothing ahead: it waits only the few seconds after the last send.
+    const wrapper = await mountPage()
+    await emailButton(wrapper, 'Groups').trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.release-results__banner--ok').text()).toBe('Queued. It starts in a few seconds.')
+    expect(wrapper.find('.release-results__queued').text()).toBe('Queued, starts in a few seconds.')
+  })
+
+  it('puts each email on its own line, with Resend Email To Missed Individuals beside it', async () => {
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.release-results__send-rows .release-results__actions')
+    expect(rows.map((row) => row.findAll('button').map((b) => b.text()))).toEqual([
+      ['Email Groups', 'Resend Email To Missed Individuals'],
+      ['Email Supervisors', 'Resend Email To Missed Individuals']
+    ])
+    // Nobody missed yet: both Resend buttons are off.
+    for (const row of rows) expect(row.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+  })
+
+  it('Resend Email To Missed Individuals names who was missed and asks for only them', async () => {
+    const missed = { groups: { count: 1, people: 2 }, supervisors: { count: 1, people: 1 } }
+    detailsMock.mockResolvedValue(details({ missed }))
+    sendMock.mockResolvedValueOnce(
+      details({ missed, runs: { groups: IDLE, supervisors: finishedRun({ due: 1, emailed: 1 }) } })
+    )
+    const wrapper = await mountPage()
+    const supervisorsRow = wrapper.findAll('.release-results__send-rows .release-results__actions')[1]!
+    await supervisorsRow.findAll('button')[1]!.trigger('click')
+    expect(wrapper.find('[role="dialog"]').text()).toContain('This emails only the 1 supervisor earlier sends missed.')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(sendMock).toHaveBeenCalledWith('supervisors', 'missed')
+
+    const groupsRow = wrapper.findAll('.release-results__send-rows .release-results__actions')[0]!
+    await groupsRow.findAll('button')[1]!.trigger('click')
+    expect(wrapper.find('[role="dialog"]').text()).toContain('This emails only the 2 people earlier sends missed, on 1 group.')
   })
 
   it('says how many groups were not emailed in full, for a retry', async () => {
@@ -381,7 +433,7 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.release-results__banner--error').text()).toBe(
-      "Emailed 4 people. 1 group wasn't emailed in full; press Email Groups again to email only those it missed."
+      "Emailed 4 people. 1 group wasn't emailed in full; press Resend Email To Missed Individuals to email only those it missed."
     )
   })
 

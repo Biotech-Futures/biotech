@@ -103,6 +103,14 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
       body: { group_ids: [4] }
     },
     {
+      name: 'notifyFinalists missed',
+      call: () => api.notifyFinalists(undefined, 'missed'),
+      reply: { sent: 1, pending: 0 },
+      url: '/api/v1/management/finalists/notify/',
+      method: 'POST',
+      body: { which: 'missed' }
+    },
+    {
       name: 'notifyFinalists all',
       call: () => api.notifyFinalists(),
       reply: { sent: 0, pending: 0 },

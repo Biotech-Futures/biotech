@@ -32,12 +32,14 @@ const run = (over: Record<string, unknown> = {}) => ({
   finished_at: null as string | null,
   ...over
 })
-const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, queued: 0, ahead: [], run: run(over) })
 const finishedRun = (over: Record<string, unknown> = {}) => ({
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
 })
-const IDLE = { sending: false, run: null }
+const IDLE = { sending: false, queued: 0, ahead: [] as string[], run: null }
 
 // People due the email and emailed, and the emails that makes ("times").
 const people = (total: number, emailed: number, timesTotal = total, timesEmailed = emailed) => ({
@@ -48,10 +50,12 @@ const people = (total: number, emailed: number, timesTotal = total, timesEmailed
 
 const status = (overrides: Partial<SymposiumEmailStatus> = {}): SymposiumEmailStatus => ({
   teams: { total: 3, emailed: 0 },
+  groups: { total: 3, emailed: 0 },
   students: people(6, 0),
   mentors: people(3, 0, 4),
   supervisors: people(2, 0),
   blocked: '',
+  waiting: { new: { teams: 0, people: 0 }, missed: { teams: 0, people: 0 } },
   ...IDLE,
   ...overrides
 })
@@ -88,7 +92,7 @@ beforeEach(() => {
   sendMock.mockReset()
   statuses = {
     nonfinalists: status(),
-    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, students: people(1, 0) })
+    nonsubmissions: status({ teams: { total: 1, emailed: 0 }, groups: { total: 1, emailed: 0 }, students: people(1, 0) })
   }
   statusMock.mockImplementation(async (email) => statuses[email])
 })
@@ -104,12 +108,12 @@ describe('Email Nonfinalist', () => {
     // Each sentence on its own line, spaced like the lines around it.
     expect(wrapper.findAll(`${NONFINALISTS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that submitted but weren't selected as finalists.",
-      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.findAll(`${NONSUBMISSIONS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that didn't make a submission.",
-      "Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.",
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
       'The Symposium date and registration link come from Email Details on Notify Finalists.'
     ])
     expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')
@@ -120,13 +124,15 @@ describe('Email Nonfinalist', () => {
     for (const [card, count, label] of [
       [
         NONFINALISTS,
-        'Students: 0 of 6 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
-        'Email Nonfinalists'
+        'Groups: 0 of 3 emailed Students: 0 of 6 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · ' +
+          'Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Email All Nonfinalists'
       ],
       [
         NONSUBMISSIONS,
-        'Students: 0 of 1 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · Supervisors: 0 of 2 emailed (Times 0 of 2)',
-        'Email Nonsubmissions'
+        'Groups: 0 of 1 emailed Students: 0 of 1 emailed · Mentors: 0 of 3 emailed (Times 0 of 4) · ' +
+          'Supervisors: 0 of 2 emailed (Times 0 of 2)',
+        'Email All Nonsubmissions'
       ]
     ] as const) {
       const line = wrapper.find(`${card} .symposium-email__status`)
@@ -145,8 +151,8 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__status`).text()).toBe(
       'Emails are sent to every group member'
     )
-    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeDefined()
-    expect(buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).attributes('disabled')).toBeUndefined()
+    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).attributes('disabled')).toBeDefined()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeUndefined()
   })
 
   it('says why it cannot send, from the server', async () => {
@@ -154,7 +160,7 @@ describe('Email Nonfinalist', () => {
     statuses.nonfinalists = status({ blocked: reason })
     const wrapper = await mountPage()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__blocked`).text()).toBe(reason)
-    expect(buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).attributes('disabled')).toBeDefined()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeDefined()
   })
 
   it('still shows the status line and count while no team is due the email', async () => {
@@ -165,7 +171,7 @@ describe('Email Nonfinalist', () => {
     )
     expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__counts`).text()).toContain('Students: 0 of 0 emailed')
     // Nobody to email, so nothing to send.
-    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeDefined()
+    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).attributes('disabled')).toBeDefined()
   })
 
   it('says when the teams could not be loaded', async () => {
@@ -186,7 +192,7 @@ describe('Email Nonfinalist', () => {
     try {
       sendMock.mockResolvedValueOnce(status({ ...sendingRun({ due: 12 }) }))
       const wrapper = await mountPage()
-      await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
+      await buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).trigger('click')
       const confirm = wrapper.find('[aria-label="Send the email"]')
       expect(confirm.text()).toContain('Email non-finalist teams?')
       expect(confirm.text()).toContain("This emails every member of the 3 teams that haven't had this email yet.")
@@ -197,7 +203,8 @@ describe('Email Nonfinalist', () => {
       expect(sendMock).toHaveBeenCalledWith('nonfinalists')
       expect(wrapper.find('[aria-label="Send the email"]').exists()).toBe(false)
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 0 of 12 people so far…')
-      expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
+      // Pressing again queues another send behind it.
+      expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeUndefined()
 
       statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 8 }) })
       vi.advanceTimersByTime(2000)
@@ -206,7 +213,7 @@ describe('Email Nonfinalist', () => {
 
       statuses.nonfinalists = status({
         ...finishedRun({ due: 12, emailed: 12 }),
-        teams: { total: 3, emailed: 3 }, students: people(6, 6),
+        teams: { total: 3, emailed: 3 }, groups: { total: 3, emailed: 3 }, students: people(6, 6),
         mentors: people(3, 3, 4, 4), supervisors: people(2, 2)
       })
       vi.advanceTimersByTime(2000)
@@ -214,7 +221,7 @@ describe('Email Nonfinalist', () => {
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).exists()).toBe(false)
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--ok`).text()).toBe('Emailed 12 people.')
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__counts`).text()).toBe(
-        'Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
+        'Groups: 3 of 3 emailed Students: 6 of 6 emailed · Mentors: 3 of 3 emailed (Times 4 of 4) · ' +
           'Supervisors: 2 of 2 emailed (Times 2 of 2)'
       )
     } finally {
@@ -222,12 +229,29 @@ describe('Email Nonfinalist', () => {
     }
   })
 
-  it('a page opened mid-run shows its progress; the other email can still go', async () => {
+  it('a page opened mid-run shows its progress; either email can still be queued', async () => {
     statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 5 }) })
     const wrapper = await mountPage()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 5 of 12 people so far…')
-    expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
-    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email Nonsubmissions$/).attributes('disabled')).toBeUndefined()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeUndefined()
+    expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('a send pressed while another is going says it is queued', async () => {
+    sendMock.mockResolvedValueOnce(
+      status({ ...finishedRun(), queued: 1, ahead: ['Finalist notification', 'Non-finalist invitation'] })
+    )
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).trigger('click')
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__banner--ok`).text()).toBe(
+      'Queued behind the Finalist notification and Non-finalist invitation emails. ' +
+        'It starts a few seconds after those have finished.'
+    )
+    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__queued`).text()).toBe(
+      'Queued behind the Finalist notification and Non-finalist invitation emails, starts once those have finished.'
+    )
   })
 
   it("lists, under the button, who the last run couldn't reach", async () => {
@@ -239,14 +263,66 @@ describe('Email Nonfinalist', () => {
     expect(wrapper.find(`${NONSUBMISSIONS} [data-testid="missed"]`).exists()).toBe(false)
   })
 
+  it('Resend Email To Missed Individuals names who was missed and asks for only them', async () => {
+    statuses.nonfinalists = status({ waiting: { new: { teams: 0, people: 0 }, missed: { teams: 1, people: 2 } } })
+    sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 2, emailed: 2 }) }))
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONFINALISTS, /^Resend Email To Missed Individuals$/).trigger('click')
+    expect(wrapper.find('[aria-label="Send the email"]').text()).toContain(
+      'This emails only the 2 people earlier sends missed, on 1 team.'
+    )
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(sendMock).toHaveBeenCalledWith('nonfinalists', 'missed')
+  })
+
+  it('Email Newly Added is on Email Nonfinalist only, between Email All and Resend', async () => {
+    const wrapper = await mountPage()
+    const labels = (card: string) =>
+      wrapper.findAll(`${card} .symposium-email__actions button`).map((b) => b.text())
+    expect(labels(NONFINALISTS)).toEqual([
+      'Preview Email',
+      'Send Test Email',
+      'Email All Nonfinalists',
+      'Email Newly Added',
+      'Resend Email To Missed Individuals'
+    ])
+    expect(labels(NONSUBMISSIONS)).not.toContain('Email Newly Added')
+  })
+
+  it('Email Newly Added names how many teams and asks for only them', async () => {
+    statuses.nonfinalists = status({ waiting: { new: { teams: 2, people: 7 }, missed: { teams: 0, people: 0 } } })
+    sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 7, emailed: 7 }) }))
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONFINALISTS, /^Email Newly Added$/).trigger('click')
+    expect(wrapper.find('[aria-label="Send the email"]').text()).toContain(
+      'This emails every member of the 2 newly added teams.'
+    )
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(sendMock).toHaveBeenCalledWith('nonfinalists', 'new')
+  })
+
+  it('Email Newly Added is off when no team is newly added', async () => {
+    const wrapper = await mountPage()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email Newly Added$/).attributes('disabled')).toBeDefined()
+  })
+
+  it('Resend Email To Missed Individuals is off when nobody was missed', async () => {
+    const wrapper = await mountPage()
+    for (const card of [NONFINALISTS, NONSUBMISSIONS]) {
+      expect(buttonIn(wrapper, card, /^Resend Email To Missed Individuals$/).attributes('disabled')).toBeDefined()
+    }
+  })
+
   it('says how many teams were not emailed in full, for a retry', async () => {
     sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 3, emailed: 1, failed: 1 }) }))
     const wrapper = await mountPage()
-    await buttonIn(wrapper, NONFINALISTS, /^Email Nonfinalists$/).trigger('click')
+    await buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).trigger('click')
     await dialogButton(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__banner--error`).text()).toBe(
-      "Emailed 1 person. 1 team wasn't emailed in full; press Email Nonfinalists again to email only those it missed."
+      "Emailed 1 person. 1 team wasn't emailed in full; press Resend Email To Missed Individuals to email only those it missed."
     )
   })
 

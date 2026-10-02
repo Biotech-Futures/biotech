@@ -1,7 +1,7 @@
 <template>
   <!-- One Symposium email on the Email Nonfinalist tab: the page's headings
-       and text in the slot, then who has it, why it can't go if it can't,
-       sending and a preview. -->
+       and text in the slot, then a preview, who has it, why it can't go if
+       it can't, and sending. -->
   <div class="symposium-email" :class="`symposium-email--${email}`">
     <section class="card">
       <slot />
@@ -9,6 +9,18 @@
         Failed to load the teams. {{ loadError }}
       </p>
       <template v-else-if="status">
+        <!-- Preview and test above who has it. -->
+        <div class="symposium-email__actions symposium-email__actions--preview">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="loadingPreview"
+            @click="openPreview()"
+          >
+            {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
+          </button>
+          <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
+        </div>
         <!-- Same status line and count as Notify Finalists, shown even while
              no team is due it. A team only counts as emailed once every
              member got the email. -->
@@ -20,6 +32,7 @@
           {{ allEmailed ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
         </p>
         <p class="symposium-email__counts">
+          <strong>Groups: {{ status.groups.emailed }} of {{ status.groups.total }} emailed</strong><br />
           Students: {{ status.students.emailed }} of {{ status.students.total }} emailed ·
           Mentors: {{ status.mentors.emailed }} of {{ status.mentors.total }} emailed
           (Times {{ status.mentors.times.emailed }} of {{ status.mentors.times.total }}) ·
@@ -31,29 +44,40 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="starting || !canSend"
-            @click="confirming = true"
+            :disabled="starting !== null || !canSend"
+            @click="confirming = 'all'"
           >
-            {{ starting || status.sending ? 'Sending…' : buttonLabel }}
+            {{ starting === 'all' ? 'Sending…' : buttonLabel }}
+          </button>
+          <button
+            v-if="newlyAdded"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="starting !== null || !canSend || !status.waiting.new.teams"
+            @click="confirming = 'new'"
+          >
+            {{ starting === 'new' ? 'Sending…' : 'Email Newly Added' }}
           </button>
           <button
             type="button"
             class="btn btn-outline btn-sm"
-            :disabled="loadingPreview"
-            @click="openPreview()"
+            :disabled="starting !== null || !canSend || !status.waiting.missed.teams"
+            @click="confirming = 'missed'"
           >
-            {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
+            {{ starting === 'missed' ? 'Sending…' : 'Resend Email To Missed Individuals' }}
           </button>
-          <TestEmailSender v-model:recipient="testRecipient" :kind="email" />
           <span v-if="status.sending && status.run" class="symposium-email__progress" role="status">
             Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
+          </span>
+          <span v-if="status.queued" class="symposium-email__queued" role="status">
+            {{ queuedNote(status.queued, status.ahead) }}
           </span>
         </div>
         <div v-if="status.run?.missed.length" class="symposium-email__missed" data-testid="missed">
           <p class="symposium-email__missed-title">Couldn't be emailed:</p>
           <ul>
             <li v-for="(m, i) in status.run.missed" :key="i">
-              {{ m.who }}<span v-if="m.reason" class="symposium-email__missed-reason"> · {{ m.reason }}</span>
+              <MissedPerson :who="m.who" /><span v-if="m.reason" class="symposium-email__missed-reason"> · {{ m.reason }}</span>
             </li>
           </ul>
         </div>
@@ -69,18 +93,25 @@
   </div>
 
   <Teleport to="body">
-    <div v-if="confirming" class="symposium-email__overlay" @click.self="confirming = false">
+    <div v-if="confirming" class="symposium-email__overlay" @click.self="confirming = null">
       <div class="symposium-email__dialog" role="dialog" aria-modal="true" aria-label="Send the email">
         <h3 class="symposium-email__dialog-title">
           <i class="fas fa-envelope" aria-hidden="true"></i> {{ confirmTitle }}
         </h3>
-        <p class="symposium-email__dialog-text">
+        <p v-if="confirming === 'new' && status" class="symposium-email__dialog-text">
+          This emails every member of the {{ plural(status.waiting.new.teams, 'newly added team') }}.
+        </p>
+        <p v-else-if="confirming === 'missed' && status" class="symposium-email__dialog-text">
+          This emails only the {{ plural(status.waiting.missed.people, 'person', 'people') }} earlier sends
+          missed, on {{ plural(status.waiting.missed.teams, 'team') }}.
+        </p>
+        <p v-else class="symposium-email__dialog-text">
           This emails every member of the {{ plural(pendingTeams, 'team') }} that
           {{ pendingTeams === 1 ? "hasn't" : "haven't" }} had this email yet.
         </p>
         <div class="symposium-email__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirming = false">Cancel</button>
-          <button type="button" class="btn btn-primary btn-sm" @click="sendAll">Send</button>
+          <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="send">Send</button>
         </div>
       </div>
     </div>
@@ -124,7 +155,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchSymposiumEmail,
@@ -136,14 +167,17 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
+import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const props = defineProps<{
   email: SymposiumEmail
-  /** The send button, e.g. "Email Nonfinalists". */
+  /** The send button, e.g. "Email All Nonfinalists". */
   buttonLabel: string
   /** The confirmation's question, e.g. "Email non-finalist teams?". */
   confirmTitle: string
+  /** Show Email Newly Added: only the teams no send has tried yet. */
+  newlyAdded?: boolean
 }>()
 
 const status = ref<SymposiumEmailStatus | null>(null)
@@ -163,12 +197,12 @@ const load = async () => {
 const pendingTeams = computed(() => (status.value ? status.value.teams.total - status.value.teams.emailed : 0))
 const allEmailed = computed(() => Boolean(status.value?.teams.total) && pendingTeams.value === 0)
 const canSend = computed(() =>
-  Boolean(status.value && !status.value.sending && !status.value.blocked && pendingTeams.value > 0)
+  Boolean(status.value && !status.value.blocked && pendingTeams.value > 0)
 )
 
 // -- Preview ----------------------------------------------------------------
 
-// The person picked in Send Test Email: the preview is their team's email.
+// The group picked in Send Test Email: the preview is its email.
 const testRecipient = ref('')
 const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewSymposiumEmail(props.email, testRecipient.value),
@@ -177,22 +211,30 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
 
 // -- Sending ----------------------------------------------------------------
 
-const confirming = ref(false)
-// The Send request itself; the run then sends on the server.
-const starting = ref(false)
+// Which send is awaiting confirmation: every team due, only those no send
+// has tried yet, or only the people earlier sends missed; null = dialog closed.
+type SendMode = 'all' | 'new' | 'missed'
+const confirming = ref<SendMode | null>(null)
+// Which Send request is going; the run then sends on the server.
+const starting = ref<SendMode | null>(null)
 
-const sendAll = async () => {
-  confirming.value = false
+const send = async () => {
+  const mode = confirming.value
+  if (!mode) return
+  confirming.value = null
   actionError.value = ''
-  starting.value = true
+  starting.value = mode
   try {
-    status.value = await startSymposiumEmail(props.email)
+    status.value = await (mode === 'all'
+      ? startSymposiumEmail(props.email)
+      : startSymposiumEmail(props.email, mode))
     // A run with little or nothing to send can be over by the reply.
-    if (!status.value.sending && status.value.run) reportRun(status.value.run)
+    if (status.value.queued) flashAction(queuedMessage(status.value.ahead))
+    else if (!isBusy(status.value) && status.value.run) reportRun(status.value.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
-    starting.value = false
+    starting.value = null
   }
 }
 
@@ -201,7 +243,7 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: props.buttonLabel,
+    button: 'Resend Email To Missed Individuals',
     sentFrom: status.value?.sent_from
   })
   if (isError) actionError.value = text
@@ -258,6 +300,10 @@ onMounted(load)
   gap: 0.75rem 1.25rem;
 }
 
+.symposium-email__actions--preview {
+  margin: 0 0 0.75rem;
+}
+
 .symposium-email__progress {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -266,6 +312,12 @@ onMounted(load)
 /* Who the last run couldn't reach, under the buttons. */
 .symposium-email__missed {
   margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.symposium-email__queued {
+  color: var(--danger);
   font-size: 0.85rem;
 }
 

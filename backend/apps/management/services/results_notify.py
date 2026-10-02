@@ -2,14 +2,15 @@
 both marks and certificates are released, sent from the Release Results tab.
 
 Same path as the finalist email: the shared system email path, so admins can
-switch them off or reword them on System Emails; one copy per recipient; and
-replies go to the support mailbox. They carry the documents they speak of:
-the group's certificates (its students' and its mentors') and marks summary,
-and for each supervisor their students' and those groups' mentors'
-certificates and a spreadsheet of those groups' marks. Groups and supervisors are emailed from separate buttons, in small
-batches, so each request stays short and the page can show progress. A group
-or a supervisor is recorded as emailed only once every copy went out, so a
-retry reaches whoever missed it, and is skipped after that.
+switch them off or reword them on System Emails; one email per group, its
+students and mentors in To, and one per supervisor; and replies go to the
+support mailbox. They carry the documents they speak of: the group's
+certificates (its students' and its mentors') and marks summary, and for
+each supervisor their students' and those groups' mentors' certificates and
+a spreadsheet of those groups' marks. Groups and supervisors are emailed from
+separate buttons, each send queued on the server (see ``send_guard``). A
+group or a supervisor is recorded as emailed only once everyone it's for has
+it, so a retry reaches whoever missed it, and is skipped after that.
 
 Who gets them, for the challenge year (``current_cohort``):
 
@@ -72,9 +73,21 @@ from .docx import (
     sample_marks_summary_context,
     signature_images,
 )
-from .delivery import send_each, still_due
+from .delivery import send_each, send_group, still_due
 from .finalist_notify import NOT_SET, symposium_today
-from .send_guard import NOT_SENT, Work, missed_people, person_name, start_run, submissions_open_reason
+from .symposium_emails import reached_ids, role_counts
+from .send_guard import (
+    BUILDERS,
+    NOT_SENT,
+    Work,
+    last_missed,
+    missed_people,
+    person_label,
+    person_name,
+    queue_send,
+    submissions_open_reason,
+    tried_teams,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +99,6 @@ AUDIENCES = (GROUPS, SUPERVISORS)
 EMAIL_KEYS = {GROUPS: "results_team", SUPERVISORS: "results_supervisor"}
 
 RELEASE_FIRST = "Release both marks and certificates before sending the results emails."
-ALREADY_SENDING = "Results emails are already being sent. Wait for that to finish."
 TEMPLATES_MISSING = {
     GROUPS: (
         "Upload the marks summary, student certificate and mentor certificate templates "
@@ -171,9 +183,20 @@ class ResultsAudience:
     supervisors_emailed: set = field(default_factory=set)
 
     def counts(self) -> dict:
+        """Groups and supervisors due their email and emailed, and the group
+        email's students and mentors (see ``role_counts``)."""
+        team_ids = [team.id for team in self.teams]
+        members = {
+            role: {team.id: {user.id for user in by_team.get(team.id, []) if user.email} for team in self.teams}
+            for role, by_team in (("students", self.team_students), ("mentors", self.team_mentors))
+        }
+        people = role_counts(members, team_ids, self.teams_emailed, reached_ids(EMAIL_KEYS[GROUPS], team_ids))
         return {
             GROUPS: {"total": len(self.teams), "emailed": len(self.teams_emailed)},
             SUPERVISORS: {"total": len(self.supervisors), "emailed": len(self.supervisors_emailed)},
+            "people": {role: people[role] for role in ("students", "mentors")},
+            # Who Resend Email To Missed Individuals would email, for each email.
+            "missed": {audience: missed_count(self, audience) for audience in AUDIENCES},
         }
 
 
@@ -593,17 +616,21 @@ def _send_item(
         else:
             rendered = render_supervisor_email(person_name(item), result.year)
             planned = supervisor_files(docs, result, item)
-        # Made once: every copy carries the same files.
+        # Made once, for the one email.
         files = [(f.name, f.make(), f.mimetype) for f in planned]
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
         return [{"who": label, "reason": NOT_SENT} for label in people.values()]
-    # A group's copies are recorded per person, so a retry skips who has one;
-    # a supervisor's email has the one address.
-    failed = send_each(
-        rendered, recipients, connection, email=EMAIL_KEYS[audience],
-        group=item if audience == GROUPS else None, files=files, log_as=who,
-    )
+    # A group's one email is recorded per person, so a retry skips who has
+    # it; a supervisor's email has the one address.
+    if audience == GROUPS:
+        # Its students and mentors alike in To.
+        failed = send_group(
+            rendered, recipients, connection, email=EMAIL_KEYS[GROUPS], group=item, files=files, log_as=who,
+            cc_staff=False,
+        )
+    else:
+        failed = send_each(rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who)
     if failed:
         return missed_people(people, failed)
     if audience == GROUPS:
@@ -614,35 +641,76 @@ def _send_item(
 
 
 def _group_people(result: ResultsAudience, team) -> dict[str, str]:
-    """The group email's students and mentors: "(BTF07) Amy Chen"."""
+    """The group email's students and mentors: "(BTF07) Amy Chen
+    (amy@example.com)"."""
     users = {u.email: u for u in result.team_students.get(team.id, []) + result.team_mentors.get(team.id, [])}
     return {
-        address: f"({team.group_name}) {person_name(users[address]) if address in users else address}"
+        address: person_label(team.group_name, person_name(users[address]) if address in users else None, address)
         for address in result.team_recipients.get(team.id, [])
     }
 
 
 def _supervisor_people(result: ResultsAudience, supervisor) -> dict[str, str]:
-    """The supervisor with their students' groups: "(BTF07, BTF12) Sam Lee"."""
+    """The supervisor with their students' groups: "(BTF07, BTF12) Sam Lee
+    (sam@example.com)"."""
     groups = []
     for _student, team in result.supervisor_students.get(supervisor.id, []):
         if team.group_name not in groups:
             groups.append(team.group_name)
-    return {supervisor.email: f"({', '.join(groups)}) {person_name(supervisor)}"}
+    return {supervisor.email: person_label(", ".join(groups), person_name(supervisor), supervisor.email)}
 
 
-def start_send(actor, audience: str) -> None:
-    """Start a run emailing ``audience`` ("groups" or "supervisors") to every
-    group or supervisor not yet emailed (see ``send_guard.start_run``).
-    Raises ``AlreadySending`` while a run of that email is going."""
-    details = ResultsEmailSettings.load()
-    result = results_audience()
+def _named(supervisor, who: str) -> bool:
+    """Whether a missed entry is ``supervisor``: "sam@x (BTF07, Sam Lee)", or
+    an older run's "(BTF07) Sam Lee"."""
+    return who.startswith(f"{supervisor.email} (") or (
+        who.startswith("(") and who.endswith(f") {person_name(supervisor)}")
+    )
+
+
+def missed_items(result: ResultsAudience, audience: str) -> list:
+    """The groups or supervisors not yet emailed that an earlier send missed
+    someone on: what Resend Email To Missed Individuals emails."""
     if audience == GROUPS:
         pending = [t for t in result.teams if t.id not in result.teams_emailed]
-        labels = _group_people
+        tried = tried_teams(EMAIL_KEYS[GROUPS], pending)
+        return [t for t in pending if t.id in tried]
+    named = last_missed(EMAIL_KEYS[SUPERVISORS])
+    return [
+        s for s in result.supervisors
+        if s.id not in result.supervisors_emailed and any(_named(s, who) for who in named)
+    ]
+
+
+def missed_count(result: ResultsAudience, audience: str) -> dict:
+    """How many groups or supervisors Resend Email To Missed Individuals would email,
+    and the people that is."""
+    items = missed_items(result, audience)
+    if audience == SUPERVISORS:
+        return {"count": len(items), "people": len(items)}
+    people = sum(len(still_due(EMAIL_KEYS[GROUPS], t, result.team_recipients.get(t.id, []))) for t in items)
+    return {"count": len(items), "people": people}
+
+
+def start_send(actor, audience: str, which: str = "") -> None:
+    """Queue a run emailing ``audience`` ("groups" or "supervisors") to every
+    group or supervisor not yet emailed, or with ``which="missed"`` only those
+    an earlier send missed (see ``send_guard.queue_send``)."""
+    queue_send(EMAIL_KEYS[audience], actor, {"which": which})
+
+
+def _work(audience: str, actor, options: dict) -> list[Work]:
+    """A queued send of ``audience``'s email, when its turn comes: the groups
+    or supervisors due then, or only those an earlier send missed."""
+    details = ResultsEmailSettings.load()
+    result = results_audience()
+    if options.get("which") == "missed":
+        pending = missed_items(result, audience)
+    elif audience == GROUPS:
+        pending = [t for t in result.teams if t.id not in result.teams_emailed]
     else:
         pending = [s for s in result.supervisors if s.id not in result.supervisors_emailed]
-        labels = _supervisor_people
+    labels = _group_people if audience == GROUPS else _supervisor_people
     work = []
     for item in pending:
         people = labels(result, item)
@@ -651,4 +719,8 @@ def start_send(actor, audience: str) -> None:
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
         work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
-    start_run(EMAIL_KEYS[audience], actor, work)
+    return work
+
+
+for _audience in AUDIENCES:
+    BUILDERS[EMAIL_KEYS[_audience]] = partial(_work, _audience)

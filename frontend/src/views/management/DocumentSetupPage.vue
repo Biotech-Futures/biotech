@@ -748,7 +748,6 @@ const save = async () => {
 
 <style scoped>
 .grading-settings {
-  max-width: 42rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
