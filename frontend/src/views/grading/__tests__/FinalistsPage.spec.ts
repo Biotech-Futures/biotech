@@ -314,6 +314,24 @@ describe('the group marks ranking', () => {
 })
 
 describe('the current finalists', () => {
+  it('numbers them in the order they were flagged, the earliest first', async () => {
+    const flagged = (group_id: number, group_name: string, flagged_at: string) => ({
+      group_id, group_name, flagged_at, flagged_by: 'Ada Admin', notified: false, notified_at: null, notified_by: null
+    })
+    finalistsMock.mockResolvedValue({
+      finalists: [
+        flagged(1, 'BTF-1', '2026-09-12T02:00:00Z'),
+        flagged(9, 'BTF-9', '2026-09-10T02:00:00Z'),
+        flagged(5, 'BTF-5', '2026-09-11T02:00:00Z')
+      ]
+    })
+    const wrapper = await mountPage()
+    const table = wrapper.findAll('table')[1]!
+    expect(table.find('thead th').text()).toBe('#')
+    const rows = table.findAll('tbody tr').map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
+    expect(rows).toEqual([['1', 'BTF-9'], ['2', 'BTF-5'], ['3', 'BTF-1']])
+  })
+
   it('lists who was flagged, when and by whom', async () => {
     const wrapper = await mountPage()
     const table = wrapper.findAll('.finalists__table')[1]!
