@@ -374,6 +374,10 @@ export interface EmailRun {
 export interface EmailRunState {
   /** A run is sending the email now. */
   sending: boolean
+  /** Its sends waiting their turn: one bulk email sends at a time. */
+  queued: number
+  /** The emails sending, or queued, ahead of it, e.g. "Finalist notification". */
+  ahead: string[]
   /** The address emails go out from, where undeliverable ones come back to. */
   sent_from?: string
   run: EmailRun | null

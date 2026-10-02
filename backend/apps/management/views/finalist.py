@@ -20,14 +20,14 @@ from ..services import test_email
 from ..services.delivery import already_sent
 from ..services.finalist_notify import EMAIL_KEY, notify_finalist, render_finalist_email, symposium_today
 from ..services.send_guard import (
+    BUILDERS,
     FINALIST_SEND,
     NOT_SENT,
-    AlreadySending,
     Work,
     member_labels,
     missed_people,
+    queue_send,
     run_state,
-    start_run,
     submissions_open_reason,
     tried_teams,
 )
@@ -37,7 +37,6 @@ MISSING_DETAILS = (
     "Set the Symposium date, confirm-by date, slides due date and registration "
     "link before sending."
 )
-ALREADY_SENDING = "Finalist emails are already being sent. Wait for that to finish."
 PAST_DATES = "The email's dates can't be before today. Update them before sending."
 # The teams a send can be limited to (see ``_due``).
 WHICH = ("new", "missed")
@@ -197,9 +196,10 @@ class FinalistNotifyAllView(APIView):
     ``_due``).
 
     Starts a run on the server that emails them, so the page can be closed,
-    and returns the run's progress. Refused until every email detail is set,
-    while submissions are still open, and while a run is going.
-    ``notify_finalist`` is a no-op per flag when it was already notified.
+    and returns the run's progress. Queued behind any send going (see
+    ``send_guard``). Refused until every email detail is set, and while
+    submissions are still open. ``notify_finalist`` is a no-op per flag when
+    it was already notified.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -223,20 +223,27 @@ class FinalistNotifyAllView(APIView):
                     {"detail": "group_ids must be a list of integers"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        work = []
-        # A team whose members all got it in earlier runs is sent to nobody
-        # and only marked notified.
-        for flag, addresses in _due(which, group_ids):
-            people = member_labels(flag.group, addresses)
-            work.append(Work(list(people.values()), partial(_notify, flag, people, details, request.user)))
-        try:
-            start_run(FINALIST_SEND, request.user, work)
-        except AlreadySending:
-            return Response({"detail": ALREADY_SENDING}, status=status.HTTP_409_CONFLICT)
+        queue_send(FINALIST_SEND, request.user, {"which": which, "group_ids": group_ids or []})
         return Response({
             **run_state(FINALIST_SEND),
             "pending": FinalistFlag.objects.filter(notified=False).count(),
         })
+
+
+def _finalist_work(actor, options: dict) -> list[Work]:
+    """A queued Notify Finalists send, when its turn comes: each team due
+    then, to the people on it still due the email (see ``_due``). A team
+    whose members all got it in earlier runs is sent to nobody and only
+    marked notified."""
+    details = FinalistEmailSettings.load()
+    work = []
+    for flag, addresses in _due(options.get("which", ""), options.get("group_ids")):
+        people = member_labels(flag.group, addresses)
+        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor)))
+    return work
+
+
+BUILDERS[FINALIST_SEND] = _finalist_work
 
 
 def _notify(flag, people: dict[str, str], details, actor, connection, cache) -> list[dict]:

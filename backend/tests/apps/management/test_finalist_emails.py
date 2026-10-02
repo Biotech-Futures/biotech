@@ -445,7 +445,7 @@ class FinalistEmailTests(_GradingFixture):
         self.assertFalse(r.json()["notified"])
         self.assertTrue(FinalistFlag.objects.filter(group=other).exists())
 
-    def test_a_second_send_is_refused_while_one_is_running(self):
+    def test_a_send_pressed_while_another_runs_is_queued_until_it_finishes(self):
         from datetime import timedelta
 
         from django.core import mail
@@ -461,14 +461,15 @@ class FinalistEmailTests(_GradingFixture):
         )
         self.assertTrue(self.client.get(reverse("management:finalist-email")).json()["sending"])
         r = self.client.post(reverse("management:finalist-notify"))
-        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(r.json()["detail"], "Finalist emails are already being sent. Wait for that to finish.")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()["queued"], 1)
         self.assertEqual(len(mail.outbox), 0)
 
-        # Once free, it sends, and frees it again.
-        EmailSendRun.objects.update(held_until=None)
-        r = self.client.post(reverse("management:finalist-notify"))
-        self.assertEqual(r.json()["run"]["emailed"], 1)
+        # Once that run finishes, the page's next check sends it.
+        EmailSendRun.objects.filter(key="finalist_notification").update(held_until=None, finished_at=timezone.now())
+        body = self.client.get(reverse("management:finalist-email")).json()
+        self.assertEqual((body["queued"], body["run"]["emailed"]), (0, 1))
+        self.assertEqual([m.to for m in mail.outbox], [["stu@example.com"]])
         self.assertFalse(self.client.get(reverse("management:finalist-email")).json()["sending"])
 
     def test_the_page_is_told_today_and_which_saved_dates_have_passed(self):

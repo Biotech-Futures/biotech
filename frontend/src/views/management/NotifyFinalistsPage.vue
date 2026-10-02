@@ -56,7 +56,7 @@
     </section>
 
     <section class="card">
-      <h3 class="notify-finalists__section-title">Send Email Notification</h3>
+      <h3 class="notify-finalists__section-title">Email Finalist</h3>
       <p class="notify-finalists__hint">
         Send a notification email to the finalist teams. Tick Notify on specific teams
         to email only those.
@@ -93,7 +93,7 @@
           :disabled="sendingMode !== null || !canSend"
           @click="sendEmails('all')"
         >
-          {{ sendingMode === 'all' || (details?.sending && sendingMode === null) ? 'Sending…' : 'Email All' }}
+          {{ sendingMode === 'all' ? 'Sending…' : 'Email All' }}
         </button>
         <button
           type="button"
@@ -121,6 +121,9 @@
         </button>
         <span v-if="details?.sending && details.run" class="notify-finalists__progress" role="status">
           Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
+        </span>
+        <span v-if="details?.queued" class="notify-finalists__queued" role="status">
+          {{ queuedNote(details.queued, details.ahead) }}
         </span>
       </div>
       <div v-if="details?.run?.missed.length" class="notify-finalists__missed" data-testid="missed">
@@ -266,7 +269,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { deliveryNote, describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
+import {
+  deliveryNote,
+  describeRun,
+  isBusy,
+  queuedMessage,
+  queuedNote,
+  RUN_MESSAGE_MS,
+  useEmailRun
+} from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
@@ -422,7 +433,7 @@ const sendBlockedReason = computed(() => {
 })
 
 const canSend = computed(
-  () => details.value !== null && !details.value.sending && !sendBlockedReason.value
+  () => details.value !== null && !sendBlockedReason.value
 )
 
 // The email exactly as a finalist would get it, for the details as typed.
@@ -484,10 +495,14 @@ const confirmSend = async () => {
     const result = await (mode === 'new' || mode === 'missed'
       ? notifyFinalists(undefined, mode)
       : notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined))
-    if (details.value) details.value = { ...details.value, sending: result.sending, run: result.run }
+    if (details.value) {
+      const { sending, queued, ahead, run } = result
+      details.value = { ...details.value, sending, queued, ahead, run }
+    }
     selectedIds.value = new Set()
     // A run with little or nothing to send can be over by the reply.
-    if (!result.sending && result.run) reportRun(result.run)
+    if (result.queued) flashAction(queuedMessage(result.ahead))
+    else if (!isBusy(result) && result.run) reportRun(result.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -661,6 +676,12 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   margin: 0 0 0.25rem;
   font-weight: 600;
   color: var(--danger);
+}
+
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.notify-finalists__queued {
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 
 .notify-finalists__missed ul {

@@ -5,11 +5,35 @@ import { plural } from '@/utils/string'
 /** How often a page checks on a run while it sends. */
 const CHECK_MS = 2000
 
+/** A send is going or waiting its turn. */
+export const isBusy = (state: EmailRunState | null | undefined) => Boolean(state?.sending || state?.queued)
+
+/** "the A email", "the A and B emails", "the A, B and C emails". */
+const emailsNamed = (names: string[]) =>
+  names.length > 1
+    ? `the ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} emails`
+    : `the ${names[0]} email`
+
+/** Said when a pressed send waits its turn, naming the emails ahead of it. */
+export const queuedMessage = (ahead: string[]) =>
+  ahead.length
+    ? `Queued behind ${emailsNamed(ahead)}. It starts a few seconds after ${ahead.length === 1 ? 'that has' : 'those have'} finished.`
+    : 'Queued. It starts in a few seconds.'
+
+/** Beside the buttons while an email's sends wait their turn, naming the
+ *  emails ahead of the first. */
+export const queuedNote = (queued: number, ahead: string[]) => {
+  const sends = queued === 1 ? 'Queued' : `${queued} sends queued`
+  if (!ahead.length) return queued === 1 ? 'Queued, starts in a few seconds.' : `${sends}, each a few seconds apart.`
+  const finished = ahead.length === 1 ? 'that has' : 'those have'
+  return `${sends} behind ${emailsNamed(ahead)}, ${queued === 1 ? 'starts' : 'the first starts'} once ${finished} finished.`
+}
+
 /**
  * A bulk email's run sends on the server, so the page can be closed. While
- * ``state`` says it's sending, this checks back every few seconds
- * (``refresh``), and once it stops, hands ``onFinished`` the finished run, if
- * this page saw it sending.
+ * ``state`` says it's sending or queued, this checks back every few seconds
+ * (``refresh``), and once it's done, hands ``onFinished`` the finished run,
+ * if this page saw it going.
  */
 export function useEmailRun(
   state: () => EmailRunState | null | undefined,
@@ -22,10 +46,10 @@ export function useEmailRun(
     timer = null
   }
   watch(
-    () => Boolean(state()?.sending),
-    (sending, was) => {
+    () => isBusy(state()),
+    (busy, was) => {
       stop()
-      if (sending) {
+      if (busy) {
         timer = setInterval(() => void refresh(), CHECK_MS)
       } else if (was) {
         const run = state()?.run

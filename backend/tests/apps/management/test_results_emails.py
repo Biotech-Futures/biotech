@@ -189,22 +189,26 @@ class ResultsEmailTests(_GradingFixture):
     def _runs(self):
         return self.client.get(reverse("management:results-email")).json()["runs"]
 
-    def test_a_second_run_is_refused_while_one_is_sending(self):
-        # Another tab, or a run started before the page was reopened.
+    def test_a_send_pressed_while_another_runs_is_queued_until_it_finishes(self):
+        # Another email's run, e.g. one started on another page.
         self._hold_send("results_team", timezone.now() + timedelta(minutes=4))
         self.assertEqual((self._runs()["groups"]["sending"], self._runs()["supervisors"]["sending"]), (True, False))
-        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(r.json()["detail"], "Results emails are already being sent. Wait for that to finish.")
+        r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()["runs"]["supervisors"]["queued"], 1)
         self.assertEqual(mail.outbox, [])
-        self.assertFalse(ResultsTeamEmail.objects.exists())
+
+        # Once that run finishes, the page's next check sends it.
+        self._hold_send("results_team", None)
+        self.assertEqual(self._runs()["supervisors"]["queued"], 0)
+        self.assertTrue(mail.outbox)
         # The supervisor email has a run of its own.
         self._send_all("supervisors")
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
 
     def test_the_page_is_told_the_runs_progress(self):
         self.assertEqual(
-            self._runs()["groups"], {"sending": False, "sent_from": "info@biotechfutures.org", "run": None}
+            self._runs()["groups"], {"sending": False, "queued": 0, "ahead": [], "sent_from": "info@biotechfutures.org", "run": None}
         )
         self._send_all("groups")
         run = self._runs()["groups"]

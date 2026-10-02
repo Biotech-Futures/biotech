@@ -32,12 +32,14 @@ const run = (over: Record<string, unknown> = {}) => ({
   finished_at: null as string | null,
   ...over
 })
-const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, queued: 0, ahead: [], run: run(over) })
 const finishedRun = (over: Record<string, unknown> = {}) => ({
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
 })
-const IDLE = { sending: false, run: null }
+const IDLE = { sending: false, queued: 0, ahead: [] as string[], run: null }
 
 // People due the email and emailed, and the emails that makes ("times").
 const people = (total: number, emailed: number, timesTotal = total, timesEmailed = emailed) => ({
@@ -198,7 +200,8 @@ describe('Email Nonfinalist', () => {
       expect(sendMock).toHaveBeenCalledWith('nonfinalists')
       expect(wrapper.find('[aria-label="Send the email"]').exists()).toBe(false)
       expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 0 of 12 people so far…')
-      expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
+      // Pressing again queues another send behind it.
+      expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeUndefined()
 
       statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 8 }) })
       vi.advanceTimersByTime(2000)
@@ -223,12 +226,29 @@ describe('Email Nonfinalist', () => {
     }
   })
 
-  it('a page opened mid-run shows its progress; the other email can still go', async () => {
+  it('a page opened mid-run shows its progress; either email can still be queued', async () => {
     statuses.nonfinalists = status({ ...sendingRun({ due: 12, emailed: 5 }) })
     const wrapper = await mountPage()
     expect(wrapper.find(`${NONFINALISTS} .symposium-email__progress`).text()).toBe('Emailed 5 of 12 people so far…')
-    expect(buttonIn(wrapper, NONFINALISTS, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email All Nonfinalists$/).attributes('disabled')).toBeUndefined()
     expect(buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('a send pressed while another is going says it is queued', async () => {
+    sendMock.mockResolvedValueOnce(
+      status({ ...finishedRun(), queued: 1, ahead: ['Finalist notification', 'Non-finalist invitation'] })
+    )
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONSUBMISSIONS, /^Email All Nonsubmissions$/).trigger('click')
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__banner--ok`).text()).toBe(
+      'Queued behind the Finalist notification and Non-finalist invitation emails. ' +
+        'It starts a few seconds after those have finished.'
+    )
+    expect(wrapper.find(`${NONSUBMISSIONS} .symposium-email__queued`).text()).toBe(
+      'Queued behind the Finalist notification and Non-finalist invitation emails, starts once those have finished.'
+    )
   })
 
   it("lists, under the button, who the last run couldn't reach", async () => {

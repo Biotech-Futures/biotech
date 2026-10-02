@@ -38,9 +38,11 @@ const run = (over: Record<string, unknown> = {}) => ({
   finished_at: null as string | null,
   ...over
 })
-const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, queued: 0, ahead: [], run: run(over) })
 const finishedRun = (over: Record<string, unknown> = {}) => ({
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
 })
 
@@ -55,6 +57,8 @@ const details = (over: Record<string, unknown> = {}) => ({
   dates_in_past: [] as string[],
   submissions_open: '',
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: null,
   counts: COUNTS,
   // One team never tried, and two people on one team a send missed.
@@ -306,11 +310,25 @@ describe('sending', () => {
     expect(missed.findAll('li').map((li) => li.text())).toEqual(['(BTF01) Amy Chen · mail server busy', '(BTF01) Mo Mentor'])
   })
 
-  it('a page opened mid-run shows its progress, with Send off', async () => {
+  it('a page opened mid-run shows its progress, and more sends can be queued', async () => {
     detailsMock.mockResolvedValue(details({ ...sendingRun({ due: 28, emailed: 12 }) }))
     const wrapper = await mountPage()
     expect(wrapper.find('.notify-finalists__progress').text()).toBe('Emailed 12 of 28 people so far…')
-    expect(buttonNamed(wrapper, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(buttonNamed(wrapper, /^Email All$/).attributes('disabled')).toBeUndefined()
+  })
+
+  it('a send pressed while another is going says it is queued', async () => {
+    notifyMock.mockResolvedValueOnce({ ...finishedRun(), queued: 1, ahead: ['Results (To groups)'], pending: 2 })
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, /^Email All$/).trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe(
+      'Queued behind the Results (To groups) email. It starts a few seconds after that has finished.'
+    )
+    expect(wrapper.find('.notify-finalists__queued').text()).toBe(
+      'Queued behind the Results (To groups) email, starts once that has finished.'
+    )
   })
 
   it('the selected-teams button stays off until something is ticked', async () => {

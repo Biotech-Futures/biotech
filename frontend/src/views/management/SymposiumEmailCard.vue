@@ -46,7 +46,7 @@
             :disabled="starting !== null || !canSend"
             @click="confirming = 'all'"
           >
-            {{ starting === 'all' || (status.sending && starting === null) ? 'Sending…' : buttonLabel }}
+            {{ starting === 'all' ? 'Sending…' : buttonLabel }}
           </button>
           <button
             v-if="newlyAdded"
@@ -67,6 +67,9 @@
           </button>
           <span v-if="status.sending && status.run" class="symposium-email__progress" role="status">
             Emailed {{ status.run.emailed }} of {{ plural(status.run.due, 'person', 'people') }} so far…
+          </span>
+          <span v-if="status.queued" class="symposium-email__queued" role="status">
+            {{ queuedNote(status.queued, status.ahead) }}
           </span>
         </div>
         <div v-if="status.run?.missed.length" class="symposium-email__missed" data-testid="missed">
@@ -151,7 +154,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchSymposiumEmail,
@@ -192,7 +195,7 @@ const load = async () => {
 const pendingTeams = computed(() => (status.value ? status.value.teams.total - status.value.teams.emailed : 0))
 const allEmailed = computed(() => Boolean(status.value?.teams.total) && pendingTeams.value === 0)
 const canSend = computed(() =>
-  Boolean(status.value && !status.value.sending && !status.value.blocked && pendingTeams.value > 0)
+  Boolean(status.value && !status.value.blocked && pendingTeams.value > 0)
 )
 
 // -- Preview ----------------------------------------------------------------
@@ -224,7 +227,8 @@ const send = async () => {
       ? startSymposiumEmail(props.email)
       : startSymposiumEmail(props.email, mode))
     // A run with little or nothing to send can be over by the reply.
-    if (!status.value.sending && status.value.run) reportRun(status.value.run)
+    if (status.value.queued) flashAction(queuedMessage(status.value.ahead))
+    else if (!isBusy(status.value) && status.value.run) reportRun(status.value.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -306,6 +310,12 @@ onMounted(load)
 /* Who the last run couldn't reach, under the buttons. */
 .symposium-email__missed {
   margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.symposium-email__queued {
+  color: var(--danger);
   font-size: 0.85rem;
 }
 

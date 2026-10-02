@@ -45,12 +45,14 @@ const run = (over: Record<string, unknown> = {}) => ({
   finished_at: null as string | null,
   ...over
 })
-const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, run: run(over) })
+const sendingRun = (over: Record<string, unknown> = {}) => ({ sending: true, queued: 0, ahead: [], run: run(over) })
 const finishedRun = (over: Record<string, unknown> = {}) => ({
   sending: false,
+  queued: 0,
+  ahead: [] as string[],
   run: run({ finished_at: '2026-10-20T00:01:00Z', ...over })
 })
-const IDLE = { sending: false, run: null }
+const IDLE = { sending: false, queued: 0, ahead: [] as string[], run: null }
 
 const status = { released_at: null, released_by: null, submissions_open: false }
 
@@ -366,12 +368,23 @@ describe('sending', () => {
     }
   })
 
-  it('a page opened mid-run shows its progress, with that button off', async () => {
+  it('a page opened mid-run shows its progress, and more sends can be queued', async () => {
     detailsMock.mockResolvedValue(details({ runs: { groups: IDLE, supervisors: sendingRun({ due: 2, emailed: 1 }) } }))
     const wrapper = await mountPage()
     expect(wrapper.find('.release-results__progress').text()).toBe('Emailed 1 of 2 supervisors so far…')
-    expect(buttonNamed(wrapper, /^Sending…$/).attributes('disabled')).toBeDefined()
+    expect(emailButton(wrapper, 'Supervisors').attributes('disabled')).toBeUndefined()
     expect(emailButton(wrapper, 'Groups').attributes('disabled')).toBeUndefined()
+  })
+
+  it('a send pressed while another is going says it is queued', async () => {
+    sendMock.mockResolvedValueOnce(details({ runs: { groups: { ...IDLE, queued: 1 }, supervisors: IDLE } }))
+    // Nothing ahead: it waits only the few seconds after the last send.
+    const wrapper = await mountPage()
+    await emailButton(wrapper, 'Groups').trigger('click')
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.release-results__banner--ok').text()).toBe('Queued. It starts in a few seconds.')
+    expect(wrapper.find('.release-results__queued').text()).toBe('Groups: Queued, starts in a few seconds.')
   })
 
   it('says how many groups were not emailed in full, for a retry', async () => {

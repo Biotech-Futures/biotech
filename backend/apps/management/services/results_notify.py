@@ -74,7 +74,15 @@ from .docx import (
 )
 from .delivery import send_each, still_due
 from .finalist_notify import NOT_SET, symposium_today
-from .send_guard import NOT_SENT, Work, missed_people, person_name, start_run, submissions_open_reason
+from .send_guard import (
+    BUILDERS,
+    NOT_SENT,
+    Work,
+    missed_people,
+    person_name,
+    queue_send,
+    submissions_open_reason,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +94,6 @@ AUDIENCES = (GROUPS, SUPERVISORS)
 EMAIL_KEYS = {GROUPS: "results_team", SUPERVISORS: "results_supervisor"}
 
 RELEASE_FIRST = "Release both marks and certificates before sending the results emails."
-ALREADY_SENDING = "Results emails are already being sent. Wait for that to finish."
 TEMPLATES_MISSING = {
     GROUPS: (
         "Upload the marks summary, student certificate and mentor certificate templates "
@@ -632,9 +639,14 @@ def _supervisor_people(result: ResultsAudience, supervisor) -> dict[str, str]:
 
 
 def start_send(actor, audience: str) -> None:
-    """Start a run emailing ``audience`` ("groups" or "supervisors") to every
-    group or supervisor not yet emailed (see ``send_guard.start_run``).
-    Raises ``AlreadySending`` while a run of that email is going."""
+    """Queue a run emailing ``audience`` ("groups" or "supervisors") to every
+    group or supervisor not yet emailed (see ``send_guard.queue_send``)."""
+    queue_send(EMAIL_KEYS[audience], actor)
+
+
+def _work(audience: str, actor, options: dict) -> list[Work]:
+    """A queued send of ``audience``'s email, when its turn comes: the groups
+    or supervisors due then."""
     details = ResultsEmailSettings.load()
     result = results_audience()
     if audience == GROUPS:
@@ -651,4 +663,8 @@ def start_send(actor, audience: str) -> None:
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
         work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
-    start_run(EMAIL_KEYS[audience], actor, work)
+    return work
+
+
+for _audience in AUDIENCES:
+    BUILDERS[EMAIL_KEYS[_audience]] = partial(_work, _audience)

@@ -257,17 +257,24 @@ class NonFinalistEmailTests(_GradingFixture):
         self._send_all()
         self.assertEqual(len(mail.outbox), 4)
 
-    def test_a_second_run_is_refused_while_one_is_sending(self):
+    def test_a_send_pressed_while_another_runs_is_queued_until_it_finishes(self):
         from apps.management.models import EmailSendRun
 
+        # Another email's run, e.g. Notify Finalists.
         EmailSendRun.objects.create(
-            key="nonfinalist_invitation", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
+            key="finalist_notification", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
         )
-        self.assertTrue(self.client.get(reverse("management:nonfinalist-email")).json()["sending"])
         r = self.client.post(reverse(SEND), {}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(r.json()["detail"], "Non-finalist invitation is already being sent. Wait for that to finish.")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual((r.json()["sending"], r.json()["queued"]), (False, 1))
+        self.assertEqual(r.json()["ahead"], ["Finalist notification"])
         self.assertEqual(mail.outbox, [])
+
+        # Once that run finishes, the page's next check sends it.
+        EmailSendRun.objects.filter(key="finalist_notification").update(held_until=None, finished_at=timezone.now())
+        body = self.client.get(reverse("management:nonfinalist-email")).json()
+        self.assertEqual((body["queued"], body["teams"]["emailed"]), (0, 1))
+        self.assertEqual(len(mail.outbox), 4)
 
         # The other email has a send of its own.
         self.assertFalse(self.client.get(reverse("management:nonsubmission-email")).json()["sending"])
@@ -297,6 +304,8 @@ class NonFinalistEmailTests(_GradingFixture):
             "waiting": {"new": {"teams": 1, "people": 4}, "missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
+            "queued": 0,
+            "ahead": [],
             "sent_from": "info@biotechfutures.org",
             "run": None,
         })
@@ -358,6 +367,8 @@ class NonSubmissionEmailTests(_GradingFixture):
             "waiting": {"new": {"teams": 2, "people": 4}, "missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
+            "queued": 0,
+            "ahead": [],
             "sent_from": "info@biotechfutures.org",
             "run": None,
         })

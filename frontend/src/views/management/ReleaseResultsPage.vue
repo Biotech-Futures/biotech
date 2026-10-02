@@ -152,7 +152,7 @@
             :disabled="starting !== null || !canSend[audience.value]"
             @click="confirming = audience.value"
           >
-            {{ starting === audience.value || runOf(audience.value).sending ? 'Sending…' : `Email ${audience.noun}` }}
+            {{ starting === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
           </button>
           <template v-for="audience in AUDIENCES" :key="`progress-${audience.value}`">
             <span
@@ -165,6 +165,9 @@
                 ? plural(runOf(audience.value).run!.due, 'person', 'people')
                 : plural(runOf(audience.value).run!.due, 'supervisor') }}
               so far…
+            </span>
+            <span v-if="runOf(audience.value).queued" class="release-results__queued" role="status">
+              {{ audience.noun }}: {{ queuedNote(runOf(audience.value).queued, runOf(audience.value).ahead) }}
             </span>
           </template>
         </div>
@@ -258,7 +261,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
+import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   downloadResultsSampleSheet,
@@ -456,12 +459,12 @@ const blockedReasons = computed(() =>
 )
 
 // Each email's run: whether it's sending now, and its progress.
-const runOf = (audience: ResultsAudience) => details.value?.runs[audience] ?? { sending: false, run: null }
+const runOf = (audience: ResultsAudience) =>
+  details.value?.runs[audience] ?? { sending: false, queued: 0, ahead: [], run: null }
 
 const canSend = computed(() => {
   const can = (audience: ResultsAudience) =>
     details.value !== null &&
-    !runOf(audience).sending &&
     !releaseReason.value &&
     !audienceReason(audience) &&
     pending(audience) > 0
@@ -490,7 +493,8 @@ const sendAll = async (audience: ResultsAudience) => {
     details.value = await startResultsEmail(audience)
     // A run with little or nothing to send can be over by the reply.
     const state = details.value.runs[audience]
-    if (!state.sending && state.run) reportRun(audience, state.run)
+    if (state.queued) flashAction(queuedMessage(state.ahead))
+    else if (!isBusy(state) && state.run) reportRun(audience, state.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -663,6 +667,12 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 /* Who the last run couldn't reach, under the buttons. */
 .release-results__missed {
   margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.release-results__queued {
+  color: var(--danger);
   font-size: 0.85rem;
 }
 

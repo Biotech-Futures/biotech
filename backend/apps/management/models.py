@@ -275,11 +275,12 @@ class EmailDelivery(models.Model):
 
 class EmailSendRun(models.Model):
     """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
-    Results): the run going now, or the last one. Pressing Send starts a run on
+    Results): the run going now, or the last one. Pressing Send queues a run on
     the server that emails everyone due, whether or not the page stays open.
-    One run at a time per email, so nobody is emailed twice: ``held_until`` is
-    a lease the run renews as it goes, so one that dies frees it once it
-    passes. One row per email, made on first use; see ``services.send_guard``."""
+    One run at a time across every email: ``held_until`` is a lease the run
+    renews as it goes, so one that dies frees it once it passes. One row per
+    email, made on first use, and one more that holds the queue while it
+    sends; see ``services.send_guard``."""
 
     key = models.CharField(max_length=64, unique=True)
     held_until = models.DateTimeField(null=True, blank=True)
@@ -308,6 +309,31 @@ class EmailSendRun(models.Model):
 
     def __str__(self):
         return f"EmailSendRun({self.key})"
+
+
+class QueuedEmailSend(models.Model):
+    """A bulk email send waiting its turn: one starts only once the one
+    before it has finished. Who it emails is worked out when it starts (see
+    ``services.send_guard``)."""
+
+    key = models.CharField(max_length=64)
+    # What the press asked for, e.g. {"which": "missed"}.
+    options = models.JSONField(default=dict, blank=True)
+    queued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    queued_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "email_send_queue"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"QueuedEmailSend({self.key})"
 
 
 class ResultsTeamEmail(models.Model):

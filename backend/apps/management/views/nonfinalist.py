@@ -13,7 +13,7 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 
 from ..models import FinalistEmailSettings
 from ..services import symposium_emails, test_email
-from ..services.send_guard import AlreadySending, run_state
+from ..services.send_guard import run_state
 from ..services.symposium_emails import NONFINALIST, NONSUBMISSION
 
 
@@ -21,10 +21,12 @@ def _status(email) -> dict:
     """This year's teams due ``email``: how many teams and people have it,
     why sending is refused, if it is, and whether a run is sending it now,
     with its progress."""
+    # First, so a queued send this starts is in the counts.
+    state = run_state(email.key)
     return {
         **symposium_emails.audience(email).counts(),
         "blocked": symposium_emails.send_blocked_reason(email, FinalistEmailSettings.load()),
-        **run_state(email.key),
+        **state,
     }
 
 
@@ -66,12 +68,12 @@ class _PreviewView(APIView):
 
 
 class _SendView(APIView):
-    """POST — start a run emailing every team due it and not yet emailed, on
+    """POST — queue a run emailing every team due it and not yet emailed, on
     the server, so the page can be closed; returns the status with the run's
     progress. Body ``{"which": "new"}`` emails only the teams no run has tried
     yet, and ``{"which": "missed"}`` only the people earlier runs missed.
-    Refused until the Symposium date and link are set, while
-    submissions are open, and while a run is going."""
+    Refused until the Symposium date and link are set, and while submissions
+    are open."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     email = NONFINALIST
@@ -83,12 +85,7 @@ class _SendView(APIView):
         reason = symposium_emails.send_blocked_reason(self.email, FinalistEmailSettings.load())
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            symposium_emails.start_send(self.email, request.user, which=which)
-        except AlreadySending:
-            return Response(
-                {"detail": symposium_emails.already_sending(self.email)}, status=status.HTTP_409_CONFLICT,
-            )
+        symposium_emails.start_send(self.email, request.user, which=which)
         return Response(_status(self.email))
 
 

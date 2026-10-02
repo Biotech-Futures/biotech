@@ -9,11 +9,11 @@ to the support mailbox. The Symposium date and registration link are the
 ones set on Notify Finalists, and nothing is sent until both are set.
 
 Neither goes out while submissions are still open, the deadline's or any
-team's extension, and each is sent by one request at a time (see
+team's extension, and each send waits its turn behind any going (see
 ``send_guard``). The non-finalist invitation also waits until the finalists
 have been notified, which is when the picks are settled.
 
-Pressing Send starts a run on the server that emails every team due (see
+Pressing Send queues a run on the server that emails every team due (see
 ``send_guard``). A team is recorded as emailed only once every member got it,
 so the next run reaches whoever missed it, and is skipped after that. Email
 Newly Added emails only the teams no run has tried yet, and Resend Email Those
@@ -47,11 +47,12 @@ from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
 from .delivery import already_sent, send_each, still_due
 from .finalist_notify import NOT_SET, _long_date, symposium_today
 from .send_guard import (
+    BUILDERS,
     NOT_SENT,
     Work,
     member_labels,
     missed_people,
-    start_run,
+    queue_send,
     submissions_open_reason,
     tried_teams,
 )
@@ -244,10 +245,6 @@ def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
 # --- sending ---------------------------------------------------------------------
 
 
-def already_sending(email: TeamEmail) -> str:
-    return f"{email.name} is already being sent. Wait for that to finish."
-
-
 def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str:
     """Why sending ``email`` is refused, or "" when it may go ahead."""
     if not is_email_enabled(email.key):
@@ -301,18 +298,26 @@ def _send_team(
 
 
 def start_send(email: TeamEmail, actor, *, which: str = "") -> None:
-    """Start a run emailing ``email`` to every team due it and not yet
-    emailed (see ``send_guard.start_run``): all of them, only those no run has
-    tried yet (``which="new"``), or only the people earlier runs missed
-    (``which="missed"``, see ``TeamAudience``). Raises ``AlreadySending``
-    while a run is going."""
+    """Queue a run emailing ``email`` to every team due it and not yet
+    emailed (see ``send_guard.queue_send``): all of them, only those no run
+    has tried yet (``which="new"``), or only the people earlier runs missed
+    (``which="missed"``, see ``TeamAudience``)."""
+    queue_send(email.key, actor, {"which": which})
+
+
+def _work(email: TeamEmail, actor, options: dict) -> list[Work]:
+    """A queued send of ``email``, when its turn comes: the teams due then."""
     details = FinalistEmailSettings.load()
     due = audience(email)
-    limit = {"new": due.new, "missed": due.missed}.get(which)
+    limit = {"new": due.new, "missed": due.missed}.get(options.get("which", ""))
     work = []
     for team in due.teams:
         if team.id not in due.emailed and (limit is None or team.id in limit):
             # Anyone a run already reached isn't emailed again.
             people = member_labels(team, still_due(email.key, team, due.recipients[team.id]))
             work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor)))
-    start_run(email.key, actor, work)
+    return work
+
+
+for _email in (NONFINALIST, NONSUBMISSION):
+    BUILDERS[_email.key] = partial(_work, _email)
