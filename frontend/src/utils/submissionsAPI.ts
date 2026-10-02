@@ -240,25 +240,3 @@ export function submissionFileDownloadUrl(groupId: number | string, slot: Submis
 export function submissionFilePreviewUrl(groupId: number | string, slot: SubmissionSlot) {
   return `${API_BASE_URL}${base(groupId)}/files/${slot}/preview/`
 }
-
-/** Object URL for an attachment; release it with releasePreview. */
-export async function fetchPreviewObjectUrl(
-  groupId: number | string,
-  slot: SubmissionSlot
-): Promise<string> {
-  const response = await fetch(submissionFilePreviewUrl(groupId, slot), {
-    credentials: 'include',
-    // Accept: application/pdf is refused with 406, as the API has no PDF renderer.
-    headers: buildSessionHeaders({ headers: { Accept: '*/*' } })
-  })
-
-  if (!response.ok) {
-    throw await apiErrorFromResponse(response)
-  }
-
-  return URL.createObjectURL(await response.blob())
-}
-
-export function releasePreview(objectUrl: string | null) {
-  if (objectUrl) URL.revokeObjectURL(objectUrl)
-}

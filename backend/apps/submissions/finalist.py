@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, time
 
 from django.apps import apps
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import FinalistEntry
@@ -21,9 +22,9 @@ def is_finalist_group(group_id: int) -> bool:
 def slides_due_at() -> datetime | None:
     """When the slides are due: the end of the Slides Due day set on
     Management > Notify Finalists, Sydney time; None until it's set."""
-    from apps.grading.services.finalist_notify import SYMPOSIUM_TZ
+    from apps.management.services.finalist_notify import SYMPOSIUM_TZ
 
-    day = apps.get_model("grading", "FinalistEmailSettings").load().slides_due
+    day = apps.get_model("management", "FinalistEmailSettings").load().slides_due
     if day is None:
         return None
     return datetime.combine(day, time(23, 59), tzinfo=SYMPOSIUM_TZ)
@@ -34,7 +35,7 @@ def slides_due_at() -> datetime | None:
 
 def presentation_times():
     """This year's presentation times, earliest first."""
-    PresentationSlot = apps.get_model("grading", "PresentationSlot")
+    PresentationSlot = apps.get_model("management", "PresentationSlot")
     return PresentationSlot.objects.filter(year=current_cohort())
 
 
@@ -53,49 +54,44 @@ def time_options() -> list[dict]:
 
 def symposium_date():
     """The day the times are on, set on Notify Finalists; None until it is."""
-    return apps.get_model("grading", "FinalistEmailSettings").load().symposium_date
+    return apps.get_model("management", "FinalistEmailSettings").load().symposium_date
 
 
-def is_team_student(user, group_id: int) -> bool:
-    """Only the team's students give their availability, each their own."""
-    from apps.groups.models import GroupMembership
-
-    return GroupMembership.objects.filter(
-        group_id=group_id,
-        user=user,
-        left_at__isnull=True,
-        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-    ).exists()
+def team_answer(group_id: int):
+    """The team's availability, or None before anyone has given it."""
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
+    return PresentationAvailability.objects.filter(group_id=group_id).select_related("submitted_by").first()
 
 
-def own_time_ids(user, group_id: int) -> list[int]:
-    """The times this person said they can make, of this year's."""
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
-    answer = PresentationAvailability.objects.filter(group_id=group_id, user=user).first()
+def team_time_ids(answer) -> list[int]:
+    """The times the team can make, of this year's."""
     if answer is None:
         return []
     return sorted(answer.slots.filter(year=current_cohort()).values_list("id", flat=True))
 
 
-def save_own_times(user, group, slot_ids: list[int]) -> None:
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
-    answer, _ = PresentationAvailability.objects.get_or_create(group=group, user=user)
+def submit_team_times(user, group, slot_ids: list[int]) -> None:
+    """The times the whole team can make, submitted by ``user``: anyone on
+    the team, or an admin on its behalf."""
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
+    answer, _ = PresentationAvailability.objects.get_or_create(group=group)
     answer.slots.set(slot_ids)
-    # Records when they answered, even when only the ticks changed.
-    answer.save(update_fields=["updated_at"])
+    answer.submitted_by = user
+    answer.submitted_at = timezone.now()
+    answer.save(update_fields=["submitted_by", "submitted_at", "updated_at"])
 
 
 def team_has_availability(group_id: int) -> bool:
-    """At least one of the team's students has ticked a time this year."""
-    PresentationAvailability = apps.get_model("grading", "PresentationAvailability")
+    """The team has submitted at least one of this year's times."""
+    PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     return PresentationAvailability.objects.filter(
-        group_id=group_id, slots__year=current_cohort()
+        group_id=group_id, submitted_at__isnull=False, slots__year=current_cohort()
     ).exists()
 
 
 def record_submitted_slides(entry: FinalistEntry) -> None:
     """The submitted slides, for the Finalist Presentation tab's table."""
-    FinalistSlides = apps.get_model("grading", "FinalistSlides")
+    FinalistSlides = apps.get_model("management", "FinalistSlides")
     FinalistSlides.objects.update_or_create(
         group=entry.group,
         defaults={
@@ -107,11 +103,12 @@ def record_submitted_slides(entry: FinalistEntry) -> None:
 
 
 class FinalistEntrySerializer(serializers.ModelSerializer):
-    """The team's entry; ``available_session_ids`` (and the submitted copy's)
-    are the viewer's own times, since each student answers for themselves."""
+    """The team's entry, with the team's availability: the times it can make
+    and who submitted them, when."""
 
     available_session_ids = serializers.SerializerMethodField()
-    submitted_session_ids = serializers.SerializerMethodField()
+    availability_submitted_at = serializers.SerializerMethodField()
+    availability_submitted_by_name = serializers.SerializerMethodField()
     submitted_by_name = serializers.SerializerMethodField()
     stage = serializers.CharField(read_only=True)
     is_submitted = serializers.BooleanField(read_only=True)
@@ -121,8 +118,9 @@ class FinalistEntrySerializer(serializers.ModelSerializer):
         model = FinalistEntry
         fields = [
             "available_session_ids",
+            "availability_submitted_at",
+            "availability_submitted_by_name",
             "presentation",
-            "submitted_session_ids",
             "submitted_presentation",
             "submitted_at",
             "submitted_by_name",
@@ -134,26 +132,38 @@ class FinalistEntrySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def _own(self, obj) -> list[int]:
-        user = self.context.get("user")
-        return own_time_ids(user, obj.group_id) if user is not None else []
+    def _answer(self, obj):
+        if "answer" not in self.context:
+            self.context["answer"] = team_answer(obj.group_id)
+        return self.context["answer"]
 
     def get_available_session_ids(self, obj) -> list[int]:
-        return self._own(obj)
+        return team_time_ids(self._answer(obj))
 
-    def get_submitted_session_ids(self, obj) -> list[int]:
-        # Answers aren't frozen at submit: each student's stays their own.
-        return self._own(obj)
+    def get_availability_submitted_at(self, obj):
+        answer = self._answer(obj)
+        return serializers.DateTimeField().to_representation(answer.submitted_at) if answer and answer.submitted_at else None
+
+    def get_availability_submitted_by_name(self, obj) -> str:
+        answer = self._answer(obj)
+        return _name(answer.submitted_by) if answer and answer.submitted_at else ""
 
     def get_submitted_by_name(self, obj) -> str:
-        user = obj.submitted_by
-        if user is None:
-            return ""
-        return f"{user.first_name} {user.last_name}".strip() or user.email
+        return _name(obj.submitted_by)
+
+
+def _name(user) -> str:
+    if user is None:
+        return ""
+    return f"{user.first_name} {user.last_name}".strip() or user.email
 
 
 class FinalistAvailabilitySerializer(serializers.Serializer):
-    session_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)
+    session_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        error_messages={"empty": "Choose at least one session your team can attend."},
+    )
 
     def validate_session_ids(self, value):
         offered = set(presentation_times().values_list("id", flat=True))

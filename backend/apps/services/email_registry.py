@@ -212,10 +212,7 @@ EMAIL_TYPES = (
     EmailType(
         key="finalist_notification",
         name="Finalist notification",
-        description=(
-            "Sent to a finalist team's members from Notify Finalists, with the "
-            "Symposium dates and registration link set there."
-        ),
+        description="Sent to finalist teams from Notify Finalists.",
         default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
         default_template="emails/finalist_notification.html",
         merge_tags=(
@@ -235,11 +232,7 @@ EMAIL_TYPES = (
     EmailType(
         key="nonfinalist_invitation",
         name="Non-finalist invitation",
-        description=(
-            "Sent to the members of teams that submitted but weren't picked as "
-            "finalists, from Email Nonfinalist, with the Symposium date and "
-            "registration link set on Notify Finalists."
-        ),
+        description="Sent to teams not picked as finalists, from Email Nonfinalist.",
         default_subject="Thank you for your submission – Invitation to the Symposium",
         default_template="emails/nonfinalist_invitation.html",
         merge_tags=(
@@ -257,11 +250,7 @@ EMAIL_TYPES = (
     EmailType(
         key="nonsubmission_notice",
         name="Non-submission notice",
-        description=(
-            "Sent to the members of teams that didn't make a submission, from "
-            "Email Nonfinalist, with the Symposium date and registration link "
-            "set on Notify Finalists."
-        ),
+        description="Sent to teams that didn't submit, from Email Nonfinalist.",
         default_subject="{{ brand_name }} – No Submission Received",
         default_template="emails/nonsubmission_notice.html",
         merge_tags=(
@@ -278,11 +267,8 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_team",
-        name="Results: groups",
-        description=(
-            "Sent to each group's students and mentors from Release Results once "
-            "marks and certificates are released, with the feedback survey set there."
-        ),
+        name="Results (To groups)",
+        description="Sent to each group's students and mentors from Release Results.",
         default_subject="Your {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_team.html",
         merge_tags=(
@@ -300,11 +286,8 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_supervisor",
-        name="Results: supervisors",
-        description=(
-            "Sent to the supervisors of those students from Release Results once "
-            "marks and certificates are released."
-        ),
+        name="Results (To supervisors)",
+        description="Sent to their supervisors from Release Results.",
         default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_supervisor.html",
         merge_tags=(

@@ -20,13 +20,14 @@ export function useFlashMessage(ms = FLASH_MESSAGE_MS) {
     }
   }
 
-  const show = (text: string) => {
+  // ``forMs``: longer for a message with more to read.
+  const show = (text: string, forMs = ms) => {
     stop()
     message.value = text
     timer = setTimeout(() => {
       timer = null
       message.value = ''
-    }, ms)
+    }, forMs)
   }
 
   onBeforeUnmount(stop)

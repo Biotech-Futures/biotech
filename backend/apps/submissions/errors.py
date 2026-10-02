@@ -49,14 +49,8 @@ class NotAFinalist(APIException):
 
 class AvailabilityRequired(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "At least one student needs to choose the sessions they can attend first."
+    default_detail = "Submit the sessions your team can attend first."
     default_code = "availability_required"
-
-
-class AvailabilityStudentsOnly(APIException):
-    status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Each student chooses the sessions they can attend."
-    default_code = "availability_students_only"
 
 
 class PresentationRequired(APIException):

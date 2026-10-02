@@ -52,6 +52,21 @@ jobs:
         working-directory: ./backend
         run: coverage report --fail-under=60
 
+      # The same tests with the calendar moved on, so a test tied to today's
+      # date or year fails in the change that adds it, not on the day it
+      # would start blocking deploys (see backend/tests/clock.py).
+      - name: Run tests a year and a month ahead
+        working-directory: ./backend
+        env:
+          TEST_CLOCK_SHIFT_DAYS: '400'
+        run: python manage.py test tests --settings=config.settings_test --noinput --testrunner=tests.clock.ShiftedClockRunner
+
+      - name: Run tests just after the next New Year
+        working-directory: ./backend
+        env:
+          TEST_CLOCK_AT: new-year
+        run: python manage.py test tests --settings=config.settings_test --noinput --testrunner=tests.clock.ShiftedClockRunner
+
       - name: Generate coverage XML
         if: always()
         working-directory: ./backend

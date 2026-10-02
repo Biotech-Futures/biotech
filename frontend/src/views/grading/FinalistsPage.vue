@@ -32,6 +32,10 @@
             />
           </div>
         </div>
+        <p v-if="candidatesResp" class="finalists__stats">
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked ·
+          {{ finalistCount }} Added as {{ finalistCount === 1 ? 'Finalist' : 'Finalists' }}
+        </p>
         <div class="finalists__search-side">
           <!-- Each group's title and categories stay hidden until asked for. -->
           <button
@@ -50,12 +54,22 @@
         <table class="finalists__table">
           <thead>
             <tr>
-              <th>Group</th>
-              <th>Late</th>
-              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
-                {{ c.code === 'PROTOTYPE' ? 'PROT.' : c.code }}
+              <th :aria-sort="ariaSort('group')">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort('group')">
+                  Group <i class="fas" :class="sortIcon('group')" aria-hidden="true"></i>
+                </button>
               </th>
-              <th>Total</th>
+              <th>Late</th>
+              <th v-for="c in markColumns" :key="c.key" :title="c.title" :aria-sort="ariaSort(c.key)">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort(c.key)">
+                  {{ c.label }} <i class="fas" :class="sortIcon(c.key)" aria-hidden="true"></i>
+                </button>
+              </th>
+              <th :aria-sort="ariaSort('total')">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort('total')">
+                  Total <i class="fas" :class="sortIcon('total')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th>
                 Marker
                 <i
@@ -70,7 +84,7 @@
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 6" class="finalists__empty">
+              <td :colspan="markColumns.length + 6" class="finalists__empty">
                 {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
@@ -83,11 +97,11 @@
                   </span>
                   <span v-else class="finalists__muted">—</span>
                 </td>
-                <td v-for="c in candidateComponents" :key="c.code">
-                  <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
-                    {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
+                <td v-for="c in markColumns" :key="c.key">
+                  <span v-if="notMarkedCompletely(r, c.key)" title="Not Marked Completely">
+                    {{ markOf(r, c.key) ?? '' }}<span class="finalists__incomplete">*</span>
                   </span>
-                  <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
+                  <span v-else-if="markOf(r, c.key) != null">{{ markOf(r, c.key) }}</span>
                   <span v-else class="finalists__muted">—</span>
                 </td>
                 <td class="finalists__cell--strong">
@@ -135,13 +149,25 @@
               <!-- The project's details get a full-width row of their own so
                    long text can wrap; the pair reads as one group. -->
               <tr v-if="showDetails" class="finalists__details-row">
-                <td :colspan="candidateComponents.length + 6">
-                  <div>
-                    <span class="finalists__muted">Title:</span> {{ r.project_title || '—' }}
+                <td :colspan="markColumns.length + 6">
+                  <!-- Wraps to the visible width, not the table's, and a long
+                       value wraps in line with itself, after its label. -->
+                  <div class="finalists__details">
+                    <div class="finalists__detail">
+                      <span class="finalists__muted">Title:</span>
+                      <span>{{ r.project_title || '—' }}</span>
+                    </div>
+                    <div class="finalists__detail-line">
+                      <div class="finalists__detail">
+                        <span class="finalists__muted">Category:</span>
+                        <span>{{ r.project_category || '—' }}</span>
+                      </div>
+                      <div class="finalists__detail">
+                        <span class="finalists__muted">Solution Category:</span>
+                        <span>{{ r.solution_category || '—' }}</span>
+                      </div>
+                    </div>
                   </div>
-                  <span class="finalists__muted">Category:</span> {{ r.project_category || '—' }}
-                  <span class="finalists__details-gap"></span>
-                  <span class="finalists__muted">Solution Category:</span> {{ r.solution_category || '—' }}
                 </td>
               </tr>
             </template>
@@ -177,6 +203,7 @@
         <table class="finalists__table">
           <thead>
             <tr>
+              <th>#</th>
               <th>Group</th>
               <th>Flagged at</th>
               <th>Flagged by</th>
@@ -196,9 +223,10 @@
           </thead>
           <tbody>
             <tr v-if="finalists.length === 0">
-              <td colspan="8" class="finalists__empty">No finalists yet.</td>
+              <td colspan="9" class="finalists__empty">No finalists yet.</td>
             </tr>
-            <tr v-for="f in finalists" :key="f.group_id">
+            <tr v-for="(f, i) in finalistsInOrder" :key="f.group_id">
+              <td class="finalists__muted">{{ finalistsInOrder.length - i }}</td>
               <td class="finalists__cell--strong">{{ f.group_name }}</td>
               <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
               <td>{{ f.flagged_by ?? '—' }}</td>
@@ -302,6 +330,15 @@ const groupQuery = ref('')
 const showDetails = ref(false)
 
 const finalists = computed(() => list.value?.finalists ?? [])
+// The latest flagged first, each numbered in the order picked: the
+// earliest is 1.
+const finalistsInOrder = computed(() =>
+  [...finalists.value].sort(
+    (a, b) =>
+      new Date(b.flagged_at).getTime() - new Date(a.flagged_at).getTime() ||
+      a.group_name.localeCompare(b.group_name, undefined, { numeric: true })
+  )
+)
 
 // Collapsible sections — both open by default.
 const showGroupMarks = ref(true)
@@ -324,15 +361,73 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
+const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// Above the table, as on the component pages: the groups that submitted, and
+// how many of them have every part they sent marked.
+const submittedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission).length
+)
+const fullyMarkedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission && !r.incomplete.length).length
+)
+// And how many of the groups have been added as finalists.
+const finalistCount = computed(() => (candidatesResp.value?.rows ?? []).filter((r) => r.is_finalist).length)
+
+// The SAQ and Poster marks together: the released parts, as the marks
+// summary adds them up.
+const SAQ_POSTER = 'SAQ_POSTER'
+const saqPoster = (r: FinalistCandidateRow): string | null => {
+  const parts = [r.marks.SAQ, r.marks.POSTER].filter((mark): mark is string => mark != null)
+  return parts.length ? parts.reduce((sum, mark) => sum + Number(mark), 0).toFixed(2) : null
+}
+
+// A mark column per part, SAQ&P. straight after the poster's.
+const markColumns = computed(() =>
+  candidateComponents.value.flatMap((c) => {
+    const column = { key: c.code, label: c.code === 'PROTOTYPE' ? 'PRO.' : c.code, title: c.name }
+    return c.code === 'POSTER'
+      ? [column, { key: SAQ_POSTER, label: 'SAQ&P.', title: 'SAQ and Poster together' }]
+      : [column]
+  })
+)
+const markOf = (r: FinalistCandidateRow, key: string): string | null =>
+  key === SAQ_POSTER ? saqPoster(r) : key === 'total' ? r.total : (r.marks[key] ?? null)
+
+// Click a header to sort by it, again to reverse. Until then, the server's
+// order: highest total first. Group names sort as numbers do (BTF2 before
+// BTF10); marks start highest first, and a missing mark always sinks.
+const sort = ref<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+const toggleSort = (key: string) => {
+  sort.value =
+    sort.value?.key === key
+      ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: key === 'group' ? 'asc' : 'desc' }
+}
+const sortIcon = (key: string) =>
+  sort.value?.key !== key ? 'fa-sort' : sort.value.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+const ariaSort = (key: string) =>
+  sort.value?.key !== key ? 'none' : sort.value.direction === 'asc' ? 'ascending' : 'descending'
+const byName = (a: FinalistCandidateRow, b: FinalistCandidateRow) =>
+  a.group_name.localeCompare(b.group_name, undefined, { numeric: true, sensitivity: 'base' })
+
 // Live-filter the Group Marks table by the search text (group name),
 // matching the other marking tables.
 const candidates = computed(() => {
-  const rows = candidatesResp.value?.rows ?? []
+  const all = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
-  if (!q) return rows
-  return rows.filter((r) => r.group_name.toLowerCase().includes(q))
+  const rows = q ? all.filter((r) => r.group_name.toLowerCase().includes(q)) : all
+  const order = sort.value
+  if (!order) return rows
+  const sign = order.direction === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    if (order.key === 'group') return sign * byName(a, b)
+    const x = markOf(a, order.key)
+    const y = markOf(b, order.key)
+    if (x == null || y == null) return x == null && y == null ? byName(a, b) : x == null ? 1 : -1
+    return sign * (Number(x) - Number(y)) || byName(a, b)
+  })
 })
-const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
 
 // The Group Marks ranking keyed by group, so the Current Finalists table
 // can show each finalist's total and marker.
@@ -378,12 +473,20 @@ onMounted(() => {
   void loadCandidates()
 })
 
+// After adding or removing: both tables update in place, without the
+// Loading… that replaces them, so the page keeps its place.
+const refreshInPlace = async () => {
+  const [finalistList, candidateList] = await Promise.all([fetchFinalists(), fetchFinalistCandidates()])
+  list.value = finalistList
+  candidatesResp.value = candidateList
+}
+
 const addFromRow = async (id: number) => {
   actionError.value = ''
   isMutating.value = true
   try {
     await addFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -399,7 +502,7 @@ const remove = async (id: number) => {
   isMutating.value = true
   try {
     await removeFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -487,10 +590,20 @@ const remove = async (id: number) => {
   max-width: 252px;
 }
 
+/* Centered between the search box and the buttons, as on the component pages. */
+.finalists__stats {
+  margin: 0 auto;
+  color: var(--charcoal);
+  font-size: 0.9rem;
+}
+
 .finalists__search-side {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /* Stays right-aligned even when the card wraps it onto its own line, as
+     on the component pages. */
+  margin-left: auto;
 }
 
 .finalists__legend {
@@ -564,6 +677,8 @@ const remove = async (id: number) => {
 
 .finalists__scroll {
   overflow-x: auto;
+  /* Lets the details rows size to the visible width (cqw). */
+  container-type: inline-size;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
@@ -596,6 +711,26 @@ const remove = async (id: number) => {
   letter-spacing: 0.03em;
 }
 
+/* A header that sorts: the header's own look, and a pointer. */
+.finalists__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.finalists__sort-btn .fas {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
 .finalists__table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -611,9 +746,34 @@ const remove = async (id: number) => {
   padding-left: 1.5rem;
 }
 
-.finalists__details-gap {
-  display: inline-block;
-  width: 1.5rem;
+/* Held in view while the table scrolls sideways, and as wide as the
+   visible part of it less the cell's indent, so long text wraps there. */
+.finalists__details {
+  position: sticky;
+  left: 1.5rem;
+  max-width: calc(100cqw - 2.25rem);
+}
+
+.finalists__detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
+}
+
+/* The value wraps beside its label, its lines lined up after the colon. */
+.finalists__detail {
+  display: flex;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.finalists__detail > :first-child {
+  flex: none;
+}
+
+.finalists__detail > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .finalists__empty {
