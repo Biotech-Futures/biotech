@@ -202,6 +202,18 @@ describe('the group marks ranking', () => {
     expect(order()).toEqual(['BTF2', 'BTF10', 'BTF3'])
   })
 
+  it('counts the groups that submitted and those fully marked, above the table', async () => {
+    const rows = [
+      candidate(),
+      candidate({ group_id: 3, group_name: 'BTF-3', incomplete: ['POSTER'] }),
+      candidate({ group_id: 4, group_name: 'BTF-4', has_submission: false, marks: {}, total: null })
+    ]
+    candidatesMock.mockResolvedValue({ components: [{ code: 'SAQ', name: 'SAQ' }, { code: 'POSTER', name: 'Poster' }], rows })
+    const wrapper = await mountPage()
+    // Two submitted, one of them with a part still to mark.
+    expect(wrapper.find('.finalists__stats').text()).toBe('1/2 Fully Marked')
+  })
+
   it('leaves out the asterisk key when there is no report or prototype column', async () => {
     const wrapper = await mountPage() // SAQ and POSTER columns only
     expect(wrapper.find('.finalists__legend').exists()).toBe(false)
@@ -233,11 +245,17 @@ describe('the group marks ranking', () => {
     const details = wrapper.findAll('.finalists__details-row')
     expect(details).toHaveLength(2)
     // Title on its line; the categories on the next.
-    expect(details[0]!.find('div').text()).toBe('Title: —')
-    const text = details[0]!.text().replace(/\s+/g, ' ')
-    expect(text).toContain('Category: Health and Medicine, Wearables Solution Category: App')
-    // Spans the whole table, like the extensions' reason row.
-    expect(details[0]!.find('td').attributes('colspan')).toBe('8')
+    // Each label beside its value; a long value wraps after the label.
+    const pairs = details[0]!
+      .findAll('.finalists__detail')
+      .map((pair) => pair.findAll('span').map((part) => part.text()))
+    expect(pairs).toEqual([
+      ['Title:', '—'],
+      ['Category:', 'Health and Medicine, Wearables'],
+      ['Solution Category:', 'App']
+    ])
+    // Spans the whole table (SAQ&P. included), like the extensions' reason row.
+    expect(details[0]!.find('td').attributes('colspan')).toBe('9')
 
     await toggle.trigger('click')
     expect(wrapper.find('.finalists__details-row').exists()).toBe(false)

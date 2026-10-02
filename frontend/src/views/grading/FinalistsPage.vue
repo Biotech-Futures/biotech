@@ -32,6 +32,9 @@
             />
           </div>
         </div>
+        <p v-if="candidatesResp" class="finalists__stats">
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+        </p>
         <div class="finalists__search-side">
           <!-- Each group's title and categories stay hidden until asked for. -->
           <button
@@ -145,13 +148,25 @@
               <!-- The project's details get a full-width row of their own so
                    long text can wrap; the pair reads as one group. -->
               <tr v-if="showDetails" class="finalists__details-row">
-                <td :colspan="candidateComponents.length + 6">
-                  <div>
-                    <span class="finalists__muted">Title:</span> {{ r.project_title || '—' }}
+                <td :colspan="markColumns.length + 6">
+                  <!-- Wraps to the visible width, not the table's, and a long
+                       value wraps in line with itself, after its label. -->
+                  <div class="finalists__details">
+                    <div class="finalists__detail">
+                      <span class="finalists__muted">Title:</span>
+                      <span>{{ r.project_title || '—' }}</span>
+                    </div>
+                    <div class="finalists__detail-line">
+                      <div class="finalists__detail">
+                        <span class="finalists__muted">Category:</span>
+                        <span>{{ r.project_category || '—' }}</span>
+                      </div>
+                      <div class="finalists__detail">
+                        <span class="finalists__muted">Solution Category:</span>
+                        <span>{{ r.solution_category || '—' }}</span>
+                      </div>
+                    </div>
                   </div>
-                  <span class="finalists__muted">Category:</span> {{ r.project_category || '—' }}
-                  <span class="finalists__details-gap"></span>
-                  <span class="finalists__muted">Solution Category:</span> {{ r.solution_category || '—' }}
                 </td>
               </tr>
             </template>
@@ -335,6 +350,15 @@ const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
 const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// Above the table, as on the component pages: the groups that submitted, and
+// how many of them have every part they sent marked.
+const submittedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission).length
+)
+const fullyMarkedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission && !r.incomplete.length).length
+)
 
 // The SAQ and Poster marks together: the released parts, as the marks
 // summary adds them up.
@@ -544,6 +568,13 @@ const remove = async (id: number) => {
   max-width: 252px;
 }
 
+/* Centered between the search box and the buttons, as on the component pages. */
+.finalists__stats {
+  margin: 0 auto;
+  color: var(--charcoal);
+  font-size: 0.9rem;
+}
+
 .finalists__search-side {
   display: flex;
   align-items: center;
@@ -621,6 +652,8 @@ const remove = async (id: number) => {
 
 .finalists__scroll {
   overflow-x: auto;
+  /* Lets the details rows size to the visible width (cqw). */
+  container-type: inline-size;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
@@ -688,9 +721,34 @@ const remove = async (id: number) => {
   padding-left: 1.5rem;
 }
 
-.finalists__details-gap {
-  display: inline-block;
-  width: 1.5rem;
+/* Held in view while the table scrolls sideways, and as wide as the
+   visible part of it less the cell's indent, so long text wraps there. */
+.finalists__details {
+  position: sticky;
+  left: 1.5rem;
+  max-width: calc(100cqw - 2.25rem);
+}
+
+.finalists__detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
+}
+
+/* The value wraps beside its label, its lines lined up after the colon. */
+.finalists__detail {
+  display: flex;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.finalists__detail > :first-child {
+  flex: none;
+}
+
+.finalists__detail > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .finalists__empty {
