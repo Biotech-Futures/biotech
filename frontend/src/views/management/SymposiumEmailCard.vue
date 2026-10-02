@@ -49,6 +49,15 @@
             {{ starting === 'all' || (status.sending && starting === null) ? 'Sending…' : buttonLabel }}
           </button>
           <button
+            v-if="newlyAdded"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="starting !== null || !canSend || !status.waiting.new.teams"
+            @click="confirming = 'new'"
+          >
+            {{ starting === 'new' ? 'Sending…' : 'Email Newly Added' }}
+          </button>
+          <button
             type="button"
             class="btn btn-outline btn-sm"
             :disabled="starting !== null || !canSend || !status.waiting.missed.teams"
@@ -85,7 +94,10 @@
         <h3 class="symposium-email__dialog-title">
           <i class="fas fa-envelope" aria-hidden="true"></i> {{ confirmTitle }}
         </h3>
-        <p v-if="confirming === 'missed' && status" class="symposium-email__dialog-text">
+        <p v-if="confirming === 'new' && status" class="symposium-email__dialog-text">
+          This emails every member of the {{ plural(status.waiting.new.teams, 'newly added team') }}.
+        </p>
+        <p v-else-if="confirming === 'missed' && status" class="symposium-email__dialog-text">
           This emails only the {{ plural(status.waiting.missed.people, 'person', 'people') }} earlier sends
           missed, on {{ plural(status.waiting.missed.teams, 'team') }}.
         </p>
@@ -159,6 +171,8 @@ const props = defineProps<{
   buttonLabel: string
   /** The confirmation's question, e.g. "Email non-finalist teams?". */
   confirmTitle: string
+  /** Show Email Newly Added: only the teams no send has tried yet. */
+  newlyAdded?: boolean
 }>()
 
 const status = ref<SymposiumEmailStatus | null>(null)
@@ -192,11 +206,12 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
 
 // -- Sending ----------------------------------------------------------------
 
-// Which send is awaiting confirmation: every team due, or only the people
-// earlier sends missed; null = dialog closed.
-const confirming = ref<'all' | 'missed' | null>(null)
+// Which send is awaiting confirmation: every team due, only those no send
+// has tried yet, or only the people earlier sends missed; null = dialog closed.
+type SendMode = 'all' | 'new' | 'missed'
+const confirming = ref<SendMode | null>(null)
 // Which Send request is going; the run then sends on the server.
-const starting = ref<'all' | 'missed' | null>(null)
+const starting = ref<SendMode | null>(null)
 
 const send = async () => {
   const mode = confirming.value
@@ -205,9 +220,9 @@ const send = async () => {
   actionError.value = ''
   starting.value = mode
   try {
-    status.value = await (mode === 'missed'
-      ? startSymposiumEmail(props.email, 'missed')
-      : startSymposiumEmail(props.email))
+    status.value = await (mode === 'all'
+      ? startSymposiumEmail(props.email)
+      : startSymposiumEmail(props.email, mode))
     // A run with little or nothing to send can be over by the reply.
     if (!status.value.sending && status.value.run) reportRun(status.value.run)
   } catch (err) {

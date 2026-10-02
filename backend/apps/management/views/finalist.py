@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
 from apps.grading.models import FinalistFlag
+from apps.grading.services.text import natural_key
 from apps.services.email_branding import LOGO_CID, logo_data_uri
 from apps.submissions.emails import recipients_for
 
@@ -99,12 +100,16 @@ def _due(which: str = "", group_ids=None) -> list[tuple[FinalistFlag, list[str]]
 
 
 def _waiting() -> dict:
-    """The teams, and the people on them, each limited send would email:
-    ``{"new": {"teams", "people"}, "missed": {"teams", "people"}}``."""
+    """The teams, and the people on them, each limited send would email, and
+    the teams' names: ``{"new": {"teams", "people", "groups"}, "missed": ...}``."""
     waiting = {}
     for which in WHICH:
         due = _due(which)
-        waiting[which] = {"teams": len(due), "people": sum(len(addresses) for _, addresses in due)}
+        waiting[which] = {
+            "teams": len(due),
+            "people": sum(len(addresses) for _, addresses in due),
+            "groups": sorted((flag.group.group_name for flag, _ in due), key=natural_key),
+        }
     return waiting
 
 

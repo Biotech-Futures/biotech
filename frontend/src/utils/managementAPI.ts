@@ -422,7 +422,7 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
    *  members count as emailed. */
   counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount>
   /** The teams, and people on them, each limited send would email. */
-  waiting: Record<FinalistSendWhich, { teams: number; people: number }>
+  waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.
@@ -686,8 +686,9 @@ export interface SymposiumEmailStatus extends EmailRunState {
   /** Why sending is refused (details missing on Notify Finalists, switched
    *  off, submissions still open), or "" when it may go ahead. */
   blocked: string
-  /** The teams, and people on them, Resend Email Those Missed would email. */
-  waiting: { missed: { teams: number; people: number } }
+  /** The teams, and people on them, Email Newly Added and Resend Email
+   *  Those Missed would email. */
+  waiting: Record<'new' | 'missed', { teams: number; people: number }>
 }
 
 export interface SymposiumEmailPreview {
@@ -719,10 +720,11 @@ export function previewSymposiumEmail(
 // with the returned cursor until done.
 // POST /api/v1/management/{nonfinalists|nonsubmissions}/send/ — start a run on
 // the server that emails every team due it, so the page can be closed. With
-// 'missed', only the people earlier sends missed.
+// 'new', only the teams no send has tried yet; with 'missed', only the people
+// earlier sends missed.
 export function startSymposiumEmail(
   email: SymposiumEmail,
-  which?: 'missed'
+  which?: 'new' | 'missed'
 ): Promise<SymposiumEmailStatus> {
   return requestJson<SymposiumEmailStatus>(`/api/v1/management/${email}/send/`, {
     method: 'POST',

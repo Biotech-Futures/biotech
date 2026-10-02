@@ -68,8 +68,9 @@ class _PreviewView(APIView):
 class _SendView(APIView):
     """POST — start a run emailing every team due it and not yet emailed, on
     the server, so the page can be closed; returns the status with the run's
-    progress. Body ``{"which": "missed"}`` emails only the people earlier runs
-    missed. Refused until the Symposium date and link are set, while
+    progress. Body ``{"which": "new"}`` emails only the teams no run has tried
+    yet, and ``{"which": "missed"}`` only the people earlier runs missed.
+    Refused until the Symposium date and link are set, while
     submissions are open, and while a run is going."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -77,13 +78,13 @@ class _SendView(APIView):
 
     def post(self, request):
         which = request.data.get("which") or ""
-        if which not in ("", "missed"):
-            return Response({"detail": "which must be missed"}, status=status.HTTP_400_BAD_REQUEST)
+        if which not in ("", "new", "missed"):
+            return Response({"detail": "which must be new or missed"}, status=status.HTTP_400_BAD_REQUEST)
         reason = symposium_emails.send_blocked_reason(self.email, FinalistEmailSettings.load())
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            symposium_emails.start_send(self.email, request.user, only_missed=which == "missed")
+            symposium_emails.start_send(self.email, request.user, which=which)
         except AlreadySending:
             return Response(
                 {"detail": symposium_emails.already_sending(self.email)}, status=status.HTTP_409_CONFLICT,

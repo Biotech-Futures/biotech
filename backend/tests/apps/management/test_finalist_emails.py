@@ -337,7 +337,10 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=late, flagged_by=self.staff)
 
         waiting = lambda: self.client.get(reverse("management:finalist-email")).json()["waiting"]  # noqa: E731
-        self.assertEqual(waiting(), {"new": {"teams": 1, "people": 1}, "missed": {"teams": 1, "people": 1}})
+        self.assertEqual(waiting(), {
+            "new": {"teams": 1, "people": 1, "groups": ["BTF-LATE"]},
+            "missed": {"teams": 1, "people": 1, "groups": [self.group.group_name]},
+        })
 
         # Retry emails only the student it missed, not the new team.
         mail.outbox = []
@@ -350,7 +353,9 @@ class FinalistEmailTests(_GradingFixture):
         mail.outbox = []
         self.client.post(reverse("management:finalist-notify"), {"which": "new"}, format="json")
         self.assertEqual([m.to for m in mail.outbox], [["new@example.com"]])
-        self.assertEqual(waiting(), {"new": {"teams": 0, "people": 0}, "missed": {"teams": 0, "people": 0}})
+        self.assertEqual(waiting(), {
+            "new": {"teams": 0, "people": 0, "groups": []}, "missed": {"teams": 0, "people": 0, "groups": []},
+        })
 
     def test_a_team_the_last_send_missed_entirely_is_one_to_retry(self):
         from django.utils import timezone
@@ -364,7 +369,10 @@ class FinalistEmailTests(_GradingFixture):
             key="finalist_notification", started_at=timezone.now(), missed=[f"({self.group.group_name}) stu X"],
         )
         waiting = self.client.get(reverse("management:finalist-email")).json()["waiting"]
-        self.assertEqual(waiting, {"new": {"teams": 0, "people": 0}, "missed": {"teams": 1, "people": 1}})
+        self.assertEqual(waiting, {
+            "new": {"teams": 0, "people": 0, "groups": []},
+            "missed": {"teams": 1, "people": 1, "groups": [self.group.group_name]},
+        })
 
     def test_send_refuses_an_unknown_which(self):
         _set_email_details()

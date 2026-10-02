@@ -3,6 +3,7 @@
     <SymposiumEmailCard
       email="nonfinalists"
       button-label="Email All Nonfinalists"
+      newly-added
       confirm-title="Email non-finalist teams?"
     >
       <div class="card-header">

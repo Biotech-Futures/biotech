@@ -58,7 +58,7 @@ const details = (over: Record<string, unknown> = {}) => ({
   run: null,
   counts: COUNTS,
   // One team never tried, and two people on one team a send missed.
-  waiting: { new: { teams: 1, people: 3 }, missed: { teams: 1, people: 2 } },
+  waiting: { new: { teams: 1, people: 3, groups: ['BTF-1'] }, missed: { teams: 1, people: 2, groups: ['BTF-2'] } },
   ...over
 })
 
@@ -140,6 +140,25 @@ describe('the finalist roster', () => {
         "mistyped address or one a school's mail server refuses, come back to info@biotechfutures.org."
     )
     expect(note.element.nextElementSibling?.textContent).toContain('Last Emailed at')
+  })
+
+  it('names the newly added teams not emailed yet, above the delivery note', async () => {
+    detailsMock.mockResolvedValue(details({
+      sent_from: 'info@biotechfutures.org',
+      waiting: { new: { teams: 2, people: 5, groups: ['BTF-3', 'BTF-10'] }, missed: { teams: 0, people: 0, groups: [] } }
+    }))
+    const wrapper = await mountPage()
+    const names = wrapper.find('.notify-finalists__newly-added')
+    expect(names.text()).toBe('Newly added, not emailed yet: BTF-3, BTF-10')
+    expect(names.element.nextElementSibling?.classList).toContain('notify-finalists__delivery-note')
+  })
+
+  it('names no teams when none are newly added', async () => {
+    detailsMock.mockResolvedValue(
+      details({ waiting: { new: { teams: 0, people: 0, groups: [] }, missed: { teams: 0, people: 0, groups: [] } } })
+    )
+    const wrapper = await mountPage()
+    expect(wrapper.find('.notify-finalists__newly-added').exists()).toBe(false)
   })
 
   it('says so when no finalists exist yet', async () => {
@@ -356,7 +375,7 @@ describe('sending', () => {
 
   it('Newly Added and Those Missed are off when they have nobody to email', async () => {
     detailsMock.mockResolvedValue(
-      details({ waiting: { new: { teams: 0, people: 0 }, missed: { teams: 0, people: 0 } } })
+      details({ waiting: { new: { teams: 0, people: 0, groups: [] }, missed: { teams: 0, people: 0, groups: [] } } })
     )
     const wrapper = await mountPage()
     expect(buttonNamed(wrapper, /Email Newly Added/).attributes('disabled')).toBeDefined()

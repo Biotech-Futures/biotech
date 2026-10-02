@@ -52,7 +52,7 @@ const status = (overrides: Partial<SymposiumEmailStatus> = {}): SymposiumEmailSt
   mentors: people(3, 0, 4),
   supervisors: people(2, 0),
   blocked: '',
-  waiting: { missed: { teams: 0, people: 0 } },
+  waiting: { new: { teams: 0, people: 0 }, missed: { teams: 0, people: 0 } },
   ...IDLE,
   ...overrides
 })
@@ -241,7 +241,7 @@ describe('Email Nonfinalist', () => {
   })
 
   it('Resend Email Those Missed names who was missed and asks for only them', async () => {
-    statuses.nonfinalists = status({ waiting: { missed: { teams: 1, people: 2 } } })
+    statuses.nonfinalists = status({ waiting: { new: { teams: 0, people: 0 }, missed: { teams: 1, people: 2 } } })
     sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 2, emailed: 2 }) }))
     const wrapper = await mountPage()
     await buttonIn(wrapper, NONFINALISTS, /^Resend Email Those Missed$/).trigger('click')
@@ -251,6 +251,38 @@ describe('Email Nonfinalist', () => {
     await dialogButton(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(sendMock).toHaveBeenCalledWith('nonfinalists', 'missed')
+  })
+
+  it('Email Newly Added is on Email Nonfinalist only, between Email All and Resend', async () => {
+    const wrapper = await mountPage()
+    const labels = (card: string) =>
+      wrapper.findAll(`${card} .symposium-email__actions button`).map((b) => b.text())
+    expect(labels(NONFINALISTS)).toEqual([
+      'Preview Email',
+      'Send Test Email',
+      'Email All Nonfinalists',
+      'Email Newly Added',
+      'Resend Email Those Missed'
+    ])
+    expect(labels(NONSUBMISSIONS)).not.toContain('Email Newly Added')
+  })
+
+  it('Email Newly Added names how many teams and asks for only them', async () => {
+    statuses.nonfinalists = status({ waiting: { new: { teams: 2, people: 7 }, missed: { teams: 0, people: 0 } } })
+    sendMock.mockResolvedValueOnce(status({ ...finishedRun({ due: 7, emailed: 7 }) }))
+    const wrapper = await mountPage()
+    await buttonIn(wrapper, NONFINALISTS, /^Email Newly Added$/).trigger('click')
+    expect(wrapper.find('[aria-label="Send the email"]').text()).toContain(
+      'This emails every member of the 2 newly added teams.'
+    )
+    await dialogButton(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(sendMock).toHaveBeenCalledWith('nonfinalists', 'new')
+  })
+
+  it('Email Newly Added is off when no team is newly added', async () => {
+    const wrapper = await mountPage()
+    expect(buttonIn(wrapper, NONFINALISTS, /^Email Newly Added$/).attributes('disabled')).toBeDefined()
   })
 
   it('Resend Email Those Missed is off when nobody was missed', async () => {

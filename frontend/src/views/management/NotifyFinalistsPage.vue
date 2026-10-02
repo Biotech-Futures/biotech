@@ -131,6 +131,9 @@
           </li>
         </ul>
       </div>
+      <p v-if="details?.waiting.new.groups.length" class="notify-finalists__newly-added">
+        Newly added, not emailed yet: {{ details.waiting.new.groups.join(', ') }}
+      </p>
       <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
@@ -669,6 +672,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--text-muted);
 }
 
+.notify-finalists__newly-added,
 .notify-finalists__delivery-note,
 .notify-finalists__last-emailed {
   color: var(--text-muted);
@@ -677,6 +681,17 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   margin: 1rem 0 0;
 }
 
+.notify-finalists__newly-added {
+  color: var(--charcoal);
+  font-weight: 600;
+}
+
+/* The same amber as the blocked message above the buttons. */
+.notify-finalists__delivery-note {
+  color: #b8860b;
+}
+
+.notify-finalists__newly-added + .notify-finalists__delivery-note,
 .notify-finalists__delivery-note + .notify-finalists__last-emailed {
   margin-top: 0.25rem;
 }
