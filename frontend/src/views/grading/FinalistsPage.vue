@@ -50,12 +50,22 @@
         <table class="finalists__table">
           <thead>
             <tr>
-              <th>Group</th>
-              <th>Late</th>
-              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
-                {{ c.code === 'PROTOTYPE' ? 'PROT.' : c.code }}
+              <th :aria-sort="ariaSort('group')">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort('group')">
+                  Group <i class="fas" :class="sortIcon('group')" aria-hidden="true"></i>
+                </button>
               </th>
-              <th>Total</th>
+              <th>Late</th>
+              <th v-for="c in markColumns" :key="c.key" :title="c.title" :aria-sort="ariaSort(c.key)">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort(c.key)">
+                  {{ c.label }} <i class="fas" :class="sortIcon(c.key)" aria-hidden="true"></i>
+                </button>
+              </th>
+              <th :aria-sort="ariaSort('total')">
+                <button type="button" class="finalists__sort-btn" @click="toggleSort('total')">
+                  Total <i class="fas" :class="sortIcon('total')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th>
                 Marker
                 <i
@@ -70,7 +80,7 @@
           </thead>
           <tbody>
             <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 6" class="finalists__empty">
+              <td :colspan="markColumns.length + 6" class="finalists__empty">
                 {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
@@ -83,11 +93,11 @@
                   </span>
                   <span v-else class="finalists__muted">—</span>
                 </td>
-                <td v-for="c in candidateComponents" :key="c.code">
-                  <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
-                    {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
+                <td v-for="c in markColumns" :key="c.key">
+                  <span v-if="notMarkedCompletely(r, c.key)" title="Not Marked Completely">
+                    {{ markOf(r, c.key) ?? '' }}<span class="finalists__incomplete">*</span>
                   </span>
-                  <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
+                  <span v-else-if="markOf(r, c.key) != null">{{ markOf(r, c.key) }}</span>
                   <span v-else class="finalists__muted">—</span>
                 </td>
                 <td class="finalists__cell--strong">
@@ -324,15 +334,62 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
+const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// The SAQ and Poster marks together: the released parts, as the marks
+// summary adds them up.
+const SAQ_POSTER = 'SAQ_POSTER'
+const saqPoster = (r: FinalistCandidateRow): string | null => {
+  const parts = [r.marks.SAQ, r.marks.POSTER].filter((mark): mark is string => mark != null)
+  return parts.length ? parts.reduce((sum, mark) => sum + Number(mark), 0).toFixed(2) : null
+}
+
+// A mark column per part, SAQ&P. straight after the poster's.
+const markColumns = computed(() =>
+  candidateComponents.value.flatMap((c) => {
+    const column = { key: c.code, label: c.code === 'PROTOTYPE' ? 'PRO.' : c.code, title: c.name }
+    return c.code === 'POSTER'
+      ? [column, { key: SAQ_POSTER, label: 'SAQ&P.', title: 'SAQ and Poster together' }]
+      : [column]
+  })
+)
+const markOf = (r: FinalistCandidateRow, key: string): string | null =>
+  key === SAQ_POSTER ? saqPoster(r) : key === 'total' ? r.total : (r.marks[key] ?? null)
+
+// Click a header to sort by it, again to reverse. Until then, the server's
+// order: highest total first. Group names sort as numbers do (BTF2 before
+// BTF10); marks start highest first, and a missing mark always sinks.
+const sort = ref<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+const toggleSort = (key: string) => {
+  sort.value =
+    sort.value?.key === key
+      ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: key === 'group' ? 'asc' : 'desc' }
+}
+const sortIcon = (key: string) =>
+  sort.value?.key !== key ? 'fa-sort' : sort.value.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
+const ariaSort = (key: string) =>
+  sort.value?.key !== key ? 'none' : sort.value.direction === 'asc' ? 'ascending' : 'descending'
+const byName = (a: FinalistCandidateRow, b: FinalistCandidateRow) =>
+  a.group_name.localeCompare(b.group_name, undefined, { numeric: true, sensitivity: 'base' })
+
 // Live-filter the Group Marks table by the search text (group name),
 // matching the other marking tables.
 const candidates = computed(() => {
-  const rows = candidatesResp.value?.rows ?? []
+  const all = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
-  if (!q) return rows
-  return rows.filter((r) => r.group_name.toLowerCase().includes(q))
+  const rows = q ? all.filter((r) => r.group_name.toLowerCase().includes(q)) : all
+  const order = sort.value
+  if (!order) return rows
+  const sign = order.direction === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    if (order.key === 'group') return sign * byName(a, b)
+    const x = markOf(a, order.key)
+    const y = markOf(b, order.key)
+    if (x == null || y == null) return x == null && y == null ? byName(a, b) : x == null ? 1 : -1
+    return sign * (Number(x) - Number(y)) || byName(a, b)
+  })
 })
-const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
 
 // The Group Marks ranking keyed by group, so the Current Finalists table
 // can show each finalist's total and marker.
@@ -594,6 +651,26 @@ const remove = async (id: number) => {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* A header that sorts: the header's own look, and a pointer. */
+.finalists__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.finalists__sort-btn .fas {
+  font-size: 0.7rem;
+  opacity: 0.6;
 }
 
 .finalists__table tbody tr:last-child td {

@@ -131,17 +131,17 @@ describe('the group marks ranking', () => {
         .findAll('tbody tr')
         .find((r) => r.text().includes(name))!
         .findAll('td')
-        .slice(2, 6) // SAQ, POSTER, REPORT, PROT.
+        .slice(2, 7) // SAQ, POSTER, SAQ&P., REPORT, PRO.
     const hover = (cell: ReturnType<typeof cells>[number]) =>
       cell.find('[title]').exists() ? cell.find('[title]').attributes('title') : null
 
-    const [, , report1, prototype1] = cells('BTF-1')
+    const [, , , report1, prototype1] = cells('BTF-1')
     expect(report1!.text()).toBe('2.92*')
     expect(hover(report1!)).toBe('Not Marked Completely')
     expect(prototype1!.text()).toBe('—')
     expect(hover(prototype1!)).toBeNull()
 
-    const [, , report3, prototype3] = cells('BTF-3')
+    const [, , , report3, prototype3] = cells('BTF-3')
     expect(report3!.text()).toBe('3.00')
     expect(prototype3!.text()).toBe('*')
     expect(hover(prototype3!)).toBe('Not Marked Completely')
@@ -152,6 +152,54 @@ describe('the group marks ranking', () => {
 
     // The key above the table explains the asterisk.
     expect(wrapper.find('.finalists__legend').text()).toBe('* Not Marked Completely')
+  })
+
+  it('adds SAQ and Poster together in a column after the poster', async () => {
+    const wrapper = await mountPage()
+    const headers = wrapper.findAll('thead th').map((h) => h.text())
+    expect(headers.slice(0, 6)).toEqual(['Group', 'Late', 'SAQ', 'POSTER', 'SAQ&P.', 'Total'])
+    const cells = (name: string) =>
+      wrapper.findAll('tbody tr').find((r) => r.text().includes(name))!.findAll('td')
+    expect(cells('BTF-1')[4]!.text()).toBe('19.50') // 12.50 + 7.00
+    expect(cells('BTF-2')[4]!.text()).toBe('—')
+  })
+
+  it('sorts by a header, again to reverse; a missing mark always sinks', async () => {
+    candidatesMock.mockResolvedValue({
+      components: [
+        { code: 'SAQ', name: 'Short Answer Questions' },
+        { code: 'POSTER', name: 'Poster' }
+      ],
+      rows: [
+        candidate({ group_id: 10, group_name: 'BTF10', marks: { SAQ: '5.00', POSTER: '9.00' }, total: '14.00' }),
+        candidate({ group_id: 2, group_name: 'BTF2', marks: { SAQ: '12.00', POSTER: '1.00' }, total: '13.00' }),
+        candidate({ group_id: 3, group_name: 'BTF3', marks: { SAQ: null, POSTER: null }, total: null })
+      ]
+    })
+    const wrapper = await mountPage()
+    // The Group Marks table's rows, not the finalists' below it.
+    const order = () => wrapper.findAll('table')[0]!.findAll('tbody tr').map((r) => r.find('td').text())
+    const header = (label: string) =>
+      wrapper.findAll('thead th').find((h) => h.text() === label)!.find('button')
+
+    // The server's order to begin with.
+    expect(order()).toEqual(['BTF10', 'BTF2', 'BTF3'])
+    // Group names as numbers: BTF2 before BTF10, then reversed.
+    await header('Group').trigger('click')
+    expect(order()).toEqual(['BTF2', 'BTF3', 'BTF10'])
+    expect(wrapper.findAll('thead th')[0]!.attributes('aria-sort')).toBe('ascending')
+    await header('Group').trigger('click')
+    expect(order()).toEqual(['BTF10', 'BTF3', 'BTF2'])
+    // A mark starts highest first; the unmarked group stays last either way.
+    await header('SAQ').trigger('click')
+    expect(order()).toEqual(['BTF2', 'BTF10', 'BTF3'])
+    await header('SAQ').trigger('click')
+    expect(order()).toEqual(['BTF10', 'BTF2', 'BTF3'])
+    await header('SAQ&P.').trigger('click')
+    expect(order()).toEqual(['BTF10', 'BTF2', 'BTF3'])
+    await header('Total').trigger('click')
+    await header('Total').trigger('click')
+    expect(order()).toEqual(['BTF2', 'BTF10', 'BTF3'])
   })
 
   it('leaves out the asterisk key when there is no report or prototype column', async () => {
