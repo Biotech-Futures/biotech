@@ -1,6 +1,6 @@
 name: Frontend unit tests
 
-# Runs the vitest suites for both frontends on every push and PR. A separate
+# Runs the portal's vitest suite on every push and PR. A separate
 # file on purpose: the existing deploy and typecheck workflows belong to
 # other teams and stay untouched (plan Phase 8-4).
 #
@@ -8,16 +8,18 @@ name: Frontend unit tests
 # backend with Postgres and seeded accounts; wiring that into CI is its own
 # piece of work, and a half-configured job that silently skips would read
 # as coverage that does not exist.
+#
+# The admin app (adminweb/) is not tested here any more: the client retires it
+# at the end of week 9, the ticket agent side now lives in the portal, and this
+# branch no longer changes a file under adminweb/.
 on:
   push:
     paths:
       - "frontend/**"
-      - "adminweb/**"
       - ".github/workflows/frontend-tests.yml"
   pull_request:
     paths:
       - "frontend/**"
-      - "adminweb/**"
       - ".github/workflows/frontend-tests.yml"
 
 jobs:
@@ -39,27 +41,3 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:unit --run
-
-  adminweb:
-    name: Admin (React) vitest
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: adminweb
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: adminweb/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test --run
-      # The admin app's typecheck ran nowhere: frontend-typecheck.yml covers
-      # the portal only. Not a substitute for a test — a security guard
-      # neutered to `if (false && ...)` leaves the types perfectly clean —
-      # but code that does not compile should not reach review either.
-      - run: pnpm typecheck

@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/myFetch";
-import { rememberSessionUser } from "@/util/csrf";
 
 export interface AuthContextValue {
   session: any | null;
@@ -41,12 +40,6 @@ export default function AuthProvider({
   });
 
   const isAuthenticated = !!user;
-
-  // Keep the request layer in step with who this tab is signed in as, so a
-  // CSRF replay can tell "my token rotated" from "somebody else signed in".
-  useEffect(() => {
-    rememberSessionUser(typeof user?.id === "number" ? user.id : null);
-  }, [user?.id]);
 
   const value: AuthContextValue = {
     session: user ? { user } : null,
