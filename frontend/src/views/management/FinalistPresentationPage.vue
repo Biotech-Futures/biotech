@@ -122,9 +122,11 @@
         label="Show the times to finalists"
         @change="setShown"
       >
-        <span class="finalist-presentation__switch-label">
-          {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
-        </span>
+        <template #before>
+          <span class="finalist-presentation__switch-label">
+            {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
+          </span>
+        </template>
       </HideShowSwitch>
     </section>
 
