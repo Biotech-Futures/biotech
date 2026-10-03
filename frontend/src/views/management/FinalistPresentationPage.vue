@@ -13,11 +13,11 @@
       </p>
       <p class="finalist-presentation__hint">
         <template v-if="symposiumDay">
-          They're on the Symposium day, {{ symposiumDay }}, set on
+          They're for the Symposium day, {{ symposiumDay }}, set on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
         <template v-else>
-          They're on the Symposium day. Set its date on
+          They're for the Symposium day. Set its date on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
       </p>
@@ -108,8 +108,28 @@
       </template>
     </section>
 
+    <!-- Off until the times are final: finalists only see them once on. -->
+    <section class="card">
+      <h3 class="finalist-presentation__section-title">Show Time Slots</h3>
+      <p class="finalist-presentation__hint">
+        Finalists only see the times, to tick the ones they can make, once this is on. Turn it on
+        once the times are final.
+      </p>
+      <HideShowSwitch
+        v-if="data"
+        :on="data.times_shown"
+        :disabled="isSaving"
+        label="Show the times to finalists"
+        @change="setShown"
+      >
+        <span class="finalist-presentation__switch-label">
+          {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
+        </span>
+      </HideShowSwitch>
+    </section>
+
     <section class="card finalist-presentation__allocate">
-      <h3 class="finalist-presentation__section-title">Allocate Slot</h3>
+      <h3 class="finalist-presentation__section-title">Allocate Slots</h3>
       <p class="finalist-presentation__hint">
         Give each finalist team a time. Ticks show the times each team said it can make.
       </p>
@@ -245,6 +265,7 @@ import {
   fetchPresentationSlides,
   fetchPresentationSlots,
   presentationSlidesUrl,
+  setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
   type PresentationSlidesTeam,
@@ -252,6 +273,7 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
 const isLoading = ref(false)
@@ -295,7 +317,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slot: giving a team its time.
+// Allocate Slots: giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
@@ -395,6 +417,9 @@ const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> =
   }
 }
 
+// Show the times to finalists once they're final, or hide them again.
+const setShown = (shown: boolean) => void run(() => setPresentationTimesShown(shown))
+
 const add = async () => {
   const fields = { starts_at: draft.starts_at, ends_at: draft.ends_at }
   if (!(await run(() => addPresentationSlot(fields)))) return
@@ -445,6 +470,13 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As the switch on System Emails. */
+.finalist-presentation__switch-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal);
 }
 
 .finalist-presentation__hint a {

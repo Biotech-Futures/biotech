@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
-from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSlot
+from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSettings, PresentationSlot
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
@@ -61,6 +61,8 @@ class FinalistTests(TestCase):
         year = current_cohort()
         self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
         self.noon = PresentationSlot.objects.create(year=year, starts_at=time(11, 40), ends_at=time(12, 30))
+        # Shown to finalists, as Management turns them on once they're final.
+        PresentationSettings.objects.create(times_shown=True)
 
         self.url = reverse("finalist-entry", kwargs={"group_id": self.group.id})
         self.file_url = reverse("finalist-presentation", kwargs={"group_id": self.group.id})
@@ -291,6 +293,18 @@ class FinalistTests(TestCase):
         response = client.post(self.submit_url, {}, format="json")
 
         self.assertEqual(response.data["code"], "availability_required")
+
+    def test_while_the_times_are_hidden_none_are_offered_or_needed(self):
+        PresentationSettings.objects.update(times_shown=False)
+        client = self._client(self.student)
+        body = client.get(self.url).json()
+        self.assertEqual((body["times_shown"], body["sessions"]), (False, []))
+        # Giving times is refused, and submitting doesn't wait for them.
+        response = client.put(self.url, {"session_ids": [self.morning.id]}, format="json")
+        self.assertEqual(response.data["code"], "times_not_shown")
+        client.post(self.file_url, {"file": _pdf()}, format="multipart")
+        response = client.post(self.submit_url, {}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
 
     def test_submitting_needs_a_presentation(self):
         client = self._client(self.student)

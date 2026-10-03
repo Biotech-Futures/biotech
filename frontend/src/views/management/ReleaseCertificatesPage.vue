@@ -49,24 +49,14 @@
         once the window has closed.
       </p>
 
+      <!-- Show asks first; Hide takes them away again at once. -->
       <div class="release__actions">
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          :disabled="isToggling || released || submissionsOpen"
-          @click="showConfirm = true"
-        >
-          Release
-        </button>
-        <button
-          v-if="released"
-          type="button"
-          class="btn btn-outline btn-sm"
-          :disabled="isToggling"
-          @click="unrelease"
-        >
-          {{ isToggling ? 'Unreleasing…' : 'Unrelease' }}
-        </button>
+        <HideShowSwitch
+          :on="released"
+          :disabled="isToggling || (!released && submissionsOpen)"
+          label="Show certificates to students"
+          @change="onSwitch"
+        />
       </div>
     </div>
 
@@ -112,6 +102,7 @@ import {
   type ReleaseStatus
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 // Release Results rechecks whether the results emails may be sent.
 const emit = defineEmits<{ (e: 'changed'): void }>()
@@ -167,6 +158,12 @@ const load = async () => {
 onMounted(load)
 
 const showConfirm = ref(false)
+
+// Show opens the confirmation; Hide unreleases.
+const onSwitch = (on: boolean) => {
+  if (on) showConfirm.value = true
+  else void unrelease()
+}
 
 const unrelease = async () => {
   isToggling.value = true

@@ -22,6 +22,7 @@ from .errors import (
     NotSubmittedYet,
     PresentationRequired,
     SubmissionLocked,
+    TimesNotShown,
 )
 from .finalist import (
     FinalistAvailabilitySerializer,
@@ -33,6 +34,7 @@ from .finalist import (
     symposium_date,
     team_has_availability,
     time_options,
+    times_shown,
 )
 from .models import FinalistEntry
 from .storage import FINALIST_SLIDES_FILES
@@ -93,8 +95,10 @@ class FinalistEntryView(APIView):
         return Response({
             "group": {"id": group.id, "name": group.group_name},
             "deadline": _deadline_payload(),
-            # This year's presentation times, as "9:30 – 10:00".
-            "sessions": time_options(),
+            # This year's presentation times, as "9:30 – 10:00", once
+            # Management shows them; until then none, and none are needed.
+            "times_shown": times_shown(),
+            "sessions": time_options() if times_shown() else [],
             "symposium_date": symposium_date(),
             "max_file_size": FINALIST_MAX_UPLOAD_SIZE,
             # None means the team has not started.
@@ -105,6 +109,8 @@ class FinalistEntryView(APIView):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
 
+        if not times_shown():
+            raise TimesNotShown()
         payload = FinalistAvailabilitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -211,7 +217,8 @@ class FinalistSubmitView(APIView):
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
             if entry.is_locked:
                 raise SubmissionLocked()
-            if not team_has_availability(group.id):
+            # Only once the times are shown can the team give them.
+            if times_shown() and not team_has_availability(group.id):
                 raise AvailabilityRequired()
             if not entry.presentation:
                 raise PresentationRequired()

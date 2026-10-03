@@ -47,6 +47,12 @@ class NotAFinalist(APIException):
     default_code = "not_a_finalist"
 
 
+class TimesNotShown(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "The presentation sessions haven't been shared yet."
+    default_code = "times_not_shown"
+
+
 class AvailabilityRequired(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Submit the sessions your team can attend first."

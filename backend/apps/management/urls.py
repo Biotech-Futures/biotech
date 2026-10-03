@@ -23,6 +23,7 @@ from .views import (
     PresentationSlidesFileView,
     PresentationSlidesView,
     PresentationSlotDetailView,
+    PresentationTimesShownView,
     PresentationSlotListView,
     ResultsEmailPreviewView,
     ResultsEmailSendView,
@@ -104,6 +105,12 @@ urlpatterns = [
         "finalists/presentation-slots/<int:slot_id>/",
         PresentationSlotDetailView.as_view(),
         name="presentation-slot-detail",
+    ),
+    # Whether finalists see the times yet.
+    path(
+        "finalists/presentation-times-shown/",
+        PresentationTimesShownView.as_view(),
+        name="presentation-times-shown",
     ),
     # What each finalist team said it can make.
     path(

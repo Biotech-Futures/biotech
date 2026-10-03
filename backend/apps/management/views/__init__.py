@@ -16,6 +16,7 @@ from .presentation import (
     PresentationSlidesView,
     PresentationSlotDetailView,
     PresentationSlotListView,
+    PresentationTimesShownView,
 )
 from .release import CertificatesReleaseView, MarksReleaseView
 from .results import (
@@ -58,6 +59,7 @@ __all__ = [
     "PresentationSlidesView",
     "PresentationSlotDetailView",
     "PresentationSlotListView",
+    "PresentationTimesShownView",
     "ResultsEmailPreviewView",
     "ResultsEmailSendView",
     "ResultsEmailSettingsView",

@@ -132,6 +132,17 @@ class FinalistEmailSettings(SingletonModel):
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
 
 
+class PresentationSettings(SingletonModel):
+    """Whether finalists see this year's presentation times to give their
+    availability. Off until the times are final, so teams only ever pick
+    from the real ones."""
+
+    times_shown = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "presentation_settings"
+
+
 class PresentationSlot(models.Model):
     """A time finalists can present at the Symposium, on the Symposium date
     set on Notify Finalists. Admins set them on the Finalist Presentation

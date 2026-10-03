@@ -460,6 +460,8 @@ export interface PresentationSlots {
   symposium_date: string | null
   /** Earliest first. */
   slots: PresentationSlot[]
+  /** Whether finalists see them yet, to give their availability. */
+  times_shown: boolean
 }
 
 export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_at'>
@@ -493,6 +495,15 @@ export function updatePresentationSlot(
 // DELETE {id}/ — remove a time.
 export function deletePresentationSlot(id: number): Promise<PresentationSlots> {
   return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, { method: 'DELETE' })
+}
+
+// PATCH /api/v1/management/finalists/presentation-times-shown/ — show the
+// times to finalists, or hide them again.
+export function setPresentationTimesShown(shown: boolean): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>('/api/v1/management/finalists/presentation-times-shown/', {
+    method: 'PATCH',
+    body: JSON.stringify({ times_shown: shown })
+  })
 }
 
 /** A finalist team and its answer: the times the whole team can make. */
