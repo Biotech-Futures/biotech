@@ -86,7 +86,10 @@
           <p v-if="symposiumDay" class="section-head__sub">The sessions are on {{ symposiumDay }}.</p>
         </header>
 
-        <p v-if="!detail.sessions.length" class="submission-muted">
+        <p v-if="!detail.times_shown" class="submission-muted" data-testid="sessions-not-shown">
+          The sessions will be shown here once they're set.
+        </p>
+        <p v-else-if="!detail.sessions.length" class="submission-muted">
           No sessions have been set up yet.
         </p>
         <fieldset v-else class="finalist-sessions" :disabled="!isEditable || isSaving">
@@ -517,7 +520,8 @@ async function removeFile() {
 }
 
 async function onSubmit() {
-  if (!entry.value?.availability_submitted_at || availabilityChanged.value) {
+  // Availability is only needed once the sessions are shown.
+  if (detail.value?.times_shown && (!entry.value?.availability_submitted_at || availabilityChanged.value)) {
     setMessage("Submit your team's availability first.", true)
     showPart('availability')
     return

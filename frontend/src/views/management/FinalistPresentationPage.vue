@@ -13,11 +13,11 @@
       </p>
       <p class="finalist-presentation__hint">
         <template v-if="symposiumDay">
-          They're on the Symposium day, {{ symposiumDay }}, set on
+          They're for the Symposium day, {{ symposiumDay }}, set on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
         <template v-else>
-          They're on the Symposium day. Set its date on
+          They're for the Symposium day. Set its date on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
       </p>
@@ -106,6 +106,35 @@
           </table>
         </div>
       </template>
+    </section>
+
+    <!-- Off until the times are final: finalists only see them once on. -->
+    <section class="card">
+      <h3 class="finalist-presentation__section-title">Show Time Slots</h3>
+      <p class="finalist-presentation__hint">
+        Finalists only see the times, to tick the ones they can make, once this is on. Turn it on
+        once the times are final.
+      </p>
+      <label v-if="data" class="finalist-presentation__switch">
+        <input
+          type="checkbox"
+          class="sr-only"
+          role="switch"
+          :checked="data.times_shown"
+          :disabled="isSaving"
+          aria-label="Show the times to finalists"
+          @change="toggleShown"
+        />
+        <!-- Both words always there; the knob sits behind the one that's on. -->
+        <span class="finalist-presentation__switch-track" aria-hidden="true">
+          <span class="finalist-presentation__switch-knob"></span>
+          <span class="finalist-presentation__switch-text finalist-presentation__switch-text--hide">Hide</span>
+          <span class="finalist-presentation__switch-text finalist-presentation__switch-text--show">Show</span>
+        </span>
+        <span class="finalist-presentation__switch-label">
+          {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
+        </span>
+      </label>
     </section>
 
     <section class="card finalist-presentation__allocate">
@@ -245,6 +274,7 @@ import {
   fetchPresentationSlides,
   fetchPresentationSlots,
   presentationSlidesUrl,
+  setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
   type PresentationSlidesTeam,
@@ -395,6 +425,12 @@ const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> =
   }
 }
 
+// Show the times to finalists once they're final, or hide them again.
+const toggleShown = (event: Event) => {
+  const shown = (event.target as HTMLInputElement).checked
+  void run(() => setPresentationTimesShown(shown))
+}
+
 const add = async () => {
   const fields = { starts_at: draft.starts_at, ends_at: draft.ends_at }
   if (!(await run(() => addPresentationSlot(fields)))) return
@@ -445,6 +481,88 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As the switch on System Emails. */
+/* The switch, with what it means on the line below: as far below as the
+   hint is above it. */
+.finalist-presentation__switch {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.finalist-presentation__switch input:disabled + .finalist-presentation__switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.finalist-presentation__switch-track {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  width: 7.5rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #d1d5db;
+  transition: background-color 0.15s ease;
+}
+
+/* Hide on the left, Show on the right: the one the knob is behind reads
+   dark on white, the other light on the track. */
+.finalist-presentation__switch-text {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4b5563;
+  transition: color 0.15s ease;
+}
+
+.finalist-presentation__switch-text--hide {
+  color: var(--charcoal);
+}
+
+.finalist-presentation__switch input:checked + .finalist-presentation__switch-track .finalist-presentation__switch-text--hide {
+  color: #ffffff;
+}
+
+.finalist-presentation__switch input:checked + .finalist-presentation__switch-track .finalist-presentation__switch-text--show {
+  color: var(--dark-green);
+}
+
+.finalist-presentation__switch input:checked + .finalist-presentation__switch-track {
+  background: var(--dark-green);
+}
+
+.finalist-presentation__switch input:focus-visible + .finalist-presentation__switch-track {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
+}
+
+.finalist-presentation__switch-knob {
+  position: absolute;
+  top: 0.2rem;
+  bottom: 0.2rem;
+  left: 0.2rem;
+  width: calc(50% - 0.2rem);
+  border-radius: 999px;
+  background: #ffffff;
+  transition: transform 0.15s ease;
+}
+
+.finalist-presentation__switch input:checked + .finalist-presentation__switch-track .finalist-presentation__switch-knob {
+  transform: translateX(100%);
+}
+
+.finalist-presentation__switch-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal);
 }
 
 .finalist-presentation__hint a {

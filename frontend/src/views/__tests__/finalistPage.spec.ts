@@ -57,6 +57,7 @@ const buildDetail = (
 ): FinalistDetail => ({
   group: { id: 1, name: 'BTF1' },
   deadline: { closes_at: new Date(Date.now() + 5 * 86_400_000).toISOString(), is_extended: false, is_open: isOpen },
+  times_shown: true,
   sessions: SESSIONS,
   symposium_date: null,
   max_file_size: 25 * 1024 * 1024,
@@ -252,6 +253,19 @@ describe('the presentation', () => {
 })
 
 describe('submitting', () => {
+  it('needs no availability while the sessions are hidden, and says they come later', async () => {
+    submitFinalist.mockResolvedValueOnce(result(lockedEntry()))
+    await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }, true, { times_shown: false, sessions: [] }))
+    expect(wrapper!.find('[data-testid="sessions-not-shown"]').text()).toBe(
+      "The sessions will be shown here once they're set."
+    )
+    expect(wrapper!.find('fieldset.finalist-sessions').exists()).toBe(false)
+
+    await button(/^Submit$/)!.trigger('click')
+    await flushPromises()
+    expect(submitFinalist).toHaveBeenCalled()
+  })
+
   it('sends the team to availability until its times are submitted', async () => {
     // Ticked, as carried over from before, but never submitted.
     await mountPage(buildDetail({ available_session_ids: [1], presentation: PDF, stage: 'in_progress' }))

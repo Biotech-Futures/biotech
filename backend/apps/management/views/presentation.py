@@ -21,6 +21,7 @@ from ..models import (
     FinalistSlides,
     PresentationAllocation,
     PresentationAvailability,
+    PresentationSettings,
     PresentationSlot,
 )
 from ..services.send_guard import person_name
@@ -55,6 +56,8 @@ def _payload() -> dict:
         # The day they're on; None until it's set on Notify Finalists.
         "symposium_date": FinalistEmailSettings.load().symposium_date,
         "slots": PresentationSlotSerializer(PresentationSlot.objects.filter(year=year), many=True).data,
+        # Whether finalists see them yet.
+        "times_shown": PresentationSettings.load().times_shown,
     }
 
 
@@ -95,6 +98,23 @@ class PresentationSlotDetailView(APIView):
 
     def delete(self, request, slot_id: int):
         self._slot(slot_id).delete()
+        return Response(_payload())
+
+
+class PresentationTimesShownView(APIView):
+    """PATCH /api/v1/management/finalists/presentation-times-shown/ —
+    ``{"times_shown": true}`` shows finalists this year's times to give their
+    availability; false hides them again. Answers with the whole list."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def patch(self, request):
+        shown = request.data.get("times_shown")
+        if not isinstance(shown, bool):
+            return Response({"detail": "times_shown must be true or false"}, status=status.HTTP_400_BAD_REQUEST)
+        settings = PresentationSettings.load()
+        settings.times_shown = shown
+        settings.save()
         return Response(_payload())
 
 

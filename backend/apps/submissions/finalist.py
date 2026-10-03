@@ -33,6 +33,12 @@ def slides_due_at() -> datetime | None:
 # --- the times, set on Management > Finalist Presentation ------------------------
 
 
+def times_shown() -> bool:
+    """Whether finalists see the times yet: Management > Finalist
+    Presentation turns them on once they're final."""
+    return apps.get_model("management", "PresentationSettings").load().times_shown
+
+
 def presentation_times():
     """This year's presentation times, earliest first."""
     PresentationSlot = apps.get_model("management", "PresentationSlot")

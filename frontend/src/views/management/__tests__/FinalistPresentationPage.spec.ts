@@ -8,6 +8,7 @@ import {
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
+  setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
   type PresentationSlots
@@ -22,6 +23,7 @@ vi.mock('@/utils/managementAPI', () => ({
   addPresentationSlot: vi.fn(),
   updatePresentationSlot: vi.fn(),
   deletePresentationSlot: vi.fn(),
+  setPresentationTimesShown: vi.fn(),
   presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`
 }))
 const fetchMock = vi.mocked(fetchPresentationSlots)
@@ -31,6 +33,7 @@ const deleteMock = vi.mocked(deletePresentationSlot)
 const responsesMock = vi.mocked(fetchPresentationResponses)
 const slidesMock = vi.mocked(fetchPresentationSlides)
 const allocateMock = vi.mocked(allocatePresentationSlot)
+const shownMock = vi.mocked(setPresentationTimesShown)
 
 // BTF2: Zoe answered for the team (the morning only), which has the
 // morning; BTF10 hasn't answered.
@@ -56,6 +59,7 @@ const TEAMS: PresentationResponseTeam[] = [
 const slots = (over: Partial<PresentationSlots> = {}): PresentationSlots => ({
   year: 2026,
   symposium_date: '2026-10-23',
+  times_shown: false,
   slots: [
     { id: 1, starts_at: '09:30', ends_at: '10:00' },
     { id: 2, starts_at: '13:00', ends_at: '13:30' }
@@ -121,14 +125,27 @@ describe('Finalist Presentation', () => {
       ['9:30', '10:00'],
       ['13:00', '13:30']
     ])
-    expect(wrapper.text()).toContain("They're on the Symposium day, Friday 23 October 2026")
+    expect(wrapper.text()).toContain("They're for the Symposium day, Friday 23 October 2026")
     expect(wrapper.find('a').attributes('href')).toBe('/management/notify-finalists')
+  })
+
+  it('keeps the times hidden from finalists until switched on', async () => {
+    shownMock.mockResolvedValueOnce(slots({ times_shown: true }))
+    const wrapper = await mountPage()
+    const toggle = wrapper.find('input[role="switch"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.find('.finalist-presentation__switch-label').text()).toBe('Hidden from Finalists')
+
+    await toggle.setValue(true)
+    await flushPromises()
+    expect(shownMock).toHaveBeenCalledWith(true)
+    expect(wrapper.find('.finalist-presentation__switch-label').text()).toBe('Displayed to Finalists')
   })
 
   it('asks for the Symposium date while it is not set, and says when there are no times', async () => {
     fetchMock.mockResolvedValue(slots({ symposium_date: null, slots: [] }))
     const wrapper = await mountPage()
-    expect(wrapper.text()).toContain("They're on the Symposium day. Set its date on Notify Finalists.")
+    expect(wrapper.text()).toContain("They're for the Symposium day. Set its date on Notify Finalists.")
     expect(wrapper.find('.finalist-presentation__empty').text()).toBe('No times yet.')
   })
 
@@ -187,7 +204,7 @@ describe('Finalist Presentation', () => {
   it("Allocate Slots shows when each team answered and the times it can make", async () => {
     const wrapper = await mountPage()
     const titles = wrapper.findAll('.finalist-presentation__section-title').map((h) => h.text())
-    expect(titles).toEqual(['Presentation Times', 'Allocate Slots', 'Finalist Submission'])
+    expect(titles).toEqual(['Presentation Times', 'Show Time Slots', 'Allocate Slots', 'Finalist Submission'])
     expect(allocation(wrapper).text()).toContain(
       'Give each finalist team a time. Ticks show the times each team said it can make.'
     )

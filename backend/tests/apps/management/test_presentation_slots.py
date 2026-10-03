@@ -56,6 +56,16 @@ class PresentationSlotTests(_GradingFixture):
         FinalistEmailSettings.objects.update_or_create(pk=1, defaults={"symposium_date": date(2026, 10, 23)})
         self.assertEqual(self.client.get(reverse(LIST)).json()["symposium_date"], "2026-10-23")
 
+    def test_the_times_are_hidden_from_finalists_until_shown(self):
+        self.assertFalse(self.client.get(reverse(LIST)).json()["times_shown"])
+        url = reverse("management:presentation-times-shown")
+        r = self.client.patch(url, {"times_shown": True}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertTrue(r.json()["times_shown"])
+        self.assertTrue(self.client.get(reverse(LIST)).json()["times_shown"])
+        self.assertFalse(self.client.patch(url, {"times_shown": False}, format="json").json()["times_shown"])
+        self.assertEqual(self.client.patch(url, {"times_shown": "yes"}, format="json").status_code, 400)
+
     def test_a_time_must_end_after_it_starts(self):
         r = self._add("10:00", "10:00")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
