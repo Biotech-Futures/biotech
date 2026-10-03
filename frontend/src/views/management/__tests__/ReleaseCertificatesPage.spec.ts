@@ -30,8 +30,10 @@ const mountPage = async () => {
   return wrapper
 }
 
-const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: RegExp) =>
-  wrapper.findAll('button').find((b) => label.test(b.text().trim()))!
+// The Hide / Show switch: on is released.
+const releaseSwitch = (wrapper: Awaited<ReturnType<typeof mountPage>>) => wrapper.find('input[role="switch"]')
+const isShowing = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+  (releaseSwitch(wrapper).element as HTMLInputElement).checked
 
 beforeEach(() => {
   fetchMock.mockReset()
@@ -44,24 +46,25 @@ describe('certificate release state', () => {
     fetchMock.mockResolvedValueOnce(status())
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain('Certificates are not released')
-    expect(buttonNamed(wrapper, /^Release$/).attributes('disabled')).toBeUndefined()
+    expect(releaseSwitch(wrapper).attributes('disabled')).toBeUndefined()
+    expect(isShowing(wrapper)).toBe(false)
   })
 
   it('holds the gate shut while submissions are open', async () => {
     fetchMock.mockResolvedValueOnce(status({ submissions_open: true }))
     const wrapper = await mountPage()
-    expect(buttonNamed(wrapper, /^Release$/).attributes('disabled')).toBeDefined()
+    expect(releaseSwitch(wrapper).attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('Submissions are still open')
   })
 
-  it('shows the released stamp and offers Unrelease', async () => {
+  it('shows the released stamp and offers Hide', async () => {
     fetchMock.mockResolvedValueOnce(
       status({ released_at: '2026-09-20T10:00:00Z', released_by: 'Ada Admin' })
     )
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain('Certificates are released')
     expect(wrapper.text()).toContain('by Ada Admin')
-    expect(buttonNamed(wrapper, /Unrelease/)).toBeTruthy()
+    expect(isShowing(wrapper)).toBe(true)
   })
 
   it('retries a failed status load', async () => {
@@ -123,7 +126,7 @@ describe('the release flow', () => {
     fetchMock.mockResolvedValueOnce(status())
     toggleMock.mockResolvedValueOnce(status({ released_at: '2026-09-23T12:00:00Z' }))
     const wrapper = await mountPage()
-    await buttonNamed(wrapper, /^Release$/).trigger('click')
+    await releaseSwitch(wrapper).setValue(true)
     expect(wrapper.find('[role="dialog"]').text()).toContain('Release certificates?')
     await wrapper.find('[role="dialog"] .btn-primary').trigger('click')
     await flushPromises()
@@ -136,7 +139,7 @@ describe('the release flow', () => {
     fetchMock.mockResolvedValueOnce(status({ released_at: '2026-09-20T10:00:00Z' }))
     toggleMock.mockRejectedValueOnce(new Error('cannot unrelease'))
     const wrapper = await mountPage()
-    await buttonNamed(wrapper, /Unrelease/).trigger('click')
+    await releaseSwitch(wrapper).setValue(false)
     await flushPromises()
     expect(toggleMock).toHaveBeenCalledWith(false)
     expect(wrapper.find('.release__banner--error').text()).toContain('cannot unrelease')

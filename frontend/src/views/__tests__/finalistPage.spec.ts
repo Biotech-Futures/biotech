@@ -257,8 +257,11 @@ describe('submitting', () => {
     submitFinalist.mockResolvedValueOnce(result(lockedEntry()))
     await mountPage(buildDetail({ presentation: PDF, stage: 'in_progress' }, true, { times_shown: false, sessions: [] }))
     expect(wrapper!.find('[data-testid="sessions-not-shown"]').text()).toBe(
-      "The sessions will be shown here once they're set."
+      "The presentation sessions haven't been released yet. Stay tuned, and once they're released, come " +
+        'back here and select the sessions your team can join so we can schedule you into a presentation slot.'
     )
+    // Not the sessions' own wording, which asks the team to pick from them.
+    expect(wrapper!.text()).not.toContain('Please select which sessions')
     expect(wrapper!.find('fieldset.finalist-sessions').exists()).toBe(false)
 
     await button(/^Submit$/)!.trigger('click')
