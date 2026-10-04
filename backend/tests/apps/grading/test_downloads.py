@@ -58,6 +58,38 @@ class SaqTextTests(SimpleTestCase):
         self.assertEqual(text, "Title: Plant Sensors\n\nWhat problem?\nThis one.")
 
 
+class ZipCompressionTests(SimpleTestCase):
+    """Files already compressed go in as they are; everything else, our text
+    files and unknown types included, is compressed."""
+
+    def test_each_file_goes_in_as_its_type_needs_and_comes_out_the_same(self):
+        payloads = {name: f"payload of {name} ".encode() * 200 for name in (
+            "poster.pdf", "photo.JPG", "slides.pptx", "bundle.zip", "demo.mp4", "model.stl", "data.weird", "noext",
+        )}
+        entries = [
+            ComponentEntry(
+                submission_id=i, group_id=i, group_name=f"G{i}", component_id=4, component_code="PROTOTYPE",
+                submitted_at=None, is_late=False, file={"storage_key": name, "name": name}, text="", link="",
+            )
+            for i, name in enumerate(payloads)
+        ]
+        entries.append(ComponentEntry(
+            submission_id=99, group_id=99, group_name="G99", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="Answers. " * 200, link="",
+        ))
+        with mock.patch.object(zip_service, "open_file", side_effect=lambda e: io.BytesIO(payloads[e.file["name"]])), \
+                mock.patch.object(zip_service, "current_cohort", return_value=2026):
+            archive = zipfile.ZipFile(io.BytesIO(zip_service.build_submissions_zip(entries, group_folder=False)))
+        how = {info.filename.split("_", 2)[-1]: info.compress_type for info in archive.infolist()}
+        for stored in ("Prototype.pdf", "Prototype.JPG", "Prototype.pptx", "Prototype.zip", "Prototype.mp4"):
+            self.assertEqual(how[stored], zipfile.ZIP_STORED, stored)
+        for compressed in ("Prototype.stl", "Prototype.weird", "Prototype.bin", "SAQs.txt"):
+            self.assertEqual(how[compressed], zipfile.ZIP_DEFLATED, compressed)
+        # Byte for byte either way.
+        self.assertEqual(archive.read("2026_G0_Prototype.pdf"), payloads["poster.pdf"])
+        self.assertEqual(archive.read("2026_G5_Prototype.stl"), payloads["model.stl"])
+
+
 class BuildSubmissionsZipTests(SimpleTestCase):
     """Direct coverage of the zip builder's concurrent blob prefetch: with
     far more entries than pool workers, the archive must still come out in
@@ -241,6 +273,51 @@ class ComponentDownloadViewTests(_GradingFixture):
         url = reverse("grading:component-download", kwargs={"code": "SAQ"})
         resp = self.client.post(url, {"format": "zip"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+class GradingJobDirectDownloadTests(_GradingFixture):
+    """On Azure, a finished export's download is a redirect to a short-lived
+    signed link, so the browser fetches it straight from Azure."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_DONE,
+            params={"kind": "all_zip"},
+            result_url="grading/jobs/1/2026_BTF_All.zip",
+        )
+
+    def test_it_redirects_to_a_signed_link_on_azure(self):
+        from apps.grading.views import download as download_views
+
+        with mock.patch.object(
+            download_views, "_direct_link", return_value="https://blob.example/2026_BTF_All.zip?sig=x",
+        ) as link:
+            resp = self.client.get(reverse("grading:job-download", kwargs={"pk": self.job.pk}))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://blob.example/2026_BTF_All.zip?sig=x")
+        # The content type is the system's name for a zip (it differs on Windows).
+        link.assert_called_once_with("grading/jobs/1/2026_BTF_All.zip", "2026_BTF_All.zip", mock.ANY)
+
+    def test_the_link_is_signed_short_lived_and_saves_under_its_name(self):
+        from apps.grading.views import download as download_views
+
+        class FakeAzure:
+            def url(self, name, expire=None, parameters=None):
+                return f"https://blob.example/{name}?expire={expire}&cd={parameters['content_disposition']}"
+
+        with mock.patch("storages.backends.azure_storage.AzureStorage", FakeAzure), \
+                mock.patch.object(download_views, "default_storage", FakeAzure()):
+            link = download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip")
+        self.assertEqual(link, 'https://blob.example/grading/jobs/1/x.zip?expire=600&cd=attachment; filename="x.zip"')
+
+    def test_local_storage_streams_instead(self):
+        from apps.grading.views import download as download_views
+
+        self.assertIsNone(download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip"))
 
 
 @override_settings(GRADING_JOB_DISPATCH_SYNC=True)

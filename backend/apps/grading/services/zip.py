@@ -83,6 +83,24 @@ _COMPONENT_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PRO
 _FETCH_WORKERS = 10
 _FETCH_AHEAD = _FETCH_WORKERS * 2
 
+# Types the program that made them already compressed (PDF makers, cameras,
+# Office, video apps): they go into the zip as they are, since compressing
+# them again takes time and saves almost nothing. Anything else, our own
+# text files and unknown types included, is compressed as before.
+_ALREADY_COMPRESSED = frozenset({
+    "pdf",
+    "jpg", "jpeg", "png", "gif", "webp", "heic",
+    "docx", "pptx", "xlsx",
+    "zip", "rar", "7z", "gz",
+    "mp4", "mov", "mkv", "webm", "avi", "mp3", "m4a",
+})
+
+
+def _compression_for(filename: str) -> int:
+    """How a file goes into the zip: stored as-is if already compressed."""
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return zipfile.ZIP_STORED if extension in _ALREADY_COMPRESSED else zipfile.ZIP_DEFLATED
+
 
 def build_submissions_zip(
     entries: Iterable[ComponentEntry], *, group_folder: bool = True
@@ -148,7 +166,7 @@ def build_submissions_zip(
                 else:
                     ext = os.path.splitext(original)[1]
                     ext = f".{safe_name(ext[1:])}" if ext else ".bin"
-                    zf.writestr(f"{base}{ext}", data)
+                    zf.writestr(f"{base}{ext}", data, compress_type=_compression_for(ext))
 
             if entry.text:
                 # The SAQ answers, under the team's project title.
@@ -209,5 +227,8 @@ def build_saq_pdf_zip(entries: Iterable[ComponentEntry]) -> bytes:
         for entry in entries:
             if not entry.answers:
                 continue
-            zf.writestr(f"{year}_{safe_name(entry.group_name)}_SAQs.pdf", saq_pdf(entry))
+            # The PDFs it makes are compressed already.
+            zf.writestr(
+                f"{year}_{safe_name(entry.group_name)}_SAQs.pdf", saq_pdf(entry), compress_type=zipfile.ZIP_STORED,
+            )
     return buffer.getvalue()
