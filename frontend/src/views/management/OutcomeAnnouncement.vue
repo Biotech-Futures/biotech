@@ -40,14 +40,15 @@
           :aria-label="`${label} preview`"
         >
           <h3 class="outcome-announcement__dialog-title">
-            <i class="fas fa-bullhorn" aria-hidden="true"></i> {{ announcement.title }}
+            <i class="fas fa-bullhorn" aria-hidden="true"></i> {{ announcement.preview.title }}
           </h3>
           <p class="outcome-announcement__dialog-text">
-            As the {{ audience }} emailed so far will see it in the app. Nothing has been posted.
+            As the {{ audience }} emailed so far will see it in the app, its placeholders filled in.
+            Nothing has been posted.
           </p>
           <!-- As the announcements page shows it, its boxes and buttons included. -->
           <!-- eslint-disable-next-line vue/no-v-html -- admin-written, shown as the announcements page does -->
-          <div class="outcome-announcement__body" v-html="renderAnnouncementBody(announcement.body)"></div>
+          <div class="outcome-announcement__body" v-html="renderAnnouncementBody(announcement.preview.body)"></div>
           <div class="outcome-announcement__dialog-actions">
             <button type="button" class="btn btn-outline btn-sm" @click="previewing = false">Close</button>
           </div>
@@ -66,11 +67,18 @@
           <h3 class="outcome-announcement__dialog-title">
             <i class="fas fa-pen" aria-hidden="true"></i> Edit {{ label }}
           </h3>
-          <!-- Laid out as System Emails' editor: Title, Body, then its buttons. -->
+          <!-- Laid out as System Emails' editor: Placeholders, Title, Body, then
+               its buttons. Placeholders stay in the wording and are filled in
+               with the current dates and links whenever it's posted. -->
+          <div class="editor__field">
+            <span class="editor__label">Placeholders</span>
+            <MergeTagPalette :tags="announcement.merge_tags" @insert="insertTag" />
+          </div>
           <div class="editor__field">
             <label class="editor__label" :for="`${kind}-announcement-title`">Title</label>
             <input
               :id="`${kind}-announcement-title`"
+              ref="titleInput"
               v-model="draft.title"
               type="text"
               class="editor__title"
@@ -79,12 +87,21 @@
               data-bwignore
               data-1p-ignore
               data-lpignore="true"
+              @focus="activeField = 'title'"
             />
           </div>
           <div class="editor__field outcome-announcement__editor">
             <span class="editor__label">Body</span>
             <!-- The announcements editor, with System Emails' Box and Button tools. -->
-            <RichEditor v-model="draft.body" blocks compact placeholder="Write the announcement…" />
+            <RichEditor
+              ref="bodyEditor"
+              v-model="draft.body"
+              blocks
+              compact
+              :link-placeholders="linkPlaceholders"
+              placeholder="Write the announcement…"
+              @focus="activeField = 'body'"
+            />
           </div>
           <p v-if="editError" class="outcome-announcement__error" role="alert">{{ editError }}</p>
           <footer class="editor__actions">
@@ -126,8 +143,7 @@
             <i class="fas fa-bullhorn" aria-hidden="true"></i> Post {{ label.toLowerCase() }}?
           </h3>
           <p class="outcome-announcement__dialog-text">
-            This posts it in the app to the {{ audience }} emailed so
-            far.<template v-if="announcement.posted_at"> It updates the one posted before.</template>
+            This posts it in the app to the {{ audience }} emailed so far.
           </p>
           <div class="outcome-announcement__dialog-actions">
             <button type="button" class="btn btn-outline btn-sm" @click="confirming = false">Cancel</button>
@@ -140,7 +156,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, ref } from 'vue'
+import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
+import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import { renderAnnouncementBody } from '@/composables/useAnnouncements'
 import {
   fetchOutcomeAnnouncement,
@@ -152,6 +170,7 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
+import { mergeTagToken, type SystemEmailMergeTag } from '@/utils/systemEmail'
 
 const props = withDefaults(
   defineProps<{
@@ -196,7 +215,40 @@ const load = async () => {
 const openEditor = () => {
   if (!announcement.value) return
   editError.value = ''
+  activeField.value = 'body'
   draft.value = { title: announcement.value.title, body: announcement.value.body }
+}
+
+// -- Placeholders, as System Emails' editor inserts them ---------------------
+
+// Which of Title or Body was used last: a placeholder goes there.
+const activeField = ref<'title' | 'body'>('body')
+const titleInput = ref<HTMLInputElement | null>(null)
+const bodyEditor = ref<{ insertText: (text: string) => void } | null>(null)
+
+/** Its placeholders that hold a link, offered in the link dialog. */
+const linkPlaceholders = computed(() =>
+  (announcement.value?.merge_tags ?? [])
+    .filter((tag) => isLinkPlaceholder(tag.name))
+    .map((tag) => mergeTagToken(tag.name))
+)
+
+const insertTag = (tag: SystemEmailMergeTag) => {
+  const token = mergeTagToken(tag.name)
+  if (activeField.value === 'body') {
+    bodyEditor.value?.insertText(token)
+    return
+  }
+  // At the caret in Title (or at its end), where the admin is typing.
+  const input = titleInput.value
+  if (!draft.value) return
+  const start = input?.selectionStart ?? draft.value.title.length
+  const end = input?.selectionEnd ?? start
+  draft.value.title = `${draft.value.title.slice(0, start)}${token}${draft.value.title.slice(end)}`
+  void nextTick(() => {
+    input?.focus()
+    input?.setSelectionRange(start + token.length, start + token.length)
+  })
 }
 
 // Something to save: the wording differs from what's saved.

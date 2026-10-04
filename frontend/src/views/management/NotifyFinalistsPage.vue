@@ -354,6 +354,8 @@ const saveDetails = async () => {
     showDetails(await updateFinalistEmailDetails(formFields()))
     saveTried.value = false
     flashAction('Email details saved.')
+    // Its wording has the dates and link in it.
+    void announcement.value?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {

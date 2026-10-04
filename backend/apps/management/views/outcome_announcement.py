@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
+from apps.services.email_registry import unknown_merge_tags
 from apps.services.system_email import clean_email_body
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -38,6 +39,18 @@ class OutcomeAnnouncementSerializer(serializers.Serializer):
         # javascript: URLs, as System Emails does: announcements show as is.
         return clean_email_body(value)
 
+    def validate(self, attrs):
+        # Only the email's own merge tags can be filled in, as on System Emails.
+        email_key = outcome_announcement.KINDS[self.context["kind"]].email_key
+        errors = {}
+        for field in ("title", "body"):
+            unknown = unknown_merge_tags(email_key, attrs[field])
+            if unknown:
+                errors[field] = [f"Unsupported merge tag(s): '{', '.join(sorted(unknown))}'"]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 def _kind(kind: str) -> str:
     if kind not in outcome_announcement.KINDS:
@@ -48,10 +61,16 @@ def _kind(kind: str) -> str:
 def _payload(kind: str) -> dict:
     row = outcome_announcement.load(kind)
     title, body = outcome_announcement.wording(row)
+    preview_title, preview_body = outcome_announcement.filled(kind, title, body)
     group_ids, user_ids = outcome_announcement.KINDS[kind].audience()
     return {
+        # Its wording with merge tags, such as {{ slides_due }}, for editing.
         "title": title,
         "body": body,
+        # The same filled in with the current dates and links, as it'd post.
+        "preview": {"title": preview_title, "body": preview_body},
+        # The tags it can use, for Edit's Placeholders.
+        "merge_tags": outcome_announcement.merge_tags(kind),
         # Changed from the email's wording.
         "edited": row.edited_at is not None,
         # Who it goes to: the groups, or supervisors, the email reached so far.
@@ -77,7 +96,7 @@ class OutcomeAnnouncementView(APIView):
 
     def patch(self, request, kind: str):
         kind = _kind(kind)
-        serializer = OutcomeAnnouncementSerializer(data=request.data)
+        serializer = OutcomeAnnouncementSerializer(data=request.data, context={"kind": kind})
         serializer.is_valid(raise_exception=True)
         row = outcome_announcement.load(kind)
         row.title = serializer.validated_data["title"]

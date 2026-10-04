@@ -42,18 +42,57 @@ class FinalistAnnouncementTests(_GradingFixture):
 
     def test_it_starts_as_the_finalist_emails_wording(self):
         body = self._get()
-        self.assertEqual(body["title"], "Congratulations – You’re a BIOTech Futures Finalist!")
+        # Its merge tags kept, as System Emails' editor shows them.
+        self.assertEqual(body["title"], "Congratulations – You’re a {{ brand_name }} Finalist!")
         self.assertFalse(body["edited"])
         # The email's body: to every finalist, its box, headings, lists and
         # Register button kept, its footer gone.
         self.assertTrue(body["body"].startswith("<p>Dear finalists,</p>"), body["body"][:80])
         self.assertIn('<div style="', body["body"])
         self.assertIn("<h2>Please confirm attendance</h2><ul><li>", body["body"])
-        self.assertIn('<a class="cta-link" href="https://events.example.com/symposium"', body["body"])
+        self.assertIn('<a class="cta-link" href="{{ registration_url }}"', body["body"])
+        self.assertIn("by <strong>{{ slides_due }}</strong>", body["body"])
         self.assertIn("reply to the email we sent you", body["body"])
         self.assertNotIn("receiving this email", body["body"])
         # The title isn't repeated at the top.
         self.assertNotIn("<h1", body["body"])
+        # The preview fills them in, as it would post.
+        preview = body["preview"]
+        self.assertEqual(preview["title"], "Congratulations – You’re a BIOTech Futures Finalist!")
+        self.assertIn('<a class="cta-link" href="https://events.example.com/symposium"', preview["body"])
+        slides_due = _long_date(FinalistEmailSettings.load().slides_due)
+        self.assertIn(f"by <strong>{slides_due}</strong>", preview["body"])
+        self.assertNotIn("{{", preview["title"] + preview["body"])
+        # Its tags, as Placeholders, without the group's name: it greets everyone.
+        names = [tag["name"] for tag in body["merge_tags"]]
+        self.assertIn("slides_due", names)
+        self.assertNotIn("group_name", names)
+
+    def test_edited_wording_keeps_its_tags_following_the_dates(self):
+        from datetime import date
+
+        r = self.client.patch(
+            _url(), {"title": "{{ brand_name }} finalists", "body": "<p>Slides by {{ slides_due }}.</p>"}, format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        self.assertEqual(r.json()["body"], "<p>Slides by {{ slides_due }}.</p>")
+        # A later change to Slides Due shows in it, without editing it again.
+        FinalistEmailSettings.objects.filter(pk=1).update(slides_due=date(2026, 10, 20))
+        preview = self._get()["preview"]
+        self.assertEqual(preview["title"], "BIOTech Futures finalists")
+        self.assertEqual(preview["body"], "<p>Slides by Tuesday, 20 October 2026.</p>")
+        # And it posts filled in.
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff, notified=True)
+        self.client.post(_post_url())
+        self.assertEqual(Announcement.objects.get().body, "<p>Slides by Tuesday, 20 October 2026.</p>")
+
+    def test_only_the_emails_own_tags_can_be_used(self):
+        r = self.client.patch(_url(), {"title": "{{ survey_url }}", "body": "<p>{{ nope }}</p>"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["fields"], {
+            "title": ["Unsupported merge tag(s): 'survey_url'"],
+            "body": ["Unsupported merge tag(s): 'nope'"],
+        })
 
     def test_it_follows_the_emails_wording_from_system_emails(self):
         SystemEmailTemplate.objects.create(
@@ -61,8 +100,9 @@ class FinalistAnnouncementTests(_GradingFixture):
             body_html="<h1>Well done</h1><p>Dear members of <strong>{{ group_name }}</strong>,</p>"
             "<p>See you on {{ symposium_date }}.</p>",
         )
+        self.assertEqual(self._get()["body"], "<p>Dear finalists,</p><p>See you on {{ symposium_date }}.</p>")
         date = _long_date(FinalistEmailSettings.load().symposium_date)
-        self.assertEqual(self._get()["body"], f"<p>Dear finalists,</p><p>See you on {date}.</p>")
+        self.assertEqual(self._get()["preview"]["body"], f"<p>Dear finalists,</p><p>See you on {date}.</p>")
 
     def test_edited_wording_is_kept(self):
         r = self.client.patch(_url(), {"title": "Finalists!", "body": "<p>Well done.</p>"}, format="json")
@@ -72,7 +112,7 @@ class FinalistAnnouncementTests(_GradingFixture):
         # Restore default goes back to the email's wording.
         r = self.client.delete(_url())
         self.assertEqual((r.json()["title"], r.json()["edited"]), (
-            "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!", False,
+            "Congratulations \u2013 You\u2019re a {{ brand_name }} Finalist!", False,
         ))
         # What it keeps is cleaned, as System Emails' bodies are.
         r = self.client.patch(
@@ -98,14 +138,25 @@ class FinalistAnnouncementTests(_GradingFixture):
         # Only the group that has been emailed sees it.
         self.assertEqual(groups(), {self.group.id})
 
-        # Once the other is emailed, posting again updates the same one.
+        # Once the other is emailed, posting again posts a new one, to both,
+        # and leaves the first as it was.
         FinalistFlag.objects.filter(group=other).update(notified=True)
         self.client.patch(_url(), {"title": "Finalists!", "body": "<p>Well done.</p>"}, format="json")
         self.client.post(_post_url())
-        self.assertEqual(Announcement.objects.count(), 1)
-        self.assertEqual(Announcement.objects.get().title, "Finalists!")
-        self.assertEqual(groups(), {self.group.id, other.id})
-        self.assertEqual(OutcomeAnnouncement.objects.get(key="finalists").announcement_id, announcement.id)
+        self.assertEqual(Announcement.objects.count(), 2)
+        latest = Announcement.objects.exclude(id=announcement.id).get()
+        self.assertEqual(latest.title, "Finalists!")
+        self.assertEqual(
+            set(AnnouncementAudience.objects.filter(announcement=latest).values_list("group_id", flat=True)),
+            {self.group.id, other.id},
+        )
+        announcement.refresh_from_db()
+        self.assertEqual(announcement.title, "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!")
+        self.assertEqual(
+            set(AnnouncementAudience.objects.filter(announcement=announcement).values_list("group_id", flat=True)),
+            {self.group.id},
+        )
+        self.assertEqual(OutcomeAnnouncement.objects.get(key="finalists").announcement_id, latest.id)
 
     def test_it_counts_a_group_someone_on_was_reached(self):
         from apps.management.models import EmailDelivery
@@ -125,15 +176,6 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual(self._get()["recipients"], 1)
         self.client.post(_post_url())
         self.assertEqual(list(AnnouncementAudience.objects.values_list("group_id", flat=True)), [partly.id])
-
-    def test_an_archived_announcement_is_posted_afresh(self):
-        from django.utils import timezone
-
-        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff, notified=True)
-        self.client.post(_post_url())
-        Announcement.objects.update(archived_at=timezone.now())
-        self.client.post(_post_url())
-        self.assertEqual(Announcement.objects.filter(archived_at__isnull=True).count(), 1)
 
     def test_nothing_is_posted_before_any_group_is_emailed(self):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff, notified=False)

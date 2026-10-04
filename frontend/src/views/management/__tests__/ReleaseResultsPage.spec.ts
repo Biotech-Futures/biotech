@@ -32,6 +32,8 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
     title: `${kind} news`,
     body: '<p>News.</p>',
+    preview: { title: `${kind} news`, body: '<p>News.</p>' },
+    merge_tags: [],
     edited: false,
     recipients: 1,
     noun: 'group',

@@ -46,8 +46,17 @@ const saveAnnouncementMock = vi.mocked(updateOutcomeAnnouncement)
 const postAnnouncementMock = vi.mocked(postOutcomeAnnouncement)
 const restoreAnnouncementMock = vi.mocked(restoreOutcomeAnnouncement)
 const ANNOUNCEMENT = {
-  title: 'Congratulations – You’re a BIOTech Futures Finalist!',
-  body: '<p>Dear members of our finalist teams,</p><ul><li>Confirm by Friday.</li></ul>',
+  title: 'Congratulations – You’re a {{ brand_name }} Finalist!',
+  body: '<p>Dear finalists,</p><ul><li>Confirm by {{ confirm_by }}.</li></ul>',
+  // As it'd post, its placeholders filled in.
+  preview: {
+    title: 'Congratulations – You’re a BIOTech Futures Finalist!',
+    body: '<p>Dear finalists,</p><ul><li>Confirm by Friday.</li></ul>'
+  },
+  merge_tags: [
+    { name: 'slides_due', description: 'Slides due', sample: 'Friday, 16 October 2026', html: false },
+    { name: 'brand_name', description: 'Brand name', sample: 'BIOTech Futures', html: false }
+  ],
   edited: false,
   recipients: 2,
   noun: 'finalist group',
@@ -451,7 +460,9 @@ describe('the announcement', () => {
     await buttonNamed(wrapper, /^Preview Announcement$/).trigger('click')
     const dialog = wrapper.find('[aria-label="Announcement preview"]')
     expect(dialog.text()).toContain('Congratulations – You’re a BIOTech Futures Finalist!')
-    expect(dialog.text()).toContain('As the 2 finalist groups emailed so far will see it in the app.')
+    expect(dialog.text()).toContain(
+      'As the 2 finalist groups emailed so far will see it in the app, its placeholders filled in.'
+    )
     expect(dialog.find('.outcome-announcement__body li').text()).toBe('Confirm by Friday.')
     expect(postAnnouncementMock).not.toHaveBeenCalled()
   })
@@ -473,6 +484,30 @@ describe('the announcement', () => {
     await flushPromises()
     expect(saveAnnouncementMock).toHaveBeenCalledWith('finalists', { title: 'Finalists!', body: '<p>Well done.</p>' })
     expect(wrapper.find('[aria-label="Edit announcement"]').exists()).toBe(false)
+  })
+
+  it('has Placeholders above Title, inserting where the admin is typing', async () => {
+    const wrapper = mount(NotifyFinalistsPage, {
+      global: { stubs: { teleport: true, RichEditor: RichEditorStub } }
+    })
+    await flushPromises()
+    await buttonNamed(wrapper, /^Edit Announcement$/).trigger('click')
+    await flushPromises()
+    const editor = () => wrapper.find('[aria-label="Edit announcement"]')
+    const labels = editor().findAll('.editor__label').map((l) => l.text())
+    expect(labels.slice(0, 3)).toEqual(['Placeholders', 'Title', 'Body'])
+    expect(editor().findAll('.merge-tags__tag').map((t) => t.text())).toEqual([
+      '{{ slides_due }}',
+      '{{ brand_name }}'
+    ])
+
+    const title = editor().find('input')
+    await title.trigger('focus')
+    ;(title.element as HTMLInputElement).setSelectionRange(0, 0)
+    await editor().findAll('.merge-tags__tag')[1]!.trigger('click')
+    expect((editor().find('input').element as HTMLInputElement).value).toBe(
+      '{{ brand_name }}Congratulations – You’re a {{ brand_name }} Finalist!'
+    )
   })
 
   it('has Save changes and Restore default as on System Emails', async () => {
@@ -610,6 +645,16 @@ describe('the email details', () => {
       registration_url: 'https://events.example.com/s'
     })
     expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Email details saved.')
+  })
+
+  it('reloads the announcement once the details are saved, its wording having the dates in it', async () => {
+    saveMock.mockResolvedValueOnce(details({ slides_due: '2026-10-20' }))
+    const wrapper = await mountPage()
+    announcementMock.mockClear()
+    await wrapper.findAll('input[type="date"]')[2]!.setValue('2026-10-20')
+    await buttonNamed(wrapper, /^Save$/).trigger('click')
+    await flushPromises()
+    expect(announcementMock).toHaveBeenCalledWith('finalists')
   })
 
   it('Send stays off, saying why, while a detail is missing', async () => {

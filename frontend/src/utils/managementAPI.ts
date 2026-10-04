@@ -2,6 +2,7 @@
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
 import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
+import type { SystemEmailMergeTag } from './systemEmail'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -456,9 +457,14 @@ export type OutcomeAnnouncementKind =
 
 /** The in-app announcement that goes with one of those emails. */
 export interface OutcomeAnnouncement {
+  /** Its wording, with merge tags such as {{ slides_due }}, for editing. */
   title: string
   /** HTML, as announcements keep it. */
   body: string
+  /** The same filled in with the current dates and links, as it'd post. */
+  preview: { title: string; body: string }
+  /** The tags its wording can use, as System Emails offers them. */
+  merge_tags: SystemEmailMergeTag[]
   /** Changed from the email's wording. */
   edited: boolean
   /** The groups, or supervisors, the email has reached so far: who sees it. */

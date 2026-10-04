@@ -374,6 +374,8 @@ const saveDetails = async () => {
     form.value = fromDetails(saved)
     saveTried.value = false
     flashAction('Email details saved.')
+    // The group announcement's wording has the survey link and date in it.
+    void announcements.groups?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
