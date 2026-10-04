@@ -429,6 +429,37 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
 
+/** The in-app announcement to the finalist groups emailed, from Notify Finalists. */
+export interface FinalistAnnouncement {
+  title: string
+  /** HTML, as announcements keep it. */
+  body: string
+  /** Changed from the finalist email's wording. */
+  edited: boolean
+  /** The finalist groups emailed so far: who sees it. */
+  groups: number
+  posted_at: string | null
+  posted_by: string | null
+}
+
+const FINALIST_ANNOUNCEMENT = '/api/v1/management/finalists/announcement/'
+
+// GET — its wording (the finalist email's until edited) and when it was posted.
+export function fetchFinalistAnnouncement(): Promise<FinalistAnnouncement> {
+  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT)
+}
+
+// PATCH — save an edited title and body.
+export function updateFinalistAnnouncement(fields: { title: string; body: string }): Promise<FinalistAnnouncement> {
+  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT, { method: 'PATCH', body: JSON.stringify(fields) })
+}
+
+// POST post/ — post it to the finalist groups emailed so far, or update the
+// one already posted.
+export function postFinalistAnnouncement(): Promise<FinalistAnnouncement> {
+  return requestJson<FinalistAnnouncement>(`${FINALIST_ANNOUNCEMENT}post/`, { method: 'POST' })
+}
+
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.
 export function fetchFinalistEmailDetails(): Promise<FinalistEmailDetails> {
   return requestJson<FinalistEmailDetails>('/api/v1/management/finalists/email/')

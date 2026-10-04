@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     CertificatesReleaseView,
+    FinalistAnnouncementPostView,
+    FinalistAnnouncementView,
     FinalistEmailPreviewView,
     FinalistEmailSettingsView,
     FinalistNotifyAllView,
@@ -83,6 +85,13 @@ urlpatterns = [
         "finalists/email/preview/",
         FinalistEmailPreviewView.as_view(),
         name="finalist-email-preview",
+    ),
+    # The in-app announcement to the finalist groups emailed.
+    path("finalists/announcement/", FinalistAnnouncementView.as_view(), name="finalist-announcement"),
+    path(
+        "finalists/announcement/post/",
+        FinalistAnnouncementPostView.as_view(),
+        name="finalist-announcement-post",
     ),
 
     # The invitation to teams that submitted but weren't picked, from the

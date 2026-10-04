@@ -102,6 +102,36 @@ class GradingSettings(SingletonModel):
         return "GradingSettings"
 
 
+class FinalistAnnouncement(SingletonModel):
+    """The in-app announcement to the finalist groups that have been emailed,
+    posted from Notify Finalists (see ``services.finalist_announcement``).
+    Its wording is the finalist email's until edited; the announcement it
+    last posted is updated when it's posted again."""
+
+    # The edited wording; unused until ``edited_at`` is set.
+    title = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    announcement = models.ForeignKey(
+        "announcements.Announcement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    posted_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "finalist_announcement"
+
+
 class FinalistEmailSettings(SingletonModel):
     """The details the finalist email gives teams about the Symposium, set on
     the Notify Finalists page each year. Nothing is sent until all are set."""
