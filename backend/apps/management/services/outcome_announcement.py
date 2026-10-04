@@ -28,6 +28,7 @@ from ..models import FinalistEmailSettings, OutcomeAnnouncement, ResultsEmailSet
 from . import results_notify, symposium_emails
 from .finalist_notify import EMAIL_KEY as FINALIST_EMAIL_KEY
 from .finalist_notify import finalist_email_context
+from .send_guard import submissions_open_reason
 
 # Stands in for the group's or supervisor's name while the email is
 # rendered, then becomes the announcement's greeting.
@@ -166,14 +167,28 @@ def wording(row: OutcomeAnnouncement) -> tuple[str, str]:
     return (row.title, row.body) if row.edited_at else default_wording(row.key)
 
 
+def blocked_reason(key: str, audience: tuple[list[int], list[int]] | None = None) -> str:
+    """Why it can't be posted yet, or "": it waits for its email, which waits
+    for submissions to close, saying so as the email's send buttons do."""
+    kind = KINDS[key]
+    open_reason = submissions_open_reason("Post this")
+    if open_reason:
+        return open_reason
+    group_ids, user_ids = audience or kind.audience()
+    if not group_ids and not user_ids:
+        return f"No {kind.noun} has been emailed yet. It can be posted once its email has been sent."
+    return ""
+
+
 def post(key: str, actor) -> OutcomeAnnouncement:
     """Post it to whoever its email reached so far: a new announcement the
     first time (or once the last was archived or deleted), else the same one
-    updated and back at the top. Raises ValueError with nobody to post to."""
-    kind = KINDS[key]
-    group_ids, user_ids = kind.audience()
-    if not group_ids and not user_ids:
-        raise ValueError(f"No {kind.noun} has been emailed yet.")
+    updated and back at the top. Raises ValueError, saying why, until its
+    email has been sent (see ``blocked_reason``)."""
+    group_ids, user_ids = KINDS[key].audience()
+    reason = blocked_reason(key, (group_ids, user_ids))
+    if reason:
+        raise ValueError(reason)
     row = load(key)
     title, body = wording(row)
     fields = {"title": title, "body": body, "group_ids": group_ids, "user_ids": user_ids, "send_email": False}

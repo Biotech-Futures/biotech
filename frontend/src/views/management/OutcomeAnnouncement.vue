@@ -4,6 +4,8 @@
        edited) and post it. On Notify Finalist, Notify Nonfinalist and Release
        Results. -->
   <div v-if="announcement" class="outcome-announcement">
+    <!-- Why Post is off, above the buttons. -->
+    <p v-if="announcement.blocked" class="outcome-announcement__blocked">{{ announcement.blocked }}</p>
     <div class="outcome-announcement__actions">
       <button type="button" class="btn btn-outline btn-sm" @click="previewing = true">
         Preview {{ label }}
@@ -14,14 +16,14 @@
       <button
         type="button"
         class="btn btn-primary btn-sm"
-        :disabled="posting || !announcement.recipients"
+        :disabled="posting || Boolean(announcement.blocked)"
         @click="confirming = true"
       >
         {{ posting ? 'Posting…' : `Post ${label}` }}
       </button>
     </div>
     <p v-if="announcement.posted_at" class="outcome-announcement__posted" data-testid="announcement-posted">
-      {{ label }} Last Posted at {{ shortDateTime(announcement.posted_at) }}<template
+      Last {{ label }} Posted at {{ shortDateTime(announcement.posted_at) }}<template
         v-if="announcement.posted_by"
       >
         by {{ announcement.posted_by }}</template
@@ -272,6 +274,13 @@ defineExpose({ reload: load })
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1.25rem;
+}
+
+/* Why Post is off: the amber of the send buttons' notes. */
+.outcome-announcement__blocked {
+  color: #b8860b;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
 }
 
 /* As Last Emailed. */

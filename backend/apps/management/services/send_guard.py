@@ -70,15 +70,16 @@ def _long_time(moment: datetime) -> str:
     return f"{_long_date(local.date())}, {int(f'{local:%I}')}:{local:%M} {local:%p}"
 
 
-def submissions_open_reason() -> str:
+def submissions_open_reason(action: str = "Send this") -> str:
     """Why sending waits for submissions to close, or "" once they have: the
-    deadline, then the last of this year's extensions, grace hours included."""
+    deadline, then the last of this year's extensions, grace hours included.
+    ``action`` is what waits, e.g. "Post this" for an email's announcement."""
     now = timezone.now()
     deadline = active_deadline()
     if deadline is not None:
         until = deadline.closes_at + timedelta(hours=deadline.grace_hours)
         if now <= until:
-            return f"Submissions are open until {_long_time(until)} (Sydney time). Send this once they close."
+            return f"Submissions are open until {_long_time(until)} (Sydney time). {action} once they close."
     ends = [
         end
         for extension in GroupExtension.objects.filter(
@@ -89,7 +90,7 @@ def submissions_open_reason() -> str:
     if ends:
         return (
             f"A team's extension is open until {_long_time(max(ends))} (Sydney time). "
-            "Send this once every extension has ended."
+            f"{action} once every extension has ended."
         )
     return ""
 

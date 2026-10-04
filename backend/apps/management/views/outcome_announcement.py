@@ -57,6 +57,8 @@ def _payload(kind: str) -> dict:
         # Who it goes to: the groups, or supervisors, the email reached so far.
         "recipients": len(group_ids) + len(user_ids),
         "noun": outcome_announcement.KINDS[kind].noun,
+        # Why it can't be posted yet, or "": it waits for its email.
+        "blocked": outcome_announcement.blocked_reason(kind, (group_ids, user_ids)),
         "posted_at": row.posted_at,
         "posted_by": person_name(row.posted_by) if row.posted_by else None,
     }

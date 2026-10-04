@@ -465,6 +465,8 @@ export interface OutcomeAnnouncement {
   recipients: number
   /** What they are, e.g. "finalist group". */
   noun: string
+  /** Why it can't be posted yet, or "": it waits for its email to be sent. */
+  blocked: string
   posted_at: string | null
   posted_by: string | null
 }

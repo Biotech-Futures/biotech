@@ -23,6 +23,7 @@ vi.mock('@/utils/managementAPI', () => ({
     edited: false,
     recipients: 1,
     noun: 'group',
+    blocked: '',
     posted_at: null,
     posted_by: null
   }))

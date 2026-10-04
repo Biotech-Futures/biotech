@@ -51,6 +51,7 @@ const ANNOUNCEMENT = {
   edited: false,
   recipients: 2,
   noun: 'finalist group',
+  blocked: '',
   posted_at: null as string | null,
   posted_by: null as string | null
 }
@@ -508,13 +509,20 @@ describe('the announcement', () => {
     await flushPromises()
     expect(postAnnouncementMock).toHaveBeenCalledWith('finalists')
     expect(wrapper.text()).toContain('Announcement posted to 2 finalist groups.')
-    expect(wrapper.find('[data-testid="announcement-posted"]').text()).toContain('by Ada Admin')
+    expect(wrapper.find('[data-testid="announcement-posted"]').text()).toMatch(
+      /^Last Announcement Posted at .* by Ada Admin\.$/
+    )
   })
 
-  it('cannot be posted before any finalist group is emailed', async () => {
-    announcementMock.mockResolvedValue({ ...ANNOUNCEMENT, recipients: 0 })
+  it('cannot be posted until its email has gone, saying why above the buttons', async () => {
+    const blocked =
+      "A team's extension is open until Friday, 30 October 2026, 11:59 PM (Sydney time). Post this once every extension has ended."
+    announcementMock.mockResolvedValue({ ...ANNOUNCEMENT, blocked })
     const wrapper = await mountPage()
     expect(buttonNamed(wrapper, /^Post Announcement$/).attributes('disabled')).toBeDefined()
+    const note = wrapper.find('.outcome-announcement__blocked')
+    expect(note.text()).toBe(blocked)
+    expect(note.element.nextElementSibling?.classList).toContain('outcome-announcement__actions')
   })
 })
 

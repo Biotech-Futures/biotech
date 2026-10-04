@@ -139,8 +139,35 @@ class FinalistAnnouncementTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff, notified=False)
         r = self.client.post(_post_url())
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(r.json()["detail"], "No finalist group has been emailed yet.")
+        self.assertEqual(
+            r.json()["detail"], "No finalist group has been emailed yet. It can be posted once its email has been sent.",
+        )
+        self.assertEqual(self._get()["blocked"], r.json()["detail"])
         self.assertFalse(Announcement.objects.exists())
+
+    def test_nothing_is_posted_while_submissions_are_open(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.submissions.models import Deadline
+
+        # Even with a group marked as emailed: its email can't have gone yet.
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff, notified=True)
+        Deadline.objects.update(is_active=False)
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=1), grace_hours=2, is_active=True)
+        # As the send buttons say it, with Post for Send.
+        reason = self._get()["blocked"]
+        self.assertRegex(reason, r"^Submissions are open until .+ \(Sydney time\)\. Post this once they close\.$")
+        r = self.client.post(_post_url())
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()["detail"], reason)
+        self.assertFalse(Announcement.objects.exists())
+
+        # Once closed, grace hours and all, it can.
+        Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=3))
+        self.assertEqual(self._get()["blocked"], "")
+        self.assertEqual(self.client.post(_post_url()).status_code, status.HTTP_200_OK)
 
     def test_it_is_for_staff_only(self):
         self.client.force_authenticate(self.non_staff)
@@ -225,7 +252,9 @@ class OtherOutcomeAnnouncementTests(_GradingFixture):
         with mock.patch.object(outcome_announcement.results_notify, "results_audience", return_value=result):
             r = self.client.post(_post_url("results-supervisors"))
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(r.json()["detail"], "No supervisor has been emailed yet.")
+        self.assertEqual(
+            r.json()["detail"], "No supervisor has been emailed yet. It can be posted once its email has been sent.",
+        )
 
 
 class AnnouncementCategoriesTests(_GradingFixture):
