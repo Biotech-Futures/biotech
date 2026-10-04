@@ -642,6 +642,11 @@ export function presentationSlidesUrl(groupId: number): string {
   return `${API_BASE_URL}/api/v1/management/finalists/presentation-slides/${groupId}/file/`
 }
 
+// The same, always saved as a download, even a PDF.
+export function presentationSlidesDownloadUrl(groupId: number): string {
+  return `${presentationSlidesUrl(groupId)}?download=1`
+}
+
 // GET /api/v1/management/finalists/presentation-responses/ — this year's
 // finalist teams by number, each student in them, and what they answered.
 export function fetchPresentationResponses(): Promise<{ teams: PresentationResponseTeam[] }> {
