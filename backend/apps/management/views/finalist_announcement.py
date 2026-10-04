@@ -44,8 +44,9 @@ def _payload() -> dict:
 
 
 class FinalistAnnouncementView(APIView):
-    """GET/PATCH /api/v1/management/finalists/announcement/ — its wording and
-    when it was last posted; PATCH saves an edited title and body."""
+    """GET/PATCH/DELETE /api/v1/management/finalists/announcement/ — its
+    wording and when it was last posted; PATCH saves an edited title and body,
+    DELETE goes back to the finalist email's wording."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
@@ -59,6 +60,12 @@ class FinalistAnnouncementView(APIView):
         row.title = serializer.validated_data["title"]
         row.body = serializer.validated_data["body"]
         row.edited_at = timezone.now()
+        row.save()
+        return Response(_payload())
+
+    def delete(self, request):
+        row = FinalistAnnouncement.load()
+        row.title, row.body, row.edited_at = "", "", None
         row.save()
         return Response(_payload())
 

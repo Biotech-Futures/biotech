@@ -309,8 +309,9 @@
             As the {{ plural(announcement.groups, 'finalist group') }} emailed so far will see it in the app.
             Nothing has been posted.
           </p>
-          <!-- eslint-disable-next-line vue/no-v-html -- sanitised by sanitizeRichText -->
-          <div class="notify-finalists__announcement-body" v-html="sanitizeRichText(announcement.body)"></div>
+          <!-- As the announcements page shows it, its boxes and buttons included. -->
+          <!-- eslint-disable-next-line vue/no-v-html -- admin-written, shown as the announcements page does -->
+          <div class="notify-finalists__announcement-body" v-html="renderAnnouncementBody(announcement.body)"></div>
           <div class="notify-finalists__dialog-actions">
             <button type="button" class="btn btn-outline btn-sm" @click="previewingAnnouncement = false">
               Close
@@ -331,27 +332,50 @@
           <h3 class="notify-finalists__dialog-title">
             <i class="fas fa-pen" aria-hidden="true"></i> Edit Announcement
           </h3>
-          <label class="notify-finalists__field">
-            <span>Title</span>
-            <input v-model="announcementDraft.title" type="text" maxlength="255" />
-          </label>
-          <div class="notify-finalists__announcement-editor">
-            <RichEditor v-model="announcementDraft.body" placeholder="Write the announcement…" />
+          <!-- Laid out as System Emails' editor: Title, Body, then its buttons. -->
+          <div class="notify-finalists__editor-field">
+            <label class="notify-finalists__editor-label" for="announcement-title">Title</label>
+            <input
+              id="announcement-title"
+              v-model="announcementDraft.title"
+              type="text"
+              class="notify-finalists__editor-input"
+              maxlength="255"
+              autocomplete="off"
+              data-bwignore
+              data-1p-ignore
+              data-lpignore="true"
+            />
+          </div>
+          <div class="notify-finalists__editor-field notify-finalists__announcement-editor">
+            <span class="notify-finalists__editor-label">Body</span>
+            <!-- The announcements editor, with System Emails' Box and Button tools. -->
+            <RichEditor v-model="announcementDraft.body" blocks compact placeholder="Write the announcement…" />
           </div>
           <p v-if="announcementError" class="notify-finalists__field-error" role="alert">{{ announcementError }}</p>
-          <div class="notify-finalists__dialog-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="announcementDraft = null">
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="savingAnnouncement || !announcementDraft.title.trim()"
-              @click="saveAnnouncement"
-            >
-              {{ savingAnnouncement ? 'Saving…' : 'Save' }}
-            </button>
-          </div>
+          <footer class="notify-finalists__editor-actions">
+            <div class="notify-finalists__editor-actions-group">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="savingAnnouncement || !draftChanged || !announcementDraft.title.trim()"
+                @click="saveAnnouncement"
+              >
+                <i :class="savingAnnouncement ? 'fas fa-spinner fa-spin' : 'fas fa-floppy-disk'" aria-hidden="true"></i>
+                <span>{{ savingAnnouncement ? 'Saving…' : 'Save changes' }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline"
+                :disabled="savingAnnouncement || !announcement?.edited"
+                @click="restoreAnnouncement"
+              >
+                <i class="fas fa-rotate-left" aria-hidden="true"></i>
+                <span>Restore default</span>
+              </button>
+            </div>
+            <button type="button" class="btn btn-outline" @click="announcementDraft = null">Cancel</button>
+          </footer>
         </div>
       </div>
     </Teleport>
@@ -401,6 +425,7 @@ import {
   fetchFinalistEmailDetails,
   notifyFinalists,
   postFinalistAnnouncement,
+  restoreFinalistAnnouncement,
   updateFinalistAnnouncement,
   type FinalistAnnouncement,
   type EmailRun,
@@ -411,7 +436,7 @@ import {
   type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { sanitizeRichText } from '@/composables/useAnnouncements'
+import { renderAnnouncementBody } from '@/composables/useAnnouncements'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
@@ -592,6 +617,29 @@ const openAnnouncementEditor = () => {
   if (!announcement.value) return
   announcementError.value = ''
   announcementDraft.value = { title: announcement.value.title, body: announcement.value.body }
+}
+
+// Something to save: the wording differs from what's saved.
+const draftChanged = computed(
+  () =>
+    Boolean(announcementDraft.value && announcement.value) &&
+    (announcementDraft.value!.title !== announcement.value!.title ||
+      announcementDraft.value!.body !== announcement.value!.body)
+)
+
+// Back to the finalist email's wording, shown in the editor at once.
+const restoreAnnouncement = async () => {
+  savingAnnouncement.value = true
+  announcementError.value = ''
+  try {
+    announcement.value = await restoreFinalistAnnouncement()
+    announcementDraft.value = { title: announcement.value.title, body: announcement.value.body }
+    flashAction("Restored the finalist email's wording.")
+  } catch (err) {
+    announcementError.value = apiErrorFromUnknown(err).message
+  } finally {
+    savingAnnouncement.value = false
+  }
 }
 
 const saveAnnouncement = async () => {
@@ -809,6 +857,62 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* As System Emails' editor. */
+.notify-finalists__editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notify-finalists__editor-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.notify-finalists__editor-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  color: #111827;
+}
+
+.notify-finalists__editor-input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
+}
+
+.notify-finalists__editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.notify-finalists__editor-actions-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+:root[data-theme='dark'] .notify-finalists__editor-input {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .notify-finalists__editor-actions {
+  border-top-color: var(--border-light);
 }
 
 /* Wider than the confirm dialog; two classes so it wins over that rule. */

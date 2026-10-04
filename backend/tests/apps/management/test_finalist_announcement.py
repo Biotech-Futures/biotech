@@ -43,6 +43,11 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual((r.json()["title"], r.json()["body"], r.json()["edited"]), ("Finalists!", "<p>Well done.</p>", True))
         self.assertEqual(self._get()["title"], "Finalists!")
+        # Restore default goes back to the email's wording.
+        r = self.client.delete(reverse(URL))
+        self.assertEqual((r.json()["title"], r.json()["edited"]), (
+            "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!", False,
+        ))
         # An empty title or body is refused.
         r = self.client.patch(reverse(URL), {"title": "Hi", "body": "<p></p>"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)

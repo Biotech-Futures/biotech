@@ -20,6 +20,9 @@ interface Props {
    * actually survive a save.
    */
   emailMode?: boolean
+  /** The Box and Button tools, as in email mode, with every other tool kept:
+   *  for announcements. */
+  blocks?: boolean
   /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
@@ -31,6 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: undefined,
   readOnly: false,
   emailMode: false,
+  blocks: false,
   compact: false,
   linkPlaceholders: () => []
 })
@@ -72,8 +76,9 @@ const editor = useEditor({
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
-    // Emails keep the boxes and buttons of their built-in design.
-    ...(props.emailMode ? [EmailBox, EmailButton] : [])
+    // Emails keep the boxes and buttons of their built-in design; announcements
+    // can have them too.
+    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : [])
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -533,7 +538,7 @@ defineExpose({ insertText })
           </button>
 
           <!-- Email design blocks, kept on save -->
-          <template v-if="emailMode">
+          <template v-if="emailMode || blocks">
             <div class="heading-dropdown-container">
               <button
                 type="button"

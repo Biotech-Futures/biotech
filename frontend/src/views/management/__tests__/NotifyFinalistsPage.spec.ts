@@ -10,6 +10,7 @@ import {
   notifyFinalists,
   postFinalistAnnouncement,
   previewFinalistEmail,
+  restoreFinalistAnnouncement,
   updateFinalistAnnouncement,
   updateFinalistEmailDetails
 } from '@/utils/managementAPI'
@@ -26,7 +27,8 @@ vi.mock('@/utils/managementAPI', () => ({
   previewFinalistEmail: vi.fn(),
   fetchFinalistAnnouncement: vi.fn(),
   updateFinalistAnnouncement: vi.fn(),
-  postFinalistAnnouncement: vi.fn()
+  postFinalistAnnouncement: vi.fn(),
+  restoreFinalistAnnouncement: vi.fn()
 }))
 // The rich editor as a plain box, typed into like one.
 const RichEditorStub = defineComponent({
@@ -42,6 +44,7 @@ const RichEditorStub = defineComponent({
 const announcementMock = vi.mocked(fetchFinalistAnnouncement)
 const saveAnnouncementMock = vi.mocked(updateFinalistAnnouncement)
 const postAnnouncementMock = vi.mocked(postFinalistAnnouncement)
+const restoreAnnouncementMock = vi.mocked(restoreFinalistAnnouncement)
 const ANNOUNCEMENT = {
   title: 'Congratulations – You’re a BIOTech Futures Finalist!',
   body: '<p>Dear members of our finalist teams,</p><ul><li>Confirm by Friday.</li></ul>',
@@ -128,6 +131,7 @@ beforeEach(() => {
   announcementMock.mockReset().mockResolvedValue({ ...ANNOUNCEMENT })
   saveAnnouncementMock.mockReset()
   postAnnouncementMock.mockReset()
+  restoreAnnouncementMock.mockReset()
   listMock.mockReset()
   notifyMock.mockReset()
   detailsMock.mockReset().mockResolvedValue(details())
@@ -491,10 +495,30 @@ describe('the announcement', () => {
     const editor = () => wrapper.find('[aria-label="Edit announcement"]')
     await editor().find('input').setValue('Finalists!')
     await editor().find('.rich-editor-stub').setValue('<p>Well done.</p>')
-    await editor().findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
+    await editor().findAll('button').find((b) => b.text() === 'Save changes')!.trigger('click')
     await flushPromises()
     expect(saveAnnouncementMock).toHaveBeenCalledWith({ title: 'Finalists!', body: '<p>Well done.</p>' })
     expect(wrapper.find('[aria-label="Edit announcement"]').exists()).toBe(false)
+  })
+
+  it('has Save changes and Restore default as on System Emails', async () => {
+    announcementMock.mockResolvedValue({ ...ANNOUNCEMENT, title: 'Finalists!', edited: true })
+    restoreAnnouncementMock.mockResolvedValueOnce({ ...ANNOUNCEMENT })
+    const wrapper = mount(NotifyFinalistsPage, {
+      global: { stubs: { teleport: true, RichEditor: RichEditorStub } }
+    })
+    await flushPromises()
+    await buttonNamed(wrapper, /^Edit Announcement$/).trigger('click')
+    const editor = () => wrapper.find('[aria-label="Edit announcement"]')
+    const named = (label: string) => editor().findAll('button').find((b) => b.text() === label)!
+    // Nothing changed yet, so nothing to save.
+    expect(named('Save changes').attributes('disabled')).toBeDefined()
+    await named('Restore default').trigger('click')
+    await flushPromises()
+    expect(restoreAnnouncementMock).toHaveBeenCalled()
+    // The email's wording, back in the editor.
+    expect((editor().find('input').element as HTMLInputElement).value).toBe(ANNOUNCEMENT.title)
+    expect(named('Restore default').attributes('disabled')).toBeDefined()
   })
 
   it('asks first, then posts it and says when', async () => {

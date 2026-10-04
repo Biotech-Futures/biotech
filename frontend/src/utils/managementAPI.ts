@@ -454,6 +454,11 @@ export function updateFinalistAnnouncement(fields: { title: string; body: string
   return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT, { method: 'PATCH', body: JSON.stringify(fields) })
 }
 
+// DELETE — back to the finalist email's wording.
+export function restoreFinalistAnnouncement(): Promise<FinalistAnnouncement> {
+  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT, { method: 'DELETE' })
+}
+
 // POST post/ — post it to the finalist groups emailed so far, or update the
 // one already posted.
 export function postFinalistAnnouncement(): Promise<FinalistAnnouncement> {
