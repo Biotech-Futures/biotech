@@ -21,6 +21,12 @@
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
       </p>
+      <!-- Typed and shown as they are, so they never shift with anyone's own
+           time zone. -->
+      <p class="finalist-presentation__hint" data-testid="sydney-time">
+        All times are Sydney time<template v-if="sydneyClock">, {{ sydneyClock }} on that day</template>.
+        They're entered and shown in Sydney time, whatever time zone you or the finalists are in.
+      </p>
 
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="loadError" class="finalist-presentation__load-error">
@@ -275,6 +281,7 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { sydneyClockOn } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
@@ -378,6 +385,13 @@ const longDate = (iso: string | null | undefined) => {
 }
 
 const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+// "AEDT (daylight saving, UTC+11)" on the Symposium day, once it's set.
+const sydneyClock = computed(() => {
+  const iso = data.value?.symposium_date
+  if (!iso) return ''
+  const clock = sydneyClockOn(iso)
+  return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
+})
 const slidesDue = computed(() => longDate(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {

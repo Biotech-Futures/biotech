@@ -126,6 +126,11 @@ describe('Finalist Presentation', () => {
       ['13:00', '13:30']
     ])
     expect(wrapper.text()).toContain("They're for the Symposium day, Friday 23 October 2026")
+    // Sydney time, worked out for that day: daylight saving by late October.
+    expect(wrapper.find('[data-testid="sydney-time"]').text()).toBe(
+      'All times are Sydney time, AEDT (daylight saving, UTC+11) on that day. ' +
+        "They're entered and shown in Sydney time, whatever time zone you or the finalists are in."
+    )
     expect(wrapper.find('a').attributes('href')).toBe('/management/notify-finalists')
   })
 
