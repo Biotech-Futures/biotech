@@ -207,7 +207,7 @@ onMounted(() => void load())
 </script>
 
 <style scoped>
-/* A section heading, as "Email Details" on Notify Finalists. */
+/* A section heading, as "Set Details" on Notify Finalists. */
 .deadline__section-title {
   font-size: 1.05rem;
   font-weight: 600;

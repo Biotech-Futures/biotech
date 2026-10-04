@@ -114,7 +114,7 @@ NO_DEADLINE = "Available once a submission deadline is set and has passed."
 
 def _category_groups(year: int) -> dict:
     """This year's groups in each category: picked as finalists, submitted
-    but not picked, and didn't submit (as Email Nonfinalist counts them)."""
+    but not picked, and didn't submit (as Notify Nonfinalist counts them)."""
     finalists = Groups.objects.filter(deleted_at__isnull=True, year=year, finalist_flag__isnull=False)
     return {
         "finalists": finalists,

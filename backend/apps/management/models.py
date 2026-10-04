@@ -320,7 +320,7 @@ class EmailDelivery(models.Model):
 
 
 class EmailSendRun(models.Model):
-    """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
+    """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send queues a run on
     the server that emails everyone due, whether or not the page stays open.
     One run at a time across every email: ``held_until`` is a lease the run
@@ -440,7 +440,7 @@ class ResultsSupervisorEmail(models.Model):
 
 class NonFinalistEmail(models.Model):
     """A team that wasn't picked, emailed the invitation to the Symposium from
-    Email Nonfinalist; sending skips it after that. Only recorded once every
+    Notify Nonfinalist; sending skips it after that. Only recorded once every
     member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(
@@ -466,7 +466,7 @@ class NonFinalistEmail(models.Model):
 
 class NonSubmissionEmail(models.Model):
     """A team that didn't submit, emailed the notice (and invitation to the
-    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    Symposium) from Notify Nonfinalist; sending skips it after that. Only
     recorded once every member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(

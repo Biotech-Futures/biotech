@@ -232,7 +232,7 @@ EMAIL_TYPES = (
     EmailType(
         key="nonfinalist_invitation",
         name="Non-finalist invitation",
-        description="Sent to teams not picked as finalists, from Email Nonfinalist.",
+        description="Sent to teams not picked as finalists, from Notify Nonfinalist.",
         default_subject="Thank you for your submission – Invitation to the Symposium",
         default_template="emails/nonfinalist_invitation.html",
         merge_tags=(
@@ -250,7 +250,7 @@ EMAIL_TYPES = (
     EmailType(
         key="nonsubmission_notice",
         name="Non-submission notice",
-        description="Sent to teams that didn't submit, from Email Nonfinalist.",
+        description="Sent to teams that didn't submit, from Notify Nonfinalist.",
         default_subject="{{ brand_name }} – No Submission Received",
         default_template="emails/nonsubmission_notice.html",
         merge_tags=(

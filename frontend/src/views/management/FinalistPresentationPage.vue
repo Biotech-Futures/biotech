@@ -121,10 +121,19 @@
         Finalists only see the times, to tick the ones they can make, once this is on. Turn it on
         once the times are final.
       </p>
+      <!-- As Release Marks: who the finalists are isn't settled until
+           every team, extensions included, is done submitting. -->
+      <p
+        v-if="data && !data.times_shown && data.submissions_open"
+        class="finalist-presentation__banner finalist-presentation__banner--warn"
+      >
+        Submissions are still open (including extensions) - time slots can be shown once the
+        window has closed.
+      </p>
       <HideShowSwitch
         v-if="data"
         :on="data.times_shown"
-        :disabled="isSaving"
+        :disabled="isSaving || (!data.times_shown && data.submissions_open)"
         label="Show the times to finalists"
         @change="setShown"
       >
@@ -486,6 +495,19 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As Release Marks' notice while submissions are open. */
+.finalist-presentation__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.finalist-presentation__banner--warn {
+  background: color-mix(in srgb, #ff8c00 12%, transparent);
+  color: #ff8c00;
 }
 
 /* As the switch on System Emails. */

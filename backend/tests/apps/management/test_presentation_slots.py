@@ -2,7 +2,7 @@
 set on Notify Finalists, which admins add, change and remove; and each
 finalist student's answer, the times they can make; and the slides each
 finalist team hands in."""
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from django.test import override_settings
 from django.utils import timezone
@@ -17,8 +17,10 @@ from apps.management.models import (
     FinalistSlides,
     PresentationAllocation,
     PresentationAvailability,
+    PresentationSettings,
     PresentationSlot,
 )
+from apps.submissions.models import Deadline, GroupExtension
 from apps.submissions.services import current_cohort
 from apps.users.models import User
 
@@ -56,8 +58,16 @@ class PresentationSlotTests(_GradingFixture):
         FinalistEmailSettings.objects.update_or_create(pk=1, defaults={"symposium_date": date(2026, 10, 23)})
         self.assertEqual(self.client.get(reverse(LIST)).json()["symposium_date"], "2026-10-23")
 
+    def _deadline(self, hours_from_now, grace_hours=0):
+        Deadline.objects.update(is_active=False)
+        Deadline.objects.create(
+            closes_at=timezone.now() + timedelta(hours=hours_from_now), grace_hours=grace_hours, is_active=True,
+        )
+
     def test_the_times_are_hidden_from_finalists_until_shown(self):
-        self.assertFalse(self.client.get(reverse(LIST)).json()["times_shown"])
+        self._deadline(-3, grace_hours=2)
+        body = self.client.get(reverse(LIST)).json()
+        self.assertEqual((body["times_shown"], body["submissions_open"]), (False, False))
         url = reverse("management:presentation-times-shown")
         r = self.client.patch(url, {"times_shown": True}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
@@ -65,6 +75,35 @@ class PresentationSlotTests(_GradingFixture):
         self.assertTrue(self.client.get(reverse(LIST)).json()["times_shown"])
         self.assertFalse(self.client.patch(url, {"times_shown": False}, format="json").json()["times_shown"])
         self.assertEqual(self.client.patch(url, {"times_shown": "yes"}, format="json").status_code, 400)
+
+    def test_the_times_cannot_be_shown_while_submissions_are_open(self):
+        url = reverse("management:presentation-times-shown")
+        # Past the deadline, but still in its grace hours.
+        self._deadline(-1, grace_hours=2)
+        self.assertTrue(self.client.get(reverse(LIST)).json()["submissions_open"])
+        r = self.client.patch(url, {"times_shown": True}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            r.json()["detail"],
+            "Submissions are still open (including any extensions) - "
+            "the time slots can be shown once the window has closed.",
+        )
+        self.assertFalse(PresentationSettings.load().times_shown)
+
+        # Closed, but a team's extension is still running.
+        self._deadline(-3, grace_hours=2)
+        extension = GroupExtension.objects.create(
+            group=self.group, extended_until=timezone.now() + timedelta(hours=1), grace_hours=0,
+        )
+        self.assertEqual(self.client.patch(url, {"times_shown": True}, format="json").status_code, 400)
+
+        # Hiding them is always allowed.
+        PresentationSettings.objects.update_or_create(pk=1, defaults={"times_shown": True})
+        self.assertFalse(self.client.patch(url, {"times_shown": False}, format="json").json()["times_shown"])
+
+        extension.revoked_at = timezone.now()
+        extension.save()
+        self.assertTrue(self.client.patch(url, {"times_shown": True}, format="json").json()["times_shown"])
 
     def test_a_time_must_end_after_it_starts(self):
         r = self._add("10:00", "10:00")

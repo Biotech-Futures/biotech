@@ -532,6 +532,9 @@ export interface PresentationSlots {
   slots: PresentationSlot[]
   /** Whether finalists see them yet, to give their availability. */
   times_shown: boolean
+  /** While any team can still submit (extensions and grace hours included):
+   *  the times can't be shown until then. */
+  submissions_open: boolean
 }
 
 export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_at'>
@@ -763,7 +766,7 @@ export function startResultsEmail(audience: ResultsAudience, which?: 'missed'): 
 // ---------------------------------------------------------------------------
 // The Symposium emails and Send Test Email
 
-/** The Symposium emails on the Email Nonfinalist tab: to teams that submitted
+/** The Symposium emails on the Notify Nonfinalist tab: to teams that submitted
  *  but weren't picked, and to teams that didn't submit. */
 export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
 

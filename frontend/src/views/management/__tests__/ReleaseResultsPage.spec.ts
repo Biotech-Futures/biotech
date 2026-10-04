@@ -114,7 +114,7 @@ describe('layout', () => {
     expect(cards).toHaveLength(4)
     expect(cards[0]!.find('.card-title').text()).toBe('Release Results')
     expect(cards[0]!.text()).toContain('Releasing shows results only to students whose group made a submission.')
-    expect(cards[0]!.text()).toContain('Email Details')
+    expect(cards[0]!.text()).toContain('Set Details')
     expect(cards[1]!.find('.release__section-title').text()).toBe('Release Marks')
     expect(cards[2]!.find('.release__section-title').text()).toBe('Release Certificates')
     expect(cards[3]!.text()).toContain('Email Results')
@@ -129,7 +129,8 @@ describe('layout', () => {
     const wrapper = await mountPage()
     const hints = wrapper.findAll('.release-results__send .release-results__hint').map((p) => p.text())
     expect(hints).toEqual([
-      "Emails every group that submitted, and its students' supervisors, that their results are out. Each is emailed once.",
+      "For groups that submitted, and their students' supervisors, once their results are out.",
+      'Each group and each supervisor is emailed once.',
       "Each group gets one email, its students and mentors in To, with every certificate in the group " +
         "attached, so students get each other's and their mentor's certificates. Resending emails only those " +
         'who missed it. Anyone in multiple groups gets one email for each group.'

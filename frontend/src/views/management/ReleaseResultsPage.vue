@@ -10,9 +10,10 @@
       <p class="release-results__hint">
         Releasing shows results only to students whose group made a submission.
       </p>
-      <h3 class="release-results__section-title">Email Details</h3>
+      <h3 class="release-results__section-title">Set Details</h3>
       <p class="release-results__hint">
-        The results email to groups links to the feedback survey. Set these before sending.
+        The feedback survey link and close date go in the results email and announcement to groups.
+        Set them before sending.
       </p>
       <p v-if="detailsError" class="release-results__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -112,9 +113,9 @@
     <section class="card release-results__send">
       <h3 class="release-results__section-title">Email Results</h3>
       <p class="release-results__hint">
-        Emails every group that submitted, and its students' supervisors, that their results
-        are out. Each is emailed once.
+        For groups that submitted, and their students' supervisors, once their results are out.
       </p>
+      <p class="release-results__hint">Each group and each supervisor is emailed once.</p>
       <p class="release-results__hint">
         Each group gets one email, its students and mentors in To, with every certificate in the
         group attached, so students get each other's and their mentor's certificates. Resending
@@ -588,7 +589,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   margin: 0 0 0.75rem;
 }
 
-/* As "Email Details" on Notify Finalists. */
+/* As "Set Details" on Notify Finalists. */
 .release-results__section-title {
   font-size: 1.05rem;
   font-weight: 600;

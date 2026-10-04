@@ -60,6 +60,7 @@ const slots = (over: Partial<PresentationSlots> = {}): PresentationSlots => ({
   year: 2026,
   symposium_date: '2026-10-23',
   times_shown: false,
+  submissions_open: false,
   slots: [
     { id: 1, starts_at: '09:30', ends_at: '10:00' },
     { id: 2, starts_at: '13:00', ends_at: '13:30' }
@@ -145,6 +146,21 @@ describe('Finalist Presentation', () => {
     await flushPromises()
     expect(shownMock).toHaveBeenCalledWith(true)
     expect(wrapper.find('.finalist-presentation__switch-label').text()).toBe('Displayed to Finalists')
+  })
+
+  it("can't be switched on while submissions are open, saying why as Release Marks does", async () => {
+    fetchMock.mockResolvedValue(slots({ submissions_open: true }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.finalist-presentation__banner--warn').text()).toBe(
+      'Submissions are still open (including extensions) - time slots can be shown once the window has closed.'
+    )
+    expect(wrapper.find('input[role="switch"]').attributes('disabled')).toBeDefined()
+
+    // Already on: no notice, and it can still be hidden.
+    fetchMock.mockResolvedValue(slots({ submissions_open: true, times_shown: true }))
+    const shown = await mountPage()
+    expect(shown.find('.finalist-presentation__banner--warn').exists()).toBe(false)
+    expect(shown.find('input[role="switch"]').attributes('disabled')).toBeUndefined()
   })
 
   it('asks for the Symposium date while it is not set, and says when there are no times', async () => {

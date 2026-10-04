@@ -99,7 +99,7 @@ urlpatterns = [
     ),
 
     # The invitation to teams that submitted but weren't picked, from the
-    # Email Nonfinalist tab.
+    # Notify Nonfinalist tab.
     path("nonfinalists/", NonFinalistEmailView.as_view(), name="nonfinalist-email"),
     path("nonfinalists/preview/", NonFinalistEmailPreviewView.as_view(), name="nonfinalist-email-preview"),
     path("nonfinalists/send/", NonFinalistEmailSendView.as_view(), name="nonfinalist-email-send"),

@@ -1,6 +1,6 @@
 """The in-app announcements that go with the emails telling groups their
 Challenge outcome: the finalist email (Notify Finalists), the non-finalist
-and non-submission emails (Email Nonfinalist), and the results emails to
+and non-submission emails (Notify Nonfinalist), and the results emails to
 groups and to supervisors (Release Results). Each is posted from its email's
 page to whoever that email has reached so far: its groups, or for the
 supervisor email those supervisors. Its wording starts as its email's, with

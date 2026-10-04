@@ -1,5 +1,5 @@
 """The Symposium emails to teams that won't present there, sent from the
-Email Nonfinalist tab: the client's invitation for teams that submitted but
+Notify Nonfinalist tab: the client's invitation for teams that submitted but
 weren't picked as finalists, and their notice for teams that didn't submit.
 
 Same path as the finalist email: the shared system email path, so admins can

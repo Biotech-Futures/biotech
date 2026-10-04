@@ -4,9 +4,9 @@
       <div class="card-header">
         <h3 class="card-title">Notify Finalists</h3>
       </div>
-      <h3 class="notify-finalists__section-title">Email Details</h3>
+      <h3 class="notify-finalists__section-title">Set Details</h3>
       <p class="notify-finalists__hint">
-        These go into the finalist email. Set them before sending.
+        These go into the finalist email and announcement. Set them before sending.
       </p>
       <p v-if="detailsError" class="notify-finalists__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -56,7 +56,7 @@
     </section>
 
     <section class="card">
-      <h3 class="notify-finalists__section-title">Email Finalist</h3>
+      <h3 class="notify-finalists__section-title">Notify Finalist</h3>
       <p class="notify-finalists__hint">
         Send a notification email to the finalist teams. Tick Notify on specific teams
         to email only those.

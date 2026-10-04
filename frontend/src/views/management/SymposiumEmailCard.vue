@@ -1,5 +1,5 @@
 <template>
-  <!-- One Symposium email on the Email Nonfinalist tab: the page's headings
+  <!-- One Symposium email on the Notify Nonfinalist tab: the page's headings
        and text in the slot, then a preview, who has it, why it can't go if
        it can't, and sending. -->
   <div class="symposium-email" :class="`symposium-email--${email}`">

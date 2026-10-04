@@ -1,7 +1,7 @@
 <template>
   <!-- The same news in the app as an outcome email, for whoever the email
        has reached so far: preview it, edit its wording (the email's until
-       edited) and post it. On Email Finalist, Email Nonfinalist and Release
+       edited) and post it. On Notify Finalist, Notify Nonfinalist and Release
        Results. -->
   <div v-if="announcement" class="outcome-announcement">
     <div class="outcome-announcement__actions">
