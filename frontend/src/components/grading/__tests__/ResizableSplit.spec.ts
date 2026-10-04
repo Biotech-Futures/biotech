@@ -14,6 +14,41 @@ const cols = (wrapper: ReturnType<typeof mountSplit>) =>
 beforeEach(() => {
   // jsdom has no pointer-capture; the drag handlers call it unconditionally.
   Element.prototype.setPointerCapture = vi.fn()
+  window.localStorage.clear()
+})
+
+describe('remembering the divider', () => {
+  it('a split with a memory name starts where it was last left', async () => {
+    const first = mountSplit({ memory: 'single-rubrics' })
+    await first.find('[role="separator"]').trigger('keydown', { key: 'ArrowRight' })
+    first.unmount()
+    // As when Next loads another group and the page rebuilds.
+    expect(cols(mountSplit({ memory: 'single-rubrics' }))).toBe('52% auto minmax(0, 1fr)')
+    // Another split keeps its own.
+    expect(cols(mountSplit({ memory: 'combined-rubrics', rightMax: '21rem' }))).toBe(
+      'minmax(0, 1fr) auto fit-content(21rem)'
+    )
+  })
+
+  it('says once it was moved, and reset puts it back and forgets it', async () => {
+    const wrapper = mountSplit({ memory: 'single-rubrics' })
+    const split = wrapper.vm as unknown as { moved: boolean; reset: () => void }
+    expect(split.moved).toBe(false)
+    await wrapper.find('[role="separator"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(split.moved).toBe(true)
+    split.reset()
+    await wrapper.vm.$nextTick()
+    expect(split.moved).toBe(false)
+    expect(cols(wrapper)).toBe('minmax(0, 1fr) auto minmax(0, 1fr)')
+    expect(window.localStorage.getItem('grading-split:single-rubrics')).toBeNull()
+  })
+
+  it('a split without one starts afresh each time', async () => {
+    const first = mountSplit()
+    await first.find('[role="separator"]').trigger('keydown', { key: 'ArrowRight' })
+    first.unmount()
+    expect(cols(mountSplit())).toBe('minmax(0, 1fr) auto minmax(0, 1fr)')
+  })
 })
 
 describe('untouched layout', () => {
