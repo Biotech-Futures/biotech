@@ -1,9 +1,12 @@
-"""Notify Finalists' announcement: the in-app announcement to the finalist
-groups that have been emailed, its wording (the finalist email's until
-edited), and posting it (see ``services.finalist_announcement``)."""
+"""Announcements to this year's finalist, non-finalist and non-submission
+groups: Notify Finalists' announcement to the finalist groups emailed, its
+wording (the finalist email's until edited) and posting it (see
+``services.finalist_announcement``); and those three groups as categories
+New Announcement can target."""
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 
 from django.utils import timezone
 from rest_framework import permissions, serializers, status
@@ -11,10 +14,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
+from apps.groups.models.groups import Groups
+from apps.submissions.services import active_deadline, current_cohort
 
 from ..models import FinalistAnnouncement
 from ..services import finalist_announcement
-from ..services.send_guard import person_name
+from ..services.send_guard import _long_time, person_name
+from ..services.symposium_emails import NONFINALIST, NONSUBMISSION
 
 
 class FinalistAnnouncementSerializer(serializers.Serializer):
@@ -82,3 +88,55 @@ class FinalistAnnouncementPostView(APIView):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(_payload())
+
+
+# --- New Announcement's categories ----------------------------------------------------
+
+NO_DEADLINE = "Available once a submission deadline is set and has passed."
+
+
+def _category_groups(year: int) -> dict:
+    """This year's groups in each category: picked as finalists, submitted
+    but not picked, and didn't submit (as Email Nonfinalist counts them)."""
+    finalists = Groups.objects.filter(deleted_at__isnull=True, year=year, finalist_flag__isnull=False)
+    return {
+        "finalists": finalists,
+        "nonfinalists": NONFINALIST.teams(year),
+        "nonsubmissions": NONSUBMISSION.teams(year),
+    }
+
+
+CATEGORY_LABELS = {"finalists": "Finalist", "nonfinalists": "Nonfinalist", "nonsubmissions": "Nonsubmission"}
+
+
+class AnnouncementCategoriesView(APIView):
+    """GET /api/v1/management/announcement-categories/ — the finalist,
+    non-finalist and non-submission groups New Announcement can target, each
+    with its groups' ids. Only once the submission deadline, grace hours
+    included, has passed: until then who is in which isn't settled, and
+    ``available`` is false with why."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        deadline = active_deadline()
+        reason = NO_DEADLINE
+        if deadline is not None:
+            until = deadline.closes_at + timedelta(hours=deadline.grace_hours)
+            reason = (
+                "" if timezone.now() > until
+                else f"Available once submissions close, on {_long_time(until)} (Sydney time)."
+            )
+        groups = _category_groups(current_cohort()) if not reason else {}
+        return Response({
+            "available": not reason,
+            "reason": reason,
+            "categories": [
+                {
+                    "key": key,
+                    "label": label,
+                    "group_ids": sorted(groups[key].values_list("id", flat=True)) if key in groups else [],
+                }
+                for key, label in CATEGORY_LABELS.items()
+            ],
+        })

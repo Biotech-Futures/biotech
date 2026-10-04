@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AnnouncementCategoriesView,
     CertificatesReleaseView,
     FinalistAnnouncementPostView,
     FinalistAnnouncementView,
@@ -86,6 +87,8 @@ urlpatterns = [
         FinalistEmailPreviewView.as_view(),
         name="finalist-email-preview",
     ),
+    # New Announcement's finalist, non-finalist and non-submission categories.
+    path("announcement-categories/", AnnouncementCategoriesView.as_view(), name="announcement-categories"),
     # The in-app announcement to the finalist groups emailed.
     path("finalists/announcement/", FinalistAnnouncementView.as_view(), name="finalist-announcement"),
     path(

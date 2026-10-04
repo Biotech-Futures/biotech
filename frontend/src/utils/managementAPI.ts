@@ -429,6 +429,21 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
 
+/** New Announcement's categories: this year's finalist, non-finalist and
+ *  non-submission groups. */
+export interface AnnouncementCategories {
+  /** Once the submission deadline, grace hours included, has passed. */
+  available: boolean
+  /** Why not yet, or "". */
+  reason: string
+  categories: { key: string; label: string; group_ids: number[] }[]
+}
+
+// GET /api/v1/management/announcement-categories/ — each category's groups.
+export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
+  return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
+}
+
 /** The in-app announcement to the finalist groups emailed, from Notify Finalists. */
 export interface FinalistAnnouncement {
   title: string

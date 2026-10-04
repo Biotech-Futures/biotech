@@ -72,6 +72,39 @@
           </p>
         </div>
 
+        <!-- Target Categories: ticking one selects its groups below. Off until
+             the submission deadline has passed and who's in which is settled,
+             the whole section greyed out till then. -->
+        <div
+          class="form-field form-field--full"
+          :class="{ 'admin-ann-form__categories--off': !categories?.available }"
+          data-testid="target-categories-section"
+        >
+          <div class="admin-ann-form__section">
+            <span class="font-semibold">Target Categories</span>
+            <span class="admin-ann-form__section-note">(leave unselected to target all groups)</span>
+          </div>
+          <fieldset class="admin-ann-form__checkbox-grid" data-testid="target-categories">
+            <legend class="sr-only">Target Categories</legend>
+            <label
+              v-for="c in categoryList"
+              :key="c.key"
+              class="admin-ann-form__checkbox-label"
+            >
+              <input
+                type="checkbox"
+                :checked="categoryChecked(c)"
+                :disabled="!categories?.available || !c.group_ids.length"
+                @change="toggleCategory(c)"
+              />
+              <span>{{ c.label }}<template v-if="categories?.available"> ({{ c.group_ids.length }})</template></span>
+            </label>
+          </fieldset>
+          <p v-if="!categories?.available" class="admin-ann-form__categories-reason">
+            {{ categories?.reason || 'Available once the submission deadline has passed.' }}
+          </p>
+        </div>
+
         <!-- Target Groups -->
         <div class="form-field form-field--full">
           <div class="admin-ann-form__section">
@@ -203,6 +236,7 @@ import {
   type AdminAnnouncementRoleOption,
   type AdminAnnouncementGroupOption
 } from '@/utils/adminAPI'
+import { fetchAnnouncementCategories, type AnnouncementCategories } from '@/utils/managementAPI'
 
 interface Props {
   modelValue: boolean
@@ -248,7 +282,37 @@ const editorKey = computed(() => {
   return props.announcement ? `edit-${props.announcement.id}` : 'new-announcement'
 })
 
+// Finalist, Nonfinalist and Nonsubmission, each with its groups; shown off
+// until they're known.
+const categories = ref<AnnouncementCategories | null>(null)
+const DEFAULT_CATEGORIES = [
+  { key: 'finalists', label: 'Finalist', group_ids: [] },
+  { key: 'nonfinalists', label: 'Nonfinalist', group_ids: [] },
+  { key: 'nonsubmissions', label: 'Nonsubmission', group_ids: [] }
+]
+const categoryList = computed(() => categories.value?.categories ?? DEFAULT_CATEGORIES)
+type Category = AnnouncementCategories['categories'][number]
+
+// Ticked while every one of its groups is.
+const categoryChecked = (c: Category) =>
+  c.group_ids.length > 0 && c.group_ids.every((id) => groupIds.value.includes(id))
+
+const toggleCategory = (c: Category) => {
+  groupIds.value = categoryChecked(c)
+    ? groupIds.value.filter((id) => !c.group_ids.includes(id))
+    : [...new Set([...groupIds.value, ...c.group_ids])]
+}
+
+async function loadCategories() {
+  try {
+    categories.value = await fetchAnnouncementCategories()
+  } catch {
+    // Best effort: without them the categories just stay off.
+  }
+}
+
 async function loadMeta() {
+  void loadCategories()
   if (roles.value.length > 0 && groups.value.length > 0) return
   loadingMeta.value = true
   try {
@@ -537,6 +601,23 @@ async function handleSubmit(sendEmail: boolean) {
 
 .admin-ann-form__count-note {
   font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.25rem;
+}
+
+/* Target Categories before submissions close: all of it greyed out. */
+.admin-ann-form__categories--off {
+  opacity: 0.5;
+}
+
+.admin-ann-form__categories--off .admin-ann-form__checkbox-label {
+  cursor: not-allowed;
+}
+
+/* When they open. */
+.admin-ann-form__categories-reason {
+  font-size: 0.75rem;
+  font-style: italic;
   color: #6b7280;
   margin-top: 0.25rem;
 }

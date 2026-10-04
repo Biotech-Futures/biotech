@@ -98,6 +98,69 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual(self.client.post(reverse(POST)).status_code, status.HTTP_403_FORBIDDEN)
 
 
+class AnnouncementCategoriesTests(_GradingFixture):
+    """New Announcement's Finalist, Nonfinalist and Nonsubmission categories."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+
+    def _get(self):
+        r = self.client.get(reverse("management:announcement-categories"))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        return r.json()
+
+    def test_they_wait_for_the_deadline_and_its_grace_hours(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.submissions.models import Deadline
+
+        Deadline.objects.update(is_active=False)
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=1), grace_hours=2, is_active=True)
+        body = self._get()
+        self.assertFalse(body["available"])
+        self.assertIn("Available once submissions close, on", body["reason"])
+        self.assertEqual([c["label"] for c in body["categories"]], ["Finalist", "Nonfinalist", "Nonsubmission"])
+        self.assertEqual({tuple(c["group_ids"]) for c in body["categories"]}, {()})
+
+    def test_once_closed_each_lists_its_groups(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.submissions.models import Deadline
+        from apps.users.models import User
+
+        from tests.apps.management.test_symposium_emails import _member, _submitted_team
+
+        # Closed, grace hours and all.
+        Deadline.objects.update(is_active=False)
+        Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=3), grace_hours=2, is_active=True)
+
+        # The fixture's submitted team is a finalist; another submitted isn't;
+        # a third, with a student, never submitted.
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        other = _submitted_team("Other", self.staff)
+        quiet = Groups.objects.create(group_name="Quiet")
+        _member("q@example.com", quiet)
+        self.assertTrue(User.objects.filter(email="q@example.com").exists())
+
+        body = self._get()
+        self.assertTrue(body["available"])
+        ids = {c["key"]: c["group_ids"] for c in body["categories"]}
+        self.assertEqual(ids["finalists"], [self.group.id])
+        self.assertEqual(ids["nonfinalists"], [other.id])
+        self.assertIn(quiet.id, ids["nonsubmissions"])
+        self.assertNotIn(self.group.id, ids["nonsubmissions"])
+
+    def test_it_is_for_staff_only(self):
+        self.client.force_authenticate(self.non_staff)
+        r = self.client.get(reverse("management:announcement-categories"))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class TextToHtmlTests(_GradingFixture):
     def test_paragraphs_lists_and_links(self):
         text = "Title\n\nHello\nthere.\n\nDO THIS\n  - one\n    more\n  - two https://x.org/a.\n\nBye\n--\nfooter"
