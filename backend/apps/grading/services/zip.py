@@ -12,6 +12,9 @@ the folder and every file carry the current year:
         <Year>_<GroupName>_Prototype_Link.txt       # prototype link
         <Year>_<GroupName>_<Component>_MISSING.txt  # blob gone — see below
 
+The SAQ answers can also come as one PDF per group (``build_saq_pdf_zip``):
+``<Year>_<GroupName>_SAQs.pdf``, flat.
+
 Missing / unreadable blobs are skipped with the placeholder ``_MISSING.txt``
 note so the archive still opens and the marker tells the grader what to
 chase up. This matches the codebase's other Azure Blob handling — a
@@ -27,6 +30,8 @@ import zipfile
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Iterable
+
+from fpdf import FPDF
 
 from apps.submissions.services import current_cohort
 
@@ -146,9 +151,63 @@ def build_submissions_zip(
                     zf.writestr(f"{base}{ext}", data)
 
             if entry.text:
-                zf.writestr(f"{base}.txt", entry.text)
+                # The SAQ answers, under the team's project title.
+                text = f"Title: {entry.project_title}\n\n{entry.text}" if entry.project_title else entry.text
+                zf.writestr(f"{base}.txt", text)
 
             if entry.link:
                 zf.writestr(f"{base}_Link.txt", entry.link + "\n")
 
+    return buffer.getvalue()
+
+
+# --- SAQ answers as PDFs ---------------------------------------------------------------
+
+# The PDF's built-in fonts write Windows-1252: accented letters, curly quotes,
+# dashes and bullets come through; anything else (emoji, other scripts) is "?".
+_PDF_ENCODING = "cp1252"
+
+
+def _pdf_text(text: str) -> str:
+    return text.encode(_PDF_ENCODING, "replace").decode(_PDF_ENCODING)
+
+
+def saq_pdf(entry: ComponentEntry) -> bytes:
+    """One group's SAQ answers as a PDF: "Title: " and its project title, then
+    each question in bold, as the submission page has them, with its answer
+    below. The group's name is in the file's name."""
+    pdf = FPDF(format="A4")
+    pdf.core_fonts_encoding = _PDF_ENCODING
+    pdf.set_margins(20, 20, 20)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_title(_pdf_text(entry.group_name))
+    pdf.add_page()
+
+    # The project title in 14pt, not bold.
+    if entry.project_title:
+        pdf.set_font("Helvetica", "", 14)
+        pdf.multi_cell(0, 7.5, _pdf_text(f"Title: {entry.project_title}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # Questions and answers in 12pt.
+    for prompt, answer in entry.answers:
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.multi_cell(0, 6.5, _pdf_text(prompt), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "", 12)
+        pdf.multi_cell(0, 6.5, _pdf_text(answer), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(5)
+    return bytes(pdf.output())
+
+
+def build_saq_pdf_zip(entries: Iterable[ComponentEntry]) -> bytes:
+    """A zip of each group's SAQ answers as its own PDF, flat, as the TXT
+    download has them: ``<Year>_<GroupName>_SAQs.pdf``."""
+    year = current_cohort()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for entry in entries:
+            if not entry.answers:
+                continue
+            zf.writestr(f"{year}_{safe_name(entry.group_name)}_SAQs.pdf", saq_pdf(entry))
     return buffer.getvalue()

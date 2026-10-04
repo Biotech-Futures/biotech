@@ -3,7 +3,8 @@ import {
   downloadJobResult,
   fetchJobStatus,
   startAllSubmissionsDownload,
-  startComponentDownload
+  startComponentDownload,
+  type ComponentDownloadFormat
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
@@ -83,7 +84,7 @@ export function useJobPolling() {
     scheduleCheck()
   }
 
-  const start = (code: string, format: 'zip' | 'xlsx', groupIds?: number[]) =>
+  const start = (code: string, format: ComponentDownloadFormat, groupIds?: number[]) =>
     begin(() => startComponentDownload(code, format, groupIds))
 
   // The everything-zip: every group, every component.
