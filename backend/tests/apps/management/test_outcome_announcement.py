@@ -107,6 +107,25 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual(groups(), {self.group.id, other.id})
         self.assertEqual(OutcomeAnnouncement.objects.get(key="finalists").announcement_id, announcement.id)
 
+    def test_it_counts_a_group_someone_on_was_reached(self):
+        from apps.management.models import EmailDelivery
+
+        from tests.apps.management.test_symposium_emails import _member
+
+        # Emailed, but someone on it was missed: not notified, yet reached.
+        partly = Groups.objects.create(group_name="BTF-PARTLY")
+        reached = _member("amy@example.com", partly)
+        _member("missed@example.com", partly)
+        FinalistFlag.objects.create(group=partly, flagged_by=self.staff, notified=False)
+        EmailDelivery.objects.create(email="finalist_notification", group=partly, address=reached.email)
+        # Never emailed.
+        quiet = Groups.objects.create(group_name="BTF-QUIET")
+        FinalistFlag.objects.create(group=quiet, flagged_by=self.staff, notified=False)
+
+        self.assertEqual(self._get()["recipients"], 1)
+        self.client.post(_post_url())
+        self.assertEqual(list(AnnouncementAudience.objects.values_list("group_id", flat=True)), [partly.id])
+
     def test_an_archived_announcement_is_posted_afresh(self):
         from django.utils import timezone
 

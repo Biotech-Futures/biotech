@@ -150,21 +150,13 @@ beforeEach(() => {
 })
 
 describe('the finalist roster', () => {
-  it('lists teams with their notified stamp, dash when never emailed', async () => {
+  it('has no Finalist Groups table', async () => {
     const wrapper = await mountPage()
-    const rows = wrapper.findAll('tbody tr')
-    expect(rows[0]!.text()).toContain('BTF-1')
-    expect(rows[0]!.text()).toContain('—')
-    expect(rows[1]!.text()).toContain(
-      `${new Date('2026-09-10T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date('2026-09-10T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    )
-  })
-
-  it('an already-notified team cannot be ticked again', async () => {
-    const wrapper = await mountPage()
-    const boxes = wrapper.findAll('tbody input[type="checkbox"]')
-    expect(boxes[0]!.attributes('disabled')).toBeUndefined()
-    expect(boxes[1]!.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('Finalist Groups')
+    expect(wrapper.find('table').exists()).toBe(false)
+    const hints = wrapper.findAll('.notify-finalists__hint').map((h) => h.text())
+    expect(hints).toContain('Send a notification email to the finalist teams.')
+    expect(wrapper.text()).not.toContain('Tick Notify')
   })
 
   it('surfaces the most recent send above the actions', async () => {
@@ -204,10 +196,9 @@ describe('the finalist roster', () => {
     expect(wrapper.find('.notify-finalists__newly-added').exists()).toBe(false)
   })
 
-  it('says so when no finalists exist yet', async () => {
+  it('shows no status line when no finalists exist yet', async () => {
     listMock.mockResolvedValue({ finalists: [] })
     const wrapper = await mountPage()
-    expect(wrapper.find('.notify-finalists__empty').text()).toBe('No finalists yet.')
     expect(wrapper.find('.notify-finalists__status').exists()).toBe(false)
   })
 
@@ -236,10 +227,12 @@ describe('the finalist roster', () => {
   it('offers a retry when the roster fails to load', async () => {
     listMock.mockRejectedValueOnce(new Error('backend down'))
     const wrapper = await mountPage()
-    expect(wrapper.text()).toContain('Failed to load.')
+    expect(wrapper.find('.notify-finalists__load-error').text()).toContain('Failed to load the finalist groups.')
+    expect(wrapper.find('.notify-finalists__status').exists()).toBe(false)
     await buttonNamed(wrapper, /Try again/).trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('BTF-1')
+    expect(wrapper.find('.notify-finalists__load-error').exists()).toBe(false)
+    expect(wrapper.find('.notify-finalists__status').exists()).toBe(true)
   })
 })
 
@@ -254,7 +247,7 @@ describe('sending', () => {
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     // Every team not yet notified, which the server picks.
-    expect(notifyMock).toHaveBeenCalledWith(undefined)
+    expect(notifyMock).toHaveBeenCalledWith()
     expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe('Emailed 3 people.')
     expect(listMock).toHaveBeenCalledTimes(2) // roster refreshes after a send
   })
@@ -321,7 +314,6 @@ describe('sending', () => {
       await flushPromises()
       expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
       expect(wrapper.find('.notify-finalists__progress').text()).toBe('Emailed 0 of 28 people so far…')
-      expect(buttonNamed(wrapper, /Email Selected/).attributes('disabled')).toBeDefined()
 
       detailsMock.mockResolvedValue(details({ ...sendingRun({ due: 28, emailed: 20 }) }))
       vi.advanceTimersByTime(2000)
@@ -372,28 +364,7 @@ describe('sending', () => {
     )
   })
 
-  it('the selected-teams button stays off until something is ticked', async () => {
-    const wrapper = await mountPage()
-    const selectedButton = buttonNamed(wrapper, /Email Selected/)
-    expect(selectedButton.attributes('disabled')).toBeDefined()
-
-    await wrapper.find('tbody input[type="checkbox"]').trigger('change')
-    expect(selectedButton.attributes('disabled')).toBeUndefined()
-  })
-
-  it('sending to selected teams names the count and targets only them', async () => {
-    notifyMock.mockResolvedValueOnce({ ...finishedRun({ due: 3, emailed: 3 }), pending: 0 })
-    const wrapper = await mountPage()
-    await wrapper.find('tbody input[type="checkbox"]').trigger('change')
-    await buttonNamed(wrapper, /Email Selected/).trigger('click')
-    expect(wrapper.find('[role="dialog"]').text()).toContain('the 1 selected team.')
-
-    await buttonNamed(wrapper, /^Send$/).trigger('click')
-    await flushPromises()
-    expect(notifyMock).toHaveBeenCalledWith([1])
-  })
-
-  it('has Newly Added and Missed Individuals between All and Selected', async () => {
+  it('has Email All, then Newly Added and Missed Individuals, and no Email Selected', async () => {
     const wrapper = await mountPage()
     // The send buttons, not the details' Save, Preview and Test.
     const labels = wrapper
@@ -403,8 +374,7 @@ describe('sending', () => {
     expect(labels).toEqual([
       'Email All',
       'Email Newly Added',
-      'Resend Email To Missed Individuals',
-      'Email Selected'
+      'Resend Email To Missed Individuals'
     ])
   })
 

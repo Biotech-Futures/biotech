@@ -143,7 +143,7 @@ class ResultsEmailTests(_GradingFixture):
         message = mail.outbox[0]
         text = " ".join(message.body.split())  # the plain text wraps its lines
         self.assertEqual(message.subject, f"Your {self.group.year} BIOTech Futures Challenge results")
-        self.assertIn(f"Dear {self.group.group_name},", text)
+        self.assertIn(f"Dear members of {self.group.group_name},", text)
         self.assertIn(f"Congratulations on your participation in the {self.group.year} BIOTech Futures Challenge!", text)
         self.assertIn("https://example.com/survey", text)
         closes = ResultsEmailSettings.load().survey_closes

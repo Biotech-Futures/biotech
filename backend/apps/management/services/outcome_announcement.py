@@ -65,12 +65,14 @@ class Kind:
 
 
 def _finalist_groups() -> tuple[list[int], list[int]]:
-    groups = (
-        FinalistFlag.objects.filter(notified=True, group__deleted_at__isnull=True)
-        .order_by("group_id")
-        .values_list("group_id", flat=True)
+    """The finalist groups the finalist email went to: notified, or someone
+    on them reached (as Notify Finalist's Groups count has it)."""
+    flags = list(
+        FinalistFlag.objects.filter(group__deleted_at__isnull=True).values_list("group_id", "notified")
     )
-    return list(groups), []
+    notified = {group_id for group_id, is_notified in flags if is_notified}
+    reached = symposium_emails.reached_ids(FINALIST_EMAIL_KEY, [group_id for group_id, _ in flags])
+    return sorted(notified | {group_id for group_id, ids in reached.items() if ids}), []
 
 
 def _team_email_groups(email: symposium_emails.TeamEmail) -> Callable[[], tuple[list[int], list[int]]]:
