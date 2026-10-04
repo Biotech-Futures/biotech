@@ -53,13 +53,13 @@
     </p>
 
     <!-- Tags go into whichever of Subject or Body was used last. -->
-    <div class="email-editor__field">
-      <span class="email-editor__label">Placeholders</span>
+    <div class="editor__field">
+      <span class="editor__label">Placeholders</span>
       <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
     </div>
 
-    <div class="email-editor__field">
-      <label class="email-editor__label" for="template-subject">Subject</label>
+    <div class="editor__field">
+      <label class="editor__label" for="template-subject">Subject</label>
       <!-- Not a login field: an id with "email" in it, and no autocomplete
            hint, made password managers (Bitwarden) offer to fill it. -->
       <input
@@ -70,7 +70,7 @@
         data-bwignore
         data-1p-ignore
         data-lpignore="true"
-        class="email-editor__subject"
+        class="editor__title"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"
         :disabled="busy"
@@ -80,8 +80,8 @@
       />
     </div>
 
-    <div class="email-editor__field">
-      <label class="email-editor__label">Body</label>
+    <div class="editor__field">
+      <label class="editor__label">Body</label>
       <div class="email-editor__body" @focusin="activeField = 'body'">
         <RichEditor
           ref="bodyEditor"
@@ -96,8 +96,8 @@
       </div>
     </div>
 
-    <footer class="email-editor__actions">
-      <div class="email-editor__actions-primary">
+    <footer class="editor__actions">
+      <div class="editor__actions-primary">
         <button
           type="button"
           class="btn btn-primary"
@@ -120,7 +120,7 @@
         </button>
       </div>
 
-      <div class="email-editor__actions-secondary">
+      <div class="editor__actions-secondary">
         <button type="button" class="btn btn-outline" :disabled="busy" @click="emit('test-send')">
           <i v-if="testing" class="fas fa-spinner fa-spin" aria-hidden="true"></i>
           <i v-else class="fas fa-paper-plane" aria-hidden="true"></i>
@@ -454,62 +454,5 @@ const insertIntoSubject = (token: string) => {
 }
 </style>
 
-<!-- Unscoped: Notify Finalists' Edit Announcement uses these fields, title box
-     and button bar too (it imports this file), so a change here shows in both. -->
-<style>
-.email-editor__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.email-editor__label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-}
-
-.email-editor__subject {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  color: #111827;
-}
-
-.email-editor__subject:focus {
-  outline: none;
-  border-color: var(--dark-green);
-  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
-}
-
-.email-editor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e5e7eb;
-}
-
-.email-editor__actions-primary,
-.email-editor__actions-secondary {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-:root[data-theme='dark'] .email-editor__subject {
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  border-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .email-editor__actions {
-  border-top-color: var(--border-light);
-}
-</style>
+<!-- The title box, fields and button bar the announcement editors share. -->
+<style scoped src="../editorForm.css"></style>

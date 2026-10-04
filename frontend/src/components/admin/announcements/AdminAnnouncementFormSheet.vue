@@ -21,7 +21,7 @@
             id="ann-title"
             v-model.trim="title"
             type="text"
-            class="form-input"
+            class="editor__title"
             placeholder="Announcement title"
             maxlength="255"
             required
@@ -37,6 +37,7 @@
             :key="editorKey"
             v-model="body"
             blocks
+            compact
             placeholder="Write your announcement content…"
           />
         </div>
@@ -419,6 +420,9 @@ async function handleSubmit(sendEmail: boolean) {
   }
 }
 </script>
+
+<!-- The title box shared with the other editor forms. -->
+<style scoped src="../editorForm.css"></style>
 
 <style scoped>
 .admin-ann-form {

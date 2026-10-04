@@ -333,13 +333,13 @@
             <i class="fas fa-pen" aria-hidden="true"></i> Edit Announcement
           </h3>
           <!-- Laid out as System Emails' editor: Title, Body, then its buttons. -->
-          <div class="email-editor__field">
-            <label class="email-editor__label" for="announcement-title">Title</label>
+          <div class="editor__field">
+            <label class="editor__label" for="announcement-title">Title</label>
             <input
               id="announcement-title"
               v-model="announcementDraft.title"
               type="text"
-              class="email-editor__subject"
+              class="editor__title"
               maxlength="255"
               autocomplete="off"
               data-bwignore
@@ -347,14 +347,14 @@
               data-lpignore="true"
             />
           </div>
-          <div class="email-editor__field notify-finalists__announcement-editor">
-            <span class="email-editor__label">Body</span>
+          <div class="editor__field notify-finalists__announcement-editor">
+            <span class="editor__label">Body</span>
             <!-- The announcements editor, with System Emails' Box and Button tools. -->
             <RichEditor v-model="announcementDraft.body" blocks compact placeholder="Write the announcement…" />
           </div>
           <p v-if="announcementError" class="notify-finalists__field-error" role="alert">{{ announcementError }}</p>
-          <footer class="email-editor__actions">
-            <div class="email-editor__actions-primary">
+          <footer class="editor__actions">
+            <div class="editor__actions-primary">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -437,8 +437,6 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { renderAnnouncementBody } from '@/composables/useAnnouncements'
-// For its field, title box and button-bar styles, which Edit Announcement shares.
-import '@/components/admin/emails/EmailEditor.vue'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
@@ -763,6 +761,9 @@ const reportRun = (run: EmailRun) => {
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
 </script>
+
+<!-- Edit Announcement's title box, fields and button bar. -->
+<style scoped src="../../components/admin/editorForm.css"></style>
 
 <style scoped>
 .notify-finalists {
