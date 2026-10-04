@@ -333,13 +333,13 @@
             <i class="fas fa-pen" aria-hidden="true"></i> Edit Announcement
           </h3>
           <!-- Laid out as System Emails' editor: Title, Body, then its buttons. -->
-          <div class="notify-finalists__editor-field">
-            <label class="notify-finalists__editor-label" for="announcement-title">Title</label>
+          <div class="email-editor__field">
+            <label class="email-editor__label" for="announcement-title">Title</label>
             <input
               id="announcement-title"
               v-model="announcementDraft.title"
               type="text"
-              class="notify-finalists__editor-input"
+              class="email-editor__subject"
               maxlength="255"
               autocomplete="off"
               data-bwignore
@@ -347,14 +347,14 @@
               data-lpignore="true"
             />
           </div>
-          <div class="notify-finalists__editor-field notify-finalists__announcement-editor">
-            <span class="notify-finalists__editor-label">Body</span>
+          <div class="email-editor__field notify-finalists__announcement-editor">
+            <span class="email-editor__label">Body</span>
             <!-- The announcements editor, with System Emails' Box and Button tools. -->
             <RichEditor v-model="announcementDraft.body" blocks compact placeholder="Write the announcement…" />
           </div>
           <p v-if="announcementError" class="notify-finalists__field-error" role="alert">{{ announcementError }}</p>
-          <footer class="notify-finalists__editor-actions">
-            <div class="notify-finalists__editor-actions-group">
+          <footer class="email-editor__actions">
+            <div class="email-editor__actions-primary">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -437,6 +437,8 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { renderAnnouncementBody } from '@/composables/useAnnouncements'
+// For its field, title box and button-bar styles, which Edit Announcement shares.
+import '@/components/admin/emails/EmailEditor.vue'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
@@ -857,62 +859,6 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-}
-
-/* As System Emails' editor. */
-.notify-finalists__editor-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.notify-finalists__editor-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-}
-
-.notify-finalists__editor-input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  color: #111827;
-}
-
-.notify-finalists__editor-input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
-}
-
-.notify-finalists__editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e5e7eb;
-}
-
-.notify-finalists__editor-actions-group {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-:root[data-theme='dark'] .notify-finalists__editor-input {
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  border-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .notify-finalists__editor-actions {
-  border-top-color: var(--border-light);
 }
 
 /* Wider than the confirm dialog; two classes so it wins over that rule. */

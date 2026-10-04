@@ -25,7 +25,8 @@ declare module '@tiptap/core' {
   }
 }
 
-// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py.
+// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py,
+// which also keeps border-collapse, for tables (boxes and buttons don't need it).
 const STYLE_PROPERTIES = new Set([
   'background-color', 'border', 'border-radius', 'color', 'display',
   'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
