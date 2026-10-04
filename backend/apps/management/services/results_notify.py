@@ -306,21 +306,31 @@ def send_blocked_reason(details: ResultsEmailSettings, audience: str) -> str:
 # --- the emails ------------------------------------------------------------------
 
 
-def render_team_email(group_name: str, details: ResultsEmailSettings, year: int) -> RenderedEmail:
-    """The group email: an admin's saved wording if there is some,
-    otherwise the client's template, with its plain-text twin."""
-    context = {
+def team_email_context(group_name: str, details: ResultsEmailSettings, year: int) -> dict:
+    """The values the group email's merge tags and template read."""
+    return {
         "GROUP_NAME": group_name,
         "YEAR": str(year),
         "SURVEY_URL": details.survey_url or NOT_SET,
         "SURVEY_CLOSES": _closes_text(details.survey_closes),
     }
+
+
+def supervisor_email_context(supervisor_name: str, year: int) -> dict:
+    """The values the supervisor email's merge tags and template read."""
+    return {"SUPERVISOR_NAME": supervisor_name, "YEAR": str(year)}
+
+
+def render_team_email(group_name: str, details: ResultsEmailSettings, year: int) -> RenderedEmail:
+    """The group email: an admin's saved wording if there is some,
+    otherwise the client's template, with its plain-text twin."""
+    context = team_email_context(group_name, details, year)
     default_text = render_to_string("emails/results_team.txt", {**brand_context(), **context})
     return render_system_email(EMAIL_KEYS[GROUPS], context, default_text=default_text)
 
 
 def render_supervisor_email(supervisor_name: str, year: int) -> RenderedEmail:
-    context = {"SUPERVISOR_NAME": supervisor_name, "YEAR": str(year)}
+    context = supervisor_email_context(supervisor_name, year)
     default_text = render_to_string("emails/results_supervisor.txt", {**brand_context(), **context})
     return render_system_email(EMAIL_KEYS[SUPERVISORS], context, default_text=default_text)
 

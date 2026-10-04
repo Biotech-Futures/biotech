@@ -148,29 +148,12 @@
         >.
       </p>
       <!-- The same news in the app, for the finalist groups emailed so far. -->
-      <div v-if="announcement" class="notify-finalists__email-actions notify-finalists__announcement-actions">
-        <button type="button" class="btn btn-outline btn-sm" @click="previewingAnnouncement = true">
-          Preview Announcement
-        </button>
-        <button type="button" class="btn btn-outline btn-sm" @click="openAnnouncementEditor">
-          Edit Announcement
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          :disabled="postingAnnouncement || !announcement.groups"
-          @click="confirmingAnnouncement = true"
-        >
-          {{ postingAnnouncement ? 'Posting…' : 'Post Announcement' }}
-        </button>
-      </div>
-      <p v-if="announcement?.posted_at" class="notify-finalists__last-emailed" data-testid="announcement-posted">
-        Announcement Last Posted at {{ shortDateTime(announcement.posted_at) }}<template
-          v-if="announcement.posted_by"
-        >
-          by {{ announcement.posted_by }}</template
-        >.
-      </p>
+      <OutcomeAnnouncement
+        ref="announcement"
+        kind="finalists"
+        @flash="flashAction"
+        @error="(text) => (actionError = text)"
+      />
     </section>
 
     <p v-if="actionError" class="notify-finalists__banner notify-finalists__banner--error">
@@ -289,125 +272,11 @@
       </div>
     </Teleport>
 
-    <!-- The announcement as finalists will see it in the app. -->
-    <Teleport to="body">
-      <div
-        v-if="previewingAnnouncement && announcement"
-        class="notify-finalists__overlay"
-        @click.self="previewingAnnouncement = false"
-      >
-        <div
-          class="notify-finalists__dialog notify-finalists__dialog--preview"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Announcement preview"
-        >
-          <h3 class="notify-finalists__dialog-title">
-            <i class="fas fa-bullhorn" aria-hidden="true"></i> {{ announcement.title }}
-          </h3>
-          <p class="notify-finalists__dialog-text">
-            As the {{ plural(announcement.groups, 'finalist group') }} emailed so far will see it in the app.
-            Nothing has been posted.
-          </p>
-          <!-- As the announcements page shows it, its boxes and buttons included. -->
-          <!-- eslint-disable-next-line vue/no-v-html -- admin-written, shown as the announcements page does -->
-          <div class="notify-finalists__announcement-body" v-html="renderAnnouncementBody(announcement.body)"></div>
-          <div class="notify-finalists__dialog-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="previewingAnnouncement = false">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
-      <div v-if="announcementDraft" class="notify-finalists__overlay" @click.self="announcementDraft = null">
-        <div
-          class="notify-finalists__dialog notify-finalists__dialog--preview"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Edit announcement"
-        >
-          <h3 class="notify-finalists__dialog-title">
-            <i class="fas fa-pen" aria-hidden="true"></i> Edit Announcement
-          </h3>
-          <!-- Laid out as System Emails' editor: Title, Body, then its buttons. -->
-          <div class="editor__field">
-            <label class="editor__label" for="announcement-title">Title</label>
-            <input
-              id="announcement-title"
-              v-model="announcementDraft.title"
-              type="text"
-              class="editor__title"
-              maxlength="255"
-              autocomplete="off"
-              data-bwignore
-              data-1p-ignore
-              data-lpignore="true"
-            />
-          </div>
-          <div class="editor__field notify-finalists__announcement-editor">
-            <span class="editor__label">Body</span>
-            <!-- The announcements editor, with System Emails' Box and Button tools. -->
-            <RichEditor v-model="announcementDraft.body" blocks compact placeholder="Write the announcement…" />
-          </div>
-          <p v-if="announcementError" class="notify-finalists__field-error" role="alert">{{ announcementError }}</p>
-          <footer class="editor__actions">
-            <div class="editor__actions-primary">
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="savingAnnouncement || !draftChanged || !announcementDraft.title.trim()"
-                @click="saveAnnouncement"
-              >
-                <i :class="savingAnnouncement ? 'fas fa-spinner fa-spin' : 'fas fa-floppy-disk'" aria-hidden="true"></i>
-                <span>{{ savingAnnouncement ? 'Saving…' : 'Save changes' }}</span>
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline"
-                :disabled="savingAnnouncement || !announcement?.edited"
-                @click="restoreAnnouncement"
-              >
-                <i class="fas fa-rotate-left" aria-hidden="true"></i>
-                <span>Restore default</span>
-              </button>
-            </div>
-            <button type="button" class="btn btn-outline" @click="announcementDraft = null">Cancel</button>
-          </footer>
-        </div>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
-      <div
-        v-if="confirmingAnnouncement && announcement"
-        class="notify-finalists__overlay"
-        @click.self="confirmingAnnouncement = false"
-      >
-        <div class="notify-finalists__dialog" role="dialog" aria-modal="true" aria-label="Post announcement">
-          <h3 class="notify-finalists__dialog-title">
-            <i class="fas fa-bullhorn" aria-hidden="true"></i> Post announcement?
-          </h3>
-          <p class="notify-finalists__dialog-text">
-            This posts it in the app to the {{ plural(announcement.groups, 'finalist group') }} emailed so
-            far.<template v-if="announcement.posted_at"> It updates the one posted before.</template>
-          </p>
-          <div class="notify-finalists__dialog-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="confirmingAnnouncement = false">
-              Cancel
-            </button>
-            <button type="button" class="btn btn-primary btn-sm" @click="postAnnouncement">Post</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import {
   deliveryNote,
@@ -421,13 +290,8 @@ import {
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
-  fetchFinalistAnnouncement,
   fetchFinalistEmailDetails,
   notifyFinalists,
-  postFinalistAnnouncement,
-  restoreFinalistAnnouncement,
-  updateFinalistAnnouncement,
-  type FinalistAnnouncement,
   type EmailRun,
   previewFinalistEmail,
   updateFinalistEmailDetails,
@@ -436,9 +300,9 @@ import {
   type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { renderAnnouncementBody } from '@/composables/useAnnouncements'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
+import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const list = ref<FinalistListResponse | null>(null)
@@ -591,94 +455,10 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   actionError
 )
 
-// -- The announcement: the same news in the app ----------------------------
-
-// The rich editor loads only once Edit Announcement is opened.
-const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
-
-const announcement = ref<FinalistAnnouncement | null>(null)
-const previewingAnnouncement = ref(false)
-const confirmingAnnouncement = ref(false)
-const postingAnnouncement = ref(false)
-const savingAnnouncement = ref(false)
-const announcementError = ref('')
-// The wording being edited; null = the editor is closed.
-const announcementDraft = ref<{ title: string; body: string } | null>(null)
-
-const loadAnnouncement = async () => {
-  try {
-    announcement.value = await fetchFinalistAnnouncement()
-  } catch {
-    // Best effort: without it the buttons just don't show.
-  }
-}
-
-const openAnnouncementEditor = () => {
-  if (!announcement.value) return
-  announcementError.value = ''
-  announcementDraft.value = { title: announcement.value.title, body: announcement.value.body }
-}
-
-// Something to save: the wording differs from what's saved.
-const draftChanged = computed(
-  () =>
-    Boolean(announcementDraft.value && announcement.value) &&
-    (announcementDraft.value!.title !== announcement.value!.title ||
-      announcementDraft.value!.body !== announcement.value!.body)
-)
-
-// Back to the finalist email's wording, shown in the editor at once.
-const restoreAnnouncement = async () => {
-  savingAnnouncement.value = true
-  announcementError.value = ''
-  try {
-    announcement.value = await restoreFinalistAnnouncement()
-    announcementDraft.value = { title: announcement.value.title, body: announcement.value.body }
-    flashAction("Restored the finalist email's wording.")
-  } catch (err) {
-    announcementError.value = apiErrorFromUnknown(err).message
-  } finally {
-    savingAnnouncement.value = false
-  }
-}
-
-const saveAnnouncement = async () => {
-  if (!announcementDraft.value) return
-  savingAnnouncement.value = true
-  announcementError.value = ''
-  try {
-    announcement.value = await updateFinalistAnnouncement(announcementDraft.value)
-    announcementDraft.value = null
-    flashAction('Announcement saved.')
-  } catch (err) {
-    announcementError.value = apiErrorFromUnknown(err).message
-  } finally {
-    savingAnnouncement.value = false
-  }
-}
-
-const postAnnouncement = async () => {
-  confirmingAnnouncement.value = false
-  postingAnnouncement.value = true
-  actionError.value = ''
-  try {
-    announcement.value = await postFinalistAnnouncement()
-    flashAction(`Announcement posted to ${plural(announcement.value.groups, 'finalist group')}.`)
-  } catch (err) {
-    actionError.value = apiErrorFromUnknown(err).message
-  } finally {
-    postingAnnouncement.value = false
-  }
-}
-
-// "02/10/2026 18:36", as Last Emailed writes it.
-const shortDateTime = (iso: string) => {
-  const at = new Date(iso)
-  return `${at.toLocaleDateString('en-GB')} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-}
+// The same news in the app, reloaded once a send finishes.
+const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
 
 onMounted(() => {
-  void loadAnnouncement()
   void load()
   void loadDetails()
 })
@@ -757,13 +537,10 @@ const reportRun = (run: EmailRun) => {
   else flashAction(text, RUN_MESSAGE_MS)
   void load()
   // More groups emailed: more who'd see the announcement.
-  void loadAnnouncement()
+  void announcement.value?.reload()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
 </script>
-
-<!-- Edit Announcement's title box, fields and button bar. -->
-<style scoped src="../../components/admin/editorForm.css"></style>
 
 <style scoped>
 .notify-finalists {
@@ -833,33 +610,6 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: #b8860b;
   font-size: 0.85rem;
   margin: 0 0 0.75rem;
-}
-
-.notify-finalists__announcement-actions {
-  margin-top: 0.75rem;
-}
-
-/* The announcement as the app shows it, scrolling if it's long. */
-.notify-finalists__announcement-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  font-size: 0.95rem;
-  line-height: 1.55;
-}
-
-.notify-finalists__announcement-body :deep(p),
-.notify-finalists__announcement-body :deep(ul) {
-  margin: 0 0 0.75rem;
-}
-
-.notify-finalists__announcement-editor {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 /* Wider than the confirm dialog; two classes so it wins over that rule. */

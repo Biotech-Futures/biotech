@@ -4,15 +4,15 @@ import NotifyFinalistsPage from '@/views/management/NotifyFinalistsPage.vue'
 import { fetchFinalists } from '@/utils/gradingAPI'
 import { defineComponent, h } from 'vue'
 import {
-  fetchFinalistAnnouncement,
   fetchFinalistEmailDetails,
+  fetchOutcomeAnnouncement,
   fetchTestEmailRecipients,
   notifyFinalists,
-  postFinalistAnnouncement,
+  postOutcomeAnnouncement,
   previewFinalistEmail,
-  restoreFinalistAnnouncement,
-  updateFinalistAnnouncement,
-  updateFinalistEmailDetails
+  restoreOutcomeAnnouncement,
+  updateFinalistEmailDetails,
+  updateOutcomeAnnouncement
 } from '@/utils/managementAPI'
 
 vi.mock('@/utils/gradingAPI', () => ({
@@ -25,10 +25,10 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchFinalistEmailDetails: vi.fn(),
   updateFinalistEmailDetails: vi.fn(),
   previewFinalistEmail: vi.fn(),
-  fetchFinalistAnnouncement: vi.fn(),
-  updateFinalistAnnouncement: vi.fn(),
-  postFinalistAnnouncement: vi.fn(),
-  restoreFinalistAnnouncement: vi.fn()
+  fetchOutcomeAnnouncement: vi.fn(),
+  updateOutcomeAnnouncement: vi.fn(),
+  postOutcomeAnnouncement: vi.fn(),
+  restoreOutcomeAnnouncement: vi.fn()
 }))
 // The rich editor as a plain box, typed into like one.
 const RichEditorStub = defineComponent({
@@ -41,15 +41,16 @@ const RichEditorStub = defineComponent({
       onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
     })
 })
-const announcementMock = vi.mocked(fetchFinalistAnnouncement)
-const saveAnnouncementMock = vi.mocked(updateFinalistAnnouncement)
-const postAnnouncementMock = vi.mocked(postFinalistAnnouncement)
-const restoreAnnouncementMock = vi.mocked(restoreFinalistAnnouncement)
+const announcementMock = vi.mocked(fetchOutcomeAnnouncement)
+const saveAnnouncementMock = vi.mocked(updateOutcomeAnnouncement)
+const postAnnouncementMock = vi.mocked(postOutcomeAnnouncement)
+const restoreAnnouncementMock = vi.mocked(restoreOutcomeAnnouncement)
 const ANNOUNCEMENT = {
   title: 'Congratulations – You’re a BIOTech Futures Finalist!',
   body: '<p>Dear members of our finalist teams,</p><ul><li>Confirm by Friday.</li></ul>',
   edited: false,
-  groups: 2,
+  recipients: 2,
+  noun: 'finalist group',
   posted_at: null as string | null,
   posted_by: null as string | null
 }
@@ -463,13 +464,15 @@ describe('sending', () => {
 describe('the announcement', () => {
   it('puts Preview, Edit and Post Announcement under Last Emailed', async () => {
     const wrapper = await mountPage()
-    const row = wrapper.find('.notify-finalists__announcement-actions')
+    const row = wrapper.find('.outcome-announcement__actions')
     expect(row.findAll('button').map((b) => b.text())).toEqual([
       'Preview Announcement',
       'Edit Announcement',
       'Post Announcement'
     ])
-    expect(row.element.previousElementSibling?.textContent).toContain('Last Emailed at')
+    expect(announcementMock).toHaveBeenCalledWith('finalists')
+    const block = wrapper.find('.outcome-announcement').element
+    expect(block.previousElementSibling?.textContent).toContain('Last Emailed at')
   })
 
   it('previews it as finalists will see it, posting nothing', async () => {
@@ -478,7 +481,7 @@ describe('the announcement', () => {
     const dialog = wrapper.find('[aria-label="Announcement preview"]')
     expect(dialog.text()).toContain('Congratulations – You’re a BIOTech Futures Finalist!')
     expect(dialog.text()).toContain('As the 2 finalist groups emailed so far will see it in the app.')
-    expect(dialog.find('.notify-finalists__announcement-body li').text()).toBe('Confirm by Friday.')
+    expect(dialog.find('.outcome-announcement__body li').text()).toBe('Confirm by Friday.')
     expect(postAnnouncementMock).not.toHaveBeenCalled()
   })
 
@@ -497,7 +500,7 @@ describe('the announcement', () => {
     await editor().find('.rich-editor-stub').setValue('<p>Well done.</p>')
     await editor().findAll('button').find((b) => b.text() === 'Save changes')!.trigger('click')
     await flushPromises()
-    expect(saveAnnouncementMock).toHaveBeenCalledWith({ title: 'Finalists!', body: '<p>Well done.</p>' })
+    expect(saveAnnouncementMock).toHaveBeenCalledWith('finalists', { title: 'Finalists!', body: '<p>Well done.</p>' })
     expect(wrapper.find('[aria-label="Edit announcement"]').exists()).toBe(false)
   })
 
@@ -515,7 +518,7 @@ describe('the announcement', () => {
     expect(named('Save changes').attributes('disabled')).toBeDefined()
     await named('Restore default').trigger('click')
     await flushPromises()
-    expect(restoreAnnouncementMock).toHaveBeenCalled()
+    expect(restoreAnnouncementMock).toHaveBeenCalledWith('finalists')
     // The email's wording, back in the editor.
     expect((editor().find('input').element as HTMLInputElement).value).toBe(ANNOUNCEMENT.title)
     expect(named('Restore default').attributes('disabled')).toBeDefined()
@@ -533,13 +536,13 @@ describe('the announcement', () => {
     expect(postAnnouncementMock).not.toHaveBeenCalled()
     await buttonNamed(wrapper, /^Post$/).trigger('click')
     await flushPromises()
-    expect(postAnnouncementMock).toHaveBeenCalled()
+    expect(postAnnouncementMock).toHaveBeenCalledWith('finalists')
     expect(wrapper.text()).toContain('Announcement posted to 2 finalist groups.')
     expect(wrapper.find('[data-testid="announcement-posted"]').text()).toContain('by Ada Admin')
   })
 
   it('cannot be posted before any finalist group is emailed', async () => {
-    announcementMock.mockResolvedValue({ ...ANNOUNCEMENT, groups: 0 })
+    announcementMock.mockResolvedValue({ ...ANNOUNCEMENT, recipients: 0 })
     const wrapper = await mountPage()
     expect(buttonNamed(wrapper, /^Post Announcement$/).attributes('disabled')).toBeDefined()
   })

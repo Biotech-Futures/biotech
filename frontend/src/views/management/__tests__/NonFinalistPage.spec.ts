@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import NonFinalistPage from '@/views/management/NonFinalistPage.vue'
 import {
+  fetchOutcomeAnnouncement,
   fetchSymposiumEmail,
   fetchTestEmailRecipients,
   previewSymposiumEmail,
@@ -15,7 +16,16 @@ vi.mock('@/utils/managementAPI', () => ({
   sendTestEmail: vi.fn(),
   fetchSymposiumEmail: vi.fn(),
   previewSymposiumEmail: vi.fn(),
-  startSymposiumEmail: vi.fn()
+  startSymposiumEmail: vi.fn(),
+  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
+    title: `${kind} news`,
+    body: '<p>News.</p>',
+    edited: false,
+    recipients: 1,
+    noun: 'group',
+    posted_at: null,
+    posted_by: null
+  }))
 }))
 const statusMock = vi.mocked(fetchSymposiumEmail)
 const previewMock = vi.mocked(previewSymposiumEmail)
@@ -340,6 +350,21 @@ describe('Email Nonfinalist', () => {
     expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '12:4')
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As BTF12 would get it.')
     vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
+  })
+
+  it('each card has Preview, Edit and Post Announcement for its own email, under its buttons', async () => {
+    const wrapper = await mountPage()
+    for (const [card, kind] of [[NONFINALISTS, 'nonfinalists'], [NONSUBMISSIONS, 'nonsubmissions']] as const) {
+      const row = wrapper.find(`${card} .outcome-announcement__actions`)
+      expect(row.findAll('button').map((b) => b.text())).toEqual([
+        'Preview Announcement',
+        'Edit Announcement',
+        'Post Announcement'
+      ])
+      expect(vi.mocked(fetchOutcomeAnnouncement)).toHaveBeenCalledWith(kind)
+    }
+    await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Announcement$/).trigger('click')
+    expect(wrapper.find('[aria-label="Announcement preview"]').text()).toContain('nonsubmissions news')
   })
 
   it("previews each card's own email", async () => {

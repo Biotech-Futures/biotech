@@ -6,6 +6,7 @@ import {
   downloadResultsSampleSheet,
   downloadSupervisorMarksSheet,
   fetchCertificatesRelease,
+  fetchOutcomeAnnouncement,
   fetchTestEmailRecipients,
   fetchRelease,
   fetchResultsEmailDetails,
@@ -27,7 +28,16 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchResultsEmailDetails: vi.fn(),
   updateResultsEmailDetails: vi.fn(),
   previewResultsEmail: vi.fn(),
-  startResultsEmail: vi.fn()
+  startResultsEmail: vi.fn(),
+  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
+    title: `${kind} news`,
+    body: '<p>News.</p>',
+    edited: false,
+    recipients: 1,
+    noun: 'group',
+    posted_at: null,
+    posted_by: null
+  }))
 }))
 const detailsMock = vi.mocked(fetchResultsEmailDetails)
 const saveMock = vi.mocked(updateResultsEmailDetails)
@@ -280,6 +290,22 @@ describe('sample spreadsheet', () => {
     await buttonNamed(wrapper, /^Download Sample Marks Spreadsheet$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.release-results__banner--error').text()).toContain('Server down')
+  })
+})
+
+describe('announcements', () => {
+  it('has one for the group email and one for the supervisor email, each on its own line', async () => {
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.release-results__send .outcome-announcement__actions')
+    expect(rows.map((row) => row.findAll('button').map((b) => b.text()))).toEqual([
+      ['Preview Group Announcement', 'Edit Group Announcement', 'Post Group Announcement'],
+      ['Preview Supervisor Announcement', 'Edit Supervisor Announcement', 'Post Supervisor Announcement']
+    ])
+    expect(vi.mocked(fetchOutcomeAnnouncement).mock.calls.map(([kind]) => kind)).toEqual(
+      expect.arrayContaining(['results-groups', 'results-supervisors'])
+    )
+    await buttonNamed(wrapper, /^Preview Supervisor Announcement$/).trigger('click')
+    expect(wrapper.find('[aria-label="Supervisor Announcement preview"]').text()).toContain('results-supervisors news')
   })
 })
 

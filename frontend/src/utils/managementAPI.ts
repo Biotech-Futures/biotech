@@ -444,40 +444,59 @@ export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
   return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
 }
 
-/** The in-app announcement to the finalist groups emailed, from Notify Finalists. */
-export interface FinalistAnnouncement {
+/** The email an outcome announcement goes with: the finalist, non-finalist
+ *  and non-submission emails, and the results emails to groups and to
+ *  supervisors. */
+export type OutcomeAnnouncementKind =
+  | 'finalists'
+  | 'nonfinalists'
+  | 'nonsubmissions'
+  | 'results-groups'
+  | 'results-supervisors'
+
+/** The in-app announcement that goes with one of those emails. */
+export interface OutcomeAnnouncement {
   title: string
   /** HTML, as announcements keep it. */
   body: string
-  /** Changed from the finalist email's wording. */
+  /** Changed from the email's wording. */
   edited: boolean
-  /** The finalist groups emailed so far: who sees it. */
-  groups: number
+  /** The groups, or supervisors, the email has reached so far: who sees it. */
+  recipients: number
+  /** What they are, e.g. "finalist group". */
+  noun: string
   posted_at: string | null
   posted_by: string | null
 }
 
-const FINALIST_ANNOUNCEMENT = '/api/v1/management/finalists/announcement/'
+const outcomeAnnouncementUrl = (kind: OutcomeAnnouncementKind) =>
+  `/api/v1/management/outcome-announcements/${kind}/`
 
-// GET — its wording (the finalist email's until edited) and when it was posted.
-export function fetchFinalistAnnouncement(): Promise<FinalistAnnouncement> {
-  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT)
+// GET — its wording (the email's until edited) and when it was posted.
+export function fetchOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind))
 }
 
 // PATCH — save an edited title and body.
-export function updateFinalistAnnouncement(fields: { title: string; body: string }): Promise<FinalistAnnouncement> {
-  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT, { method: 'PATCH', body: JSON.stringify(fields) })
+export function updateOutcomeAnnouncement(
+  kind: OutcomeAnnouncementKind,
+  fields: { title: string; body: string }
+): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
 }
 
-// DELETE — back to the finalist email's wording.
-export function restoreFinalistAnnouncement(): Promise<FinalistAnnouncement> {
-  return requestJson<FinalistAnnouncement>(FINALIST_ANNOUNCEMENT, { method: 'DELETE' })
+// DELETE — back to the email's wording.
+export function restoreOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), { method: 'DELETE' })
 }
 
-// POST post/ — post it to the finalist groups emailed so far, or update the
+// POST post/ — post it to whoever the email has reached so far, or update the
 // one already posted.
-export function postFinalistAnnouncement(): Promise<FinalistAnnouncement> {
-  return requestJson<FinalistAnnouncement>(`${FINALIST_ANNOUNCEMENT}post/`, { method: 'POST' })
+export function postOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(`${outcomeAnnouncementUrl(kind)}post/`, { method: 'POST' })
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

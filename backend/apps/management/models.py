@@ -102,12 +102,17 @@ class GradingSettings(SingletonModel):
         return "GradingSettings"
 
 
-class FinalistAnnouncement(SingletonModel):
-    """The in-app announcement to the finalist groups that have been emailed,
-    posted from Notify Finalists (see ``services.finalist_announcement``).
-    Its wording is the finalist email's until edited; the announcement it
-    last posted is updated when it's posted again."""
+class OutcomeAnnouncement(models.Model):
+    """The in-app announcement that goes with one of the emails telling
+    groups their Challenge outcome (finalist, non-finalist, non-submission,
+    and the results emails to groups and to supervisors), posted from that
+    email's page to whoever it has reached (see
+    ``services.outcome_announcement``). Its wording is the email's until
+    edited; the announcement it last posted is updated when it's posted
+    again."""
 
+    # Which email's: a key of ``services.outcome_announcement.KINDS``.
+    key = models.CharField(max_length=32, unique=True)
     # The edited wording; unused until ``edited_at`` is set.
     title = models.CharField(max_length=255, blank=True)
     body = models.TextField(blank=True)
@@ -129,7 +134,7 @@ class FinalistAnnouncement(SingletonModel):
     )
 
     class Meta:
-        db_table = "finalist_announcement"
+        db_table = "outcome_announcement"
 
 
 class FinalistEmailSettings(SingletonModel):

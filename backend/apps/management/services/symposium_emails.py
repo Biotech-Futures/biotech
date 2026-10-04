@@ -267,14 +267,19 @@ def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str
     return ""
 
 
-def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
-    """The email for one team: an admin's saved wording if there is some,
-    otherwise the client's template, with its plain-text twin."""
-    context = {
+def email_context(group_name: str, details: FinalistEmailSettings) -> dict:
+    """The values the emails' merge tags and templates read."""
+    return {
         "GROUP_NAME": group_name,
         "SYMPOSIUM_DATE": _long_date(details.symposium_date),
         "REGISTER_URL": details.registration_url or NOT_SET,
     }
+
+
+def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
+    """The email for one team: an admin's saved wording if there is some,
+    otherwise the client's template, with its plain-text twin."""
+    context = email_context(group_name, details)
     default_text = render_to_string(f"emails/{email.key}.txt", {**brand_context(), **context})
     return render_system_email(email.key, context, default_text=default_text)
 

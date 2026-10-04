@@ -81,6 +81,13 @@
             </li>
           </ul>
         </div>
+        <!-- The same news in the app, for the groups emailed so far. -->
+        <OutcomeAnnouncement
+          ref="announcement"
+          :kind="email"
+          @flash="flashAction"
+          @error="(text) => (actionError = text)"
+        />
       </template>
     </section>
 
@@ -168,6 +175,7 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
+import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 const props = defineProps<{
@@ -238,6 +246,9 @@ const send = async () => {
   }
 }
 
+// The same news in the app, reloaded once a send finishes.
+const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
+
 // How the run went, once this page saw it finish.
 const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
@@ -248,6 +259,8 @@ const reportRun = (run: EmailRun) => {
   })
   if (isError) actionError.value = text
   else flashAction(text, RUN_MESSAGE_MS)
+  // More groups emailed: more who'd see the announcement.
+  void announcement.value?.reload()
 }
 useEmailRun(() => status.value, load, reportRun)
 
