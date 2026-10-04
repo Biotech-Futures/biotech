@@ -102,6 +102,41 @@ class GradingSettings(SingletonModel):
         return "GradingSettings"
 
 
+class OutcomeAnnouncement(models.Model):
+    """The in-app announcement that goes with one of the emails telling
+    groups their Challenge outcome (finalist, non-finalist, non-submission,
+    and the results emails to groups and to supervisors), posted from that
+    email's page to whoever it has reached (see
+    ``services.outcome_announcement``). Its wording is the email's until
+    edited; the announcement it last posted is updated when it's posted
+    again."""
+
+    # Which email's: a key of ``services.outcome_announcement.KINDS``.
+    key = models.CharField(max_length=32, unique=True)
+    # The edited wording; unused until ``edited_at`` is set.
+    title = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    announcement = models.ForeignKey(
+        "announcements.Announcement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    posted_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "outcome_announcement"
+
+
 class FinalistEmailSettings(SingletonModel):
     """The details the finalist email gives teams about the Symposium, set on
     the Notify Finalists page each year. Nothing is sent until all are set."""
@@ -285,7 +320,7 @@ class EmailDelivery(models.Model):
 
 
 class EmailSendRun(models.Model):
-    """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
+    """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send queues a run on
     the server that emails everyone due, whether or not the page stays open.
     One run at a time across every email: ``held_until`` is a lease the run
@@ -405,7 +440,7 @@ class ResultsSupervisorEmail(models.Model):
 
 class NonFinalistEmail(models.Model):
     """A team that wasn't picked, emailed the invitation to the Symposium from
-    Email Nonfinalist; sending skips it after that. Only recorded once every
+    Notify Nonfinalist; sending skips it after that. Only recorded once every
     member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(
@@ -431,7 +466,7 @@ class NonFinalistEmail(models.Model):
 
 class NonSubmissionEmail(models.Model):
     """A team that didn't submit, emailed the notice (and invitation to the
-    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    Symposium) from Notify Nonfinalist; sending skips it after that. Only
     recorded once every member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(

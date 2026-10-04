@@ -405,11 +405,15 @@ export async function downloadGroupZip(groupId: number, component?: string): Pro
   triggerBlobDownload(blob, filename ?? `group-${groupId}.zip`)
 }
 
+/** zip: the component's files (SAQ: its answers as text files); xlsx: SAQ's
+ *  answers and marks as a spreadsheet; pdf: SAQ's answers, a PDF per group. */
+export type ComponentDownloadFormat = 'zip' | 'xlsx' | 'pdf'
+
 // POST /api/v1/grading/components/{code}/download/ — kicks off a GradingJob,
 // returns the job id. Caller polls fetchJobStatus until done/failed.
 export async function startComponentDownload(
   code: string,
-  format: 'zip' | 'xlsx',
+  format: ComponentDownloadFormat,
   groupIds?: number[]
 ): Promise<number> {
   const data = await requestJson<{ job_id: number }>(

@@ -90,11 +90,12 @@ def is_email_enabled(key: str) -> bool:
 
 # --- admin-written bodies --------------------------------------------------
 
-# The editor's box and button blocks carry inline styles, since email clients
-# ignore most stylesheets. Only these properties are kept: enough to draw a
-# box or a button, and nothing that can load a URL or move content around.
+# The editor's box and button blocks, and its tables' cells, carry inline
+# styles, since email clients ignore most stylesheets. Only these properties
+# are kept: enough to draw a box, a button or a table's lines, and nothing
+# that can load a URL or move content around.
 EMAIL_STYLE_PROPERTIES = frozenset({
-    "background-color", "border", "border-radius", "color", "display",
+    "background-color", "border", "border-collapse", "border-radius", "color", "display",
     "font-family", "font-size", "font-weight", "letter-spacing", "line-height",
     "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
     "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
@@ -104,6 +105,9 @@ EMAIL_STYLE_PROPERTIES = frozenset({
 _BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
 _BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
 _BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
+# Tables keep their lines and cell padding.
+for _tag in ("table", "th", "td"):
+    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {"style"}
 
 
 def clean_email_body(html: str) -> str:
@@ -112,7 +116,8 @@ def clean_email_body(html: str) -> str:
     Strips scripts, event handlers and javascript: URLs like a plain
     ``nh3.clean``, but keeps the editor's boxes and buttons: their classes
     (``cta-link`` also makes a button full width on phones) and their styles,
-    limited to ``EMAIL_STYLE_PROPERTIES``.
+    and its tables' borders and padding, all limited to
+    ``EMAIL_STYLE_PROPERTIES``.
     """
     return nh3.clean(
         html or "",

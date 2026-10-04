@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import NonFinalistPage from '@/views/management/NonFinalistPage.vue'
 import {
+  fetchOutcomeAnnouncement,
   fetchSymposiumEmail,
   fetchTestEmailRecipients,
   previewSymposiumEmail,
@@ -15,7 +16,19 @@ vi.mock('@/utils/managementAPI', () => ({
   sendTestEmail: vi.fn(),
   fetchSymposiumEmail: vi.fn(),
   previewSymposiumEmail: vi.fn(),
-  startSymposiumEmail: vi.fn()
+  startSymposiumEmail: vi.fn(),
+  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
+    title: `${kind} news`,
+    body: '<p>News.</p>',
+    preview: { title: `${kind} news`, body: '<p>News.</p>' },
+    merge_tags: [],
+    edited: false,
+    recipients: 1,
+    noun: 'group',
+    blocked: '',
+    posted_at: null,
+    posted_by: null
+  }))
 }))
 const statusMock = vi.mocked(fetchSymposiumEmail)
 const previewMock = vi.mocked(previewSymposiumEmail)
@@ -77,7 +90,7 @@ const mountPage = async () => {
 }
 type Page = Awaited<ReturnType<typeof mountPage>>
 
-// The Email Nonfinalist card and the Email Nonsubmission card below it.
+// The Notify Nonfinalist card and the Notify Nonsubmission card below it.
 const NONFINALISTS = '.symposium-email--nonfinalists'
 const NONSUBMISSIONS = '.symposium-email--nonsubmissions'
 
@@ -97,24 +110,24 @@ beforeEach(() => {
   statusMock.mockImplementation(async (email) => statuses[email])
 })
 
-describe('Email Nonfinalist', () => {
+describe('Notify Nonfinalist', () => {
   it('has the page title, then each section heading and where the date and link come from', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('.card-title').text()).toBe('Email Nonfinalist')
+    expect(wrapper.find('.card-title').text()).toBe('Notify Nonfinalist')
     expect(wrapper.findAll('.non-finalist__section-title').map((h) => h.text())).toEqual([
-      'Email Nonfinalist',
-      'Email Nonsubmission'
+      'Notify Nonfinalist',
+      'Notify Nonsubmission'
     ])
     // Each sentence on its own line, spaced like the lines around it.
     expect(wrapper.findAll(`${NONFINALISTS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that submitted but weren't selected as finalists.",
-      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
-      'The Symposium date and registration link come from Email Details on Notify Finalists.'
+      'The Symposium date and registration link come from Set Details on Notify Finalists.',
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group."
     ])
     expect(wrapper.findAll(`${NONSUBMISSIONS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that didn't make a submission.",
-      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.",
-      'The Symposium date and registration link come from Email Details on Notify Finalists.'
+      'The Symposium date and registration link come from Set Details on Notify Finalists.',
+      "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group."
     ])
     expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')
   })
@@ -276,7 +289,7 @@ describe('Email Nonfinalist', () => {
     expect(sendMock).toHaveBeenCalledWith('nonfinalists', 'missed')
   })
 
-  it('Email Newly Added is on Email Nonfinalist only, between Email All and Resend', async () => {
+  it('Email Newly Added is on Notify Nonfinalist only, between Email All and Resend', async () => {
     const wrapper = await mountPage()
     const labels = (card: string) =>
       wrapper.findAll(`${card} .symposium-email__actions button`).map((b) => b.text())
@@ -340,6 +353,21 @@ describe('Email Nonfinalist', () => {
     expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '12:4')
     expect(wrapper.find('[aria-label="Email preview"]').text()).toContain('As BTF12 would get it.')
     vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
+  })
+
+  it('each card has Preview, Edit and Post Announcement for its own email, under its buttons', async () => {
+    const wrapper = await mountPage()
+    for (const [card, kind] of [[NONFINALISTS, 'nonfinalists'], [NONSUBMISSIONS, 'nonsubmissions']] as const) {
+      const row = wrapper.find(`${card} .outcome-announcement__actions`)
+      expect(row.findAll('button').map((b) => b.text())).toEqual([
+        'Preview Announcement',
+        'Edit Announcement',
+        'Post Announcement'
+      ])
+      expect(vi.mocked(fetchOutcomeAnnouncement)).toHaveBeenCalledWith(kind)
+    }
+    await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Announcement$/).trigger('click')
+    expect(wrapper.find('[aria-label="Announcement preview"]').text()).toContain('nonsubmissions news')
   })
 
   it("previews each card's own email", async () => {

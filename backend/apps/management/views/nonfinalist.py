@@ -1,4 +1,4 @@
-"""The Email Nonfinalist tab: the Symposium emails to teams that submitted but
+"""The Notify Nonfinalist tab: the Symposium emails to teams that submitted but
 weren't picked, and to teams that didn't submit. For each, who it's for, a
 preview, and sending it (a run on the server). The Symposium date and registration link
 are the ones set on Notify Finalists."""

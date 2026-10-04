@@ -9,6 +9,11 @@ from .nonfinalist import (
     NonSubmissionEmailSendView,
     NonSubmissionEmailView,
 )
+from .outcome_announcement import (
+    AnnouncementCategoriesView,
+    OutcomeAnnouncementPostView,
+    OutcomeAnnouncementView,
+)
 from .presentation import (
     PresentationAllocationView,
     PresentationResponsesView,
@@ -36,6 +41,7 @@ from .settings import (
 from .test_email import TestEmailView
 
 __all__ = [
+    "AnnouncementCategoriesView",
     "CertificatesReleaseView",
     "FinalistEmailPreviewView",
     "FinalistEmailSettingsView",
@@ -53,6 +59,8 @@ __all__ = [
     "NonSubmissionEmailPreviewView",
     "NonSubmissionEmailSendView",
     "NonSubmissionEmailView",
+    "OutcomeAnnouncementPostView",
+    "OutcomeAnnouncementView",
     "PresentationAllocationView",
     "PresentationResponsesView",
     "PresentationSlidesFileView",

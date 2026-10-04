@@ -24,6 +24,7 @@ from ..models import (
     PresentationSettings,
     PresentationSlot,
 )
+from ..services.deadline import submissions_still_open
 from ..services.send_guard import person_name
 
 
@@ -58,6 +59,9 @@ def _payload() -> dict:
         "slots": PresentationSlotSerializer(PresentationSlot.objects.filter(year=year), many=True).data,
         # Whether finalists see them yet.
         "times_shown": PresentationSettings.load().times_shown,
+        # While any team can still submit (extensions and grace hours
+        # included), who the finalists are isn't settled: the times stay hidden.
+        "submissions_open": submissions_still_open(),
     }
 
 
@@ -101,10 +105,18 @@ class PresentationSlotDetailView(APIView):
         return Response(_payload())
 
 
+TIMES_WAIT = (
+    "Submissions are still open (including any extensions) - "
+    "the time slots can be shown once the window has closed."
+)
+
+
 class PresentationTimesShownView(APIView):
     """PATCH /api/v1/management/finalists/presentation-times-shown/ —
     ``{"times_shown": true}`` shows finalists this year's times to give their
-    availability; false hides them again. Answers with the whole list."""
+    availability; false hides them again. Answers with the whole list.
+    Showing them is refused while submissions are still open (baseline
+    window or any extension, grace hours included); hiding is always allowed."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
@@ -112,6 +124,8 @@ class PresentationTimesShownView(APIView):
         shown = request.data.get("times_shown")
         if not isinstance(shown, bool):
             return Response({"detail": "times_shown must be true or false"}, status=status.HTTP_400_BAD_REQUEST)
+        if shown and submissions_still_open():
+            return Response({"detail": TIMES_WAIT}, status=status.HTTP_400_BAD_REQUEST)
         settings = PresentationSettings.load()
         settings.times_shown = shown
         settings.save()

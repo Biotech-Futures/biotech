@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AnnouncementCategoriesView,
     CertificatesReleaseView,
     FinalistEmailPreviewView,
     FinalistEmailSettingsView,
@@ -18,6 +19,8 @@ from .views import (
     NonSubmissionEmailPreviewView,
     NonSubmissionEmailSendView,
     NonSubmissionEmailView,
+    OutcomeAnnouncementPostView,
+    OutcomeAnnouncementView,
     PresentationAllocationView,
     PresentationResponsesView,
     PresentationSlidesFileView,
@@ -84,9 +87,19 @@ urlpatterns = [
         FinalistEmailPreviewView.as_view(),
         name="finalist-email-preview",
     ),
+    # New Announcement's finalist, non-finalist and non-submission categories.
+    path("announcement-categories/", AnnouncementCategoriesView.as_view(), name="announcement-categories"),
+    # The in-app announcement that goes with each outcome email: finalist,
+    # non-finalist, non-submission, and the results emails.
+    path("outcome-announcements/<str:kind>/", OutcomeAnnouncementView.as_view(), name="outcome-announcement"),
+    path(
+        "outcome-announcements/<str:kind>/post/",
+        OutcomeAnnouncementPostView.as_view(),
+        name="outcome-announcement-post",
+    ),
 
     # The invitation to teams that submitted but weren't picked, from the
-    # Email Nonfinalist tab.
+    # Notify Nonfinalist tab.
     path("nonfinalists/", NonFinalistEmailView.as_view(), name="nonfinalist-email"),
     path("nonfinalists/preview/", NonFinalistEmailPreviewView.as_view(), name="nonfinalist-email-preview"),
     path("nonfinalists/send/", NonFinalistEmailSendView.as_view(), name="nonfinalist-email-send"),

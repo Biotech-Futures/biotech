@@ -21,6 +21,12 @@
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
       </p>
+      <!-- Typed and shown as they are, so they never shift with anyone's own
+           time zone. -->
+      <p class="finalist-presentation__hint" data-testid="sydney-time">
+        All times are Sydney time<template v-if="sydneyClock">, {{ sydneyClock }} on that day</template>.
+        They're entered and shown in Sydney time, whatever time zone you or the finalists are in.
+      </p>
 
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="loadError" class="finalist-presentation__load-error">
@@ -115,16 +121,27 @@
         Finalists only see the times, to tick the ones they can make, once this is on. Turn it on
         once the times are final.
       </p>
+      <!-- As Release Marks: who the finalists are isn't settled until
+           every team, extensions included, is done submitting. -->
+      <p
+        v-if="data && !data.times_shown && data.submissions_open"
+        class="finalist-presentation__banner finalist-presentation__banner--warn"
+      >
+        Submissions are still open (including extensions) - time slots can be shown once the
+        window has closed.
+      </p>
       <HideShowSwitch
         v-if="data"
         :on="data.times_shown"
-        :disabled="isSaving"
+        :disabled="isSaving || (!data.times_shown && data.submissions_open)"
         label="Show the times to finalists"
         @change="setShown"
       >
-        <span class="finalist-presentation__switch-label">
-          {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
-        </span>
+        <template #before>
+          <span class="finalist-presentation__switch-label">
+            {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
+          </span>
+        </template>
       </HideShowSwitch>
     </section>
 
@@ -273,6 +290,7 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { sydneyClockOn } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
@@ -376,6 +394,13 @@ const longDate = (iso: string | null | undefined) => {
 }
 
 const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+// "AEDT (daylight saving, UTC+11)" on the Symposium day, once it's set.
+const sydneyClock = computed(() => {
+  const iso = data.value?.symposium_date
+  if (!iso) return ''
+  const clock = sydneyClockOn(iso)
+  return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
+})
 const slidesDue = computed(() => longDate(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
@@ -470,6 +495,19 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As Release Marks' notice while submissions are open. */
+.finalist-presentation__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.finalist-presentation__banner--warn {
+  background: color-mix(in srgb, #ff8c00 12%, transparent);
+  color: #ff8c00;
 }
 
 /* As the switch on System Emails. */

@@ -84,7 +84,9 @@
               able to. Please select which sessions you will be able to join us for to ensure we
               schedule you into an appropriate presentation slot. You may select multiple options.
             </p>
-            <p v-if="symposiumDay" class="section-head__sub">The sessions are on {{ symposiumDay }}.</p>
+            <p v-if="symposiumDay" class="section-head__sub">
+              The sessions are on {{ symposiumDay }}, in Sydney time ({{ sydneyClock }}).
+            </p>
           </template>
         </header>
 
@@ -247,6 +249,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { sydneyClockOn } from '@/utils/date'
 import {
   fetchFinalist,
   presentationDownloadUrl,
@@ -306,6 +309,15 @@ const isPreviewShut = computed(() => !isEditable.value && !shownPresentation.val
 const isPreviewFolded = computed(() => previewCollapsed.value || isPreviewShut.value)
 const maxSizeLabel = computed(() => formatFileSize(detail.value?.max_file_size ?? 25 * 1024 * 1024))
 // "Friday, 23 October 2026", as the finalist email words the Symposium day.
+// "AEDT, UTC+11" on the Symposium day: the sessions are Sydney time
+// wherever the team is.
+const sydneyClock = computed(() => {
+  const iso = detail.value?.symposium_date
+  if (!iso) return ''
+  const clock = sydneyClockOn(iso)
+  return `${clock.name}, ${clock.offset}`
+})
+
 const symposiumDay = computed(() => {
   const iso = detail.value?.symposium_date
   if (!iso) return ''

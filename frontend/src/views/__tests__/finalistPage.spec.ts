@@ -355,7 +355,7 @@ describe('times', () => {
 
     const labels = wrapper!.findAll('.finalist-session').map((l) => l.text())
     expect(labels).toEqual(['10:00 – 11:00', '11:40 – 12:30', '13:55 – 15:00'])
-    expect(wrapper!.text()).toContain('The sessions are on Friday 23 October 2026.')
+    expect(wrapper!.text()).toContain('The sessions are on Friday 23 October 2026, in Sydney time (AEDT, UTC+11).')
   })
 
   it('says when no times have been set up yet', async () => {

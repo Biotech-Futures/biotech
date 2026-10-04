@@ -60,7 +60,8 @@ class GroupDownloadView(APIView):
 class ComponentDownloadView(APIView):
     """POST /api/v1/grading/components/<code>/download/
 
-    Body: ``{"group_ids": [1,2,3] | null, "format": "zip" | "xlsx"}``
+    Body: ``{"group_ids": [1,2,3] | null, "format": "zip" | "xlsx" | "pdf"}``
+    (``pdf``: SAQ only, a zip of each group's answers as its own PDF)
     Returns 202 with ``{"job_id": <int>}`` — client polls the job endpoint.
 
     POST (not GET) because kicking off a job mutates server state (creates a
@@ -74,16 +75,16 @@ class ComponentDownloadView(APIView):
     def post(self, request, code: str):
         component = get_object_or_404(SubmissionComponent, code=code)
         fmt = (request.data.get("format") or "zip").lower()
-        if fmt not in {"zip", "xlsx"}:
+        if fmt not in {"zip", "xlsx", "pdf"}:
             return Response(
-                {"detail": f"format must be zip|xlsx, got {fmt!r}"},
+                {"detail": f"format must be zip|xlsx|pdf, got {fmt!r}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if fmt == "xlsx" and component.code != "SAQ":
-            # XLSX is a text-oriented export; only SAQ has text. Rejecting
-            # early avoids producing an empty spreadsheet for POSTER etc.
+        if fmt in {"xlsx", "pdf"} and component.code != "SAQ":
+            # XLSX and PDF are text-oriented exports; only SAQ has text.
+            # Rejecting early avoids producing empty files for POSTER etc.
             return Response(
-                {"detail": "xlsx format only makes sense for text-bearing components (SAQ)"},
+                {"detail": f"{fmt} format only makes sense for text-bearing components (SAQ)"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -98,7 +99,7 @@ class ComponentDownloadView(APIView):
             kind=GradingJob.KIND_BULK_ZIP,
             status=GradingJob.STATUS_PENDING,
             params={
-                "kind": "component_xlsx" if fmt == "xlsx" else "component_zip",
+                "kind": {"xlsx": "component_xlsx", "pdf": "component_pdf"}.get(fmt, "component_zip"),
                 "component_code": component.code,
                 "group_ids": group_ids,
             },

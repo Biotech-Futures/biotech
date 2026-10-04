@@ -1,4 +1,4 @@
-{% autoescape off %}{# Keep the wording in step with results_team.html. #}Dear {{ GROUP_NAME }},
+{% autoescape off %}{# Keep the wording in step with results_team.html. #}Dear members of {{ GROUP_NAME }},
 
 Congratulations on your participation in the {{ YEAR }} {{ BRAND_NAME }}
 Challenge! Attached, you’ll find merit certificates for all team members and

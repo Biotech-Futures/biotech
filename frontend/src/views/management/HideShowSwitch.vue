@@ -1,8 +1,10 @@
 <template>
   <!-- A Hide / Show switch: both words always there, the knob behind the one
        that's on. Asks to change (``change``) rather than changing itself, so
-       the page can confirm first; anything in the slot shows below it. -->
+       the page can confirm first; the "before" slot shows above it, the
+       default one below. -->
   <label class="hide-show" :class="{ 'is-disabled': disabled }">
+    <slot name="before" />
     <input
       type="checkbox"
       class="sr-only"

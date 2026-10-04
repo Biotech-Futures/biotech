@@ -242,7 +242,6 @@ const handleSubmit = () => {
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-width: 22rem;
 }
 
 /* Criteria read as one seamless panel: no gaps, no dividers between them.

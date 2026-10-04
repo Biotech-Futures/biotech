@@ -1,4 +1,4 @@
-"""The Symposium emails from the Email Nonfinalist tab, to teams that
+"""The Symposium emails from the Notify Nonfinalist tab, to teams that
 submitted but weren't picked and to teams that didn't submit: who gets them,
 the client's wording with the Symposium details from Notify Finalists,
 preview, and sending in batches."""

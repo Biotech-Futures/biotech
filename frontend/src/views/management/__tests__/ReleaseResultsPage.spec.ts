@@ -6,6 +6,7 @@ import {
   downloadResultsSampleSheet,
   downloadSupervisorMarksSheet,
   fetchCertificatesRelease,
+  fetchOutcomeAnnouncement,
   fetchTestEmailRecipients,
   fetchRelease,
   fetchResultsEmailDetails,
@@ -27,7 +28,19 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchResultsEmailDetails: vi.fn(),
   updateResultsEmailDetails: vi.fn(),
   previewResultsEmail: vi.fn(),
-  startResultsEmail: vi.fn()
+  startResultsEmail: vi.fn(),
+  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
+    title: `${kind} news`,
+    body: '<p>News.</p>',
+    preview: { title: `${kind} news`, body: '<p>News.</p>' },
+    merge_tags: [],
+    edited: false,
+    recipients: 1,
+    noun: 'group',
+    blocked: '',
+    posted_at: null,
+    posted_by: null
+  }))
 }))
 const detailsMock = vi.mocked(fetchResultsEmailDetails)
 const saveMock = vi.mocked(updateResultsEmailDetails)
@@ -104,7 +117,7 @@ describe('layout', () => {
     expect(cards).toHaveLength(4)
     expect(cards[0]!.find('.card-title').text()).toBe('Release Results')
     expect(cards[0]!.text()).toContain('Releasing shows results only to students whose group made a submission.')
-    expect(cards[0]!.text()).toContain('Email Details')
+    expect(cards[0]!.text()).toContain('Set Details')
     expect(cards[1]!.find('.release__section-title').text()).toBe('Release Marks')
     expect(cards[2]!.find('.release__section-title').text()).toBe('Release Certificates')
     expect(cards[3]!.text()).toContain('Email Results')
@@ -119,7 +132,8 @@ describe('layout', () => {
     const wrapper = await mountPage()
     const hints = wrapper.findAll('.release-results__send .release-results__hint').map((p) => p.text())
     expect(hints).toEqual([
-      "Emails every group that submitted, and its students' supervisors, that their results are out. Each is emailed once.",
+      "For groups that submitted, and their students' supervisors, once their results are out.",
+      'Each group and each supervisor is emailed once.',
       "Each group gets one email, its students and mentors in To, with every certificate in the group " +
         "attached, so students get each other's and their mentor's certificates. Resending emails only those " +
         'who missed it. Anyone in multiple groups gets one email for each group.'
@@ -280,6 +294,22 @@ describe('sample spreadsheet', () => {
     await buttonNamed(wrapper, /^Download Sample Marks Spreadsheet$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.release-results__banner--error').text()).toContain('Server down')
+  })
+})
+
+describe('announcements', () => {
+  it('has one for the group email and one for the supervisor email, each on its own line', async () => {
+    const wrapper = await mountPage()
+    const rows = wrapper.findAll('.release-results__send .outcome-announcement__actions')
+    expect(rows.map((row) => row.findAll('button').map((b) => b.text()))).toEqual([
+      ['Preview Group Announcement', 'Edit Group Announcement', 'Post Group Announcement'],
+      ['Preview Supervisor Announcement', 'Edit Supervisor Announcement', 'Post Supervisor Announcement']
+    ])
+    expect(vi.mocked(fetchOutcomeAnnouncement).mock.calls.map(([kind]) => kind)).toEqual(
+      expect.arrayContaining(['results-groups', 'results-supervisors'])
+    )
+    await buttonNamed(wrapper, /^Preview Supervisor Announcement$/).trigger('click')
+    expect(wrapper.find('[aria-label="Supervisor Announcement preview"]').text()).toContain('results-supervisors news')
   })
 })
 
