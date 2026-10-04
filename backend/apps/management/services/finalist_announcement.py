@@ -1,68 +1,65 @@
 """The in-app announcement to the finalist groups that have been emailed,
 posted from Notify Finalists. Its wording starts as the finalist email's,
-with this year's dates and link, until an admin edits it. Posting again
-updates the one already posted, for every group emailed by then, and brings
-it back to the top."""
+with this year's dates, its box and its Register button, until an admin
+edits it. Posting again updates the one already posted, for every group
+emailed by then, and brings it back to the top."""
 from __future__ import annotations
 
 import re
-from html import escape
 
 from django.utils import timezone
 
 from apps.admin.services.announcement import create_announcement, update_announcement
+from apps.admin.services.system_email import _render_content_block
 from apps.announcements.models import Announcement
 from apps.grading.models import FinalistFlag
+from apps.services.email_branding import brand_context
+from apps.services.email_registry import get_email_type
+from apps.services.system_email import _load_override, clean_email_body, fill_tags
 
 from ..models import FinalistAnnouncement, FinalistEmailSettings
-from .finalist_notify import render_finalist_email
+from .finalist_notify import EMAIL_KEY, finalist_email_context, render_finalist_email
 
-# Who the email's greeting is to, in an announcement every finalist group sees.
-GROUP_NAME = "our finalist teams"
-
-_URL = re.compile(r"https?://[^\s<>]+")
-
-
-def _inline(text: str) -> str:
-    """A line of the email as HTML, its web addresses as links."""
-    out, last = [], 0
-    for match in _URL.finditer(text):
-        url = match.group(0).rstrip(".,;)")
-        out.append(escape(text[last:match.start()]))
-        out.append(f'<a href="{escape(url)}">{escape(url)}</a>')
-        last = match.start() + len(url)
-    out.append(escape(text[last:]))
-    return "".join(out)
+# The email's greeting is to one group by name; the announcement greets them all.
+GROUP_NAME = "finalists"
+_GREETING = re.compile(r"members of\s*(?:<strong>)?\s*finalists\s*(?:</strong>)?")
+# Its block tags, with the template's indenting around them dropped.
+_BLOCK_TAG = re.compile(r"\s*(</?(?:p|div|h[1-6]|ul|ol|li)\b[^>]*>)\s*")
+_LINK_TEXT = re.compile(r"(<a\b[^>]*>)\s*(.*?)\s*(</a>)", re.DOTALL)
+# The template's boxes and button fill with `background:#hex`; kept as
+# `background-color`, as the editor does (emailBlocks.ts cleanEmailStyle).
+_FILL = re.compile(r"(?<![\w-])background\s*:\s*(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\))\s*(?=[;\"])", re.IGNORECASE)
 
 
-def text_to_html(text: str, title: str = "") -> str:
-    """The email's plain text as an announcement's HTML: its paragraphs and
-    "- " lists, with links, and without its title line or footer."""
-    text = text.split("\n--\n")[0].strip()
-    html = []
-    for block in re.split(r"\n\s*\n", text):
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if not lines or (not html and title and " ".join(lines) == title):
-            continue
-        lead, items = [], []
-        for line in lines:
-            if line.startswith("- "):
-                items.append(line[2:])
-            elif items:
-                items[-1] += " " + line
-            else:
-                lead.append(line)
-        if lead:
-            html.append(f"<p>{_inline(' '.join(lead))}</p>")
-        if items:
-            html.append("<ul>" + "".join(f"<li>{_inline(item)}</li>" for item in items) + "</ul>")
-    return "".join(html)
+def _email_body(context: dict) -> str:
+    """The finalist email's body, filled in: an admin's saved wording (from
+    System Emails) if there is some, else the template's."""
+    override = _load_override(EMAIL_KEY)
+    if override and override.body_html.strip():
+        return fill_tags(override.body_html, EMAIL_KEY, context, escape=True)
+    return _render_content_block(get_email_type(EMAIL_KEY).default_template, context)
+
+
+def as_announcement(html: str) -> str:
+    """The email's body as an announcement: its boxes, headings, lists and
+    button kept, its first heading (the title) gone, its greeting to all the
+    finalists, and "reply to this email" pointing at the email."""
+    html = re.sub(r"^\s*<h1\b[^>]*>.*?</h1>", "", html, count=1, flags=re.DOTALL | re.IGNORECASE)
+    html = _GREETING.sub("finalists", html)
+    html = html.replace("reply to this email", "reply to the finalist email we sent you")
+    html = _BLOCK_TAG.sub(r"\1", re.sub(r"\s+", " ", html)).strip()
+    html = _LINK_TEXT.sub(r"\1\2\3", _FILL.sub(r"background-color:\1", html))
+    # Only the boxes' and button's own styles are kept, so the rest reads in
+    # the site's own look.
+    return clean_email_body(html)
 
 
 def default_wording() -> tuple[str, str]:
-    """The finalist email's subject and text, as an announcement."""
-    rendered = render_finalist_email(GROUP_NAME, FinalistEmailSettings.load())
-    return rendered.subject, text_to_html(rendered.text, rendered.subject)
+    """The finalist email's subject and body, as an announcement."""
+    details = FinalistEmailSettings.load()
+    rendered = render_finalist_email(GROUP_NAME, details)
+    context = {**brand_context(), **finalist_email_context(GROUP_NAME, details)}
+    return rendered.subject, as_announcement(_email_body(context))
 
 
 def wording(row: FinalistAnnouncement) -> tuple[str, str]:

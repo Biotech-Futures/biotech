@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
+from apps.services.system_email import clean_email_body
 from apps.submissions.services import active_deadline, current_cohort
 
 from ..models import FinalistAnnouncement
@@ -31,7 +32,9 @@ class FinalistAnnouncementSerializer(serializers.Serializer):
         # An emptied editor still leaves its tags behind.
         if not re.sub(r"<[^>]+>", "", value).strip():
             raise serializers.ValidationError("Write something to announce.")
-        return value
+        # Keeps its boxes and buttons, and strips scripts, event handlers and
+        # javascript: URLs, as System Emails does: announcements show as is.
+        return clean_email_body(value)
 
 
 def _payload() -> dict:

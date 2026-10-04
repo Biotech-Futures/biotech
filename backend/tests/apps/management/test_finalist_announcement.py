@@ -7,8 +7,10 @@ from rest_framework.test import APIClient
 from apps.announcements.models import Announcement, AnnouncementAudience
 from apps.grading.models import FinalistFlag
 from apps.groups.models.groups import Groups
-from apps.management.models import FinalistAnnouncement
-from apps.management.services.finalist_announcement import text_to_html
+from apps.management.models import FinalistAnnouncement, FinalistEmailSettings
+from apps.management.services.finalist_announcement import as_announcement
+from apps.management.services.finalist_notify import _long_date
+from apps.services.models import SystemEmailTemplate
 
 from tests.apps.grading.fixtures import _GradingFixture
 from tests.apps.management.test_finalist_emails import _set_email_details
@@ -30,13 +32,25 @@ class FinalistAnnouncementTests(_GradingFixture):
         body = self._get()
         self.assertEqual(body["title"], "Congratulations – You’re a BIOTech Futures Finalist!")
         self.assertFalse(body["edited"])
-        # The email's text as paragraphs and lists, its link live, its footer gone.
-        self.assertIn("<p>Dear members of our finalist teams,</p>", body["body"])
-        self.assertIn("<ul><li>", body["body"])
-        self.assertIn('<a href="https://events.example.com/symposium">', body["body"])
+        # The email's body: to every finalist, its box, headings, lists and
+        # Register button kept, its footer gone.
+        self.assertTrue(body["body"].startswith("<p>Dear finalists,</p>"), body["body"][:80])
+        self.assertIn('<div style="', body["body"])
+        self.assertIn("<h2>Please confirm attendance</h2><ul><li>", body["body"])
+        self.assertIn('<a class="cta-link" href="https://events.example.com/symposium"', body["body"])
+        self.assertIn("reply to the finalist email we sent you", body["body"])
         self.assertNotIn("receiving this email", body["body"])
-        # Not the title again at the top.
-        self.assertFalse(body["body"].startswith("<p>Congratulations"))
+        # The title isn't repeated at the top.
+        self.assertNotIn("<h1", body["body"])
+
+    def test_it_follows_the_emails_wording_from_system_emails(self):
+        SystemEmailTemplate.objects.create(
+            key="finalist_notification",
+            body_html="<h1>Well done</h1><p>Dear members of <strong>{{ group_name }}</strong>,</p>"
+            "<p>See you on {{ symposium_date }}.</p>",
+        )
+        date = _long_date(FinalistEmailSettings.load().symposium_date)
+        self.assertEqual(self._get()["body"], f"<p>Dear finalists,</p><p>See you on {date}.</p>")
 
     def test_edited_wording_is_kept(self):
         r = self.client.patch(reverse(URL), {"title": "Finalists!", "body": "<p>Well done.</p>"}, format="json")
@@ -48,6 +62,11 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual((r.json()["title"], r.json()["edited"]), (
             "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!", False,
         ))
+        # What it keeps is cleaned, as System Emails' bodies are.
+        r = self.client.patch(
+            reverse(URL), {"title": "Hi", "body": '<p onclick="x()">Hi<script>x()</script></p>'}, format="json",
+        )
+        self.assertEqual(r.json()["body"], "<p>Hi</p>")
         # An empty title or body is refused.
         r = self.client.patch(reverse(URL), {"title": "Hi", "body": "<p></p>"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
@@ -161,13 +180,29 @@ class AnnouncementCategoriesTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
 
-class TextToHtmlTests(_GradingFixture):
-    def test_paragraphs_lists_and_links(self):
-        text = "Title\n\nHello\nthere.\n\nDO THIS\n  - one\n    more\n  - two https://x.org/a.\n\nBye\n--\nfooter"
+class AsAnnouncementTests(_GradingFixture):
+    def test_it_drops_the_title_tidies_the_indenting_and_keeps_only_box_and_button_styles(self):
+        html = """
+            <h1 style="color:#017151">Title</h1>
+            <p style="color:#153226; font-size:16px">
+              Dear members of <strong>finalists</strong>,
+            </p>
+            <div style="border:1px dashed #017151; background:#e9f6f1; position:fixed">
+              <strong style="color:#017151;">Important:</strong> on <strong>Friday</strong>.
+            </div>
+            <ul style="margin:0"><li style="margin:6px 0;">Have one reply to this email.</li></ul>
+            <div style="margin:16px 0;"><a class="cta-link" href="https://x.org/r" style="background:#017151; color:#ffffff">
+              Register
+            </a></div>
+            <script>x()</script>
+        """
         self.assertEqual(
-            text_to_html(text, "Title"),
-            '<p>Hello there.</p><p>DO THIS</p><ul><li>one more</li>'
-            '<li>two <a href="https://x.org/a">https://x.org/a</a>.</li></ul><p>Bye</p>',
+            as_announcement(html),
+            "<p>Dear finalists,</p>"
+            '<div style="border:1px dashed #017151;background-color:#e9f6f1">'
+            "<strong>Important:</strong> on <strong>Friday</strong>.</div>"
+            "<ul><li>Have one reply to the finalist email we sent you.</li></ul>"
+            '<div style="margin:16px 0"><a class="cta-link" href="https://x.org/r"'
+            ' style="background-color:#017151;color:#ffffff"'
+            ' rel="noopener noreferrer">Register</a></div>',
         )
-        # Its text is escaped.
-        self.assertEqual(text_to_html("a <b> & c"), "<p>a &lt;b&gt; &amp; c</p>")
