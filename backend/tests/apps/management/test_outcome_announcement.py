@@ -336,9 +336,12 @@ class AnnouncementCategoriesTests(_GradingFixture):
 
         from tests.apps.management.test_symposium_emails import _member, _submitted_team
 
-        # Closed, grace hours and all.
+        from tests.apps.grading.fixtures import just_closed
+
+        # Closed, and in this year even on New Year's Day: the competition
+        # year comes from the deadline.
         Deadline.objects.update(is_active=False)
-        Deadline.objects.create(closes_at=timezone.now() - timedelta(hours=3), grace_hours=2, is_active=True)
+        Deadline.objects.create(closes_at=just_closed(3), grace_hours=0, is_active=True)
 
         # The fixture's submitted team is a finalist; another submitted isn't;
         # a third, with a student, never submitted.
