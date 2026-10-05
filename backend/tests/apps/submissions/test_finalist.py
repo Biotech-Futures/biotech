@@ -323,7 +323,7 @@ class FinalistTests(TestCase):
         entry = response.data["entry"]
         self.assertTrue(entry["is_locked"])
         self.assertEqual(entry["submitted_presentation"]["name"], "deck.pdf")
-        # The tab's Finalist Submission table has it, and its Open serves it.
+        # The tab's Finalist Submissions table has it, and its Open serves it.
         slides = FinalistSlides.objects.get(group=self.group)
         self.assertEqual((slides.file["name"], slides.submitted_by), ("deck.pdf", self.supervisor))
         opened = self._client(self.admin).get(

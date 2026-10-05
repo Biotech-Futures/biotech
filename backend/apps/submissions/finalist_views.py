@@ -226,7 +226,7 @@ class FinalistSubmitView(APIView):
             superseded = (entry.submitted_presentation or {}).get("storage_key")
             entry.snapshot(request.user)
             entry.save()
-            # The Finalist Presentation tab's Finalist Submission table.
+            # The Finalist Presentation tab's Finalist Submissions table.
             record_submitted_slides(entry)
 
         # Outside the transaction, since a blob delete cannot be rolled back.

@@ -217,7 +217,7 @@
     </section>
 
     <section class="card finalist-presentation__submissions">
-      <h3 class="finalist-presentation__section-title">Finalist Submission</h3>
+      <h3 class="finalist-presentation__section-title">Finalist Submissions</h3>
       <p class="finalist-presentation__hint">
         <template v-if="slidesDue">
           Each finalist team's presentation slides, due {{ slidesDue }}, set on
@@ -369,7 +369,7 @@ const allocate = async (team: PresentationResponseTeam, event: Event) => {
   }
 }
 
-// Finalist Submission: each finalist team's slides.
+// Finalist Submissions: each finalist team's slides.
 const slidesTeams = ref<PresentationSlidesTeam[]>([])
 const slidesDueOn = ref<string | null>(null)
 const isLoadingSlides = ref(false)

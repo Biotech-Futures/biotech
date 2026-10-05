@@ -226,7 +226,7 @@ describe('Finalist Presentation', () => {
   it("Allocate Slots shows when each team answered and the times it can make", async () => {
     const wrapper = await mountPage()
     const titles = wrapper.findAll('.finalist-presentation__section-title').map((h) => h.text())
-    expect(titles).toEqual(['Presentation Times', 'Show Time Slots', 'Allocate Slots', 'Finalist Submission'])
+    expect(titles).toEqual(['Presentation Times', 'Show Time Slots', 'Allocate Slots', 'Finalist Submissions'])
     expect(allocation(wrapper).text()).toContain(
       'Give each finalist team a time. Ticks show the times each team said it can make.'
     )
@@ -241,7 +241,7 @@ describe('Finalist Presentation', () => {
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
-    // When it answered, as Finalist Submission writes it; who, on hover.
+    // When it answered, as Finalist Submissions writes it; who, on hover.
     expect(cells[1]!.text()).toMatch(/^29\/09\/26 \d{2}:10$/)
     expect(cells[1]!.attributes('title')).toBe('By Zoe Lee')
     expect((cells[2]!.find('select').element as HTMLSelectElement).value).toBe('1')
@@ -292,10 +292,10 @@ describe('Finalist Presentation', () => {
     )
   })
 
-  it("Finalist Submission lists each finalist team's slides and when they're due", async () => {
+  it("Finalist Submissions lists each finalist team's slides and when they're due", async () => {
     const wrapper = await mountPage()
     const table = wrapper.find('.finalist-presentation__submissions')
-    expect(table.find('h3').text()).toBe('Finalist Submission')
+    expect(table.find('h3').text()).toBe('Finalist Submissions')
     expect(table.text()).toContain("Each finalist team's presentation slides, due Friday 16 October 2026")
     expect(table.findAll('thead th').map((h) => h.text())).toEqual(['Group', 'Submitted', 'Type', ''])
     const [btf2, btf10] = table.findAll('tbody tr')
