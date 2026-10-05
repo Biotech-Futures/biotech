@@ -8,12 +8,10 @@ the folder and every file carry the current year:
 
     <Year>_<GroupName>/
         <Year>_<GroupName>_<Component>.<ext>        # stored file, original ext
-        <Year>_<GroupName>_SAQs.txt                 # SAQ answer text
+        <Year>_<GroupName>_SAQs.pdf                 # SAQ answers (saq_pdf), or
+        <Year>_<GroupName>_SAQs.txt                 #   as text when asked for
         <Year>_<GroupName>_Prototype_Link.txt       # prototype link
         <Year>_<GroupName>_<Component>_MISSING.txt  # blob gone — see below
-
-The SAQ answers can also come as one PDF per group (``build_saq_pdf_zip``):
-``<Year>_<GroupName>_SAQs.pdf``, flat.
 
 Missing / unreadable blobs are skipped with the placeholder ``_MISSING.txt``
 note so the archive still opens and the marker tells the grader what to
@@ -103,7 +101,7 @@ def _compression_for(filename: str) -> int:
 
 
 def build_submissions_zip(
-    entries: Iterable[ComponentEntry], *, group_folder: bool = True
+    entries: Iterable[ComponentEntry], *, group_folder: bool = True, saq_text: bool = False
 ) -> bytes:
     """Materialise a zip archive of the given component entries to memory.
 
@@ -168,8 +166,12 @@ def build_submissions_zip(
                     ext = f".{safe_name(ext[1:])}" if ext else ".bin"
                     zf.writestr(f"{base}{ext}", data, compress_type=_compression_for(ext))
 
-            if entry.text:
-                # The SAQ answers, under the team's project title.
+            if entry.answers and not saq_text:
+                # The SAQ answers as a PDF, under the team's project title;
+                # compressed already, so stored as it is.
+                zf.writestr(f"{base}.pdf", saq_pdf(entry), compress_type=zipfile.ZIP_STORED)
+            elif entry.text:
+                # As text (SAQ's txt download), under the project title.
                 text = f"Title: {entry.project_title}\n\n{entry.text}" if entry.project_title else entry.text
                 zf.writestr(f"{base}.txt", text)
 
@@ -216,19 +218,3 @@ def saq_pdf(entry: ComponentEntry) -> bytes:
         pdf.multi_cell(0, 6.5, _pdf_text(answer), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(5)
     return bytes(pdf.output())
-
-
-def build_saq_pdf_zip(entries: Iterable[ComponentEntry]) -> bytes:
-    """A zip of each group's SAQ answers as its own PDF, flat, as the TXT
-    download has them: ``<Year>_<GroupName>_SAQs.pdf``."""
-    year = current_cohort()
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for entry in entries:
-            if not entry.answers:
-                continue
-            # The PDFs it makes are compressed already.
-            zf.writestr(
-                f"{year}_{safe_name(entry.group_name)}_SAQs.pdf", saq_pdf(entry), compress_type=zipfile.ZIP_STORED,
-            )
-    return buffer.getvalue()
