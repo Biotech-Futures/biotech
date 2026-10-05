@@ -394,12 +394,18 @@ describe('fetchBlob', () => {
   const fileResponse = (headers: Record<string, string> = {}) =>
     new Response('PK', { status: 200, headers })
 
+  // Which Blob comes back depends on the Node version. On Node 26 it is
+  // jsdom's, with no .text(); on Node 22 (CI's) it is Node's own, which has
+  // .text() and which jsdom's FileReader refuses ("parameter 1 is not of
+  // type 'Blob'"). Read whichever one arrived.
   const readText = (blob: Blob) =>
-    new Promise<string>((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.readAsText(blob)
-    })
+    typeof blob.text === 'function'
+      ? blob.text()
+      : new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.readAsText(blob)
+        })
 
   it('asks for JSON with the session cookie, so a refusal is data and not a page', async () => {
     const fetchMock = vi.fn(async () => fileResponse())
