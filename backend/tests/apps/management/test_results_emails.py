@@ -149,7 +149,7 @@ class ResultsEmailTests(_GradingFixture):
         closes = ResultsEmailSettings.load().survey_closes
         self.assertIn(f"until the {closes.day}", text)
         self.assertIn(f" of {closes:%B}.", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["emailed"], 3)
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 1})
@@ -168,7 +168,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(message.subject, f"Your students’ {self.group.year} BIOTech Futures Challenge results")
         self.assertIn("Dear Sam Lee,", message.body)
         self.assertIn("Merit certificates for each of your students", " ".join(message.body.split()))
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 1})
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
         self.assertTrue(ResultsSupervisorEmail.objects.filter(supervisor=self.supervisor).exists())
@@ -251,7 +251,8 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_run_that_cannot_reach_the_mail_server_says_so_and_frees_the_send(self):
         unreachable = mock.Mock()
         unreachable.open.side_effect = OSError("mail server down")
-        with mock.patch("apps.management.services.send_guard.get_connection", return_value=unreachable), \
+        # Connections are opened, signed in as the sender, by system_email.
+        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable), \
                 self.assertLogs("apps.management.services.send_guard", level="ERROR"):
             run = self._send_all("groups")[-1]["run"]
         self.assertEqual(

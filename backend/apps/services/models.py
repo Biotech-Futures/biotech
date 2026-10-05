@@ -258,6 +258,9 @@ class SystemEmailTemplate(models.Model):
     body_html = models.TextField(blank=True, default="")
     body_text = models.TextField(blank=True, default="")
     is_enabled = models.BooleanField(default=True)
+    # A key of settings.EMAIL_SENDERS: the mailbox it goes from. Blank means
+    # the type's default (see ``system_email.sender_for``).
+    sender = models.CharField(max_length=32, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

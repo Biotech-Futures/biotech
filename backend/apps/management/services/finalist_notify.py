@@ -9,7 +9,7 @@ The default wording is the client's own finalist email (sent from Power
 Automate in 2025); the Symposium date, confirm-by date, slides due date and
 registration link come from :class:`FinalistEmailSettings`, set on the Notify
 Finalists page, and nothing is sent until all of them are set. The email asks
-one team member to reply, so replies go to the support mailbox.
+one team member to reply, and replies go back to the sender.
 """
 from __future__ import annotations
 

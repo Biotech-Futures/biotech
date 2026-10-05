@@ -12,10 +12,11 @@ generic zip.
 """
 from __future__ import annotations
 
+import logging
 import mimetypes
 
 from django.core.files.storage import default_storage
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from apps.submissions.services import current_cohort
@@ -30,6 +31,8 @@ from ..models import GradingJob, SubmissionComponent
 from ..services import content
 from ..services.dispatch import dispatch_job
 from ..services.zip import _COMPONENT_LABELS, build_submissions_zip, safe_name
+
+logger = logging.getLogger(__name__)
 
 
 class GroupDownloadView(APIView):
@@ -161,13 +164,42 @@ class GradingJobDetailView(generics.RetrieveAPIView):
         })
 
 
-class GradingJobDownloadView(APIView):
-    """GET /api/v1/grading/jobs/<id>/download/ — stream the artefact.
+# How long a signed link to a finished export works: long enough to start
+# the download (it carries on past this), short enough not to linger.
+DIRECT_LINK_SECS = 10 * 60
 
-    Opens the stored key via ``default_storage`` and pipes bytes back with a
-    filename derived from the storage key. Works whether the file lives on
-    the local filesystem (dev, ``FileSystemStorage``) or Azure Blob (prod,
-    ``AzureStorage``) — the storage abstraction hides the difference.
+
+def _direct_link(name: str, filename: str, content_type: str) -> str | None:
+    """A short-lived signed Azure link that saves ``name`` as ``filename``, so
+    the browser downloads it straight from Azure; None when the file isn't on
+    Azure (local and test storage), where it's streamed instead."""
+    try:
+        from storages.backends.azure_storage import AzureStorage
+    except ImportError:  # pragma: no cover - only without django-storages.
+        return None
+    if not isinstance(default_storage, AzureStorage):
+        return None
+    try:
+        return default_storage.url(
+            name,
+            expire=DIRECT_LINK_SECS,
+            parameters={
+                "content_disposition": f'attachment; filename="{filename}"',
+                "content_type": content_type,
+            },
+        )
+    except Exception:  # noqa: BLE001 - streaming it instead still works
+        logger.exception("grading_job.direct_link_failed name=%s", name)
+        return None
+
+
+class GradingJobDownloadView(APIView):
+    """GET /api/v1/grading/jobs/<id>/download/ — the artefact, as a download.
+
+    On Azure (prod) it redirects to a short-lived signed link, so the browser
+    downloads straight from Azure with its own progress bar and this server
+    isn't in the way. Elsewhere (dev, tests: ``FileSystemStorage``) it streams
+    the bytes back with a filename derived from the storage key.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -182,6 +214,10 @@ class GradingJobDownloadView(APIView):
 
         filename = job.result_url.rsplit("/", 1)[-1] or f"grading-job-{job.pk}.bin"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+        link = _direct_link(job.result_url, filename, content_type)
+        if link:
+            return HttpResponseRedirect(link)
 
         # StreamingHttpResponse hands raw file chunks back without buffering
         # a full multi-MB archive in Python memory — matters most in prod

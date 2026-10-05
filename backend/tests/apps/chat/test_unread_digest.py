@@ -194,7 +194,8 @@ class UnreadDigestServiceTests(TestCase):
         )
         self.assertNotEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
 
-    @patch("apps.chat.services.digest.get_connection")
+    # The sender's connection is opened by system_email.sender_connection.
+    @patch("apps.services.system_email.get_connection")
     def test_opens_the_connect_smtp_connection(self, mock_get_conn):
         conn = MagicMock()
         conn.connection = None

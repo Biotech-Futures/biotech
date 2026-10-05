@@ -78,6 +78,7 @@
           @update:subject="setSubject"
           @update:body="setBody"
           @toggle-enabled="onToggleEnabled"
+          @change-sender="onChangeSender"
           @save="save"
           @restore="restoreConfirmOpen = true"
           @test-send="testSend"
@@ -143,6 +144,7 @@ const {
   save,
   restore,
   toggleEnabled,
+  changeSender,
   toggleGlobal
 } = useSystemEmails()
 
@@ -172,6 +174,10 @@ const onSelect = (key: string) => {
 
 const onToggleEnabled = (enabled: boolean) => {
   if (selected.value) void toggleEnabled(selected.value, enabled)
+}
+
+const onChangeSender = (sender: string) => {
+  if (selected.value) void changeSender(selected.value, sender)
 }
 
 const onRestoreConfirmed = async () => {

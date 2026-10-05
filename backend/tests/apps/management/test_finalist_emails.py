@@ -220,6 +220,21 @@ class FinalistEmailTests(_GradingFixture):
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
 
+    def test_it_goes_from_the_sender_picked_on_system_emails(self):
+        from django.core import mail
+
+        from apps.services.models import SystemEmailTemplate
+
+        _set_email_details()
+        self._member("stu@example.com", "student")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        SystemEmailTemplate.objects.create(key="finalist_notification", sender="connect")
+
+        r = self.client.post(reverse("management:finalist-notify"))
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+        # Undeliverable mail comes back there too, as the page says.
+        self.assertEqual(r.json()["sent_from"], "connect@biotechfutures.org")
+
     def test_the_team_gets_one_email_students_in_to_and_the_rest_in_cc(self):
         from django.core import mail
 
@@ -239,7 +254,9 @@ class FinalistEmailTests(_GradingFixture):
         message = mail.outbox[0]
         self.assertEqual((message.to, sorted(message.cc)), (["stu@example.com"], ["men@example.com", "sup@example.com"]))
         self.assertEqual(message.subject, "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!")
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn("info@biotechfutures.org", message.from_email)
         html = message.alternatives[0][0]
         for text in (
             "Dear members of <strong>BTF-TEST-1</strong>",
