@@ -413,21 +413,26 @@ class PasswordResetEndpointsTest(TestCase):
         self.assertIn("fields", body)
         self.assertIn("new_password", body["fields"])
 
-    def test_confirm_brute_force_lockout(self, _mock_mail):
+    def test_rejected_passwords_are_never_rate_limited(self, _mock_mail):
+        # Getting the password rules wrong is not an attack: the user keeps
+        # their link and keeps trying until it expires.
         token = PasswordResetToken.create_for_user(self.user)
-        # 5 bad attempts on the SAME token (token itself is wrong, so each fails)
-        for _ in range(5):
-            self.client.post(
+        for _ in range(8):
+            r = self.client.post(
                 "/services/password-reset/confirm/",
-                {"token": "wrong-token", "new_password": STRONG_PWD_NEW},
+                {"token": token.token, "new_password": "abc"},
                 format="json",
             )
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(r.json().get("code"), "weak_password")
+
+        # The link still works once they pick something acceptable.
         r = self.client.post(
             "/services/password-reset/confirm/",
-            {"token": "wrong-token", "new_password": STRONG_PWD_NEW},
+            {"token": token.token, "new_password": STRONG_PWD_NEW},
             format="json",
         )
-        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.status_code, 200)
 
     def test_confirm_per_ip_lockout_across_distinct_tokens(self, _mock_mail):
         # Per-token limit doesn't fire because each guess is unique. The per-IP

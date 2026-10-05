@@ -8,7 +8,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import dateformat, timezone
 
 from apps.users.models import User
-from apps.common.rbac import is_admin
 from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
 from .models import LOGIN_OTP_EXPIRY_MINUTES, LoginToken, PasswordResetToken
@@ -153,16 +152,12 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     known-email request into a 500 — that would let an attacker enumerate users
     by comparing responses against the silent 200 returned for unknown emails.
     """
-    # Admins reset their password on the admin portal; everyone else on the
-    # user app. Both settings are defined unconditionally in config/settings.py
-    # (env-driven, fail-loud in prod via ImproperlyConfigured) so a misconfigured
-    # deploy can't silently email reset links pointing at http://localhost:5173.
-    base = (
-        settings.ADMIN_PASSWORD_RESET_REDIRECT_URL
-        if is_admin(user)
-        else settings.PASSWORD_RESET_REDIRECT_URL
-    )
-    reset_link = f"{base}?token={token}"
+    # One destination for everyone, including admins: since the interface merge
+    # admins sign in to the same app as students and mentors, so sending them to
+    # the old standalone admin portal would be a dead end. The setting is
+    # env-driven and fails loud in prod (config/settings.py), so a misconfigured
+    # deploy can't silently email links pointing at http://localhost:5173.
+    reset_link = f"{settings.PASSWORD_RESET_REDIRECT_URL}?token={token}"
 
     ctx = {
         "RESET_PASSWORD_LINK": reset_link,
