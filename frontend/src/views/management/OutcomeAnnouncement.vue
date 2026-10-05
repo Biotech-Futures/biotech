@@ -64,9 +64,16 @@
           aria-modal="true"
           :aria-label="`Edit ${label.toLowerCase()}`"
         >
-          <h3 class="outcome-announcement__dialog-title">
-            <i class="fas fa-pen" aria-hidden="true"></i> Edit {{ label }}
-          </h3>
+          <div>
+            <h3 class="outcome-announcement__dialog-title">
+              <i class="fas fa-pen" aria-hidden="true"></i> Edit {{ label }}
+            </h3>
+            <!-- As System Emails' editor shows it. -->
+            <p v-if="lastEdited" class="outcome-announcement__last-edited">
+              <i class="fas fa-user-pen" aria-hidden="true"></i>
+              {{ lastEdited }}
+            </p>
+          </div>
           <!-- Laid out as System Emails' editor: Placeholders, Title, Body, then
                its buttons. Placeholders stay in the wording and are filled in
                with the current dates and links whenever it's posted. -->
@@ -301,6 +308,21 @@ const post = async () => {
   }
 }
 
+// "Last edited by Ada Admin · 5 Oct 2026, 3:42 pm", as System Emails' editor
+// writes it; "" until someone saves their own wording.
+const lastEdited = computed(() => {
+  const { edited_by: by, edited_at: at } = announcement.value ?? {}
+  if (!by || !at) return ''
+  const when = new Date(at).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+  return `Last edited by ${by} \u00b7 ${when}`
+})
+
 // "02/10/2026 18:36", as Last Emailed writes it.
 const shortDateTime = (iso: string) => {
   const at = new Date(iso)
@@ -384,6 +406,16 @@ defineExpose({ reload: load })
   gap: 0.5rem;
   font-size: 1.15rem;
   margin: 0;
+}
+
+/* As System Emails' "Last edited by" line. */
+.outcome-announcement__last-edited {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .outcome-announcement__dialog-title i {

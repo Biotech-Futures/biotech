@@ -9,7 +9,7 @@ The default wording is the client's own finalist email (sent from Power
 Automate in 2025); the Symposium date, confirm-by date, slides due date and
 registration link come from :class:`FinalistEmailSettings`, set on the Notify
 Finalists page, and nothing is sent until all of them are set. The email asks
-one team member to reply, so replies go to the support mailbox.
+one team member to reply, and replies go back to the sender.
 """
 from __future__ import annotations
 
@@ -113,10 +113,8 @@ def notify_finalist(
         logger.exception("finalist notify failed to render: group=%s", flag.group_id)
         return False
 
-    # Replies go back to the sender, info@.
     failed = send_group(
         rendered, recipients, connection, email=EMAIL_KEY, group=flag.group, log_as=f"group={flag.group_id}",
-        reply_to_support=False,
     )
     if failed:
         # Someone missed it: leave the flag unnotified so the next press retries.

@@ -13,14 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.groups import Groups
-from apps.services.system_email import RenderedEmail, build_message
+from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
 from . import results_notify, symposium_emails
+from .finalist_notify import EMAIL_KEY as FINALIST_EMAIL_KEY
 from .finalist_notify import render_finalist_email
 from .send_guard import person_name
 
@@ -129,16 +129,27 @@ class TestKind:
     audience: str | None = None
     # Who the email is addressed to, as its preview names them.
     addressee: Callable[[str], str] = _team_name
+    # Its System Emails key: the test goes from that email's sender.
+    email: str = ""
 
 
 KINDS = {
-    "finalist": TestKind(lambda: _team_options(_finalist_teams()), _finalist_render),
-    "nonfinalists": TestKind(*_symposium(symposium_emails.NONFINALIST)),
-    "nonsubmissions": TestKind(*_symposium(symposium_emails.NONSUBMISSION)),
-    "results-groups": TestKind(_results_groups_options, _results_groups_render, results_notify.GROUPS),
+    "finalist": TestKind(
+        lambda: _team_options(_finalist_teams()), _finalist_render, email=FINALIST_EMAIL_KEY,
+    ),
+    "nonfinalists": TestKind(
+        *_symposium(symposium_emails.NONFINALIST), email=symposium_emails.NONFINALIST.key,
+    ),
+    "nonsubmissions": TestKind(
+        *_symposium(symposium_emails.NONSUBMISSION), email=symposium_emails.NONSUBMISSION.key,
+    ),
+    "results-groups": TestKind(
+        _results_groups_options, _results_groups_render, results_notify.GROUPS,
+        email=results_notify.EMAIL_KEYS[results_notify.GROUPS],
+    ),
     "results-supervisors": TestKind(
         _results_supervisors_options, _results_supervisors_render, results_notify.SUPERVISORS,
-        _supervisor_name,
+        _supervisor_name, email=results_notify.EMAIL_KEYS[results_notify.SUPERVISORS],
     ),
 }
 
@@ -168,9 +179,9 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
         raise TestEmailError(results_notify.TEMPLATES_MISSING[test.audience])
     rendered, planned = test.render(recipient, fields)
     files = [(f.name, f.make(), f.mimetype) for f in planned]
-    message = build_message(rendered, to, from_email=settings.DEFAULT_FROM_EMAIL, files=files)
-    # As the real email goes: the finalist email's replies go back to the
-    # sender, info@; the others' to support.
-    if kind != "finalist":
-        message.reply_to = [settings.SUPPORT_EMAIL]
+    # From the email's sender, as the real one goes.
+    sender = sender_for(test.email)
+    message = build_message(
+        rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
+    )
     message.send(fail_silently=False)

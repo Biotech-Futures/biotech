@@ -119,7 +119,7 @@ class GroupEmailTests(TestCase):
         self.assertEqual(self._send(), {})
         self.assertEqual(
             [(m.to, m.cc, m.reply_to) for m in mail.outbox],
-            [(["amy@x.com", "ben@x.com"], ["mo@x.com", "sue@x.com"], ["support@biotechfutures.org"])],
+            [(["amy@x.com", "ben@x.com"], ["mo@x.com", "sue@x.com"], [])],
         )
         self.assertEqual(
             sorted(EmailDelivery.objects.filter(email="test", group=self.team).values_list("address", flat=True)),

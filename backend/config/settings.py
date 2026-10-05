@@ -374,6 +374,27 @@ EMAIL_CONNECT_HOST_PASSWORD = config("EMAIL_CONNECT_HOST_PASSWORD", default="")
 CONNECT_FROM_ADDRESS = "connect@biotechfutures.org"
 CONNECT_DEFAULT_FROM_EMAIL = f"{BRAND_CONNECT} <{CONNECT_FROM_ADDRESS}>"
 
+# The mailboxes the site can send from, picked per email on System Emails
+# (``apps.services.system_email.sender_for``). Hostinger rejects an email whose
+# From doesn't match the signed-in mailbox or one of its aliases, so each
+# carries its own SMTP login: adding a sender means adding its login settings
+# (its password in the environment) and an entry here. Each names the
+# settings it's read from when sending: its address, its From header, and the
+# prefix of its EMAIL_*_HOST, _PORT, _HOST_USER, _HOST_PASSWORD and _USE_SSL
+# login settings (none for the default account, EMAIL_HOST_USER above).
+EMAIL_SENDERS = {
+    "info": {
+        "address": "EMAIL_FROM_ADDRESS",
+        "from_email": "DEFAULT_FROM_EMAIL",
+        "login": None,
+    },
+    "connect": {
+        "address": "CONNECT_FROM_ADDRESS",
+        "from_email": "CONNECT_DEFAULT_FROM_EMAIL",
+        "login": "EMAIL_CONNECT_",
+    },
+}
+
 REDIS_URL = config("REDIS_URL", default="")
 
 if REDIS_URL:

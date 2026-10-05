@@ -220,6 +220,21 @@ class FinalistEmailTests(_GradingFixture):
         self.assertEqual(len(mail.outbox), 0)
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
 
+    def test_it_goes_from_the_sender_picked_on_system_emails(self):
+        from django.core import mail
+
+        from apps.services.models import SystemEmailTemplate
+
+        _set_email_details()
+        self._member("stu@example.com", "student")
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        SystemEmailTemplate.objects.create(key="finalist_notification", sender="connect")
+
+        r = self.client.post(reverse("management:finalist-notify"))
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+        # Undeliverable mail comes back there too, as the page says.
+        self.assertEqual(r.json()["sent_from"], "connect@biotechfutures.org")
+
     def test_the_team_gets_one_email_students_in_to_and_the_rest_in_cc(self):
         from django.core import mail
 

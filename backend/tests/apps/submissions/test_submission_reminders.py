@@ -244,6 +244,13 @@ class TeamDeliveryTests(TestCase):
         self.assertIn(settings.EMAIL_FROM_ADDRESS, message.from_email)
         self.assertEqual(result["sent"], 1)
 
+    def test_it_goes_from_the_sender_picked_on_system_emails(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="submission_reminder", sender="connect")
+        send_due_reminders()
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+
     def test_mentors_and_supervisors_are_copied_in(self):
         for email, role in (("mentor@test.local", "mentor"), ("sup@test.local", "supervisor")):
             user = User.objects.create_user(email=email, password="testUser@123")

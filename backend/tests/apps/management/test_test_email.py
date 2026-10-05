@@ -120,8 +120,8 @@ class TestEmailTests(_GradingFixture):
         self.assertEqual(message.to, ["tester@example.com"])
         self.assertEqual(message.subject, "Thank you for your submission – Invitation to the Symposium")
         self.assertIn(f"Dear members of {self.group.group_name},", " ".join(message.body.split()))
-        # Replies go to support, as the real one's do.
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        # Replies go back to the sender, as the real one's do.
+        self.assertEqual(message.reply_to, [])
         # A test isn't the real thing: the team still hasn't had it.
         self.assertFalse(NonFinalistEmail.objects.exists())
 
@@ -138,7 +138,7 @@ class TestEmailTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertIn("https://events.example.com/draft", mail.outbox[0].body)
-        # Replies go back to the sender, info@, as the real one's do.
+        # Replies go back to the sender, as the real one's do.
         self.assertEqual(mail.outbox[0].reply_to, [])
         self.assertEqual(FinalistEmailSettings.load().registration_url, "https://events.example.com/symposium")
 

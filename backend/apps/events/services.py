@@ -26,7 +26,13 @@ from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from apps.services.email_branding import brand_context
-from apps.services.system_email import build_message, is_email_enabled, render_system_email
+from apps.services.system_email import (
+    build_message,
+    is_email_enabled,
+    render_system_email,
+    sender_connection,
+    sender_for,
+)
 from apps.common.rbac import is_admin
 
 from .models import (
@@ -659,7 +665,10 @@ def _send_audience_reminders(event, audience):
         preheader_phrase = preheader_phrase.format(lead_phrase=lead_phrase)
     location_text, location_map_url = _event_location_lines(event)
 
-    from_email = settings.DEFAULT_FROM_EMAIL
+    # From the mailbox picked on System Emails, signed in as it.
+    sender = sender_for("rsvp_reminder")
+    from_email = sender.from_email
+    connection = sender_connection(sender)
 
     sent = 0
     failed = 0
@@ -695,6 +704,7 @@ def _send_audience_reminders(event, audience):
                 recipient=email,
                 from_email=from_email,
                 ctx=ctx,
+                connection=connection,
             )
             sent += 1
         except Exception:
@@ -707,7 +717,7 @@ def _send_audience_reminders(event, audience):
     return sent, failed
 
 
-def _send_one_reminder(*, subject, recipient, from_email, ctx):
+def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None):
     # Extracted so resilience tests can patch a single seam.
     plain_body = _build_plain_reminder_body(ctx)
     # The unedited subject is just {{ reminder_subject }}, i.e. ``subject``.
@@ -716,7 +726,7 @@ def _send_one_reminder(*, subject, recipient, from_email, ctx):
         {**ctx, "REMINDER_SUBJECT": subject},
         default_text=plain_body,
     )
-    msg = build_message(rendered, recipient, from_email=from_email)
+    msg = build_message(rendered, recipient, from_email=from_email, connection=connection)
     msg.send(fail_silently=False)
 
 

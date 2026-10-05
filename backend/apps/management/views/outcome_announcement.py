@@ -73,6 +73,9 @@ def _payload(kind: str) -> dict:
         "merge_tags": outcome_announcement.merge_tags(kind),
         # Changed from the email's wording.
         "edited": row.edited_at is not None,
+        # Who saved it and when, for Edit's "Last edited by"; None until edited.
+        "edited_at": row.edited_at,
+        "edited_by": person_name(row.edited_by) if row.edited_at and row.edited_by else None,
         # Who it goes to: the groups, or supervisors, the email reached so far.
         "recipients": len(group_ids) + len(user_ids),
         "noun": outcome_announcement.KINDS[kind].noun,
@@ -102,13 +105,14 @@ class OutcomeAnnouncementView(APIView):
         row.title = serializer.validated_data["title"]
         row.body = serializer.validated_data["body"]
         row.edited_at = timezone.now()
+        row.edited_by = request.user
         row.save()
         return Response(_payload(kind))
 
     def delete(self, request, kind: str):
         kind = _kind(kind)
         row = outcome_announcement.load(kind)
-        row.title, row.body, row.edited_at = "", "", None
+        row.title, row.body, row.edited_at, row.edited_by = "", "", None, None
         row.save()
         return Response(_payload(kind))
 

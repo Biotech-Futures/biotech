@@ -467,6 +467,9 @@ export interface OutcomeAnnouncement {
   merge_tags: SystemEmailMergeTag[]
   /** Changed from the email's wording. */
   edited: boolean
+  /** Who saved the edited wording and when; null until edited. */
+  edited_by: string | null
+  edited_at: string | null
   /** The groups, or supervisors, the email has reached so far: who sees it. */
   recipients: number
   /** What they are, e.g. "finalist group". */

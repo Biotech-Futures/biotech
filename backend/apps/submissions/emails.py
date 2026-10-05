@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
@@ -12,7 +11,13 @@ from django.utils.html import format_html, format_html_join
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
 from apps.services.mailer import send_async
-from apps.services.system_email import build_message, is_email_enabled, render_system_email
+from apps.services.system_email import (
+    build_message,
+    is_email_enabled,
+    render_system_email,
+    sender_connection,
+    sender_for,
+)
 
 from .models import Submission, SubmissionQuestion
 from .services import current_cohort, deadline_for_group
@@ -128,26 +133,26 @@ def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
     )
 
 
-def group_message(rendered, group, addresses):
+def group_message(rendered, group, addresses, *, sender):
     """The team's one email, as the Notify emails go: its students in To, its
     mentors and supervisors in CC (all in To when it has no student).
-    Replies go back to the sender, info@."""
+    From ``sender`` (see ``system_email.sender_for``); replies go back to it."""
     to, cc = to_and_cc(group, addresses)
     if not to:
         to, cc = cc, []
-    message = build_message(rendered, to)
+    message = build_message(rendered, to, from_email=sender.from_email)
     message.cc = cc
     return message
 
 
-def send_messages(messages, *, kind: str) -> tuple[int, int]:
-    """Send each message over one connection; one failing doesn't stop the
-    rest. Returns (sent, failed)."""
+def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
+    """Send each message over one connection, signed in as ``sender``'s
+    mailbox; one failing doesn't stop the rest. Returns (sent, failed)."""
     if not messages:
         return 0, 0
 
     sent = failed = 0
-    connection = get_connection()
+    connection = sender_connection(sender)
     try:
         connection.open()
     except Exception:
@@ -179,12 +184,14 @@ def send_messages(messages, *, kind: str) -> tuple[int, int]:
 class _Batch:
     """A team's email as one task on the shared mail pool, so login codes are not delayed."""
 
-    def __init__(self, messages, kind: str):
+    def __init__(self, messages, kind: str, sender):
         self.messages = messages
         self.kind = kind
+        # Looked up before it's queued: the worker does no database work.
+        self.sender = sender
 
     def send(self) -> int:
-        sent, _ = send_messages(self.messages, kind=self.kind)
+        sent, _ = send_messages(self.messages, kind=self.kind, sender=self.sender)
         return sent
 
 
@@ -226,11 +233,13 @@ def send_submission_confirmation(submission: Submission) -> int:
         # The existing plain-text template, used unless an admin rewrote the email.
         text = render_to_string("emails/submission_confirmation.txt", context)
         rendered = render_system_email("submission_confirmation", context, default_text=text)
-        # One email for the team, as the Notify emails go.
-        messages = [group_message(rendered, group, to)]
+        # One email for the team, as the Notify emails go, from the mailbox
+        # picked on System Emails.
+        sender = sender_for("submission_confirmation")
+        messages = [group_message(rendered, group, to, sender=sender)]
 
         # Rendered here so the worker thread does no database work.
-        send_async(_Batch(messages, "submission_confirmation"),
+        send_async(_Batch(messages, "submission_confirmation", sender),
                    kind="submission_confirmation")
         return len(to)
     except Exception:

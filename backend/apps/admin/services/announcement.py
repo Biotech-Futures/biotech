@@ -6,7 +6,6 @@ import re
 from django.db.models import Q, Exists, OuterRef, F
 from django.utils import timezone
 from django.db import transaction
-from django.core.mail import get_connection
 from django.conf import settings
 
 from apps.announcements.models import (
@@ -23,6 +22,8 @@ from apps.services.system_email import (
     build_message,
     is_email_enabled,
     render_system_email,
+    sender_connection,
+    sender_for,
 )
 
 if TYPE_CHECKING:
@@ -599,7 +600,9 @@ def _deliver_announcement_to_recipients(
         # ``fail_silently=False`` ensures SMTP / DNS / auth errors raise
         # instead of being swallowed. We catch them ourselves so we can
         # still persist a useful delivery row.
-        connection = get_connection(fail_silently=False)
+        # From the mailbox picked on System Emails, signed in as it.
+        sender = sender_for("announcement")
+        connection = sender_connection(sender, fail_silently=False)
     except Exception as exc:  # extremely unlikely — backend resolution failed
         connection_error = _sanitize_error(exc)
         logger.exception(
@@ -625,7 +628,7 @@ def _deliver_announcement_to_recipients(
 
     try:
         for addr in emails:
-            message = build_message(rendered, addr, connection=connection)
+            message = build_message(rendered, addr, from_email=sender.from_email, connection=connection)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it

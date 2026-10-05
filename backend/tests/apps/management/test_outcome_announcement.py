@@ -16,6 +16,7 @@ from apps.management.models import FinalistEmailSettings, OutcomeAnnouncement
 from apps.management.services import outcome_announcement
 from apps.management.services.outcome_announcement import NAME, as_announcement
 from apps.management.services.finalist_notify import _long_date
+from apps.management.services.send_guard import person_name
 from apps.services.models import SystemEmailTemplate
 
 from tests.apps.grading.fixtures import _GradingFixture
@@ -105,12 +106,17 @@ class FinalistAnnouncementTests(_GradingFixture):
         self.assertEqual(self._get()["preview"]["body"], f"<p>Dear finalists,</p><p>See you on {date}.</p>")
 
     def test_edited_wording_is_kept(self):
+        self.assertEqual((self._get()["edited_by"], self._get()["edited_at"]), (None, None))
         r = self.client.patch(_url(), {"title": "Finalists!", "body": "<p>Well done.</p>"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual((r.json()["title"], r.json()["body"], r.json()["edited"]), ("Finalists!", "<p>Well done.</p>", True))
+        # Who saved it and when, for "Last edited by".
+        self.assertEqual(r.json()["edited_by"], person_name(self.staff))
+        self.assertIsNotNone(r.json()["edited_at"])
         self.assertEqual(self._get()["title"], "Finalists!")
-        # Restore default goes back to the email's wording.
+        # Restore default goes back to the email's wording, and forgets who edited it.
         r = self.client.delete(_url())
+        self.assertEqual((r.json()["edited_by"], r.json()["edited_at"]), (None, None))
         self.assertEqual((r.json()["title"], r.json()["edited"]), (
             "Congratulations \u2013 You\u2019re a {{ brand_name }} Finalist!", False,
         ))
