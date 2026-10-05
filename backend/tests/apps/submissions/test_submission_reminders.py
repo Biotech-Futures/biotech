@@ -206,7 +206,9 @@ class ReminderTriggerEndpointTests(TestCase):
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
-class IndividualDeliveryTests(TestCase):
+class TeamDeliveryTests(TestCase):
+    """One reminder email for the team, as the Notify emails go."""
+
     def setUp(self):
         self.role = Roles.objects.create(role_name="student")
         install_question_set()
@@ -226,46 +228,32 @@ class IndividualDeliveryTests(TestCase):
                 group=self.group, user=user, membership_role="student"
             )
 
-    def test_every_student_gets_their_own_message(self):
+    def test_the_team_gets_one_email_with_every_student_in_to(self):
+        from django.conf import settings
+
+        result = send_due_reminders()
+
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(sorted(message.to), ["ada@test.local", "alan@test.local", "grace@test.local"])
+        # No mentor or supervisor on this team to copy in.
+        self.assertFalse(message.cc)
+        self.assertFalse(message.bcc)
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn(settings.EMAIL_FROM_ADDRESS, message.from_email)
+        self.assertEqual(result["sent"], 1)
+
+    def test_mentors_and_supervisors_are_copied_in(self):
+        for email, role in (("mentor@test.local", "mentor"), ("sup@test.local", "supervisor")):
+            user = User.objects.create_user(email=email, password="testUser@123")
+            GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
+
         send_due_reminders()
 
-        self.assertEqual(len(mail.outbox), 3)
-        self.assertEqual(
-            sorted(m.to[0] for m in mail.outbox),
-            ["ada@test.local", "alan@test.local", "grace@test.local"],
-        )
-
-    def test_no_student_can_see_a_teammates_address(self):
-        send_due_reminders()
-
-        for message in mail.outbox:
-            self.assertEqual(len(message.to), 1)
-            self.assertFalse(message.cc)
-            self.assertFalse(message.bcc)
-
-    def test_everyone_receives_the_same_email(self):
-        send_due_reminders()
-
-        subjects = {m.subject for m in mail.outbox}
-        bodies = {m.body for m in mail.outbox}
-        self.assertEqual(len(subjects), 1)
-        self.assertEqual(len(bodies), 1, "students were sent differing text")
-
-    def test_one_bad_address_does_not_cost_the_rest_of_the_team_their_copy(self):
-        from unittest.mock import patch
-
-        real_send = mail.EmailMessage.send
-
-        def flaky(self, *args, **kwargs):
-            if self.to == ["grace@test.local"]:
-                raise OSError("mailbox unavailable")
-            return real_send(self, *args, **kwargs)
-
-        with patch.object(mail.EmailMessage, "send", flaky):
-            result = send_due_reminders()
-
-        self.assertEqual(len(mail.outbox), 2)
-        self.assertEqual(result["sent"], 1, "the team should still count as reminded")
+        message = mail.outbox[0]
+        self.assertEqual(len(message.to), 3)
+        self.assertEqual(sorted(message.cc), ["mentor@test.local", "sup@test.local"])
 
     def test_a_team_nobody_could_be_reached_on_is_tried_again_tomorrow(self):
         from unittest.mock import patch

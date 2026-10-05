@@ -15,9 +15,9 @@ from django.utils import timezone
 
 from apps.groups.models import Groups
 from apps.services.email_branding import brand_context
-from apps.services.system_email import build_message, is_email_enabled, render_system_email
+from apps.services.system_email import is_email_enabled, render_system_email
 
-from .emails import components_list_html, recipients_for, send_individually
+from .emails import components_list_html, group_message, recipients_for, send_messages
 from .models import Submission, SubmissionReminder
 from .serializers import missing_required_answers
 from .services import current_cohort, deadline_for_group
@@ -90,7 +90,7 @@ def _submission_of(group) -> Submission | None:
 
 
 def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives]:
-    """One team's reminder, as one message per recipient."""
+    """One team's reminder, as one email for the team (see ``group_message``)."""
     required, optional = components_for(submission)
     context = {
         **brand_context(),
@@ -110,7 +110,8 @@ def build_reminders(group, submission, closes_at) -> list[EmailMultiAlternatives
     }
     text = render_to_string("emails/submission_reminder.txt", context)
     rendered = render_system_email("submission_reminder", context, default_text=text)
-    return [build_message(rendered, address) for address in recipients_for(group)]
+    recipients = recipients_for(group)
+    return [group_message(rendered, group, recipients)] if recipients else []
 
 
 def teams_due(now=None) -> list[tuple]:
@@ -164,7 +165,7 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
             sent += 1
             continue
 
-        delivered, refused = send_individually(messages, kind="submission_reminder")
+        delivered, refused = send_messages(messages, kind="submission_reminder")
         if refused:
             logger.error(
                 "submission_reminder.partial group=%s sent=%s failed=%s",

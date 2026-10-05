@@ -111,8 +111,38 @@ def recipients_for(group) -> list[str]:
     return sorted(set(emails))
 
 
-def send_individually(messages, *, kind: str) -> tuple[int, int]:
-    """One message per recipient, so addresses stay private and one bad address fails alone. Returns (sent, failed)."""
+def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
+    """``addresses`` on ``group`` as its one email takes them: its students in
+    To, its mentors and supervisors in CC. Shared with the Notify emails
+    (``apps.management.services.delivery``)."""
+    students = {
+        address.lower()
+        for address in GroupMembership.objects.filter(
+            group=group, left_at__isnull=True, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        ).values_list("user__email", flat=True)
+        if address
+    }
+    return (
+        [address for address in addresses if address.lower() in students],
+        [address for address in addresses if address.lower() not in students],
+    )
+
+
+def group_message(rendered, group, addresses):
+    """The team's one email, as the Notify emails go: its students in To, its
+    mentors and supervisors in CC (all in To when it has no student).
+    Replies go back to the sender, info@."""
+    to, cc = to_and_cc(group, addresses)
+    if not to:
+        to, cc = cc, []
+    message = build_message(rendered, to)
+    message.cc = cc
+    return message
+
+
+def send_messages(messages, *, kind: str) -> tuple[int, int]:
+    """Send each message over one connection; one failing doesn't stop the
+    rest. Returns (sent, failed)."""
     if not messages:
         return 0, 0
 
@@ -147,14 +177,14 @@ def send_individually(messages, *, kind: str) -> tuple[int, int]:
 
 
 class _Batch:
-    """A team's messages as one task on the shared mail pool, so login codes are not delayed."""
+    """A team's email as one task on the shared mail pool, so login codes are not delayed."""
 
     def __init__(self, messages, kind: str):
         self.messages = messages
         self.kind = kind
 
     def send(self) -> int:
-        sent, _ = send_individually(self.messages, kind=self.kind)
+        sent, _ = send_messages(self.messages, kind=self.kind)
         return sent
 
 
@@ -195,9 +225,9 @@ def send_submission_confirmation(submission: Submission) -> int:
 
         # The existing plain-text template, used unless an admin rewrote the email.
         text = render_to_string("emails/submission_confirmation.txt", context)
-        # Rendered once, so every member reads the same email; only the address differs.
         rendered = render_system_email("submission_confirmation", context, default_text=text)
-        messages = [build_message(rendered, address) for address in to]
+        # One email for the team, as the Notify emails go.
+        messages = [group_message(rendered, group, to)]
 
         # Rendered here so the worker thread does no database work.
         send_async(_Batch(messages, "submission_confirmation"),

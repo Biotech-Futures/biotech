@@ -20,8 +20,8 @@ from django.conf import settings
 from django.core.mail import get_connection
 from django.db import IntegrityError, transaction
 
-from apps.groups.models.group_members import GroupMembership
 from apps.services.system_email import RenderedEmail, build_message
+from apps.submissions.emails import to_and_cc
 
 from ..models import EmailDelivery
 
@@ -148,29 +148,14 @@ def _own_connection(email: str, log_as: str):
     return connection
 
 
-def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
-    """``addresses`` on ``group`` as its one email takes them: its students in
-    To, its mentors and supervisors in CC."""
-    students = {
-        address.lower()
-        for address in GroupMembership.objects.filter(
-            group=group, left_at__isnull=True, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-        ).values_list("user__email", flat=True)
-        if address
-    }
-    return (
-        [address for address in addresses if address.lower() in students],
-        [address for address in addresses if address.lower() not in students],
-    )
-
-
 def send_group(
     rendered: RenderedEmail, addresses, connection=None, *, email: str, group, files=(), log_as: str,
-    cc_staff: bool = True,
+    cc_staff: bool = True, reply_to_support: bool = True,
 ) -> dict[str, str]:
     """``group``'s one email to those of ``addresses`` it's still due: its
     students in To, its mentors and supervisors in CC (in To when no student
-    is due it, or without ``cc_staff``), replies going to support. Each address is recorded once it's
+    is due it, or without ``cc_staff``), replies going to support (or, without
+    ``reply_to_support``, back to the sender). Each address is recorded once it's
     gone. Without ``connection`` it opens one of its own. Returns
     ``{address: why}`` for everyone it was for when it couldn't go, or for
     those the mail server refused when it took the rest."""
@@ -189,7 +174,8 @@ def send_group(
     try:
         message = build_message(rendered, to, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection, files=files)
         message.cc = cc
-        message.reply_to = [settings.SUPPORT_EMAIL]
+        if reply_to_support:
+            message.reply_to = [settings.SUPPORT_EMAIL]
         reason, refused = deliver(message)
     finally:
         if own:

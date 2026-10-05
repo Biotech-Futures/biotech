@@ -169,5 +169,8 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     rendered, planned = test.render(recipient, fields)
     files = [(f.name, f.make(), f.mimetype) for f in planned]
     message = build_message(rendered, to, from_email=settings.DEFAULT_FROM_EMAIL, files=files)
-    message.reply_to = [settings.SUPPORT_EMAIL]
+    # As the real email goes: the finalist email's replies go back to the
+    # sender, info@; the others' to support.
+    if kind != "finalist":
+        message.reply_to = [settings.SUPPORT_EMAIL]
     message.send(fail_silently=False)

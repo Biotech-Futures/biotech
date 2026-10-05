@@ -239,7 +239,9 @@ class FinalistEmailTests(_GradingFixture):
         message = mail.outbox[0]
         self.assertEqual((message.to, sorted(message.cc)), (["stu@example.com"], ["men@example.com", "sup@example.com"]))
         self.assertEqual(message.subject, "Congratulations \u2013 You\u2019re a BIOTech Futures Finalist!")
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn("info@biotechfutures.org", message.from_email)
         html = message.alternatives[0][0]
         for text in (
             "Dear members of <strong>BTF-TEST-1</strong>",

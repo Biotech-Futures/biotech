@@ -113,8 +113,10 @@ def notify_finalist(
         logger.exception("finalist notify failed to render: group=%s", flag.group_id)
         return False
 
+    # Replies go back to the sender, info@.
     failed = send_group(
         rendered, recipients, connection, email=EMAIL_KEY, group=flag.group, log_as=f"group={flag.group_id}",
+        reply_to_support=False,
     )
     if failed:
         # Someone missed it: leave the flag unnotified so the next press retries.
