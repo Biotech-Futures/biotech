@@ -236,11 +236,12 @@ class SubmissionFileTests(TestCase):
 
     def _answer_everything(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {
             question.key: "An answer."
             for question in SubmissionQuestion.active().filter(is_required=True)
         }
-        submission.save(update_fields=["answers"])
+        submission.save(update_fields=["project_title", "answers"])
 
     def test_can_submit_once_a_poster_is_attached(self):
         self._upload("poster", _pdf_upload())

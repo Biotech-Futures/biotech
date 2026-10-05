@@ -35,6 +35,14 @@ class BulkUploadMarksViewTests(_GradingFixture):
             r1_mark, r1_comment, r2_mark, r2_comment, overall,
         )
 
+    def _category_header(self, *names):
+        """The header with category columns where the export puts them:
+        after the answers, before the marks."""
+        return self.HEADER[:4] + list(names) + self.HEADER[4:]
+
+    def _with_categories(self, row, *values):
+        return row[:4] + values + row[4:]
+
     def _make_csv(self, rows, header=None):
         header_line = ",".join(header or self.HEADER) + "\n"
         body = "\n".join(",".join(str(x) for x in r) for r in rows)
@@ -239,6 +247,34 @@ class BulkUploadMarksViewTests(_GradingFixture):
         self.assertEqual(body["checks"]["missing_headers"], [])
         self.assertEqual(body["summary"]["errors"], 0)
 
+    def test_headers_out_of_order_are_refused(self):
+        # The categories after the marks, where the export used to put them.
+        header = self.HEADER + ["product_category", "category_of_solution"]
+        upload = self._make_csv([self._row("5") + ("Health and Medicine", "App")], header=header)
+        resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertEqual(body["checks"]["missing_headers"], [])
+        self.assertEqual(body["checks"]["header_order"], "product_category should come before r1_mark")
+        self.assertEqual(body["errors"], [
+            {"row": 1, "message": "column headers out of order: product_category should come before r1_mark"},
+        ])
+        # Nothing is read from a sheet in the wrong order.
+        self.assertEqual(body["summary"]["creates"], 0)
+
+    def test_marks_out_of_order_are_refused(self):
+        header = ["year", "group_name", "type", "q1", "r2_mark", "r2_comment", "r1_mark", "r1_comment"]
+        upload = self._make_csv([(self.group.year, "BTF-TEST-1", "SAQs", "", "", "", "5", "")], header=header)
+        body = self.client.post(self.url, {"file": upload, "dry_run": "true"}).json()
+        self.assertEqual(body["checks"]["header_order"], "r1_mark should come before r2_mark")
+
+    def test_extra_columns_can_sit_anywhere(self):
+        header = ["notes"] + self.HEADER[:4] + ["marker"] + self.HEADER[4:]
+        row = self._row("5")
+        upload = self._make_csv([("x",) + row[:4] + ("Ada",) + row[4:]], header=header)
+        body = self.client.post(self.url, {"file": upload, "dry_run": "true"}).json()
+        self.assertEqual((body["checks"]["header_order"], body["summary"]["errors"]), ("", 0))
+
     def test_commit_rejected_when_errors_exist(self):
         upload = self._make_csv([self._row("abc")])
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
@@ -291,8 +327,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # product_category / category_of_solution parse back from the
         # export's own formatting and land on the group's marking key.
         upload = self._make_xlsx(
-            [self._row() + ("Health and Medicine, Wearables", "App")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "Health and Medicine, Wearables", "App")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -308,8 +344,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # nothing the sheet carries can become invisible in the UI. Known
         # labels match case-insensitively to their canonical casing.
         upload = self._make_xlsx(
-            [self._row() + ("sustainable environment, sadfasd", "asdfasdf")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "sustainable environment, sadfasd", "asdfasdf")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -323,8 +359,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # "Other" alone ticks Other with no text; "Other: X" has no special
         # meaning any more, so it is kept whole as the Other text.
         upload = self._make_xlsx(
-            [self._row() + ("Other", "Other: App")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "Other", "Other: App")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -341,8 +377,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
             solution_category="Treatment",
         )
         upload = self._make_xlsx(
-            [self._row() + ("Sustainable Environment, Health and Medicine", "Treatment")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "Sustainable Environment, Health and Medicine", "Treatment")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -354,8 +390,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
             group=self.group, product_categories=["Emerging Technologies"],
         )
         upload = self._make_xlsx(
-            [self._row() + ("Health and Medicine", "Treatment")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "Health and Medicine", "Treatment")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -366,8 +402,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
 
     def test_first_categories_overwrite_nothing(self):
         upload = self._make_xlsx(
-            [self._row() + ("Health and Medicine", "Treatment")],
-            header=self.HEADER + ["product_category", "category_of_solution"],
+            [self._with_categories(self._row(), "Health and Medicine", "Treatment")],
+            header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "true"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -380,8 +416,8 @@ class BulkUploadMarksViewTests(_GradingFixture):
             solution_category="Treatment",
         )
         upload = self._make_xlsx(
-            [self._row() + ("Health and Medicine",)],
-            header=self.HEADER + ["product_category"],
+            [self._with_categories(self._row(), "Health and Medicine")],
+            header=self._category_header("product_category"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -444,6 +480,13 @@ class BulkUploadWideFormatTests(_GradingFixture):
         body = resp.json()
         self.assertFalse(body["checks"]["type_ok"])
         self.assertEqual(body["checks"]["found_type"], "SAQs")
+        self.assertEqual(body["summary"]["errors"], 1)
+
+    def test_a_comment_before_its_mark_is_refused(self):
+        header = ["year", "group_name", "type", "r1_comment", "r1_mark", "overall_comment"]
+        upload = self._make_csv([(self.group.year, "BTF-TEST-1", "Poster", "", "7.00", "")], header=header)
+        body = self.client.post(self.url, {"file": upload, "dry_run": "true"}).json()
+        self.assertEqual(body["checks"]["header_order"], "r1_mark should come before r1_comment")
         self.assertEqual(body["summary"]["errors"], 1)
 
     def test_missing_rn_columns_rejected(self):

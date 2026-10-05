@@ -85,6 +85,10 @@ class PrototypeAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_PROTOTYPE_CONTAINER"
 
 
+class SlidesAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_SLIDES_CONTAINER"
+
+
 class LocalContainerStorage(FileSystemStorage):
     def __init__(self, namespace: str):
         media_root = Path(getattr(settings, "MEDIA_ROOT", Path(settings.BASE_DIR) / "media"))
@@ -400,6 +404,11 @@ def get_prototype_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("prototypes", PrototypeAzureStorage)
 
 
+@lru_cache(maxsize=2)
+def get_slides_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("slides", SlidesAzureStorage)
+
+
 def reset_managed_storage_caches() -> None:
     # Developer note: prod never flips USE_AZURE_BLOB_STORAGE at runtime, but tests
     # do. Exposing an explicit cache reset keeps override_settings-based storage
@@ -410,3 +419,4 @@ def reset_managed_storage_caches() -> None:
     get_poster_storage.cache_clear()
     get_report_storage.cache_clear()
     get_prototype_storage.cache_clear()
+    get_slides_storage.cache_clear()

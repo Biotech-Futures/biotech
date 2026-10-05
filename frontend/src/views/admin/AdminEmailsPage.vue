@@ -324,4 +324,9 @@ onMounted(async () => {
     position: static;
   }
 }
+
+/* Dark theme: the switch's label reads on the dark page. */
+:root[data-theme='dark'] .admin-emails__global-label {
+  color: var(--charcoal);
+}
 </style>

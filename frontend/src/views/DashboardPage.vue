@@ -17,7 +17,7 @@
             <div class="dashboard-hero-main">
               <div class="dashboard-hero-copy">
                 <p class="dashboard-hero-message">
-                  Welcome to {{ BRAND_CONNECT }} — your central hub for the {{ BRAND_NAME }} Challenge.
+                  Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
                   Connect with your team, collaborate and share ideas, access program-wide
                   resources, register for events, and stay up to date with the latest announcements
                   and opportunities across the program.

@@ -65,7 +65,7 @@ const RubricFormStub = defineComponent({
     }
   },
   template:
-    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
+    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? { comment: \'Great\', expected: \'\' } : null)">save</button><slot name="actions" /></div>'
 })
 
 // The page reads isDirty and calls save() on the category boxes through a
@@ -92,16 +92,37 @@ const MarkingCategoriesStub = defineComponent({
     '</div>'
 })
 
+// The dividers and previews say whether they were moved, as the real ones
+// do; Reset view puts them back.
+const layoutMoved = ref(false)
+const layoutReset = vi.fn(() => {
+  layoutMoved.value = false
+})
+const movable = {
+  setup(_props: unknown, { expose }: { expose: (exposed: Record<string, unknown>) => void }) {
+    expose({
+      get moved() {
+        return layoutMoved.value
+      },
+      reset: layoutReset
+    })
+    return {}
+  }
+}
+
 const stubs = {
   GroupSearchInput: GroupSearchInputStub,
   RubricForm: RubricFormStub,
   MarkingCategories: MarkingCategoriesStub,
   ResizableSplit: {
-    template: '<div class="split-stub"><slot name="left" /><slot name="right" /></div>'
+    ...movable,
+    props: ['memory', 'rightMax'],
+    template: '<div class="split-stub" :data-memory="memory"><slot name="left" /><slot name="right" /></div>'
   },
   SubmissionPreview: {
-    props: ['submission', 'component', 'lastGraderName', 'criterionMarkers', 'graderNames', 'hideSubmitted'],
-    template: '<div class="preview-stub">{{ component.code }}</div>'
+    ...movable,
+    props: ['submission', 'component', 'lastGraderName', 'criterionMarkers', 'graderNames', 'hideSubmitted', 'memory'],
+    template: '<div class="preview-stub" :data-memory="memory">{{ component.code }}</div>'
   },
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
 }
@@ -140,7 +161,7 @@ const block = (code: string, over: Record<string, unknown> = {}) => ({
 })
 
 const markingPayload = (components: unknown[]) => ({
-  group: { id: 3, group_name: 'Alpha Team' },
+  group: { id: 3, group_name: 'Alpha Team', project_title: 'Plant Sensors' },
   year: 2026,
   components
 })
@@ -177,6 +198,9 @@ const mountPage = async () => {
 }
 
 beforeEach(() => {
+  layoutMoved.value = false
+  layoutReset.mockClear()
+  window.localStorage.clear()
   routeState.name = 'grading-group'
   routeState.params = { groupId: '3' }
   pushMock.mockReset()
@@ -213,6 +237,13 @@ describe('the combined SAQs & Poster view', () => {
     expect(wrapper.find('.group-marking__title').text()).toContain('Alpha Team')
     // The heading shows the group name alone — no id.
     expect(wrapper.find('.group-marking__title').text()).not.toContain('#')
+    // The title the team submitted: its own line after the heading and
+    // search, before the Marker line.
+    const title = wrapper.find('.group-marking__project-title')
+    expect(title.text()).toBe('Title: Plant Sensors')
+    expect(title.element.previousElementSibling?.classList.contains('group-marking__header')).toBe(true)
+    const html = wrapper.html()
+    expect(html.indexOf('group-marking__project-title')).toBeLessThan(html.indexOf('Marker:'))
     const active = wrapper.find('[role="tab"][aria-selected="true"]')
     expect(active.text()).toBe('SAQs & Poster')
     // Both previews and both rubric forms render.
@@ -282,7 +313,7 @@ describe('saving marks', () => {
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith(
       [{ submission: 11, criterion: 2, mark: '5', comment: '' }],
-      [{ submission: 11, component: 'POSTER', comment: 'Great' }]
+      [{ submission: 11, component: 'POSTER', comment: 'Great', expected_comment: '' }]
     )
     expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
     expect(markingMock).toHaveBeenCalledTimes(2) // refetch after the upsert
@@ -341,6 +372,66 @@ describe('saving marks', () => {
   })
 })
 
+describe('Reset view', () => {
+  const resetButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+    wrapper.findAll('button').find((b) => b.text() === 'Reset view')!
+
+  it('sits above the rubrics, off until something is moved', async () => {
+    const wrapper = await mountPage()
+    const row = wrapper.find('.group-marking__reset-row')
+    expect(row.text()).toBe('Reset view')
+    // Above the rubrics in their column.
+    expect(row.element.nextElementSibling?.classList).toContain('group-marking__combined-rubrics')
+    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
+
+    layoutMoved.value = true
+    await flushPromises()
+    expect(resetButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it("puts the view's dividers and heights back, then goes off again", async () => {
+    layoutMoved.value = true
+    const wrapper = await mountPage()
+    await resetButton(wrapper).trigger('click')
+    // Both splits and both previews in SAQs & Poster.
+    expect(layoutReset).toHaveBeenCalledTimes(4)
+    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('the rubrics height counts too, and is remembered', async () => {
+    window.localStorage.setItem('grading-height:rubrics', '500')
+    const wrapper = await mountPage()
+    expect(wrapper.find('.group-marking__combined-rubrics').attributes('style')).toContain('height: 500px')
+    expect(resetButton(wrapper).attributes('disabled')).toBeUndefined()
+    await resetButton(wrapper).trigger('click')
+    expect(wrapper.find('.group-marking__combined-rubrics').attributes('style')).toBeUndefined()
+    expect(window.localStorage.getItem('grading-height:rubrics')).toBeNull()
+  })
+
+  it('each subtab keeps its own positions', async () => {
+    const wrapper = await mountPage()
+    const memories = (selector: string) => wrapper.findAll(selector).map((el) => el.attributes('data-memory'))
+    // SAQs & Poster's own, not the SAQ or Poster tab's.
+    expect(memories('.split-stub')).toEqual(['combined-rubrics', 'combined-answers-poster'])
+    expect(memories('.preview-stub')).toEqual(['combined:SAQ', 'combined:POSTER'])
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    expect(memories('.split-stub')).toEqual(['rubrics:POSTER'])
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'Short Answer Questions')!.trigger('click')
+    expect(memories('.split-stub')).toEqual(['rubrics:SAQ'])
+  })
+
+  it('is above the rubric on a single section too', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    expect(wrapper.find('.group-marking__reset-row').exists()).toBe(true)
+    layoutMoved.value = true
+    await flushPromises()
+    await resetButton(wrapper).trigger('click')
+    // Its one split and one preview.
+    expect(layoutReset).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('switching sections in by-group mode', () => {
   it('switches locally without navigating', async () => {
     const wrapper = await mountPage()
@@ -372,6 +463,30 @@ describe('walking the cohort', () => {
     const wrapper = await mountPage()
     await wrapper.findAll('button').find((b) => /Next Unmarked/.test(b.text()))!.trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/5')
+  })
+
+  it('keeps the section open when moving to another group', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    routeState.params = { groupId: '5' }
+    await flushPromises()
+    expect(markingMock).toHaveBeenLastCalledWith(5)
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').text()).toBe('POSTER')
+  })
+
+  it('keeps the page where it was scrolled while the next group loads', async () => {
+    await mountPage()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { value: 640, configurable: true })
+    try {
+      routeState.params = { groupId: '5' }
+      await flushPromises()
+      expect(markingMock).toHaveBeenLastCalledWith(5)
+      expect(scrollTo).toHaveBeenCalledWith({ top: 640 })
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+      scrollTo.mockRestore()
+    }
   })
 
   it('search opens the resolved group and refuses an unknown one', async () => {

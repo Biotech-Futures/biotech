@@ -150,7 +150,9 @@ class ConcurrentSubmitTests(TestCase):
 
     def _make_submittable(self, user):
         client = self._client_for(user)
-        client.put(self.detail_url, {"answers": self._answers()}, format="json")
+        client.put(
+            self.detail_url, {"project_title": "Our Project", "answers": self._answers()}, format="json"
+        )
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
         return client
 

@@ -4,11 +4,11 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
 
 from ..models import Grade, GroupMarkingCategories, Rubric, SubmissionComponent
-from ..permissions import IsGrader
 from ..serializers import (
     GradeSerializer,
     RubricCriterionSerializer,
@@ -22,7 +22,7 @@ class GroupMarkingView(APIView):
 
     Shape:
         {
-          "group": {"id": ..., "group_name": ...},
+          "group": {"id": ..., "group_name": ..., "project_title": ...},
           "year": 2026,
           "components": [
             {
@@ -41,7 +41,7 @@ class GroupMarkingView(APIView):
     component, which is what keeps the blocks distinct.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
@@ -99,7 +99,11 @@ class GroupMarkingView(APIView):
             })
 
         return Response({
-            "group": {"id": group.id, "group_name": group.group_name},
+            "group": {
+                "id": group.id,
+                "group_name": group.group_name,
+                "project_title": content.submitted_titles([group.id]).get(group.id, ""),
+            },
             "year": year,
             "components": payload_components,
         })
@@ -122,7 +126,7 @@ class GroupCategoriesView(APIView):
     group; POST replaces the whole selection.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)

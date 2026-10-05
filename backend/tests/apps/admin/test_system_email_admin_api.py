@@ -213,6 +213,22 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertKeepsBoxAndButton(body)
         self.assertIn('href="{{ reset_link }}"', body)
 
+    def test_update_keeps_a_tables_lines_and_padding(self):
+        table = (
+            '<table style="border-collapse: collapse; min-width: 75px; position: absolute">'
+            '<tbody><tr><th style="border: 1px solid #d1d5db; padding: 6px 10px">Day</th></tr>'
+            '<tr><td style="border: 1px solid #d1d5db; padding: 6px 10px; background: url(https://x.example/t.png)">'
+            "Saturday</td></tr></tbody></table>"
+        )
+        update_email_template("password_reset", {"body": table}, requested_by=self.admin)
+        body = SystemEmailTemplate.objects.get(key="password_reset").body_html
+        self.assertIn("border-collapse:collapse", body)
+        self.assertIn("border:1px solid #d1d5db", body)
+        self.assertIn("padding:6px 10px", body)
+        self.assertIn("Saturday", body)
+        for gone in ("position", "min-width", "url("):
+            self.assertNotIn(gone, body)
+
     def test_update_rejects_unknown_merge_tag(self):
         result = update_email_template(
             "password_reset",

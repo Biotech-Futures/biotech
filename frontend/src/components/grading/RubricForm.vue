@@ -7,12 +7,11 @@
 
     <form v-else class="rubric-form" @submit.prevent="handleSubmit">
       <div v-for="c in criteria" :key="c.id" class="rubric-form__criterion">
+        <!-- The most first, floated right, so the criterion's words run on
+             under it rather than leaving a column empty beneath it. -->
         <div class="rubric-form__criterion-head">
-          <div>
-            <p class="rubric-form__name">{{ c.name }}</p>
-            <p v-if="c.description" class="rubric-form__description">{{ c.description }}</p>
-          </div>
           <span class="rubric-form__max">/ {{ c.max_mark }}</span>
+          <p class="rubric-form__name">{{ c.name }}</p>
         </div>
         <div class="rubric-form__fields">
           <input
@@ -24,7 +23,7 @@
             placeholder="Mark"
             class="rubric-form__mark"
             :value="state[c.id]?.mark ?? ''"
-            @input="setMark(c.id, ($event.target as HTMLInputElement).value)"
+            @input="onMarkInput(c.id, $event.target as HTMLInputElement)"
           />
           <textarea
             placeholder="Comment (optional)"
@@ -59,7 +58,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import type { Grade, GradeBulkItem, RubricCriterion, Submission } from '@/utils/gradingAPI'
+import type {
+  Grade,
+  GradeBulkItem,
+  OverallCommentEdit,
+  RubricCriterion,
+  Submission
+} from '@/utils/gradingAPI'
 
 const props = defineProps<{
   submission: Submission | null
@@ -74,14 +79,21 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** overallComment is null when the box is hidden for this component. */
-  save: [items: GradeBulkItem[], overallComment: string | null]
+  /** Only the rows edited here; the overall comment is null when it wasn't
+   *  edited, or its box is hidden for this component. */
+  save: [items: GradeBulkItem[], overallComment: OverallCommentEdit | null]
 }>()
 
 type FormRow = { mark: string; comment: string }
 
 const state = reactive<Record<number, FormRow>>({})
 const overallComment = ref('')
+// What each row started from: as loaded, or as another marker has since left
+// it, for a row not touched here. A row is an edit only when it differs from
+// this, and a save names it, so the server can refuse a save over another
+// marker's change rather than write stale values over it.
+const base = reactive<Record<number, FormRow>>({})
+const baseOverall = ref('')
 
 // "5" and "5.00" are the same mark — the server normalises decimals, so a
 // plain string compare would flag a just-saved value as an edit.
@@ -93,11 +105,20 @@ const sameMark = (a: string, b: string) => {
   return Number.isFinite(na) && Number.isFinite(nb) && na === nb
 }
 
+const sameRow = (a: FormRow, b: FormRow) => sameMark(a.mark, b.mark) && a.comment === b.comment
+const edited = (criterionId: number) => {
+  const row = state[criterionId]
+  const was = base[criterionId]
+  return row != null && was != null && !sameRow(row, was)
+}
+
 // Preload form state from existing grades keyed by criterion id, with empty
 // defaults for un-graded criteria. Re-runs when the payload refetches after a
 // save round-trip. A refetch of the SAME entry (e.g. the combined SAQs &
-// Poster view saving the other section) must not wipe edits in progress
-// here, so dirty rows survive it; a different entry resets everything.
+// Poster view saving the other section) keeps edits the server doesn't hold
+// yet; every other row takes the server's value, so a row left alone shows
+// another marker's change instead of staying stale. A different entry resets
+// everything.
 let boundSubmissionId: number | null = null
 watch(
   () => [props.submission, props.criteria, props.grades] as const,
@@ -108,45 +129,42 @@ watch(
     const byCriterion = new Map<number, Grade>()
     for (const g of grades) byCriterion.set(g.criterion, g)
     for (const key of Object.keys(state)) {
-      if (!criteria.some((c) => c.id === Number(key))) delete state[Number(key)]
+      if (!criteria.some((c) => c.id === Number(key))) {
+        delete state[Number(key)]
+        delete base[Number(key)]
+      }
     }
     for (const c of criteria) {
       const g = byCriterion.get(c.id)
       const server: FormRow = { mark: g?.mark ?? '', comment: g?.comment ?? '' }
       const row = state[c.id]
-      const keepLocal =
-        sameEntry &&
-        row != null &&
-        (!sameMark(row.mark, server.mark) || row.comment !== server.comment)
-      if (!keepLocal) state[c.id] = server
+      const keepEdit = sameEntry && row != null && edited(c.id) && !sameRow(row, server)
+      if (!keepEdit) {
+        state[c.id] = { ...server }
+        base[c.id] = { ...server }
+      }
     }
 
     const serverOverall = submission?.overall_comment ?? ''
-    if (!(sameEntry && overallComment.value !== serverOverall)) {
+    const keepOverall =
+      sameEntry && overallComment.value !== baseOverall.value && overallComment.value !== serverOverall
+    if (!keepOverall) {
       overallComment.value = serverOverall
+      baseOverall.value = serverOverall
     }
   },
   { immediate: true }
 )
 
-// Unsaved edits: any mark, comment, or overall comment differing from the
-// last server payload, or edits the parent reports via extraDirty.
-// Retyping the exact stored value counts as clean.
-const isDirty = computed(() => {
-  if (props.extraDirty) return true
-  const byCriterion = new Map<number, Grade>()
-  for (const g of props.grades) byCriterion.set(g.criterion, g)
-  const rowsDirty = props.criteria.some((c) => {
-    const row = state[c.id]
-    if (!row) return false
-    const g = byCriterion.get(c.id)
-    return !sameMark(row.mark, g?.mark ?? '') || row.comment !== (g?.comment ?? '')
-  })
-  const overallDirty = props.overallCommentLabel
-    ? overallComment.value !== (props.submission?.overall_comment ?? '')
-    : false
-  return rowsDirty || overallDirty
-})
+// Unsaved edits: any mark, comment, or overall comment changed from what it
+// started from, or edits the parent reports via extraDirty. Retyping the
+// starting value counts as clean.
+const overallEdited = computed(() =>
+  Boolean(props.overallCommentLabel) && overallComment.value !== baseOverall.value
+)
+const isDirty = computed(
+  () => Boolean(props.extraDirty) || props.criteria.some((c) => edited(c.id)) || overallEdited.value
+)
 
 const UNSAVED_MESSAGE = 'You have unsaved marks or comments. Leave without saving?'
 
@@ -172,22 +190,42 @@ const setMark = (criterionId: number, mark: string) => {
   if (state[criterionId]) state[criterionId].mark = mark
 }
 
+// At most two decimal places: a third typed (or pasted) digit is dropped.
+const PAST_TWO_DECIMALS = /^(\d*\.\d{2})\d+$/
+const onMarkInput = (criterionId: number, input: HTMLInputElement) => {
+  const mark = input.value.replace(PAST_TWO_DECIMALS, '$1')
+  if (mark !== input.value) input.value = mark
+  setMark(criterionId, mark)
+}
+
 const setComment = (criterionId: number, comment: string) => {
   if (state[criterionId]) state[criterionId].comment = comment
 }
 
+// Empty -> null, so a mark reads as "not graded yet" rather than 0. Numeric
+// validation is loose here: DRF's DecimalField rejects anything unparseable
+// and the error surfaces to the caller.
+const markOrNull = (mark: string) => (mark.trim() ? mark : null)
+
+// Only the rows edited here, each with what it started from: rows left alone
+// are never written, and the server refuses a save over another marker's
+// change instead of replacing it.
 const handleSubmit = () => {
   if (!props.submission) return
-  const items: GradeBulkItem[] = props.criteria.map((c) => ({
-    submission: props.submission!.id,
-    criterion: c.id,
-    // Empty string -> null so the mark is stored as "not graded yet" rather
-    // than 0. Numeric validation is loose here — DRF's DecimalField rejects
-    // anything unparseable and the error surfaces to the caller.
-    mark: state[c.id]?.mark?.trim() ? state[c.id].mark : null,
-    comment: state[c.id]?.comment ?? ''
-  }))
-  emit('save', items, props.overallCommentLabel ? overallComment.value : null)
+  const items: GradeBulkItem[] = props.criteria
+    .filter((c) => edited(c.id))
+    .map((c) => ({
+      submission: props.submission!.id,
+      criterion: c.id,
+      mark: markOrNull(state[c.id]!.mark),
+      comment: state[c.id]!.comment,
+      expected_mark: markOrNull(base[c.id]!.mark),
+      expected_comment: base[c.id]!.comment
+    }))
+  const overall = overallEdited.value
+    ? { comment: overallComment.value, expected: baseOverall.value }
+    : null
+  emit('save', items, overall)
 }
 </script>
 
@@ -204,14 +242,16 @@ const handleSubmit = () => {
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-width: 22rem;
 }
 
-/* Criteria read as one seamless panel: no gaps, no dividers between them. */
+/* Criteria read as one seamless panel: no gaps, no dividers between them.
+   The one above's bottom padding is the space above each criterion, the
+   same as the space below its name. */
 .rubric-form__criterion + .rubric-form__criterion {
   border-top: none;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+  padding-top: 0;
 }
 
 .rubric-form__criterion:has(+ .rubric-form__criterion) {
@@ -228,26 +268,19 @@ const handleSubmit = () => {
 }
 
 .rubric-form__criterion-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: flow-root;
   margin-bottom: 0.5rem;
 }
 
 .rubric-form__name {
   font-weight: 400;
-  font-size: 0.85rem;
-  margin: 0;
-}
-
-.rubric-form__description {
   font-size: 0.8rem;
-  color: var(--text-muted);
   margin: 0;
 }
 
 .rubric-form__max {
+  float: right;
+  margin-left: 0.75rem;
   font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
@@ -255,13 +288,41 @@ const handleSubmit = () => {
 
 .rubric-form__fields {
   display: grid;
-  grid-template-columns: 3.5rem 1fr;
-  gap: 0.5rem;
+  grid-template-columns: 2.75rem 1fr;
+}
+
+/* The mark and comment boxes join into one: square where they meet, sharing
+   the border between them; the focused one's border shows over the other's. */
+.rubric-form__fields .rubric-form__mark {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  /* Narrower sides, so "10.00" still fits the narrower box. */
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.rubric-form__fields .rubric-form__comment {
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.rubric-form__fields .rubric-form__mark:focus,
+.rubric-form__fields .rubric-form__comment:focus {
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 640px) {
   .rubric-form__fields {
     grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .rubric-form__fields .rubric-form__mark,
+  .rubric-form__fields .rubric-form__comment {
+    margin-left: 0;
+    border-radius: 6px;
   }
 }
 
@@ -270,7 +331,7 @@ const handleSubmit = () => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
   color: var(--charcoal);

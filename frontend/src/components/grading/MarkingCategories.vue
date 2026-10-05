@@ -17,7 +17,7 @@
           />
           <span>{{ option }}</span>
         </label>
-        <label class="marking-categories__option">
+        <label class="marking-categories__option marking-categories__option--other">
           <input
             type="checkbox"
             :checked="form.product_categories.includes(OTHER)"
@@ -53,7 +53,7 @@
           />
           <span>{{ option }}</span>
         </label>
-        <label class="marking-categories__option">
+        <label class="marking-categories__option marking-categories__option--other">
           <input
             type="radio"
             :name="`solution-category-${groupId}`"
@@ -176,8 +176,6 @@ const pickSolution = (option: string) => {
   flex-direction: column;
   gap: 0;
   margin-bottom: 1rem;
-  /* Same width as the rubric form below it (RubricForm's max-width). */
-  max-width: 22rem;
 }
 
 /* Both boxes read as one seamless panel, like the rubric criteria below:
@@ -209,14 +207,15 @@ const pickSolution = (option: string) => {
 /* A plain heading inside the box — a real <legend> straddles the border.
    Sized like the rubric column's section titles ("Short Answer Questions"). */
 .marking-categories__legend {
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 0.85rem;
+  font-weight: 400;
   color: var(--charcoal);
   margin: 0 0 0.5rem;
 }
 
 .marking-categories__hint {
   color: var(--text-muted);
+  font-size: 0.8rem;
   font-weight: 400;
   font-style: italic;
 }
@@ -231,7 +230,7 @@ const pickSolution = (option: string) => {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--charcoal);
   cursor: pointer;
 }
@@ -241,7 +240,14 @@ const pickSolution = (option: string) => {
   accent-color: var(--dark-green);
 }
 
+/* "Other" takes the rest of its row, and its box grows into it. */
+.marking-categories__option--other {
+  flex: 1 1 auto;
+}
+
 .marking-categories__other {
+  flex: 1 1 auto;
+  min-width: 9rem;
   border: 1px solid var(--border-light);
   border-radius: 5px;
   background: var(--surface-elevated);

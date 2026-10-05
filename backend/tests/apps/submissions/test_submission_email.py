@@ -63,6 +63,7 @@ class SubmissionEmailTests(TestCase):
 
     def _complete_and_submit(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {
             "storage_key": "x/poster.pdf", "name": "poster.pdf",
@@ -145,6 +146,7 @@ class SubmissionEmailTests(TestCase):
 
     def test_a_prototype_link_alone_counts_as_submitted(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {"storage_key": "x/p.pdf", "name": "p.pdf", "mime": "", "size": 1}
         submission.prototype_url = "https://example.com/demo"

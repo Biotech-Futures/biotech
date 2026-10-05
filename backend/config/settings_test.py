@@ -54,6 +54,9 @@ AUTH_EMAIL_DISPATCH_SYNC = True
 # And for the unread digest: run inline so mail.outbox is populated when the
 # trigger view returns instead of racing a worker thread.
 UNREAD_DIGEST_DISPATCH_SYNC = True
+BULK_EMAIL_DISPATCH_SYNC = True
+BULK_EMAIL_RETRY_SECONDS = 0
+BULK_EMAIL_QUEUE_GAP_SECONDS = 0
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
 # which then tries to parse an AZURE_CONNECTION_STRING that CI doesn't set.

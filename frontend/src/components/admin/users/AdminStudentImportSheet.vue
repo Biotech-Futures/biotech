@@ -46,7 +46,7 @@
           {{ validRows.length }} ready
         </span>
         <span v-else class="student-import__summary-message">
-          No valid rows to import — check the skipped list below.
+          No valid rows to import - check the skipped list below.
         </span>
         <span v-if="invalidRows.length" class="student-import__badge">
           {{ invalidRows.length }} skipped

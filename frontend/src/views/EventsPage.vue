@@ -1412,7 +1412,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
     ev.accepted = response.rsvp_status === 'accepted'
     if (status === 'accepted' && response.rsvp_status === 'waitlisted') {
-      showStatusMessage("Event full — you're on the waitlist.")
+      showStatusMessage("Event full - you're on the waitlist.")
     } else if (previousStatus === 'waitlisted' && status === 'declined') {
       showStatusMessage('RSVP updated: Removed from waitlist')
     } else {

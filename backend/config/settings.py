@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.submissions',
     'apps.grading',
+    'apps.management',
     'apps.services',
     'drf_spectacular',
     'rest_framework',
@@ -75,6 +76,8 @@ AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
 AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
 AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
 AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Finalists' presentation slides for the Symposium, apart from their entries.
+AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -644,6 +647,18 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
+# on the server once started, over this many mail server connections at once.
+# Raise it only as far as the mailbox's sending limits allow. Tests set the
+# sync flag to send inline, one at a time.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed.
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
+# Bulk email runs send one at a time; each starts this many seconds after the
+# one before it finished.
+BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

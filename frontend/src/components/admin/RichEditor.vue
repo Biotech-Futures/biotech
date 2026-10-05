@@ -16,21 +16,29 @@ interface Props {
   /**
    * Email bodies are sanitised server-side with nh3, which strips base64
    * images, `data:` URLs and uploaded-file links. Hiding those insert tools
-   * (and the table context bar) keeps the editor honest about what will
-   * actually survive a save.
+   * keeps the editor honest about what will actually survive a save. Tables
+   * do survive, drawn with lines and padding the server keeps.
    */
   emailMode?: boolean
+  /** The Box and Button tools, as in email mode, with every other tool kept:
+   *  for announcements. */
+  blocks?: boolean
   /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
   linkPlaceholders?: string[]
 }
 
+// An email's table lines and cell padding (see the Table extension below).
+const EMAIL_TABLE_STYLE = 'border-collapse: collapse'
+const EMAIL_CELL_STYLE = 'border: 1px solid #d1d5db; padding: 6px 10px'
+
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   placeholder: undefined,
   readOnly: false,
   emailMode: false,
+  blocks: false,
   compact: false,
   linkPlaceholders: () => []
 })
@@ -65,15 +73,18 @@ const editor = useEditor({
       }
     }),
     Image.configure({ inline: false, allowBase64: true }),
-    Table.configure({ resizable: false }),
+    // In emails a table draws its own lines, since email clients ignore the
+    // page's stylesheet; the server keeps these styles.
+    Table.configure({ resizable: false, ...(props.emailMode ? { HTMLAttributes: { style: EMAIL_TABLE_STYLE } } : {}) }),
     TableRow,
-    TableHeader,
-    TableCell,
+    TableHeader.configure(props.emailMode ? { HTMLAttributes: { style: EMAIL_CELL_STYLE } } : {}),
+    TableCell.configure(props.emailMode ? { HTMLAttributes: { style: EMAIL_CELL_STYLE } } : {}),
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
-    // Emails keep the boxes and buttons of their built-in design.
-    ...(props.emailMode ? [EmailBox, EmailButton] : [])
+    // Emails keep the boxes and buttons of their built-in design; announcements
+    // can have them too.
+    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : [])
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -533,7 +544,7 @@ defineExpose({ insertText })
           </button>
 
           <!-- Email design blocks, kept on save -->
-          <template v-if="emailMode">
+          <template v-if="emailMode || blocks">
             <div class="heading-dropdown-container">
               <button
                 type="button"
@@ -613,7 +624,7 @@ defineExpose({ insertText })
 
           <div class="toolbar-sep"></div>
 
-          <!-- Insert Actions (hidden in email mode: nh3 strips images/files) -->
+          <!-- Insert Actions (images and files hidden in email mode: nh3 strips them) -->
           <template v-if="!emailMode">
             <button
               type="button"
@@ -634,18 +645,18 @@ defineExpose({ insertText })
               <i class="fas fa-paperclip"></i>
               <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
             </button>
-            <button
-              type="button"
-              class="toolbar-btn text-icon-btn"
-              title="Insert table (3x3)"
-              @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
-            >
-              <i class="fas fa-table"></i>
-              <span>Table</span>
-            </button>
-
-            <div class="toolbar-sep"></div>
           </template>
+          <button
+            type="button"
+            class="toolbar-btn text-icon-btn"
+            title="Insert table (3x3)"
+            @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
+          >
+            <i class="fas fa-table"></i>
+            <span>Table</span>
+          </button>
+
+          <div class="toolbar-sep"></div>
 
           <!-- History -->
           <button
@@ -684,7 +695,7 @@ defineExpose({ insertText })
       </div>
 
       <!-- Table Context Toolbar -->
-      <div v-if="isInTable && !rawMode && !readOnly && !emailMode" class="table-context-bar">
+      <div v-if="isInTable && !rawMode && !readOnly" class="table-context-bar">
         <div class="table-context-heading">
           <i class="fas fa-table text-blue-500"></i>
           <span class="table-context-title">Table:</span>

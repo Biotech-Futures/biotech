@@ -5,8 +5,6 @@ from .models import (
     FinalistFlag,
     Grade,
     GradingJob,
-    GradingSettings,
-    MarksRelease,
     Rubric,
     RubricCriterion,
     SubmissionComponent,
@@ -63,17 +61,6 @@ class FinalistFlagAdmin(admin.ModelAdmin):
     list_filter = ("notified",)
     raw_id_fields = ("group", "flagged_by")
     date_hierarchy = "flagged_at"
-
-
-@admin.register(MarksRelease)
-class MarksReleaseAdmin(admin.ModelAdmin):
-    list_display = ("id", "released_at", "released_by")
-    raw_id_fields = ("released_by",)
-
-
-@admin.register(GradingSettings)
-class GradingSettingsAdmin(admin.ModelAdmin):
-    list_display = ("id", "director_1_name", "director_2_name")
 
 
 @admin.register(GradingJob)

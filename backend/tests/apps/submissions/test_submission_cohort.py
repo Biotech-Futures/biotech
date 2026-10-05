@@ -42,6 +42,7 @@ class SubmissionCohortTests(TestCase):
 
     def _submit(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in self.questions}
         submission.poster = {
             "storage_key": "c/poster.pdf", "name": "poster.pdf",

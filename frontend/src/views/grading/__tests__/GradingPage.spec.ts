@@ -7,7 +7,8 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({
     get path() {
       return routePath.value
-    }
+    },
+    meta: {}
   })
 }))
 
