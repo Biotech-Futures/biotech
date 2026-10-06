@@ -71,26 +71,36 @@ async function retry(event: MouseEvent) {
 </script>
 
 <style scoped>
-/* #616970 and #a71d2a on the panel's #ffffff are 5.58:1 and 7.36:1; dark
-   hands both back to the theme (--text-muted 5.72:1, --danger 6.08:1 on
-   #161f1d). */
+/* #5a6268 and #a71d2a on the panel's #ffffff are 6.21:1 and 7.36:1; dark
+   takes the panel's #a3b3ae (6.95:1 on #1d2826) and hands the error back to
+   the theme (--danger 5.49:1). Since the first redesign round (October 2026)
+   a rule sets the history off from the facts above it, and each entry hangs
+   off a dot on a thin line: a timeline. The dot is the panel's accent, brand
+   green in light and mint in dark (5.52:1 there), where brand green would
+   be lost. */
 .ticket-history {
-  --history-muted: #616970;
+  --history-muted: #5a6268;
   --history-danger: #a71d2a;
+  --history-rule: #e6eae8;
+  --history-dot: #017151;
 
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--history-rule);
 }
 
 :root[data-theme='dark'] .ticket-history {
-  --history-muted: var(--text-muted);
+  --history-muted: #a3b3ae;
   --history-danger: var(--danger);
+  --history-rule: #2b3936;
+  --history-dot: #5ea99e;
 }
 
 .ticket-history__heading {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--charcoal);
 }
@@ -101,9 +111,37 @@ async function retry(event: MouseEvent) {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--history-muted);
+}
+
+/* Padding, not spaces, sets the words in from the dot, so an entry that
+   wraps keeps its second line under the first. */
+.ticket-history__list li {
+  position: relative;
+  padding: 0 0 0.45rem 1.25rem;
+  line-height: 1.6;
+}
+
+.ticket-history__list li::before {
+  content: '';
+  position: absolute;
+  top: 0.45rem;
+  left: 0.2rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--history-dot);
+}
+
+/* The thread between one dot and the next, stopping short of both. */
+.ticket-history__list li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1.1rem;
+  bottom: 0.05rem;
+  left: calc(0.45rem - 0.5px);
+  border-left: 1px solid var(--history-rule);
 }
 
 .ticket-history__action {
@@ -113,7 +151,7 @@ async function retry(event: MouseEvent) {
 
 .ticket-history__quiet {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--history-muted);
 }
 
@@ -133,7 +171,7 @@ async function retry(event: MouseEvent) {
 .ticket-history__retry {
   padding: 0.3rem 0.8rem;
   border: 1px solid var(--border-light);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font-family: inherit;

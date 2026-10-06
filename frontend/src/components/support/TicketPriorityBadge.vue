@@ -20,25 +20,33 @@ defineProps<{ priority: TicketPriority }>()
    because "High" on its own beside a status reads like a second status.
 
    Normal and Low were the same mistake as the first two goes at High below,
-   one step quieter. They take --text-muted, and the badge paints no
+   one step quieter. They took --text-muted, and the badge paints no
    background, so the ground is .content-area's --bg-light. #6c757d there is
    4.45:1, under the 4.5:1 this file already holds itself to, at 11.52px/600
    which is nowhere near the size that earns the large-text exemption.
 
-   --ticket-muted is --text-muted taken 10% darker, and it clears AA on every
-   ground a ticket puts muted text on. Measured:
+   --ticket-muted is the designer's muted grey from the first redesign round
+   (October 2026), the same on every ticket screen, and it clears AA on every
+   ground a ticket puts this badge on. Measured:
 
-     #616970 on #ffffff  5.58:1   on #f8f9fa  5.29:1   on #fcede2  4.88:1
+     light  #5a6268 on #ffffff  6.21:1   on #f8f9fa  5.89:1   on #fcede2  5.43:1
+     dark   #a3b3ae on #0f1715  8.34:1   on #1d2826  6.95:1
 
-   Dark keeps the theme's own --text-muted, which is 6.19:1 on --bg-light and
-   5.37:1 on the requester's own message bubble. */
+   The corners are square, not round: that is how his design tells the
+   priority apart from the round status pill next to it. The outline is his
+   control-border grey, #84938f (dark #70827d). It only frames the words,
+   which carry the meaning, and still clears 3:1 on white (3.21:1) and on the
+   dark page (4.49:1). On a queue row under the pointer, peach in light, it
+   is 2.80:1; that is left alone, because a frame that carries nothing is not
+   held to the 3:1 a control's edge is. */
 .priority-badge {
-  --ticket-muted: #616970;
+  --ticket-muted: #5a6268;
+  --badge-edge: #84938f;
 
   display: inline-block;
   padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  border: 1px solid var(--badge-edge);
   background: transparent;
   color: var(--ticket-muted);
   font-size: 0.72rem;
@@ -48,7 +56,8 @@ defineProps<{ priority: TicketPriority }>()
 }
 
 :root[data-theme="dark"] .priority-badge {
-  --ticket-muted: var(--text-muted);
+  --ticket-muted: #a3b3ae;
+  --badge-edge: #70827d;
 }
 
 /* Only High gets colour. Normal is the default and needs no emphasis, and

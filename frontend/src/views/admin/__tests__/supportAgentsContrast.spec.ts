@@ -65,7 +65,8 @@ function colour(value: string): { rgb: Rgb; alpha: number } {
 // painted behind it, the way the browser does.
 function ground(spec: string, dark: boolean): Rgb {
   const [front, behind] = spec.split(' over ')
-  const top = colour(token(front, dark))
+  // A literal ground, for a colour the page paints itself (the roster head).
+  const top = colour(front.startsWith('#') ? front : token(front, dark))
   if (top.alpha === 1) return top.rgb
   if (!behind) throw new Error(`${spec} is translucent and nothing was named behind it`)
   const back = ground(behind, dark)
@@ -135,6 +136,18 @@ const PAIRS: Array<{ what: string; value: (dark: boolean) => string; grounds: [s
       ['--white', '--light-green'],
       ['--white', '--light-green over --white']
     ]
+  },
+  {
+    // The roster head paints its own pale green in light and keeps the
+    // theme's green wash, over the table, in dark.
+    what: 'the roster head (--roster-head)',
+    value: (dark) => roster('--roster-head', dark),
+    grounds: [['#dff1e8'], ['--light-green over --white']]
+  },
+  {
+    what: 'the search placeholder (--roster-placeholder)',
+    value: (dark) => roster('--roster-placeholder', dark),
+    grounds: [['--white'], ['--white']]
   },
   {
     what: 'the revoke refusal inside the dialog',
@@ -234,7 +247,9 @@ describe('support agents page colours', () => {
       for (const value of colours) {
         expect({ name, value }).toEqual({
           name,
-          value: expect.stringMatching(/^var\(--(roster-muted|roster-danger|roster-warn|charcoal)\)$/)
+          value: expect.stringMatching(
+            /^var\(--(roster-muted|roster-danger|roster-warn|roster-head|roster-placeholder|charcoal)\)$/
+          )
         })
       }
     }

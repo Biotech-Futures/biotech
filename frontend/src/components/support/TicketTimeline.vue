@@ -8,12 +8,16 @@
         <time :datetime="message.createdAt">{{ formatLongDateTimeAU(message.createdAt) }}</time>
       </p>
 
-      <div v-else class="timeline__bubble">
+      <!-- Name and time above the bubble, files hanging under it, all on
+           the speaker's side: the messaging-app shape the redesign asks for. -->
+      <div v-else class="timeline__message">
         <p class="timeline__meta">
           <span class="timeline__author">{{ message.author || 'You' }}</span>
           <time :datetime="message.createdAt">{{ formatLongDateTimeAU(message.createdAt) }}</time>
         </p>
-        <p class="timeline__body">{{ message.body }}</p>
+        <div class="timeline__bubble">
+          <p class="timeline__body">{{ message.body }}</p>
+        </div>
 
         <!-- A button, not a link, and not for styling reasons.
              This was an anchor pointing straight at the download endpoint, and
@@ -46,7 +50,7 @@
               :disabled="busy[file.id]"
               @click="download(file)"
             >
-              <i class="fas fa-paperclip"></i>
+              <TicketIcon name="paperclip" :size="14" />
               {{ file.filename }}
             </button>
             <span v-if="failed[file.id]" class="timeline__file-error" role="alert">{{
@@ -61,6 +65,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import { formatLongDateTimeAU } from '@/utils/date'
 import {
   attachmentErrorMessage,
@@ -122,10 +127,22 @@ function rowClass(message: TicketMessage) {
 </script>
 
 <style scoped>
-/* --text-muted is 4.45:1 on the system note's --bg-light and 4.10:1 on the
-   requester's own --light-green bubble, both under AA. The literal is the
-   value TicketPriorityBadge.vue measured; dark hands it back to the theme,
-   which is 5.37:1 on that same bubble. */
+/* The first redesign round (October 2026): the requester's own messages in a
+   mint bubble on the right, support's in a white one on the left, name and
+   time above each bubble and files hanging under it, like Messenger. The
+   colours are the component's own; --light-green, the old own-bubble ground,
+   is the global peach other teams use.
+
+   Everything outside a bubble sits on the page (--bg-light). Measured
+   (WCAG AA: 4.5:1 for text, 3:1 for a button's edge):
+     light  muted #5a6268 on #f8f9fa 5.89:1
+            own bubble #174243 on #d3efe3 9.08:1   support bubble on white 11.07:1
+            file #017151 on its white pill 6.03:1, the pill edge #84938f 3.04:1
+     dark   muted #a3b3ae on #0f1715 8.34:1
+            own bubble #ffffff on #017151 6.03:1   support #e6efed on #26332f 11.23:1
+            file #6dbfb1 on its #161f1d pill 7.80:1, the pill edge #70827d 4.49:1
+   The dark values are the designer's (his dark pending-user page); the pill
+   in dark is ours, in his dark colours, since he drew it only in light. */
 /* Every line on this timeline is text somebody else typed or a file
    somebody else named, and none of it is guaranteed to have a space in it:
    a bounce note carries an email address, an attachment carries a filename,
@@ -135,8 +152,16 @@ function rowClass(message: TicketMessage) {
    than `break-word` because only `anywhere` lowers the min-content width,
    which is the number that gets used. */
 .timeline {
-  --ticket-muted: #616970;
+  --ticket-muted: #5a6268;
   --ticket-danger: #a71d2a;
+  --timeline-rule: #e6eae8;
+  --timeline-mine: #d3efe3;
+  --timeline-mine-edge: #b4dfcd;
+  --timeline-mine-ink: #174243;
+  --timeline-theirs: #ffffff;
+  --timeline-theirs-edge: #dfe5e2;
+  --timeline-file: var(--dark-green);
+  --timeline-file-edge: #84938f;
 
   overflow-wrap: anywhere;
   list-style: none;
@@ -144,14 +169,21 @@ function rowClass(message: TicketMessage) {
   padding: 0;
   display: flex;
   flex-direction: column;
-  /* Close enough that consecutive lines read as one exchange, the way a
-     messaging app stacks them, rather than as a list of separate cards. */
-  gap: 0.5rem;
+  /* From the foot of one message to the name over the next. */
+  gap: 0.875rem;
 }
 
 :root[data-theme="dark"] .timeline {
-  --ticket-muted: var(--text-muted);
+  --ticket-muted: #a3b3ae;
   --ticket-danger: var(--danger);
+  --timeline-rule: #2b3936;
+  --timeline-mine: #017151;
+  --timeline-mine-edge: #017151;
+  --timeline-mine-ink: #ffffff;
+  --timeline-theirs: #26332f;
+  --timeline-theirs-edge: #35443f;
+  --timeline-file: #6dbfb1;
+  --timeline-file-edge: #70827d;
 }
 
 .timeline__row {
@@ -171,27 +203,34 @@ function rowClass(message: TicketMessage) {
 }
 
 /* Shaped after the messaging apps students already use; Instagram and
-   Messenger were the references for client item C-07. The thread has a
-   column of its own, narrower than the page (TicketDetailPage.vue sets it),
-   and a bubble may fill 85% of that column. The two numbers were measured
-   together in Chromium at 1280px: a short reply used to sit 454px across from
-   the short message above it and now sits 190px across, and a long message is
-   626px wide where it was 608px. 75% was tried first and made every long
-   bubble narrower than before at every width measured (375 to 1440px), the
-   opposite of what was asked for. The corner nearest the speaker is tucked
-   in so each side still says whose it is at a glance. */
+   Messenger were the references for client item C-07. A message may fill 74%
+   of the thread, which runs the full width of the page: that is the
+   designer's layout, and it was chosen over keeping the thread narrow
+   (decision DEC-046). The corner nearest the speaker is tucked in so each
+   side still says whose it is at a glance. */
+.timeline__message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 74%;
+}
+
+.timeline__row--mine .timeline__message {
+  align-items: flex-end;
+}
+
 .timeline__bubble {
-  max-width: 85%;
-  padding: 0.75rem 1rem;
+  padding: 0.625rem 1rem;
   border-radius: 18px;
-  border: 1px solid var(--border-light);
-  background: var(--surface-elevated);
+  border: 1px solid var(--timeline-theirs-edge);
+  background: var(--timeline-theirs);
 }
 
 .timeline__row--mine .timeline__bubble {
-  background: var(--light-green);
-  border-color: transparent;
+  background: var(--timeline-mine);
+  border-color: var(--timeline-mine-edge);
   border-bottom-right-radius: 6px;
+  color: var(--timeline-mine-ink);
 }
 
 .timeline__row--support .timeline__bubble {
@@ -199,17 +238,22 @@ function rowClass(message: TicketMessage) {
 }
 
 /* Wraps whole pieces onto a second line. With the time in it the stamp is
-   long enough that a name and a stamp outgrow a bubble on a phone, and
+   long enough that a name and a stamp outgrow the space on a phone, and
    without wrap the two squeeze side by side and the date splits across
-   lines. */
+   lines. Set in from the bubble's edge a little, on the speaker's side. */
 .timeline__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.1rem 0.6rem;
+  gap: 0.1rem 0.4rem;
   align-items: baseline;
-  margin: 0 0 0.3rem 0;
+  margin: 0 0 0.25rem 0;
+  padding: 0 0.4rem;
   font-size: 0.78rem;
   color: var(--ticket-muted);
+}
+
+.timeline__row--mine .timeline__meta {
+  justify-content: flex-end;
 }
 
 .timeline__author {
@@ -220,19 +264,33 @@ function rowClass(message: TicketMessage) {
 .timeline__body {
   margin: 0;
   font-size: 0.94rem;
-  line-height: 1.6;
+  line-height: 1.55;
   /* Line breaks the requester typed are part of what they wrote. */
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+/* A line of small text between two hairlines that run out to the edges of
+   the thread. The hairlines are the row's own, so the note itself stays one
+   block of text and its stamp can still drop to a second line whole. */
+.timeline__row--system {
+  align-items: center;
+  gap: 1rem;
+}
+
+.timeline__row--system::before,
+.timeline__row--system::after {
+  content: '';
+  flex: 1 1 1.5rem;
+  border-top: 1px solid var(--timeline-rule);
+}
+
 .timeline__system {
+  max-width: 75%;
   margin: 0;
-  padding: 0.45rem 0.9rem;
-  border-radius: 999px;
-  background: var(--bg-light);
   color: var(--ticket-muted);
-  font-size: 0.83rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
   text-align: center;
 }
 
@@ -245,26 +303,37 @@ function rowClass(message: TicketMessage) {
    it can still wrap inside itself rather than push the page sideways. */
 .timeline__system time {
   display: inline-block;
-  margin-left: 0.5rem;
+  margin-left: 0.25rem;
 }
 
 .timeline__files {
   list-style: none;
-  margin: 0.55rem 0 0 0;
+  margin: 0.375rem 0 0 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.375rem;
 }
 
-/* Reads as the link it replaced: same colour, same size, underline on hover. */
+.timeline__row--mine .timeline__files {
+  justify-content: flex-end;
+}
+
+/* A pill under the bubble. Still a button that only reads as a file. */
 .timeline__file {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--dark-green);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.3rem 0.875rem 0.3rem 0.72rem;
+  border: 1px solid var(--timeline-file-edge);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--timeline-file);
   font-family: inherit;
   font-size: 0.85rem;
+  font-weight: 600;
   text-align: left;
   text-decoration: none;
   cursor: pointer;

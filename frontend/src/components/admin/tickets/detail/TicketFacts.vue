@@ -39,21 +39,22 @@ defineProps<{ ticket: TicketDetail }>()
 </script>
 
 <style scoped>
-/* Terms in #616970, 5.58:1 on the panel's #ffffff; dark hands them back to
-   --text-muted, 5.72:1 on #161f1d. */
+/* Terms in the first redesign round's (October 2026) #5a6268, 6.21:1 on the
+   panel's #ffffff; dark takes the panel's #a3b3ae, 6.95:1 on #1d2826. A wider
+   term column, as the design sets it, that gives way on a narrow panel. */
 .ticket-facts {
-  --facts-muted: #616970;
+  --facts-muted: #5a6268;
 
   display: grid;
-  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
-  gap: 0.4rem 1rem;
+  grid-template-columns: minmax(7rem, 9.375rem) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   color: var(--charcoal);
 }
 
 :root[data-theme='dark'] .ticket-facts {
-  --facts-muted: var(--text-muted);
+  --facts-muted: #a3b3ae;
 }
 
 .ticket-facts dt {

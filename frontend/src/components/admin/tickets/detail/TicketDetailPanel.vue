@@ -25,13 +25,14 @@
               <span>{{ ticket.ticketNumber }}</span>
               <TicketStatusBadge :status="ticket.status" />
               <TicketPriorityBadge :priority="ticket.priority" />
-              <!-- Computed by the server, not derived here. -->
-              <span v-if="ticket.overdue" class="ticket-panel__overdue">Overdue</span>
+              <!-- Computed by the server, not derived here. The queue row's
+                   own badge, so the two read the same. -->
+              <OverdueBadge v-if="ticket.overdue" class="ticket-panel__overdue" />
             </h2>
             <p class="ticket-panel__subject">{{ ticket.subject }}</p>
           </div>
           <button type="button" class="ticket-panel__close" aria-label="Close" @click="close">
-            <i class="fas fa-times" aria-hidden="true"></i>
+            <TicketIcon name="x" :size="18" />
           </button>
         </header>
 
@@ -183,6 +184,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import OverdueBadge from '@/components/admin/tickets/queue/OverdueBadge.vue'
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import { logApiError } from '@/utils/apiError'
@@ -656,19 +659,30 @@ onBeforeUnmount(() => {
 /* Same frame as FormSheet.vue (right-hand drawer over a backdrop, z-index
    1999 so ConfirmDialog's 2000 stacks on top), with the focus handling
    FormSheet lacks. Full width on a phone, 42rem at most, as the React sheet.
+   The first redesign round (October 2026) gives it the ticket screens' greys
+   and rules, a little more room at the sides, and the card colour as its
+   dark ground.
 
-   Contrast, measured with the WCAG formula on the panel's --white ground:
-     light  muted #616970 5.58   error #a71d2a 7.36   overdue #a71d2a 7.36
-            delete button #fff on #b02a37 6.50
+   Contrast, measured with the WCAG formula on the panel's ground (--white in
+   light, #1d2826 in dark):
+     light  muted #5a6268 6.21   error #a71d2a 7.36
+            delete button #fff on #b3202c 6.65   control edge #84938f 3.21
             active tab rule #017151 6.03 (non-text, needs 3:1)
-     dark   muted --text-muted 5.72   error --danger 6.08   overdue 6.08
-            active tab rule #5ea99e 6.13   focus ring #5ea99e 6.13
-   --dark-green is not redefined for dark and is 2.79:1 there (U1 5.3), so
-   the dark rule and the focus ring take the mint literal instead. */
+     dark   muted #a3b3ae 6.95   error --danger 5.49   control edge #70827d 3.74
+            active tab rule #5ea99e 5.52   focus ring #5ea99e 5.52
+   --dark-green is not redefined for dark and is 2.52:1 there (U1 5.3), so
+   the dark rule and the focus ring take the mint literal instead. The
+   designer drew his dark tab rule in brand green; the mint stays, because
+   his would not reach 3:1. color-scheme has the browser draw the composer's
+   checkbox dark, as his dark panel shows it. */
 .ticket-panel {
-  --panel-muted: #616970;
+  --panel-muted: #5a6268;
   --panel-danger: #a71d2a;
   --panel-accent: #017151;
+  --panel-ground: var(--white);
+  --panel-rule: #e6eae8;
+  --panel-edge: #84938f;
+  --panel-danger-ground: #fdf0f0;
 
   position: fixed;
   inset: 0;
@@ -676,9 +690,15 @@ onBeforeUnmount(() => {
 }
 
 :root[data-theme='dark'] .ticket-panel {
-  --panel-muted: var(--text-muted);
+  --panel-muted: #a3b3ae;
   --panel-danger: var(--danger);
   --panel-accent: #5ea99e;
+  --panel-ground: #1d2826;
+  --panel-rule: #2b3936;
+  --panel-edge: #70827d;
+  --panel-danger-ground: #3a1d20;
+
+  color-scheme: dark;
 }
 
 .ticket-panel__backdrop {
@@ -695,7 +715,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   width: min(100vw, 42rem);
-  background-color: var(--white);
+  background-color: var(--panel-ground);
   color: var(--charcoal);
   box-shadow: -24px 0 60px rgba(7, 17, 15, 0.18);
   animation: ticket-panel-in 0.22s ease;
@@ -715,52 +735,49 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.1rem 1.25rem;
-  border-bottom: 1px solid var(--border-light);
+  padding: 1.125rem 1.5rem;
+  border-bottom: 1px solid var(--panel-rule);
 }
 
 .ticket-panel__heading {
   min-width: 0;
 }
 
+/* The badges sit a little further from the number than from each other. */
 .ticket-panel__title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem;
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.3;
 }
 
+.ticket-panel__title > span:first-child {
+  margin-right: 0.2rem;
+}
+
 .ticket-panel__subject {
-  margin: 0.35rem 0 0;
-  font-size: 0.92rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
   font-weight: 500;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-/* Styled after TicketPriorityBadge's High, which is measured the same way. */
-.ticket-panel__overdue {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border: 1px solid var(--panel-danger);
-  border-radius: 999px;
-  color: var(--panel-danger);
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
 .ticket-panel__close {
-  width: 34px;
-  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  background-color: var(--white);
+  padding: 0;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background-color: var(--panel-ground);
   color: var(--charcoal);
   cursor: pointer;
 }
@@ -772,7 +789,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem 1.25rem 1.5rem;
+  padding: 1rem 1.5rem 1.5rem;
 }
 
 .ticket-panel__quiet {
@@ -797,53 +814,62 @@ onBeforeUnmount(() => {
 /* The same quiet button as the History list's Try again. */
 .ticket-panel__retry {
   padding: 0.3rem 0.8rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--white);
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: var(--panel-ground);
   color: var(--charcoal);
   font-family: inherit;
   font-size: 0.82rem;
   cursor: pointer;
 }
 
+/* Both tabs bold; the chosen one darker and underlined in the accent. */
 .ticket-panel__tabs {
   display: flex;
   gap: 0.25rem;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--panel-rule);
 }
 
 .ticket-panel__tab {
   margin-bottom: -1px;
-  padding: 0.5rem 0.8rem;
+  padding: 0.75rem 0.875rem;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   background: none;
   color: var(--panel-muted);
   font-family: inherit;
   font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .ticket-panel__tab--active {
   border-bottom-color: var(--panel-accent);
   color: var(--charcoal);
-  font-weight: 600;
 }
 
 .ticket-panel__tabpanel {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.125rem;
 }
 
+/* The danger zone: a pale red card with a heavy bar on the left, kept a
+   little further from the history above it than the blocks are from each
+   other. The words are the body colour: 9.96:1 on the light ground, 13.03:1
+   (#e6efed on #3a1d20) on the dark one, which the designer did not draw and
+   which takes Overdue's dark red ground. */
 .ticket-panel__delete {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.9rem;
-  border: 1px dashed var(--panel-danger);
+  gap: 0.25rem;
+  margin-top: 0.6rem;
+  padding: 0.875rem 1rem 1rem 1.125rem;
+  border: 1px solid var(--panel-danger);
+  border-left-width: 4px;
   border-radius: 8px;
+  background: var(--panel-danger-ground);
 }
 
 .ticket-panel__delete-title {
@@ -853,16 +879,18 @@ onBeforeUnmount(() => {
 }
 
 .ticket-panel__delete-hint {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--panel-muted);
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--charcoal);
 }
 
 .ticket-panel__delete-button {
-  padding: 0.4rem 0.9rem;
+  min-height: 2rem;
+  padding: 0.4rem 0.875rem;
   border: none;
-  border-radius: 6px;
-  background: #b02a37;
+  border-radius: 8px;
+  background: #b3202c;
   color: #fff;
   font-family: inherit;
   font-weight: 600;

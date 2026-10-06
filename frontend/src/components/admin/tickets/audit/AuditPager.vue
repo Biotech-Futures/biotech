@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import { pageItems } from './pageItems'
 
@@ -206,38 +207,50 @@ function go(target: number, atEdge: boolean) {
 
 <style scoped>
 /* The footer sits straight on the page's ground, --bg-light, where
-   --text-muted is 4.45:1 and under AA. #616970 is the value the portal's
-   ticket pages already use for it: 5.29:1 there. Dark hands it back to the
-   theme, 6.19:1 on the dark ground. */
+   --text-muted is 4.45:1 and under AA. Since the first redesign round
+   (October 2026) it looks the same as the queue's pager (QueuePager.vue):
+   36px buttons, an edge you can see, and a disabled button that stays solid
+   and goes grey instead of fading. Measured (WCAG AA):
+     light  Page N of M #5a6268 on #f8f9fa 5.89   edge #84938f on white 3.21
+     dark   Page N of M --text-muted 6.19 on the dark page
+            edge #70827d on the #161f1d button 4.15 (--border-light was 1.16) */
 .audit-pager {
-  --audit-muted: #616970;
+  --audit-muted: #5a6268;
+  --audit-edge: #84938f;
+  --audit-quiet-edge: #e6eae8;
 
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-top: 0.75rem;
 }
 
 :root[data-theme='dark'] .audit-pager {
   --audit-muted: var(--text-muted);
+  --audit-edge: #70827d;
+  --audit-quiet-edge: var(--border-light);
 }
 
 .audit-pager__left {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .audit-pager__size {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.audit-pager__size-label,
+.audit-pager__size-label {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 0.875rem;
+}
+
 .audit-pager__info {
   margin: 0;
   color: var(--audit-muted);
@@ -246,14 +259,24 @@ function go(target: number, atEdge: boolean) {
 
 .audit-pager__select,
 .audit-pager__custom {
-  height: 2rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  height: 2.25rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--audit-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
   font-size: 0.875rem;
+}
+
+/* The thin chevron from ticketControls.css in place of the browser's. */
+.audit-pager__select {
+  width: 7rem;
+  appearance: none;
+  padding-right: 2rem;
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
 }
 
 .audit-pager__custom {
@@ -265,19 +288,20 @@ function go(target: number, atEdge: boolean) {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.25rem;
+  gap: 0.375rem;
 }
 
 .audit-pager__btn {
-  min-width: 2rem;
-  height: 2rem;
-  padding: 0 0.65rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--audit-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
   font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -301,13 +325,15 @@ function go(target: number, atEdge: boolean) {
 }
 
 .audit-pager__btn[aria-disabled='true'] {
-  opacity: 0.55;
+  border-color: var(--audit-quiet-edge);
+  color: var(--audit-muted);
   cursor: not-allowed;
 }
 
 .audit-pager__ellipsis {
   padding: 0 0.25rem;
-  color: var(--audit-muted);
+  color: var(--charcoal);
+  font-weight: 600;
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not

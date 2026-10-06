@@ -26,6 +26,15 @@ import TICKET_DETAIL_PAGE from '@/views/TicketDetailPage.vue?raw'
  *   badges   space between the two          before 5.6px         after 9.6px
  *
  * and nothing wider than the column at 320, 375, 768, 1024, 1280 or 1440.
+ *
+ * The first redesign round (October 2026) then laid it out again, and the
+ * owner took the designer's layout over the narrower column (decision
+ * DEC-046): the thread runs the full width of the page, so support lines up
+ * with the title and the requester with the badges, a message may take 74%
+ * of it (a long bubble 663px at 1440px, wider than the 626px before), and
+ * the name and stamp sit above each bubble. The rules below are that
+ * layout's; the left and right sides and the tucked corners are what both
+ * layouts keep.
  */
 
 function stylesheet(sfc: string): string {
@@ -59,29 +68,23 @@ function value(declarations: string, property: string): string | null {
 }
 
 describe('the conversation reads as one exchange', () => {
-  it('gives the conversation a column of its own, narrower than the page', () => {
-    // The page is 60rem. At that width a short reply and a short message sat
-    // 454px apart on a 1280px screen.
-    expect(value(declarationsFor(TICKET_DETAIL_PAGE, '.ticket__conversation'), 'max-width')).toBe(
-      '46rem',
-    )
+  it('runs the conversation the full width of the page', () => {
+    // No column of its own any more (DEC-046): no cap, and nothing centring
+    // a narrower box under the header.
+    const thread = declarationsFor(TICKET_DETAIL_PAGE, '.ticket__conversation')
+    expect(value(thread, 'max-width')).toBeNull()
+    expect(value(thread, 'margin')).not.toMatch(/auto/)
   })
 
-  it('centres that column under the header', () => {
-    expect(value(declarationsFor(TICKET_DETAIL_PAGE, '.ticket__conversation'), 'margin')).toBe(
-      '1.5rem auto',
-    )
+  it('lets a message fill most of the thread', () => {
+    // A share of the thread, not a rem cap: 74% is the designer's, and on
+    // the full-width thread it makes a long bubble wider than before.
+    expect(value(declarationsFor(TIMELINE, '.timeline__message'), 'max-width')).toBe('74%')
   })
 
-  it('lets a bubble fill most of the column', () => {
-    // A share of the column, not a rem cap. It was 82% of the row and capped
-    // at 38rem; 75% of the new column made every long bubble narrower than
-    // that at every width measured, and the client asked for them wider.
-    expect(value(declarationsFor(TIMELINE, '.timeline__bubble'), 'max-width')).toBe('85%')
-  })
-
-  it('stacks the lines closer together', () => {
-    expect(value(declarationsFor(TIMELINE, '.timeline'), 'gap')).toBe('0.5rem')
+  it('leaves room for the name above each bubble', () => {
+    // The gap runs from the foot of one message to the name over the next.
+    expect(value(declarationsFor(TIMELINE, '.timeline'), 'gap')).toBe('0.875rem')
   })
 
   it('rounds the bubbles the way a messaging app does', () => {

@@ -23,7 +23,8 @@
       </header>
 
       <p v-if="ticket.status === 'pending_user'" class="ticket__callout">
-        We are waiting on you. Reply below and we will pick this straight back up.
+        <TicketIcon name="reply" class="ticket__callout-icon" />
+        <span>We are waiting on you. Reply below and we will pick this straight back up.</span>
       </p>
 
       <section class="ticket__conversation">
@@ -42,6 +43,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketReplyBox from '@/components/support/TicketReplyBox.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
@@ -106,28 +108,48 @@ watch(() => route.params.id, load)
 </script>
 
 <style scoped>
-/* Muted text and the error line both take a literal colour rather than
+/* Muted text and the error line take literal colours rather than
    --text-muted and --danger. On this page the ground is .content-area's
    --bg-light, where those two tokens are 4.45:1 and 4.30:1, both under AA.
-   The values here are the ones TicketPriorityBadge.vue measured. Dark hands
-   both back to the theme, which is comfortable there. */
+   The muted grey is the first redesign round's (October 2026), on every
+   ticket screen. Measured on the page:
+     light  muted #5a6268 on #f8f9fa 5.89:1   danger #a71d2a 6.98:1
+            waiting note #7a5600 on #fff4d2 6.05:1
+     dark   muted #a3b3ae on #0f1715 8.34:1   back link #6dbfb1 8.44:1
+            waiting note #fbbf24 on #3f3a17 6.88:1
+   Dark hands the danger colour back to the theme, which is comfortable
+   there. The dark back link is the designer's: brand green on the dark page
+   was 3.02:1. */
 .ticket {
-  --ticket-muted: #616970;
+  --ticket-muted: #5a6268;
   --ticket-danger: #a71d2a;
+  --ticket-link: var(--dark-green);
+  --ticket-rule: #e6eae8;
+  --ticket-wait: #fff4d2;
+  --ticket-wait-ink: #7a5600;
+  --ticket-wait-edge: #e0b252;
 
   max-width: 60rem;
 }
 
 :root[data-theme="dark"] .ticket {
-  --ticket-muted: var(--text-muted);
+  --ticket-muted: #a3b3ae;
   --ticket-danger: var(--danger);
+  --ticket-link: #6dbfb1;
+  --ticket-rule: #2b3936;
+  --ticket-wait: #3f3a17;
+  --ticket-wait-ink: #fbbf24;
+  --ticket-wait-edge: #fbbf24;
 }
 
+/* A block as wide as its words, so the negative margin moves it: an inline
+   box cannot rise above the line it sits in. */
 .ticket__back {
-  display: inline-block;
-  margin-bottom: 1rem;
-  color: var(--dark-green);
-  font-size: 0.88rem;
+  display: block;
+  width: fit-content;
+  margin: -0.4rem 0 0.75rem 0;
+  color: var(--ticket-link);
+  font-size: 0.9rem;
   font-weight: 600;
   text-decoration: none;
 }
@@ -142,7 +164,7 @@ watch(() => route.params.id, load)
   justify-content: space-between;
   gap: 1rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--ticket-rule);
 }
 
 .ticket__number {
@@ -160,8 +182,10 @@ watch(() => route.params.id, load)
    viewport. `anywhere` rather than `break-word` because only `anywhere`
    lowers the min-content width, which is the number that gets used. */
 .ticket__title {
-  margin: 0.2rem 0 0.35rem 0;
+  margin: 0.15rem 0 0.25rem 0;
   font-size: 1.6rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
@@ -180,23 +204,33 @@ watch(() => route.params.id, load)
   font-size: 0.85rem;
 }
 
+/* The one thing a requester has to act on, so it is drawn to be seen: a bar
+   down the left, a reply arrow and bold text, in the pending user amber. */
 .ticket__callout {
-  margin: 1rem 0 0 0;
-  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0 0;
+  padding: 0.7rem 1rem 0.7rem 1.25rem;
+  border-left: 4px solid var(--ticket-wait-edge);
   border-radius: 8px;
-  background: rgba(255, 193, 7, 0.14);
-  color: #8a6100;
-  font-size: 0.9rem;
+  background: var(--ticket-wait);
+  color: var(--ticket-wait-ink);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
-/* The conversation gets a column of its own, narrower than the page and
-   centred in it, so the two sides of the thread sit close enough to read as
-   one exchange (client item C-07). TicketTimeline.vue sizes its bubbles as a
-   share of this width, so the two numbers are one decision: widen this and
-   the bubbles widen with it. */
+/* Level with the first line of text when the sentence wraps. */
+.ticket__callout-icon {
+  margin-top: 0.15rem;
+}
+
+/* The thread runs the full width of the page, the designer's layout for it
+   (decision DEC-046). TicketTimeline.vue sizes its messages as a share of
+   this width. */
 .ticket__conversation {
-  max-width: 46rem;
-  margin: 1.5rem auto;
+  margin: 1.25rem 0 1.5rem;
 }
 
 .ticket__state {

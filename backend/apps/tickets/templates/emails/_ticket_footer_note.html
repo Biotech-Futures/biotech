@@ -1,0 +1,16 @@
+{% comment %}
+The footer's second line, written out for the ticket emails instead of taken
+from base.html's footer_note block. The first redesign round (October 2026)
+darkens the email's small grey text to #5c6860 (5.83:1 on white; the shared
+#6d7a72 is 4.49:1, just under AA), and base.html is every team's layout, so
+the change is made here, for these three emails only (decision DEC-048).
+
+Two consequences of copying the sentence rather than inheriting it. The line
+above it, the copyright, sits outside any block in base.html and so keeps the
+old grey. And if base.html's wording ever changes, this copy does not follow
+on its own: keep the two in step by hand. The words are the same as base.html
+gives with footer_reason set to "updates about your enquiries", which is what
+the three ticket emails used to set.
+{% endcomment %}
+<span style="color:#5c6860;">Add <a href="mailto:{{ SENDER_EMAIL }}" style="color:#307054; text-decoration:underline;">{{ BRAND_NAME }} &lt;{{ SENDER_EMAIL }}&gt;</a> to your address book to keep receiving updates about your enquiries.</span>
+<a href="https://www.biotechfutures.org/" style="color:#307054; text-decoration:underline;">biotechfutures.org</a>

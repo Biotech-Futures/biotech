@@ -204,6 +204,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import MeasureBars from '@/components/admin/tickets/analytics/MeasureBars.vue'
 import StatTile from '@/components/admin/tickets/analytics/StatTile.vue'
@@ -344,12 +345,22 @@ const resolvedShare = computed(() => {
 <style scoped>
 /* The page ground is TicketsSection's .content-area, --bg-light, where
    --text-muted is 4.45:1 and --danger 4.30:1, both under AA. The literals are
-   the ones TicketDetailPage.vue and TicketsSection.vue already use there
-   (5.29:1 and 6.98:1). Dark hands both back to the theme, 6.19:1 and 6.58:1
-   on its ground. Checked by analyticsContrast.spec.ts. */
+   the ones TicketDetailPage.vue and TicketsSection.vue use there: the first
+   redesign round's (October 2026) #5a6268, 5.89:1, and #a71d2a, 6.98:1. Dark
+   takes the designer's #a3b3ae (8.34:1 on the dark page) and hands the danger
+   colour back to the theme (6.58:1). Checked by analyticsContrast.spec.ts.
+
+   That round touches this page only through the ticket screens' shared look
+   (cards, tiles, controls, type sizes), as the designer wrote: layout and
+   charts stay as they are, and the client asked for no more than that here
+   (C-13). The dark cards are his #1d2826, a step up from the page. */
 .ticket-analytics {
-  --analytics-muted: #616970;
+  --analytics-muted: #5a6268;
   --analytics-danger: #a71d2a;
+  --analytics-edge: #84938f;
+  --analytics-card: var(--white);
+  --analytics-card-edge: #e3e7e5;
+  --analytics-card-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
 
   display: flex;
   flex-direction: column;
@@ -357,8 +368,12 @@ const resolvedShare = computed(() => {
 }
 
 :root[data-theme='dark'] .ticket-analytics {
-  --analytics-muted: var(--text-muted);
+  --analytics-muted: #a3b3ae;
   --analytics-danger: var(--danger);
+  --analytics-edge: #70827d;
+  --analytics-card: #1d2826;
+  --analytics-card-edge: #2b3936;
+  --analytics-card-shadow: 0 1px 3px var(--shadow);
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not
@@ -370,8 +385,9 @@ const resolvedShare = computed(() => {
 
 .ticket-analytics__title {
   margin: 0 0 0.25rem 0;
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 600;
+  line-height: 1.25;
 }
 
 .ticket-analytics__subtitle {
@@ -395,24 +411,33 @@ const resolvedShare = computed(() => {
 
 .ticket-analytics__label {
   color: var(--charcoal);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 600;
 }
 
+/* The control edge is #84938f, 3.21:1 on the white field; dark #70827d,
+   4.15:1 on the #161f1d field, where --border-light was 1.16:1. */
 .ticket-analytics__input {
-  width: 10rem;
-  height: 2.25rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  width: 10.625rem;
+  height: 2.5rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--analytics-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
   font-size: 0.9rem;
 }
 
+/* The select draws the thin chevron from ticketControls.css; the date boxes
+   keep the browser's own calendar button, which is how a date is picked. */
 .ticket-analytics__select {
-  width: 12rem;
+  width: 12.5rem;
+  appearance: none;
+  padding-right: 2.25rem;
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
 }
 
 /* The date input's calendar glyph and the select's arrow are drawn by the
@@ -460,11 +485,11 @@ const resolvedShare = computed(() => {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
-  padding: 1.25rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--white);
-  box-shadow: 0 1px 2px var(--shadow);
+  padding: 1.25rem 1.375rem;
+  border: 1px solid var(--analytics-card-edge);
+  border-radius: 12px;
+  background: var(--analytics-card);
+  box-shadow: var(--analytics-card-shadow);
 }
 
 .ticket-analytics__card-title {
@@ -475,7 +500,7 @@ const resolvedShare = computed(() => {
 
 .ticket-analytics__chart-title {
   margin: 0 0 0.4rem 0;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 

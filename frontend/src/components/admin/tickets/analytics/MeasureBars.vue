@@ -142,28 +142,31 @@ function shown(value: number): string {
 <style scoped>
 /* One colour for every bar. #017151 is the brand green, 6.03:1 on the light
    card (--white, #ffffff). The dark theme does not redefine --dark-green and
-   it is 2.79:1 on the dark card (#161f1d), under the 3:1 a chart mark needs,
-   so dark takes the brand's mint instead: #5ea99e, 6.13:1 there. Literal
-   values, checked by analyticsContrast.spec.ts. */
+   it is 2.52:1 on the dark card (#1d2826 since the first redesign round,
+   October 2026), under the 3:1 a chart mark needs, so dark takes the
+   designer's #2f9e83 instead: 4.58:1 there. The grid and axis lines take the
+   round's rule colour. Literal values, checked by analyticsContrast.spec.ts. */
 .measure-bars {
   --measure-bar: #017151;
-  --measure-muted: #616970;
+  --measure-muted: #5a6268;
+  --measure-rule: #e6eae8;
 }
 
 :root[data-theme='dark'] .measure-bars {
-  --measure-bar: #5ea99e;
-  --measure-muted: #8a9a96;
+  --measure-bar: #2f9e83;
+  --measure-muted: #a3b3ae;
+  --measure-rule: #2b3936;
 }
 
 .measure-bars__empty {
   margin: 0;
   padding: 1.25rem 0;
-  color: #616970;
+  color: #5a6268;
   font-size: 0.875rem;
 }
 
 :root[data-theme='dark'] .measure-bars__empty {
-  color: #8a9a96;
+  color: #a3b3ae;
 }
 
 .measure-bars__chart {
@@ -219,14 +222,14 @@ function shown(value: number): string {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--border-light);
+  background: var(--measure-rule);
 }
 
 .measure-bars__axis {
   grid-column: 2;
   position: relative;
   height: 1.2rem;
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid var(--measure-rule);
 }
 
 .measure-bars__tick {

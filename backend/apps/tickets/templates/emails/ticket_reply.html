@@ -5,7 +5,7 @@
 {% block preheader %}There is a new reply on your enquiry {{ TICKET_NUMBER }}.{% endblock %}
 
 {% block content %}
-              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5; overflow-wrap:anywhere;">
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5; overflow-wrap:anywhere;">
                 Hi {{ GREETING_NAME }},
               </p>
 
@@ -68,4 +68,4 @@
 {% include "emails/_ticket_meta.html" %}
 {% endblock %}
 
-{% block footer_reason %}updates about your enquiries{% endblock %}
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}

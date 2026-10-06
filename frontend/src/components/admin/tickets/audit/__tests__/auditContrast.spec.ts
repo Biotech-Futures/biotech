@@ -176,7 +176,8 @@ const FILES: Record<string, { source: string; painted: Painted[]; focusable: str
     // The scrolling region and the ticket links.
     focusable: ['audit-table', 'audit-table__link'],
     painted: [
-      // The card, and the global thead / tbody tr:hover wash on it.
+      // The card, and main.css's tbody tr:hover wash on it. The head row has
+      // colours of its own, measured in ticketRedesignContrast.spec.ts.
       {
         custom: '--audit-muted',
         light: ['--white', '--light-green'],

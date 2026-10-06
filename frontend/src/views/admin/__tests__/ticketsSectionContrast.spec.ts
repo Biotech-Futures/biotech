@@ -20,10 +20,12 @@ import SECTION from '@/views/admin/tickets/TicketsSection.vue?raw'
  * which one had focus. The audit, analytics and detail pages had already
  * fixed their own rings; this shell had not.
  *
- * The ring is drawn 2px outside the link, on the rail (--white). The page
- * ground (--bg-light) is measured too, in case the rail is ever made
- * narrower than the ring. The ratios are computed here, the threshold is
- * written out, and nothing expected is read back from the component.
+ * The ring is drawn 2px outside the link, on the rail, whose ground is read
+ * from the component for each theme (the redesign gave the dark rail the
+ * card colour). The page ground (--bg-light) is measured too, in case the
+ * rail is ever made narrower than the ring. The ratios are computed here, the
+ * threshold is written out, and nothing expected is read back from the
+ * component.
  */
 
 const MAIN_CSS = readFileSync(
@@ -99,7 +101,15 @@ function switcherRing(theme: Theme): string {
   return resolve(declaration(rule, 'outline-color'), 'dark')
 }
 
-const rail = (theme: Theme) => resolve('var(--white)', theme)
+// The rail's own ground: the dark rule's when the theme is dark and there is
+// one, otherwise the rail rule's.
+function rail(theme: Theme): string {
+  if (theme === 'dark') {
+    const dark = block(SECTION, ":root[data-theme='dark'] .tickets-section__switcher")
+    if (/(^|[\s;{])background\s*:/.test(dark)) return resolve(declaration(dark, 'background'), 'dark')
+  }
+  return resolve(declaration(block(SECTION, '.tickets-section__switcher'), 'background'), theme)
+}
 const page = (theme: Theme) => resolve('var(--bg-light)', theme)
 
 describe('support queue section switcher focus ring', () => {

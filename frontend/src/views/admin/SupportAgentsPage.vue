@@ -317,21 +317,51 @@ watch(revokeOpen, async (isOpen) => {
    TicketDetailPage.vue measured them, and #92400e for the amber mark (React
    used amber-700, #b45309, which is 4.39:1 on the row hover). Dark takes the
    theme's own --text-muted and --danger values, written out as literals so
-   the spec can measure them, and a light amber. */
+   the spec can measure them, and a light amber.
+
+   The first redesign round (October 2026) brings the muted grey to #5a6268,
+   heads the roster in #24524a on pale green, and gives the search the
+   ticket screens' placeholder, #6c757d. The rest are not text. The search
+   box's edge is #84938f: 3.04:1 on the page and 3.21:1 on its white field;
+   dark #70827d is 4.49:1 and 4.15:1. Revoke sits on a table row that turns
+   peach under the pointer, where #84938f falls to 2.80:1, so it takes
+   #7a8884, the bulk bar's edge on the same peach (3.23:1). In dark it keeps
+   #70827d, 3.59:1 on a hovered row. Then come the results card's frame,
+   rules and shadow, and the green edge on Grant and on the search box when
+   it has focus. The designer drew this page in light only; dark keeps its
+   colours. */
 .support-agents {
-  --roster-muted: #616970;
+  --roster-muted: #5a6268;
   --roster-danger: #a71d2a;
   --roster-warn: #92400e;
+  --roster-head: #24524a;
+  --roster-placeholder: #6c757d;
+  --roster-edge: #84938f;
+  --roster-row-edge: #7a8884;
+  --roster-frame: #e3e7e5;
+  --roster-rule: #e6eae8;
+  --roster-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
+  --roster-accent: var(--dark-green);
+  --roster-focus: var(--dark-green);
 
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 :root[data-theme='dark'] .support-agents {
   --roster-muted: #8a9a96;
   --roster-danger: #f87171;
   --roster-warn: #fbbf24;
+  --roster-head: #e6efed;
+  --roster-placeholder: #8a9a96;
+  --roster-edge: #70827d;
+  --roster-row-edge: #70827d;
+  --roster-frame: var(--border-light);
+  --roster-rule: var(--border-light);
+  --roster-shadow: 0 1px 2px var(--shadow);
+  --roster-accent: var(--mint-green);
+  --roster-focus: var(--mint-green);
 }
 
 .support-agents__header {
@@ -342,8 +372,13 @@ watch(revokeOpen, async (isOpen) => {
   gap: 1rem;
 }
 
+/* Spaced as the Tickets section's title: a 1px gap, not 4px, puts the
+   subtitle where the design has it. */
 .support-agents__title {
-  margin: 0 0 0.25rem;
+  margin: 0 0 1px;
+  font-size: 2rem;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
 .support-agents__title:focus {
@@ -361,8 +396,29 @@ watch(revokeOpen, async (isOpen) => {
 }
 
 .support-agents__prose {
-  max-width: 42rem;
+  max-width: 47.5rem;
   font-size: 0.875rem;
+}
+
+/* Words close together, a little more air before the controls. */
+.support-agents > .support-grant {
+  margin-top: 0.5rem;
+}
+
+.support-agents :deep(.support-roster) {
+  margin-top: 0.375rem;
+}
+
+/* The redesign's secondary button: white, a brand green edge, bold. Written
+   over the global .btn-outline here rather than changed there. */
+.support-agents__create {
+  min-height: 2.5rem;
+  padding: 0 1.25rem;
+  border: 1px solid var(--roster-accent);
+  border-radius: 8px;
+  background-color: var(--white);
+  font-size: 0.875rem;
+  font-weight: 700;
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not

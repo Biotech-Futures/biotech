@@ -27,13 +27,17 @@
          ticket somebody works leaves the set the walk is reading. When the
          rows in front of the reader are all worked, the next page arrives
          empty while the tickets on it still match perfectly well. -->
-    <p v-else-if="!tickets.length" class="queue-table__state">
-      {{
-        continuesWalk
-          ? 'Nothing left on this page. The tickets that were here have been worked on since you opened the queue, which moves them to the front of it. Go back to page 1 to see them.'
-          : 'No tickets match these filters.'
-      }}
-    </p>
+    <!-- Under a round picture, as every empty list in the redesign is. -->
+    <div v-else-if="!tickets.length" class="queue-table__state queue-table__state--empty">
+      <span class="queue-table__empty-icon"><TicketIcon name="search" :size="22" /></span>
+      <p>
+        {{
+          continuesWalk
+            ? 'Nothing left on this page. The tickets that were here have been worked on since you opened the queue, which moves them to the front of it. Go back to page 1 to see them.'
+            : 'No tickets match these filters.'
+        }}
+      </p>
+    </div>
 
     <div v-else class="queue-table__scroll">
       <table class="queue-table__table">
@@ -108,10 +112,13 @@
                 ticket.user.region
               }}</span>
             </td>
-            <!-- Cut off at a fixed width. The title carries the whole subject,
-                 which React left unreadable short of opening the ticket
-                 (U2 GAP-13). -->
-            <td class="queue-table__subject" :title="ticket.subject">{{ ticket.subject }}</td>
+            <!-- Two lines at most, then cut off. The title carries the whole
+                 subject, which React left unreadable short of opening the
+                 ticket (U2 GAP-13). The span does the clamping: a cell made a
+                 -webkit-box stops being a table cell. -->
+            <td class="queue-table__subject" :title="ticket.subject">
+              <span class="queue-table__subject-text">{{ ticket.subject }}</span>
+            </td>
             <td>
               <span class="queue-table__badges">
                 <TicketStatusBadge :status="ticket.status" />
@@ -140,6 +147,7 @@
 <script setup lang="ts">
 import { computed, useTemplateRef } from 'vue'
 
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import type { TicketRow } from '@/utils/ticketAgentSchema'
@@ -217,32 +225,52 @@ function formatWhen(value: string) {
    a close variant rather than that component itself: its row checkboxes are
    labelled "Select row N" rather than by ticket, its rows open only by mouse,
    and its footer is Previous/Next over an offset, which this queue's walk
-   cannot use.
+   cannot use. The first redesign round (October 2026) took it further from
+   that frame: a pale green head in small capitals, a softer edge and shadow,
+   tighter rows so the whole table fits a 1440px screen, Last activity
+   included.
 
-   Muted text is a literal #616970 in light mode: --text-muted is under AA on
-   these grounds. Measured: 5.58:1 on --white, 4.88:1 on the selected-row
-   wash. Dark gives it back to the theme: 5.72:1 on the card, 4.95:1 on the
-   wash. The ticket button is green on light (6.03:1 on --white, 5.27:1 on
-   the wash) and mint on dark (6.13:1, 5.29:1): the theme does not redefine
-   --dark-green, which is 2.79:1 on the dark card. */
+   Muted text is a literal in light mode: --text-muted is under AA on these
+   grounds. The redesign's #5a6268 is 6.21:1 on --white and 5.43:1 on the
+   selected-row wash. Dark gives it back to the theme, as the designer's dark
+   queue keeps its colours: 5.72:1 on the card, 4.95:1 on the wash. The head
+   is #24524a on #dff1e8 (7.51:1) in light and keeps the theme's charcoal on
+   its green wash in dark. The ticket button is green on light (6.03:1 on
+   --white, 5.27:1 on the wash) and mint on dark (6.13:1, 5.29:1): the theme
+   does not redefine --dark-green, which is 2.79:1 on the dark card. */
 .queue-table {
-  --queue-muted: #616970;
+  --queue-muted: #5a6268;
   --queue-danger: #a71d2a;
   --queue-link: var(--dark-green);
+  --queue-head: #dff1e8;
+  --queue-head-ink: #24524a;
+  --queue-rule: #e6eae8;
+  --queue-frame: #e3e7e5;
+  --queue-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
+  --queue-tile: #fcede2;
+  --queue-tile-ink: #017151;
 }
 
 :root[data-theme='dark'] .queue-table {
   --queue-muted: var(--text-muted);
   --queue-danger: var(--danger);
   --queue-link: var(--mint-green);
+  --queue-head: var(--light-green);
+  --queue-head-ink: var(--charcoal);
+  --queue-rule: var(--border-light);
+  --queue-frame: var(--border-light);
+  --queue-shadow: none;
+  --queue-tile: #143b32;
+  --queue-tile-ink: #6dbfb1;
 }
 
 .queue-table__state {
   margin: 0;
   padding: 2rem 1rem;
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border: 1px solid var(--queue-frame);
+  border-radius: 12px;
   background: var(--white);
+  box-shadow: var(--queue-shadow);
   color: var(--queue-muted);
   font-size: 0.9rem;
   font-weight: 400;
@@ -254,35 +282,66 @@ function formatWhen(value: string) {
   font-weight: 600;
 }
 
+.queue-table__state--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2.125rem 1rem 2rem;
+}
+
+.queue-table__state--empty p {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 1rem;
+}
+
+.queue-table__empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: var(--queue-tile);
+  color: var(--queue-tile-ink);
+}
+
 .queue-table__scroll {
   overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border: 1px solid var(--queue-frame);
+  border-radius: 12px;
   background: var(--white);
+  box-shadow: var(--queue-shadow);
 }
 
 .queue-table__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
+/* 43px with its rule, as the design draws it: the select-all box is the
+   tallest thing in the row (16px and the browser's 3px margins). */
 .queue-table__table th {
-  padding: 0.85rem 1rem;
-  background: var(--light-green);
-  color: var(--charcoal);
-  font-weight: 600;
+  padding: 0.625rem 0.5rem;
+  background: var(--queue-head);
+  color: var(--queue-head-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-align: left;
+  text-transform: uppercase;
   white-space: nowrap;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--queue-rule);
 }
 
 .queue-table__table td {
-  padding: 0.75rem 1rem;
+  padding: 0.45rem 0.5rem;
   color: var(--charcoal);
   font-weight: 400;
   vertical-align: middle;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--queue-rule);
 }
 
 .queue-table__table tbody tr:last-child td {
@@ -290,13 +349,16 @@ function formatWhen(value: string) {
 }
 
 .queue-table__table .queue-table__check {
-  width: 2.5rem;
+  width: 2.75rem;
+  padding-left: 1.125rem;
   padding-right: 0.25rem;
 }
 
+/* Brand green when ticked, the way AdminDataTable's boxes are. */
 .queue-table__check input {
   width: 1rem;
   height: 1rem;
+  accent-color: var(--dark-green);
   cursor: pointer;
 }
 
@@ -343,20 +405,27 @@ function formatWhen(value: string) {
 .queue-table__region {
   display: block;
   color: var(--queue-muted);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 
 .queue-table__subject {
-  max-width: 22rem;
+  width: 14rem;
+}
+
+.queue-table__subject-text {
+  display: -webkit-box;
+  max-width: 14rem;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.47;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .queue-table__badges {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.375rem;
 }
 
 .queue-table__when {

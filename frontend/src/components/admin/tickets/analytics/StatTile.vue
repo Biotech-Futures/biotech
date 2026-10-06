@@ -25,21 +25,27 @@ defineProps<{
 </script>
 
 <style scoped>
-/* Muted text sits on the card (--white), where --text-muted would pass in
-   light (4.69:1); #616970 is used anyway so the tile reads the same on the
-   page ground (--bg-light), where --text-muted is 4.45:1 and fails. Dark
-   hands it back to the theme's #8a9a96, 5.72:1 on the dark card. */
+/* A grey tile inside the white card since the first redesign round (October
+   2026), a step darker than the card in dark too. Muted text is the round's
+   #5a6268: 5.89:1 on the tile's #f8f9fa, and it would still clear AA on the
+   page ground (--bg-light) where --text-muted is 4.45:1 and fails. Dark takes
+   the designer's #a3b3ae, 7.71:1 on the dark tile's #161f1d. */
 .stat-tile {
-  --stat-muted: #616970;
+  --stat-muted: #5a6268;
+  --stat-ground: #f8f9fa;
+  --stat-edge: #e6eae8;
 
   min-width: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--stat-edge);
+  border-radius: 8px;
+  background: var(--stat-ground);
 }
 
 :root[data-theme='dark'] .stat-tile {
-  --stat-muted: #8a9a96;
+  --stat-muted: #a3b3ae;
+  --stat-ground: #161f1d;
+  --stat-edge: #2b3936;
 }
 
 .stat-tile__label {

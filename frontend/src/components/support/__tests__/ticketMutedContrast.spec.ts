@@ -53,25 +53,30 @@ import TICKET_DETAIL_PAGE from '@/views/TicketDetailPage.vue?raw'
 
 const AA_NORMAL_TEXT = 4.5
 
-// The light backgrounds a ticket paints muted text on: .content-area and the
-// system-note pill (--bg-light), the support bubble (--surface-elevated), and
-// the requester's own bubble and the table head (--light-green). Every file is
-// held to all three in light, because all three are opaque hex there and one
-// value clears the lot.
+// The light backgrounds a ticket paints muted text on: .content-area
+// (--bg-light), the tickets card and the queue's rows (--surface-elevated and
+// --white, both white in light), and a table row under the pointer, which
+// main.css's tbody tr:hover washes in --light-green. Every file is held to all
+// three in light, because all three are opaque hex there and one value clears
+// the lot.
 const GROUND_TOKENS = ['--bg-light', '--surface-elevated', '--light-green']
 
 // Dark needs naming per file. --light-green is translucent there, so what a
-// ratio comes out as depends on what is behind the green: the card for the
-// table head, the page for the requester's own bubble.
+// ratio comes out as depends on what is behind the green: the card or the
+// queue's frame under a hovered row.
 const DARK_GROUNDS: Record<string, string[]> = {
-  // The badge paints no background and is only ever rendered in the enquiry
-  // header, which sits straight on the page.
-  'TicketPriorityBadge.vue': ['--bg-light'],
-  // System notes on the page, meta lines inside both kinds of bubble.
-  'TicketTimeline.vue': ['--bg-light', '--surface-elevated', '--light-green over --bg-light'],
-  // The head row takes the global thead --light-green, and SupportCentrePage
-  // wraps the table in a --surface-elevated card. The empty line is on that
-  // same card.
+  // The badge paints no background. A requester sees it in the enquiry
+  // header, on the page; an agent sees it on the queue's rows, --white and
+  // washed under the pointer. The detail panel's ground is measured in
+  // ticketDetailContrast.spec.ts.
+  'TicketPriorityBadge.vue': ['--bg-light', '--white', '--light-green over --white'],
+  // System notes, and the name and time over each bubble, all on the page
+  // since the first redesign round (October 2026). The bubbles' own colours
+  // are measured in ticketRedesignContrast.spec.ts.
+  'TicketTimeline.vue': ['--bg-light'],
+  // SupportCentrePage wraps the table in a --surface-elevated card, and a row
+  // under the pointer takes main.css's tbody tr:hover wash on it. The head
+  // row has colours of its own now, measured in ticketRedesignContrast.
   'MyTicketsTable.vue': ['--surface-elevated', '--light-green over --surface-elevated'],
   // Number, meta and state all sit straight on the page.
   'TicketDetailPage.vue': ['--bg-light'],
@@ -237,7 +242,7 @@ describe('muted text on a ticket', () => {
   })
 
   for (const [file, source] of Object.entries(SOURCES)) {
-    describe(file, () => {
+    describe(`${file}`, () => {
       it('takes muted text from a literal, not the failing token', () => {
         const value = lightValue(source, '--ticket-muted')
         // A file that stopped declaring it would otherwise be skipped by every

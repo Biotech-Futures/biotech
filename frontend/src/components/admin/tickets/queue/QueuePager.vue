@@ -90,7 +90,18 @@ function go(target: number, atEdge: boolean) {
 </script>
 
 <style scoped>
+/* The first redesign round (October 2026): 36px buttons a little further
+   apart, an edge you can see, and a disabled button that stays solid and
+   goes grey instead of fading. Measured (WCAG AA):
+     light  edge #84938f on white 3.21:1   disabled words #5a6268 6.21:1
+            Page N of M #5a6268 on the #f8f9fa page 5.89:1
+     dark   edge #70827d on the #161f1d button 4.15:1   (--border-light was 1.16:1)
+            disabled words and Page N of M take --text-muted, 5.72:1 and 6.19:1 */
 .queue-pager {
+  --pager-edge: #84938f;
+  --pager-muted: #5a6268;
+  --pager-quiet-edge: #e6eae8;
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -98,16 +109,23 @@ function go(target: number, atEdge: boolean) {
   gap: 0.75rem;
 }
 
+:root[data-theme='dark'] .queue-pager {
+  --pager-edge: #70827d;
+  --pager-muted: var(--text-muted);
+  --pager-quiet-edge: var(--border-light);
+}
+
 .queue-pager__left {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .queue-pager__where {
   margin: 0;
-  font-size: 0.875rem;
+  color: var(--pager-muted);
+  font-size: 0.9rem;
 }
 
 .queue-pager__nav {
@@ -115,15 +133,15 @@ function go(target: number, atEdge: boolean) {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.25rem;
+  gap: 0.375rem;
 }
 
 .queue-pager__btn {
-  min-width: 2rem;
-  height: 2rem;
-  padding: 0 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--pager-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
@@ -141,7 +159,8 @@ function go(target: number, atEdge: boolean) {
 }
 
 .queue-pager__btn[aria-disabled='true'] {
-  opacity: 0.55;
+  border-color: var(--pager-quiet-edge);
+  color: var(--pager-muted);
   cursor: not-allowed;
 }
 
@@ -156,6 +175,7 @@ function go(target: number, atEdge: boolean) {
 
 .queue-pager__gap {
   padding: 0 0.25rem;
+  font-weight: 600;
 }
 
 @media (max-width: 640px) {

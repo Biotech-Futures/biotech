@@ -10,9 +10,8 @@ defineProps<{ status: TicketStatus }>()
 
 <style scoped>
 /* Green while it is ours to move, amber while it is the requester's, grey once
-   it is done. The admin queue reads the same way but does not share these
-   values: each app now picks colours that clear 4.5:1 against its own ground,
-   and those grounds are different.
+   it is done. The student's pages, the queue and the detail panel all show
+   this one component, so a status reads the same everywhere.
 
    Both halves of every pair are written here, opaque, rather than taken from
    the global tokens. Two reasons, both measured:
@@ -27,12 +26,17 @@ defineProps<{ status: TicketStatus }>()
      what all of them mean.
    * A translucent background hands the contrast to whichever ancestor happens
      to paint underneath, which is not this component's to know. Opaque values
-     end that: one status, one theme, one number. The values below are what the
-     old translucent colours already composited to, so nothing looks different.
+     end that: one status, one theme, one number.
+
+   The values are the designer's from the first redesign round (October
+   2026): the same on his student list, ticket page, queue and detail panel.
+   Light keeps open and in progress, darkens the pending user amber and moves
+   resolved to a paler ground with darker text. Dark brightens all four, as
+   his dark student list asked. The line height gives his 24px pill.
 
    Measured, all eight against the 4.5:1 AA threshold for text this size:
-     light  open 5.27  in progress 5.03  pending user 5.04  resolved 4.70
-     dark   open 4.82  in progress 5.33  pending user 5.97  resolved 5.03
+     light  open 5.27  in progress 5.03  pending user 6.05  resolved 5.99
+     dark   open 7.37  in progress 7.04  pending user 6.88  resolved 6.81
 
    The dark rules must stay below the light ones: same specificity would not
    be enough, but `:root[data-theme="dark"]` adds one, and source order is what
@@ -44,7 +48,7 @@ defineProps<{ status: TicketStatus }>()
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 600;
-  line-height: 1.6;
+  line-height: 1.2rem;
   white-space: nowrap;
 }
 
@@ -60,31 +64,31 @@ defineProps<{ status: TicketStatus }>()
 
 .ticket-badge--pending_user {
   background: #fff4d2;
-  color: #8a6100;
+  color: #7a5600;
 }
 
 .ticket-badge--resolved {
-  background: #e0e0e0;
-  color: #5a6268;
+  background: #e6e8e9;
+  color: #4f575c;
 }
 
 :root[data-theme='dark'] .ticket-badge--open {
   background: #18352e;
-  color: #5ea99e;
+  color: #7fd0c1;
 }
 
 :root[data-theme='dark'] .ticket-badge--in_progress {
-  background: #213132;
-  color: #60a5fa;
+  background: #1f3145;
+  color: #8fc0ff;
 }
 
 :root[data-theme='dark'] .ticket-badge--pending_user {
-  background: #464420;
+  background: #3f3a17;
   color: #fbbf24;
 }
 
 :root[data-theme='dark'] .ticket-badge--resolved {
-  background: #1f2a28;
-  color: #8a9a96;
+  background: #2a3633;
+  color: #b4c2be;
 }
 </style>
