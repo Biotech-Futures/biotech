@@ -25,6 +25,46 @@ const recommendation = (
 
 const newGroup = { id: 'new-Australia-1', groupName: 'Suggested Group 1' }
 
+describe('useStudentMatching mode', () => {
+  beforeEach(() => {
+    vi.mocked(fetchStudentMatch).mockReset()
+    vi.mocked(fetchStudentMatch).mockResolvedValue({
+      recommendations: [recommendation(1, 'Ava Nguyen', newGroup)]
+    })
+  })
+
+  it('runs in balanced mode by default', async () => {
+    const matching = useStudentMatching()
+    expect(matching.mode.value).toBe('balanced')
+
+    await matching.run()
+    expect(fetchStudentMatch).toHaveBeenCalledWith('balanced')
+  })
+
+  it('discards the previous board and error when the mode changes', async () => {
+    const matching = useStudentMatching()
+    await matching.run()
+    matching.error.value = 'Stale error from the last mode'
+    expect(matching.groups.value).toHaveLength(1)
+
+    matching.setMode('strict')
+
+    expect(matching.mode.value).toBe('strict')
+    expect(matching.hasRun.value).toBe(false)
+    expect(matching.groups.value).toEqual([])
+    expect(matching.waiting.value).toEqual([])
+    expect(matching.buckets.value).toEqual({})
+    expect(matching.error.value).toBe('')
+
+    // Reset must not resurrect the old mode's proposal.
+    matching.reset()
+    expect(matching.groups.value).toEqual([])
+
+    await matching.run()
+    expect(fetchStudentMatch).toHaveBeenLastCalledWith('strict')
+  })
+})
+
 describe('useStudentMatching confirm', () => {
   beforeEach(() => {
     vi.mocked(fetchStudentMatch).mockReset()
