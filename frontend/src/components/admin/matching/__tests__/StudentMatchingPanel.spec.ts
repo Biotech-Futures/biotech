@@ -177,6 +177,17 @@ describe('StudentMatchingPanel', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('heads the tab "Student Grouping" rather than repeating the tab name', () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+
+    // Mirrors the Mentor Matching tab's "Mentor Assignment" heading.
+    expect(wrapper.find('h2').text()).toBe('Student Grouping')
+    expect(wrapper.text()).toContain(
+      'Run the algorithm, review suggested groups, then confirm assignments.'
+    )
+  })
+
   it('defaults to balanced mode', () => {
     vi.stubGlobal('fetch', fetchMock())
     wrapper = mount(StudentMatchingPanel)
@@ -257,7 +268,8 @@ describe('StudentMatchingPanel', () => {
     await flushPromises()
 
     expect(buttonByText(wrapper, 'Scoring weights')!.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.text()).not.toContain('Student matching weights')
+    // The toggle shares the panel's "Scoring weights" name, so check the panel.
+    expect(wrapper.find('#matching-config-title').exists()).toBe(false)
     expect(fetch.mock.calls.some((call) => String(call[0]).includes('/matching/configs/'))).toBe(
       false
     )
@@ -275,8 +287,8 @@ describe('StudentMatchingPanel', () => {
     expect(toggle.attributes('aria-expanded')).toBe('true')
     const region = wrapper.find(`#${toggle.attributes('aria-controls')}`)
     expect(region.attributes('hidden')).toBeUndefined()
-    expect(region.text()).toContain('Student matching weights')
-    expect(region.text()).toContain('student matching only')
+    expect(region.find('#matching-config-title').text()).toBe('Scoring weights')
+    expect(region.text()).toContain('Changes apply to the next student matching run.')
 
     // Collapsing hides it but keeps it mounted, so edits survive and reopening
     // does not refetch.

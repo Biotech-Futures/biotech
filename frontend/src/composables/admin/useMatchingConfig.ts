@@ -24,7 +24,7 @@ export const MATCHING_WEIGHT_FIELDS: { key: MatchingWeightKey; label: string; he
   {
     key: 'countryMismatchWeight',
     label: 'Country',
-    help: 'Country is a tie-breaker: when two options are equally close in timezone, the one with fewer cross-country pairs wins. It does not lower the match score, but it still counts towards the 100% total.'
+    help: 'Country is used separately as a tie-breaker when otherwise suitable matches are tied. This configured value is currently reported in the score breakdown and counts towards the required 100% total.'
   },
   {
     key: 'timezoneWeight',

@@ -137,25 +137,64 @@ afterEach(() => {
 
 describe('MatchingConfigPanel', () => {
   describe('scope and help copy', () => {
-    it('says the weights apply to student matching only', async () => {
+    it('titles the panel and says when changes apply', async () => {
       stubFetch({})
       wrapper = await mountPanel()
 
-      expect(wrapper.text()).toContain('Student matching weights')
-      expect(wrapper.text()).toContain('student matching only')
-      expect(wrapper.text()).toContain('Mentor matching is not affected')
+      expect(wrapper.find('#matching-config-title').text()).toBe('Scoring weights')
+      expect(wrapper.text()).toContain('Changes apply to the next student matching run.')
     })
 
-    it('explains that country is a tie-breaker that still counts towards the total', async () => {
+    it('describes the country value as reported and counted, not as driving the tie-break', async () => {
       stubFetch({})
       wrapper = await mountPanel()
 
       const countryInput = weightInput(wrapper, 'countryMismatchWeight')
       const helpId = countryInput.attributes('aria-describedby')!.split(' ')[0]
       const help = wrapper.find(`#${helpId}`).text()
-      expect(help).toContain('tie-breaker')
-      expect(help).toContain('does not lower the match score')
-      expect(help).toContain('100% total')
+      // The tie-break is separate from this value (country_mismatch_weight
+      // never reaches the comparator), so the copy must not tie them together.
+      expect(help).toContain('Country is used separately as a tie-breaker')
+      expect(help).toContain('reported in the score breakdown')
+      expect(help).toContain('counts towards the required 100% total')
+    })
+
+    it('keeps each weight’s help in an accessible tooltip tied to its input', async () => {
+      stubFetch({})
+      wrapper = await mountPanel()
+
+      for (const key of [
+        'yearWeight',
+        'countryMismatchWeight',
+        'timezoneWeight',
+        'timezoneMaxWeight',
+        'sizeBonusWeight'
+      ]) {
+        const helpId = `matching-config-${key}-help`
+        const tip = wrapper.find(`#${helpId}`)
+        expect(tip.attributes('role')).toBe('tooltip')
+        expect(tip.text().length).toBeGreaterThan(0)
+        // Still read out with the field itself.
+        expect(weightInput(wrapper, key).attributes('aria-describedby')).toContain(helpId)
+
+        // A real, focusable button opens it — and must never submit the form.
+        const info = wrapper.find(`button[aria-describedby="${helpId}"]`)
+        expect(info.attributes('type')).toBe('button')
+        expect(info.attributes('aria-label')).toMatch(/^About the .+ weight$/)
+      }
+    })
+
+    it('keeps country an ordinary editable percentage with no tie-breaker label', async () => {
+      stubFetch({})
+      wrapper = await mountPanel()
+
+      // Still part of the 100% total the backend requires, so still editable.
+      const country = weightInput(wrapper, 'countryMismatchWeight')
+      expect(country.attributes('type')).toBe('number')
+      expect(country.attributes('disabled')).toBeUndefined()
+      // A visible "Tie-breaker only" label implied the value controls the
+      // tie-break, which it does not.
+      expect(wrapper.text()).not.toContain('Tie-breaker only')
     })
   })
 
@@ -172,7 +211,6 @@ describe('MatchingConfigPanel', () => {
       expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('15')
       expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
       expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('10')
-      expect(wrapper.text()).toContain('Editing the active configuration')
       expect(wrapper.text()).not.toContain('built-in weighting')
     })
 
@@ -265,6 +303,24 @@ describe('MatchingConfigPanel', () => {
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
+    it('flags an invalid total in the footer and ties it to the Save button', async () => {
+      stubFetch({ active: () => jsonResponse(savedActive) })
+      wrapper = await mountPanel()
+
+      const total = wrapper.find('#matching-config-total')
+      expect(saveButton(wrapper).attributes('aria-describedby')).toBe('matching-config-total')
+      expect(total.classes()).not.toContain('matching-config__total--invalid')
+      expect(total.find('.fa-triangle-exclamation').exists()).toBe(false)
+
+      await weightInput(wrapper, 'yearWeight').setValue('35')
+
+      expect(total.classes()).toContain('matching-config__total--invalid')
+      expect(total.find('.fa-triangle-exclamation').exists()).toBe(true)
+      expect(total.text()).toContain('Total: 105 / 100%')
+      expect(total.text()).toContain('must total exactly 100%')
+      expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
+    })
+
     it('adds fractional weights exactly', async () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
@@ -339,7 +395,6 @@ describe('MatchingConfigPanel', () => {
 
       // The saved config is now the one in force.
       expect(wrapper.text()).not.toContain('using its built-in weighting')
-      expect(wrapper.text()).toContain('Editing the active configuration')
       expect(wrapper.find('[role="status"]').text()).toContain('Saved')
     })
 
