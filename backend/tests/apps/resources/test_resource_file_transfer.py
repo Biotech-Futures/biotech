@@ -155,6 +155,32 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         resource.refresh_from_db()
         return response, resource
 
+    def test_patch_rename_without_roles_is_not_blocked(self):
+        # Matches update_resource's admin-side behaviour: an update that
+        # doesn't touch visibility_scope or role_ids isn't required to
+        # re-send roles.
+        _, resource = self._create_resource(
+            user=self.global_admin,
+            name="Original Name",
+            visibility_scope=Resources.VisibilityScope.ROLE,
+            audience_role=self.student_role,
+        )
+
+        response = self.client.patch(
+            reverse("resource-files-detail", kwargs={"pk": resource.id}),
+            {"name": "Renamed"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resource.refresh_from_db()
+        self.assertEqual(resource.name, "Renamed")
+        self.assertEqual(resource.visibility_scope, Resources.VisibilityScope.ROLE)
+        self.assertEqual(
+            set(resource.audiences.values_list("role_id", flat=True)),
+            {self.student_role.id},
+        )
+
     def test_admin_can_upload_resource(self):
         response, resource = self._post_resource(
             self.global_admin,

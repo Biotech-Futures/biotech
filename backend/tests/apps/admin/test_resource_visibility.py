@@ -167,6 +167,19 @@ class AdminUpdateVisibilityTests(_VisibilityTestBase):
         self.assertEqual(self.resource.visibility_scope, Resources.VisibilityScope.ROLE)
         self.assertEqual(self._role_ids(self.resource), {self.mentor_role.id, self.admin_role.id})
 
+    def test_rename_without_touching_visibility_is_not_blocked(self):
+        # A plain metadata edit must not be forced to re-send roles.
+        response = self.client.put(
+            self.url,
+            {"resource_name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.resource.refresh_from_db()
+        self.assertEqual(self.resource.name, "Renamed")
+        self.assertEqual(self.resource.visibility_scope, Resources.VisibilityScope.ROLE)
+        self.assertEqual(self._role_ids(self.resource), {self.student_role.id})
+
     def test_legacy_global_row_still_lists(self):
         # Only writes reject global; reads tolerate rows the backfill hasn't touched.
         Resources.objects.create(
