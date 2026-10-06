@@ -81,6 +81,36 @@ export function formatLongDateAU(value: string | Date, withWeekday = false): str
 }
 
 /**
+ * Format a date value into a long Australian date followed by the time of day.
+ *
+ * Both halves are read in the reader's own time zone, the one the browser is
+ * set to, so a message reads at the hour it arrived for whoever is looking.
+ * Deliberately not DEFAULT_TIME_ZONE below: that is UTC, and a student in
+ * Sydney would see every reply stamped ten or eleven hours early.
+ *
+ * Example output:
+ * 24 September 2026, 3:37 pm
+ *
+ * @param value The source date value as a string or Date object.
+ * @returns The long date and the time, or an empty string if invalid.
+ */
+export function formatLongDateTimeAU(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) return ''
+
+  // Joined here rather than asked of the locale in one call. Asked in one
+  // call, en-AU puts " at " between them (measured on ICU 78), which is not
+  // the shape the client asked for, and that joiner is locale data each
+  // browser ships at its own version.
+  const time = date.toLocaleTimeString('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `${formatLongDateAU(date)}, ${time}`
+}
+
+/**
  * Format a date value for announcement display.
  *
  * This function is similar to the short Australian date formatter,
@@ -105,6 +135,20 @@ export function formatAnnouncementDateAU(value: string | Date): string {
     month: 'short',
     year: 'numeric',
   })
+}
+
+/** Sydney's clock on a day ("YYYY-MM-DD"): AEDT in daylight saving
+ *  (UTC+11), else AEST (UTC+10). */
+export function sydneyClockOn(isoDate: string): { name: 'AEDT' | 'AEST'; daylight: boolean; offset: string } {
+  // Midday in Sydney that day, well clear of a clock change in the small hours.
+  const at = new Date(`${isoDate}T02:00:00Z`)
+  const zone = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', timeZoneName: 'longOffset' })
+    .formatToParts(at)
+    .find((part) => part.type === 'timeZoneName')?.value
+  const daylight = zone === 'GMT+11:00'
+  return daylight
+    ? { name: 'AEDT', daylight, offset: 'UTC+11' }
+    : { name: 'AEST', daylight, offset: 'UTC+10' }
 }
 
 export const DEFAULT_TIME_ZONE = 'UTC'

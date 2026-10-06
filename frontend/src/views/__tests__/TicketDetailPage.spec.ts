@@ -228,3 +228,42 @@ describe('TicketDetailPage follows the id in the address bar', () => {
     expect(shown).not.toMatch(/could not be found|does not exist|no longer/i)
   })
 })
+
+describe('TicketDetailPage gives the conversation its own column', () => {
+  beforeEach(() => {
+    reactiveRoute.params.id = '152'
+    fetchMock.mockReset()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('renders the timeline inside that column', async () => {
+    // ticketConversationLayout.spec.ts pins the width of .ticket__conversation,
+    // and the bubbles are sized as a share of it. It reads rules, not the
+    // page: with the timeline moved out of this section every rule there
+    // still passes and the rows go back to the full width of the page.
+    fetchMock.mockResolvedValueOnce(
+      detail(152, {
+        messages: [
+          {
+            id: 1,
+            messageType: 'user_message',
+            body: 'I cannot open my group page.',
+            author: 'Mia Thompson',
+            createdAt: '2026-09-24T05:37:00Z',
+            attachments: [],
+          },
+        ],
+      })
+    )
+    const wrapper = open()
+    await flushPromises()
+
+    const column = wrapper.get('section.ticket__conversation')
+    expect(column.find('ol.timeline').exists()).toBe(true)
+    expect(column.text()).toContain('I cannot open my group page.')
+  })
+})

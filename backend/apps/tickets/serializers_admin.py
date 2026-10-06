@@ -8,6 +8,7 @@ of that line during a refactor.
 
 from rest_framework import serializers
 
+from .bidi import BidiSafeCharField
 from .models import TicketCategory, TicketMessageType, TicketPriority, TicketStatus
 from .serializers import MAX_BODY_LENGTH
 from .services.queue import support_capable_users
@@ -63,8 +64,12 @@ class SupportMessageSerializer(serializers.Serializer):
     messageType = serializers.ChoiceField(
         choices=[TicketMessageType.SUPPORT_REPLY, TicketMessageType.INTERNAL_NOTE]
     )
-    body = serializers.CharField(max_length=MAX_BODY_LENGTH, allow_blank=False,
-                                 trim_whitespace=True)
+    # BidiSafeCharField for the same reason the requester's fields use it: a
+    # support reply is read by the student in the portal, an internal note is
+    # read by the next agent, and neither should render in an order the stored
+    # text does not have. See apps/tickets/bidi.py.
+    body = BidiSafeCharField(max_length=MAX_BODY_LENGTH, allow_blank=False,
+                             trim_whitespace=True)
     # "Reply and wait for their answer" as one action, so the email can say
     # which of the two it is. Optional, and the reply behaves exactly as
     # before when it is absent.

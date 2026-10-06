@@ -8,6 +8,7 @@ vi.mock('@/utils/supportAPI', async () => {
   )
   return { ...actual, submitTicket: vi.fn() }
 })
+
 import { TICKET_CATEGORIES, TICKET_PRIORITIES, submitTicket } from '@/utils/supportAPI'
 
 /**
@@ -289,3 +290,4 @@ describe('TicketForm priority', () => {
     )
   })
 })
+

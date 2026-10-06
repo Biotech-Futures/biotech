@@ -1,4 +1,4 @@
-name: Frontend Type Check
+name: Frontend Checks
 
 on:
   pull_request:
@@ -35,3 +35,9 @@ jobs:
       - name: Run TypeScript type check
         working-directory: frontend
         run: npm run type-check
+
+      - name: Run unit tests
+        working-directory: frontend
+        # --run forces a single pass; the bare `vitest` script would start
+        # watch mode and hang the job on a TTY-less runner.
+        run: npm run test:unit -- --run

@@ -18,7 +18,6 @@ export const createEventSchema = z
     eventTimezone: z.string().optional(),
     startAt: dateTimeInput,
     endsAt: dateTimeInput,
-    targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
     targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
@@ -41,7 +40,6 @@ export const updateEventSchema = z
     eventTimezone: z.string().optional(),
     startAt: dateTimeInput.optional(),
     endsAt: dateTimeInput.optional(),
-    targetGroupIds: z.array(z.number().int().positive()).optional(),
     targetRoleIds: z.array(z.number().int().positive()).optional(),
   })
   .refine(

@@ -43,8 +43,13 @@ retire_programs_groups = importlib.import_module(
     "apps.tickets.migrations.0005_ticket_category_client_list"
 ).retire_programs_groups
 
+# 0009 and not 0007. 0007 wrote the anchor under the rule the service had
+# before it could tell a paused clock from a stopped one; 0009 is the same
+# replay with that distinction added, and it is the one the live rule must
+# agree with now. 0007 stays on disk because it has already run on developer
+# databases, and its own behaviour is what 0009 corrects.
 backfill_awaiting = importlib.import_module(
-    "apps.tickets.migrations.0007_backfill_awaiting_support_since"
+    "apps.tickets.migrations.0009_backfill_awaiting_support_paused"
 ).backfill
 
 
@@ -175,7 +180,9 @@ class BackfillAwaitingSupportSinceTests(TestCase):
         everywhere. The lifecycle service fills it in as it creates tickets,
         so without this every assertion below would be testing the service
         rather than the migration."""
-        Ticket.objects.all().update(awaiting_support_since=None)
+        Ticket.objects.all().update(
+            awaiting_support_since=None, awaiting_support_paused=False
+        )
 
     def run_backfill(self):
         self.clear_column()
@@ -317,6 +324,13 @@ class BackfillAwaitingSupportSinceTests(TestCase):
             move_to_pending=True,
         ),
         "mark_pending": lambda s, t: lifecycle.mark_pending(ticket=t, actor=s.agent),
+        # The dropdown's own route into "pending user". It was missing, and it
+        # is the ONLY one of the two that production can reach: mark_pending()
+        # has no caller outside tests and the seeder, while this is what
+        # views_admin._apply runs on every status PATCH.
+        "drag_to_pending": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.PENDING_USER, actor=s.agent
+        ),
         "drag_to_open": lambda s, t: lifecycle.set_status(
             ticket=t, new_status=TicketStatus.OPEN, actor=s.agent
         ),
@@ -350,7 +364,17 @@ class BackfillAwaitingSupportSinceTests(TestCase):
         from itertools import product
 
         names = list(self.CLOCK_ACTIONS)
-        histories = [()] + [(n,) for n in names] + list(product(names, repeat=2))
+        # Out to three, not two. Taking the clock off a ticket whose clock is
+        # already off is a THREE-action shape (off, off again, back on), so a
+        # generator that stops at two cannot produce it -- and that is exactly
+        # the route where the replay and the service can disagree about
+        # whether a wait is still held.
+        histories = (
+            [()]
+            + [(n,) for n in names]
+            + list(product(names, repeat=2))
+            + list(product(names, repeat=3))
+        )
 
         built = []
         for history in histories:
@@ -365,24 +389,37 @@ class BackfillAwaitingSupportSinceTests(TestCase):
                 # right: they are not histories a database can hold.
                 continue
             ticket.refresh_from_db()
-            built.append((history, ticket, ticket.awaiting_support_since))
+            built.append(
+                (history, ticket,
+                 ticket.awaiting_support_since, ticket.awaiting_support_paused)
+            )
 
         self.assertGreater(len(built), 50, "the generator produced almost nothing")
 
         def is_overdue(pk):
             return Ticket.objects.filter(overdue_condition(), pk=pk).exists()
 
-        verdicts = {t.pk: is_overdue(t.pk) for _, t, _ in built}
+        verdicts = {t.pk: is_overdue(t.pk) for _, t, _, _ in built}
 
         self.run_backfill()
 
         diverged = []
-        for history, ticket, live in built:
+        for history, ticket, live, live_paused in built:
             ticket.refresh_from_db()
             got = ticket.awaiting_support_since
             label = " -> ".join(history) or "(nothing happened)"
 
-            if (got is None) != (live is None):
+            # The flag is compared as well as the anchor. Without this the
+            # backfill's half of the new column is unasserted: the replay
+            # could write False everywhere and every test here would still
+            # pass, while a parked ticket came back off the clock the first
+            # time an agent moved it.
+            if ticket.awaiting_support_paused != live_paused:
+                diverged.append(
+                    f"{label}: paused live={live_paused!r} "
+                    f"backfill={ticket.awaiting_support_paused!r}"
+                )
+            elif (got is None) != (live is None):
                 diverged.append(f"{label}: live={live!r} backfill={got!r}")
             elif live is not None and abs((got - live).total_seconds()) >= 1:
                 diverged.append(
@@ -398,20 +435,24 @@ class BackfillAwaitingSupportSinceTests(TestCase):
             + "\n  ".join(diverged),
         )
 
-    def test_a_ticket_dragged_back_off_pending_is_still_on_the_clock(self):
+    def test_a_parked_wait_dragged_back_off_pending_is_still_on_the_clock(self):
         """One generated history, written out because it is the one that broke
-        the previous version and the message is worth keeping.
+        an earlier version of the replay and the message is worth keeping.
 
-        "Reply and move to pending user", then an agent drags it back to Open.
-        The newest message is a support reply, so a backfill that reads only
-        messages says nobody is waiting — while the live rule has the clock
-        running from the drag-back and the ticket is squarely with support.
+        A ticket nobody has answered is moved to "pending user" from the
+        dropdown and then dragged back to Open. Nothing on that path writes a
+        user or support message at all, so a backfill that reads only messages
+        anchors on the original submission — while the live rule paused a
+        running clock and resumed it at the drag-back. **A status change is not
+        a message**, and on a ticket raised days ago the two answers are that
+        whole gap apart.
+
+        Kept as the sibling of the test below, which is the same two picks on
+        a ticket support has already answered and comes out the other way.
         """
         ticket = self.make()
-        lifecycle.add_support_reply(
-            ticket=ticket, actor=self.agent, body="Screenshot please?",
-            move_to_pending=True,
-        )
+        raised = ticket.awaiting_support_since
+        lifecycle.mark_pending(ticket=ticket, actor=self.agent)
         ticket.refresh_from_db()
         lifecycle.set_status(
             ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
@@ -419,6 +460,10 @@ class BackfillAwaitingSupportSinceTests(TestCase):
         ticket.refresh_from_db()
         live = ticket.awaiting_support_since
         self.assertIsNotNone(live)
+        self.assertGreater(
+            live, raised,
+            "the live rule resumes at the drag-back, not at the submission",
+        )
 
         self.run_backfill()
 
@@ -430,6 +475,39 @@ class BackfillAwaitingSupportSinceTests(TestCase):
         )
         self.assertLess(
             abs((ticket.awaiting_support_since - live).total_seconds()), 1
+        )
+
+    def test_a_ticket_answered_then_dragged_back_off_pending_stays_stopped(self):
+        """The same two picks on a ticket support has already answered.
+
+        "Reply and move to pending user" stops the clock — we answered, nobody
+        is waiting on us. Dragging it back to Open is not the requester saying
+        anything, so nothing is owed and no clock may start. A replay that
+        treats the park as a stop cannot see the difference and arms this
+        ticket, which is a red badge on a queue with the requester having said
+        nothing at all.
+        """
+        ticket = self.make()
+        lifecycle.add_support_reply(
+            ticket=ticket, actor=self.agent, body="Screenshot please?",
+            move_to_pending=True,
+        )
+        ticket.refresh_from_db()
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+        ticket.refresh_from_db()
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "the live rule leaves an answered ticket stopped",
+        )
+
+        self.run_backfill()
+
+        ticket.refresh_from_db()
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "the backfill must not invent a clock the service never started",
         )
 
     def test_two_events_at_the_very_same_instant_resolve_the_way_the_service_does(self):

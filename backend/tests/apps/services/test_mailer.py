@@ -182,19 +182,19 @@ class SendAsyncFailureCallbackTest(SimpleTestCase):
     def test_a_callback_that_blows_up_does_not_take_the_pool_with_it(self):
         msg = MagicMock()
         msg.send.side_effect = RuntimeError("smtp down")
-        ran = threading.Event()
 
         def explode(_exc):
-            ran.set()
             raise ValueError("callback is broken")
 
-        send_async(msg, kind="ticket_resolved", on_failure=explode)
-        _wait_for(ran)
+        with _dispatched():
+            send_async(msg, kind="ticket_resolved", on_failure=explode)
 
         self.assertFalse(_EXECUTOR._shutdown)
         healthy = MagicMock()
+
         with _dispatched():
             send_async(healthy, kind="login_code")
+
         healthy.send.assert_called_once()
 
     @override_settings(AUTH_EMAIL_DISPATCH_SYNC=True)

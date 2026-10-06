@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .bidi import BidiSafeCharField
 from .models import TicketCategory, TicketPriority
 
 # Spelled out rather than taken from TicketCategory.choices so that an
@@ -27,8 +28,11 @@ MAX_BODY_LENGTH = 2000
 
 class TicketCreateSerializer(serializers.Serializer):
     category = serializers.ChoiceField(choices=PUBLIC_TICKET_CATEGORIES)
-    subject = serializers.CharField(max_length=255, allow_blank=False, trim_whitespace=True)
-    body = serializers.CharField(max_length=MAX_BODY_LENGTH, allow_blank=False, trim_whitespace=True)
+    # BidiSafeCharField, not CharField: a support agent reads the subject off
+    # the queue and types it back into the search box, so what is stored has to
+    # be what is displayed. See apps/tickets/bidi.py.
+    subject = BidiSafeCharField(max_length=255, allow_blank=False, trim_whitespace=True)
+    body = BidiSafeCharField(max_length=MAX_BODY_LENGTH, allow_blank=False, trim_whitespace=True)
     # The requester's own answer to "how urgent is this?". The client settled
     # on 2026-09-04 that the person raising the enquiry sets it and a support
     # agent may change it afterwards.
@@ -49,4 +53,6 @@ class TicketCreateSerializer(serializers.Serializer):
 
 
 class TicketReplySerializer(serializers.Serializer):
-    body = serializers.CharField(max_length=MAX_BODY_LENGTH, allow_blank=False, trim_whitespace=True)
+    # Same field class as the create path. This one is a <textarea>, so it takes
+    # an ordinary paste with no scripting at all.
+    body = BidiSafeCharField(max_length=MAX_BODY_LENGTH, allow_blank=False, trim_whitespace=True)

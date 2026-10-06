@@ -1,25 +1,21 @@
-"""Confirmation email sent when a team submits.
-
-Reports each component's status separately, which is what the client asked for:
-a team can see at a glance that their poster arrived but their report did not.
-"Not Submitted" is the wording for not-yet-submitted; it is not deadline-sensitive.
-"""
+"""Confirmation email sent when a team submits, listing each component's status."""
 from __future__ import annotations
 
 import logging
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 
-from apps.common.role_names import ROLE_STUDENT
 from apps.groups.models import GroupMembership
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
 from apps.services.mailer import send_async
+from apps.services.system_email import build_message, is_email_enabled, render_system_email
 
 from .models import Submission, SubmissionQuestion
-from .services import deadline_for_group
+from .services import current_cohort, deadline_for_group
 
 
 logger = logging.getLogger(__name__)
@@ -29,12 +25,7 @@ NOT_SUBMITTED = "Not Submitted"
 
 
 def _format_deadline(closes_at) -> str:
-    """"Friday, 18 September 2026", matching the client's copy.
-
-    Built from parts rather than with a "%-d" directive: that strips the
-    leading zero on Linux but is not a valid format on Windows, so a developer
-    machine would raise where the server would not.
-    """
+    """"Friday, 18 September 2026"; built from parts because "%-d" fails on Windows."""
     if not closes_at:
         return "the published deadline"
     local = timezone.localtime(closes_at)
@@ -51,11 +42,7 @@ def _component(label: str, present: bool, detail: str = "") -> dict:
 
 
 def _saqs_present(submission: Submission) -> bool:
-    """SAQs count as submitted once every required question is answered.
-
-    Judged against the submitted copy, not the draft: the email describes what
-    is on record.
-    """
+    """Every required question answered in the submitted copy."""
     answers = submission.submitted_answers or {}
     required = SubmissionQuestion.active().filter(is_required=True)
     if not required.exists():
@@ -70,7 +57,6 @@ def _file_detail(stored: dict | None) -> str:
 
 
 def build_components(submission: Submission) -> tuple[list[dict], list[dict]]:
-    """Required and optional components, in the order the client's copy lists."""
     required = [
         _component("Poster", bool(submission.submitted_poster),
                    _file_detail(submission.submitted_poster)),
@@ -89,39 +75,44 @@ def build_components(submission: Submission) -> tuple[list[dict], list[dict]]:
     return required, optional
 
 
-def recipients_for(group) -> list[str]:
-    """Every student on the team.
-
-    Mentors and supervisors are excluded: the client confirmed submissions are
-    none of their business. Inactive accounts are excluded deliberately too —
-    an unvalidated address is one the programme should not write to.
+def components_list_html(components: list[dict]) -> str:
+    """Components as an HTML list, for the merge tags an admin can use in an
+    edited email, e.g. "<li><strong>Poster</strong>: Submitted (poster.pdf)</li>".
+    Every value is escaped.
     """
+    if not components:
+        return ""
+    items = format_html_join(
+        "",
+        "<li><strong>{}</strong>: {}{}</li>",
+        (
+            (
+                item["label"],
+                item["status"],
+                format_html(" ({})", item["detail"]) if item.get("detail") else "",
+            )
+            for item in components
+        ),
+    )
+    return format_html("<ul>{}</ul>", items)
+
+
+def recipients_for(group) -> list[str]:
+    """Active members of the team: students, mentors and supervisors."""
     memberships = (
         GroupMembership.objects.filter(group=group, left_at__isnull=True)
         .select_related("user")
     )
-    emails = []
-    for membership in memberships:
-        user = membership.user
-        if not user or not user.email or not user.is_active:
-            continue
-        # Blank on older rows, so fall back to the user's actual role.
-        from apps.common.rbac import user_has_role
-
-        if membership.membership_role == ROLE_STUDENT or user_has_role(user, ROLE_STUDENT):
-            emails.append(user.email)
+    emails = [
+        membership.user.email
+        for membership in memberships
+        if membership.user and membership.user.email and membership.user.is_active
+    ]
     return sorted(set(emails))
 
 
 def send_individually(messages, *, kind: str) -> tuple[int, int]:
-    """Send one message per recipient over a single connection.
-
-    One message each rather than one listing the team: students would otherwise
-    see each other's addresses, and a server rejects a *message*, so one bad
-    address would cost everyone their copy. Each send is guarded separately.
-
-    Returns ``(sent, failed)``.
-    """
+    """One message per recipient, so addresses stay private and one bad address fails alone. Returns (sent, failed)."""
     if not messages:
         return 0, 0
 
@@ -140,8 +131,7 @@ def send_individually(messages, *, kind: str) -> tuple[int, int]:
                 message.send()
             except Exception as exc:
                 failed += 1
-                # Not logger.exception: these carry the recipient address
-                # in their args, which would land raw in the log sink.
+                # Not logger.exception, which would log the recipient address.
                 logger.error(
                     "submission_email.recipient_failed kind=%s error=%s",
                     kind, type(exc).__name__,
@@ -157,11 +147,7 @@ def send_individually(messages, *, kind: str) -> tuple[int, int]:
 
 
 class _Batch:
-    """A set of messages that the mail pool can treat as one task.
-
-    Keeps a team's mail to one slot on a pool shared with the login-code
-    emails, so a busy evening cannot push a sign-in code behind five sends.
-    """
+    """A team's messages as one task on the shared mail pool, so login codes are not delayed."""
 
     def __init__(self, messages, kind: str):
         self.messages = messages
@@ -173,12 +159,12 @@ class _Batch:
 
 
 def send_submission_confirmation(submission: Submission) -> int:
-    """Email the team a summary of what was received. Returns recipient count.
-
-    Never raises: a submission that succeeded must not be reported as failed
-    because the confirmation could not be sent.
-    """
+    """Email the team a summary of what was received. Returns recipient count; never raises."""
     try:
+        if not is_email_enabled("submission_confirmation"):
+            logger.info("submission_email.skipped_disabled group=%s", getattr(submission, "group_id", None))
+            return 0
+
         group = submission.group
         to = recipients_for(group)
         if not to:
@@ -191,14 +177,15 @@ def send_submission_confirmation(submission: Submission) -> int:
         context = {
             **brand_context(),
             "GROUP_NAME": group.group_name,
-            "YEAR": timezone.now().year,
+            "YEAR": current_cohort(),
             "REQUIRED_COMPONENTS": required,
             "OPTIONAL_COMPONENTS": optional,
+            "REQUIRED_COMPONENTS_LIST": components_list_html(required),
+            "OPTIONAL_COMPONENTS_LIST": components_list_html(optional),
             "INCOMPLETE": any(not item["submitted"] for item in required),
             "DEADLINE": _format_deadline(deadline.closes_at),
             "SUBMITTED_BY": submission.submitted_by,
-            # Hash routing. A blank base means no button rather than a link
-            # to nowhere; the template checks.
+            # Blank when no frontend URL is configured; the template then omits the button.
             "SUBMISSION_URL": (
                 f"{settings.FRONTEND_BASE_URL}/#/submission/{group.id}"
                 if getattr(settings, "FRONTEND_BASE_URL", "")
@@ -206,28 +193,13 @@ def send_submission_confirmation(submission: Submission) -> int:
             ),
         }
 
-        html = render_to_string("emails/submission_confirmation.html", context)
-        # Its own template, not strip_tags of the HTML: that kept the <style>
-        # block as visible CSS at the top of the message.
+        # The existing plain-text template, used unless an admin rewrote the email.
         text = render_to_string("emails/submission_confirmation.txt", context)
+        # Rendered once, so every member reads the same email; only the address differs.
+        rendered = render_system_email("submission_confirmation", context, default_text=text)
+        messages = [build_message(rendered, address) for address in to]
 
-        # Rendered once and reused, so every student reads the same email;
-        # only the address differs.
-        subject = f"{settings.BRAND_NAME}: Submission received for {group.group_name}"
-        messages = []
-        for address in to:
-            message = EmailMultiAlternatives(
-                subject=subject,
-                body=text,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[address],
-            )
-            message.attach_alternative(html, "text/html")
-            attach_inline_logo(message)
-            messages.append(message)
-
-        # Rendered here, sent off-thread: the worker does no ORM work, so it
-        # cannot race the transaction that created this submission.
+        # Rendered here so the worker thread does no database work.
         send_async(_Batch(messages, "submission_confirmation"),
                    kind="submission_confirmation")
         return len(to)

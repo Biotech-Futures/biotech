@@ -1,5 +1,6 @@
+import io
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -12,21 +13,25 @@ from datetime import timezone as dt_timezone
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from unittest import skipIf
 from unittest.mock import patch
 
 import json
 
+from openpyxl import load_workbook
+
 from apps.audit.models import AuditLog
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import Countries
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.tickets.models.ticket import OFF_THE_CLOCK_STATUSES
 from apps.tickets.models import (
     SupportScope,
     Ticket,
     TicketCategory,
+    TicketMessageType,
     TicketPriority,
     TicketStatus,
 )
@@ -630,6 +635,433 @@ class OverdueTests(AdminTicketAPITestCase):
         )
         self.assertEqual(self.overdue_count(), 0)
 
+    # ------------------------------------------------------------------
+    # The clock's third state. `awaiting_support_since` is a timestamp while
+    # the clock RUNS and null while it does not, and "does not" was covering
+    # two different things: STOPPED (we answered, nobody is waiting) and
+    # PAUSED (a real wait is held). set_status could not tell them apart on
+    # the way back out, so it guessed.
+    # ------------------------------------------------------------------
+
+    def test_parking_an_answered_ticket_and_un_parking_it_starts_no_clock(self):
+        """Two picks on the status dropdown, on a ticket support has answered.
+
+        The anchor is null after the reply because nobody is waiting on us.
+        Going out through "pending user" and straight back in used to reach
+        `ticket.awaiting_support_since or timezone.now()`, which armed a clock
+        the ticket had never been on.
+
+        The requester's message count is asserted rather than assumed, so this
+        test states *why* no clock may start: they have not said anything.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Done.")
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.awaiting_support_since)
+        said_so_far = ticket.messages.filter(author=self.requester).count()
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(
+            ticket.messages.filter(author=self.requester).count(), said_so_far,
+            "the requester wrote nothing between the two picks",
+        )
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "an answered ticket parked and un-parked is on no clock",
+        )
+        self.assertEqual(self.overdue_count(), 0)
+
+    def test_an_answered_ticket_parked_and_un_parked_is_not_red_a_day_later(self):
+        """The same two picks, read through the queue's own red card and after
+        enough time to matter rather than at the instant of the click.
+
+        The update below is a no-op when the anchor is null, which is the
+        correct state, and ages it past a Normal ticket's 24-hour window when
+        it is not. So the badge can only appear if a clock was started.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.NORMAL)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Done.")
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        Ticket.objects.filter(
+            pk=ticket.pk, awaiting_support_since__isnull=False
+        ).update(awaiting_support_since=timezone.now() - timedelta(hours=25))
+
+        self.assertEqual(
+            self.overdue_count(), 0,
+            "25 hours after two picks on the dropdown, with the requester "
+            "silent, the queue must not be showing a red badge",
+        )
+
+    def test_answering_a_parked_ticket_leaves_no_wait_to_resume(self):
+        """The way this fix could go wrong in the opposite direction.
+
+        Park a ticket with a real wait running, so the wait is held; then
+        answer it. The answer stops the clock outright and the held wait is
+        spent, so the un-park must start nothing. Getting this wrong would put
+        every "park, answer, tidy the status" ticket back on a clock, which is
+        the same defect one door along again.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.mark_pending(ticket=ticket, actor=self.agent)
+        ticket.refresh_from_db()
+        self.assertTrue(
+            ticket.awaiting_support_paused,
+            "a running clock is paused, not stopped, when the ticket is parked",
+        )
+
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Answered.")
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNone(
+            ticket.awaiting_support_since,
+            "answering spends the held wait, so the un-park resumes nothing",
+        )
+        self.assertEqual(self.overdue_count(), 0)
+
+    def test_a_wait_the_requester_is_serving_survives_being_parked(self):
+        """The case that rules out reading `first_response_at` instead.
+
+        Answered, then the requester came back, so the clock is running again
+        while `first_response_at` is set. A guard keyed on "have we ever
+        answered?" would refuse to resume here and the ticket could never go
+        red, with a person genuinely waiting. Measured: with that guard in
+        place this assertion fails.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        lifecycle.add_support_reply(ticket=ticket, actor=self.agent, body="Try this.")
+        lifecycle.add_user_reply(
+            ticket=ticket, user=self.requester, body="That did not work."
+        )
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.first_response_at)
+        self.assertIsNotNone(ticket.awaiting_support_since)
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNotNone(
+            ticket.awaiting_support_since,
+            "a wait the requester is serving must come back on the clock",
+        )
+        Ticket.objects.filter(pk=ticket.pk).update(
+            awaiting_support_since=timezone.now() - timedelta(hours=5)
+        )
+        self.assertEqual(self.overdue_count(), 1)
+
+    def test_parking_a_running_wait_and_un_parking_it_restarts_it_at_now(self):
+        """Pinned because it is deliberately NOT changed here.
+
+        A ticket 30 hours into a 24-hour window is parked and un-parked. The
+        wait it had already served does not come back: the clock restarts from
+        the un-park and the red badge goes away. That is a rules question
+        about whether moving a ticket back to Open should restart the clock,
+        the client settled the rules on 2026-09-04, and this fix leaves the
+        answer exactly where it found it.
+
+        The test exists so that changing it later is a deliberate act with a
+        client decision behind it, rather than a side effect of some other
+        fix. It is the direction A half of the same report.
+        """
+        ticket = self.aged(hours=30, priority=TicketPriority.NORMAL)
+        before = ticket.awaiting_support_since
+        self.assertEqual(self.overdue_count(), 1)
+
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.PENDING_USER, actor=self.agent
+        )
+        lifecycle.set_status(
+            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
+        )
+
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.awaiting_support_since)
+        self.assertGreater(
+            ticket.awaiting_support_since, before,
+            "today's rule re-arms at the un-park rather than restoring the wait",
+        )
+        self.assertEqual(
+            self.overdue_count(), 0,
+            "the 30 hours are still forgiven, which is the settled rule",
+        )
+
+    # Every action an agent or a requester can take that the clock might care
+    # about. Sequences are generated from this rather than chosen, because a
+    # list of cases somebody thought of is not a coverage argument: the defect
+    # this fixes lived in the one two-step route nobody had written a case
+    # for, behind a comment declaring the one-step version already fixed.
+    CLOCK_ACTIONS = {
+        "user_reply": lambda s, t: lifecycle.add_user_reply(
+            ticket=t, user=s.requester, body="More from me."
+        ),
+        "support_reply": lambda s, t: lifecycle.add_support_reply(
+            ticket=t, actor=s.agent, body="From support."
+        ),
+        "reply_and_pend": lambda s, t: lifecycle.add_support_reply(
+            ticket=t, actor=s.agent, body="A screenshot please?",
+            move_to_pending=True,
+        ),
+        "mark_pending": lambda s, t: lifecycle.mark_pending(ticket=t, actor=s.agent),
+        "drag_to_open": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.OPEN, actor=s.agent
+        ),
+        "drag_to_progress": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.IN_PROGRESS, actor=s.agent
+        ),
+        "drag_to_pending": lambda s, t: lifecycle.set_status(
+            ticket=t, new_status=TicketStatus.PENDING_USER, actor=s.agent
+        ),
+        "resolve": lambda s, t: lifecycle.resolve(ticket=t, actor=s.agent),
+        "claim": lambda s, t: lifecycle.claim(ticket=t, actor=s.agent),
+    }
+
+    def test_no_history_leaves_a_clock_running_with_the_ball_not_ours(self):
+        """The invariant the guess broke, over generated histories.
+
+        The clock may only run while the ball is with support, and the
+        timeline says whose it is: the newest thing the requester did (raising
+        the ticket, or writing again) has to be newer than the newest support
+        reply. Anything else means we answered and they have not come back,
+        so there is nothing for the clock to count.
+
+        Checked over every sequence of up to three actions rather than over
+        the handful anyone thought to write out, because "the shapes I thought
+        of" is exactly how the two-hop route survived the last fix.
+
+        The one carve-out is a screening ticket, which has no requester at
+        all; those are excluded here and covered by
+        AScreeningTicketCanBeParkedOffTheClockTests.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = (
+            [()]
+            + [(n,) for n in names]
+            + list(product(names, repeat=2))
+            + list(product(names, repeat=3))
+        )
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                # Unreachable sequences (resolving twice, dragging a ticket to
+                # the status it is already in) are not histories a database
+                # can hold.
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if ticket.awaiting_support_since is None:
+                continue
+
+            newest_support = ticket.messages.filter(
+                message_type=TicketMessageType.SUPPORT_REPLY,
+                deleted_at__isnull=True,
+            ).order_by("-created_at").values_list("created_at", flat=True).first()
+            newest_requester = max(
+                [ticket.created_at]
+                + list(
+                    ticket.messages.filter(
+                        message_type=TicketMessageType.USER_MESSAGE,
+                        deleted_at__isnull=True,
+                    ).values_list("created_at", flat=True)
+                )
+            )
+            if newest_support is not None and newest_support > newest_requester:
+                broken.append(" -> ".join(history) or "(nothing happened)")
+
+        self.assertGreater(checked, 200, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave the overdue clock "
+            "running on a ticket whose last word was support's:\n  "
+            + "\n  ".join(broken),
+        )
+
+    def test_no_history_leaves_a_pause_standing_on_a_running_clock(self):
+        """The new column's own invariant, over generated histories.
+
+        `awaiting_support_paused` answers "was a wait running when this ticket
+        went off the clock", so it is meaningful only while the anchor is
+        null. A True left standing beside a running anchor is a stale value
+        waiting to be read: the next write path that nulls the anchor without
+        going through _pause_clock would resume a wait that had already been
+        spent.
+
+        This is the test that makes the pause-clearing in add_user_reply and
+        reopen mean something. Both were measured unprotected without it: the
+        suite stayed green with either removed, because no reachable state
+        reads a stale flag *today*. That is an argument for writing the
+        invariant down, not for deleting the lines.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = [(n,) for n in names] + list(product(names, repeat=2))
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if (
+                ticket.awaiting_support_since is not None
+                and ticket.awaiting_support_paused
+            ):
+                broken.append(" -> ".join(history))
+
+        self.assertGreater(checked, 50, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave a pause standing on "
+            "a clock that is running:\n  " + "\n  ".join(broken),
+        )
+
+    def test_two_off_clock_hops_do_not_lose_a_never_answered_wait(self):
+        """Three picks on the status dropdown, nothing else.
+
+        Pending user, then Resolved, then Open. An agent parks a ticket
+        waiting on the student, gives up and resolves it, and a supervisor
+        moves it back to be chased. Support has never replied, so the
+        requester's question is still unanswered and the ticket must still be
+        able to go red.
+
+        The pause is recorded when the clock comes off. The SECOND hop takes
+        the clock off again while it is already off, so a pause that is
+        recomputed from the anchor at that moment reads null and writes
+        itself away, and the ticket comes out the far side on no clock at
+        all — structurally unable ever to go red, which is the defect this
+        whole column exists to remove.
+
+        Driven through the API rather than the service because the dropdown
+        is the only production route: TicketDetailPanel fires one PATCH per
+        selection and views_admin._apply calls set_status.
+        """
+        ticket = self.aged(hours=48, priority=TicketPriority.HIGH)
+        self.assertIsNone(ticket.first_response_at, "support has never replied")
+
+        for status in (
+            TicketStatus.PENDING_USER, TicketStatus.RESOLVED, TicketStatus.OPEN,
+        ):
+            response = self.client.patch(
+                f"{QUEUE}{ticket.pk}/", {"status": status}, format="json"
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+        ticket.refresh_from_db()
+
+        self.assertIsNotNone(
+            ticket.awaiting_support_since,
+            "a never-answered ticket back in Open is with support and must be "
+            "on a clock",
+        )
+        Ticket.objects.filter(pk=ticket.pk).update(
+            awaiting_support_since=timezone.now() - timedelta(days=7)
+        )
+        self.assertEqual(
+            self.overdue_count(), 1,
+            "a week later, with the requester still waiting for a first "
+            "answer, the queue must show it red",
+        )
+
+    def test_no_history_leaves_the_ball_ours_with_no_clock_running(self):
+        """The other half of the invariant above it, over the same histories.
+
+        That test asks "is a clock running when it should not be". This one
+        asks the converse, which is the direction that makes a ticket
+        invisible rather than noisy: the ball is ours, and nothing is
+        counting. Written separately because a one-directional invariant is
+        how the two-hop route got through the last fix -- the generator built
+        the sequence, and the assertion could not see it.
+
+        The ball is ours when the newest thing the requester did is newer
+        than the newest support reply, and the ticket is not parked or
+        resolved. Screening tickets have no requester and are excluded, as
+        above.
+        """
+        from itertools import product
+
+        names = list(self.CLOCK_ACTIONS)
+        histories = (
+            [()]
+            + [(n,) for n in names]
+            + list(product(names, repeat=2))
+            + list(product(names, repeat=3))
+        )
+
+        checked = 0
+        broken = []
+        for history in histories:
+            ticket = self.make_ticket(priority=TicketPriority.HIGH)
+            try:
+                for name in history:
+                    self.CLOCK_ACTIONS[name](self, ticket)
+                    ticket.refresh_from_db()
+            except Exception:
+                continue
+            ticket.refresh_from_db()
+            checked += 1
+            if ticket.status in OFF_THE_CLOCK_STATUSES:
+                continue
+            if ticket.awaiting_support_since is not None:
+                continue
+
+            newest_support = ticket.messages.filter(
+                message_type=TicketMessageType.SUPPORT_REPLY,
+                deleted_at__isnull=True,
+            ).order_by("-created_at").values_list("created_at", flat=True).first()
+            newest_requester = max(
+                [ticket.created_at]
+                + list(
+                    ticket.messages.filter(
+                        message_type=TicketMessageType.USER_MESSAGE,
+                        deleted_at__isnull=True,
+                    ).values_list("created_at", flat=True)
+                )
+            )
+            if newest_support is None or newest_support < newest_requester:
+                broken.append(" -> ".join(history) or "(nothing happened)")
+
+        self.assertGreater(checked, 200, "the generator produced almost nothing")
+        self.assertEqual(
+            broken, [],
+            f"{len(broken)} of {checked} histories leave a ticket sitting with "
+            "support, its last word the requester's, and no clock counting:\n  "
+            + "\n  ".join(broken),
+        )
+
     def test_the_queue_row_carries_the_same_verdict_as_the_counter(self):
         self.aged(hours=5, priority=TicketPriority.HIGH)
         row = self.client.get(QUEUE).json()["data"]["items"][0]
@@ -822,7 +1254,11 @@ class PatchTests(AdminTicketAPITestCase):
 
 
 class BulkAssignTests(AdminTicketAPITestCase):
-    def test_only_the_tickets_waiting_in_the_pool_get_a_timeline_message(self):
+    def test_only_the_tickets_waiting_in_the_pool_are_started(self):
+        """Neither ticket gets a timeline line. The open one used to get "Your
+        ticket is now being handled", and the client asked for that to go
+        (C-05); its status moving to in progress is what the requester sees
+        now."""
         open_ticket = self.make_ticket(subject="In the pool")
         waiting = self.make_ticket(subject="Waiting on the requester")
         lifecycle.claim(ticket=waiting, actor=self.agent)
@@ -839,7 +1275,8 @@ class BulkAssignTests(AdminTicketAPITestCase):
 
         open_ticket.refresh_from_db()
         waiting.refresh_from_db()
-        self.assertEqual(open_ticket.messages.count(), open_messages_before + 1)
+        self.assertEqual(open_ticket.status, TicketStatus.IN_PROGRESS)
+        self.assertEqual(open_ticket.messages.count(), open_messages_before)
         self.assertEqual(waiting.messages.count(), waiting_messages_before)
         self.assertEqual(waiting.status, TicketStatus.PENDING_USER)
 
@@ -1354,6 +1791,8 @@ class SupportEndpointPermissionTests(AdminTicketAPITestCase):
         t = self.ticket.pk
         return [
             ("GET queue", lambda: self.client.get(QUEUE)),
+            ("POST export", lambda: self.client.post(
+                f"{QUEUE}export/", {}, format="json")),
             ("GET summary", lambda: self.client.get(f"{QUEUE}summary/")),
             ("GET assignees", lambda: self.client.get(f"{QUEUE}assignees/")),
             ("GET regions", lambda: self.client.get(f"{QUEUE}regions/")),
@@ -2061,9 +2500,13 @@ class HandBackToThePoolTests(AdminTicketAPITestCase):
 
         "Picked up from the pool" was decided by status alone. A ticket that
         is open and already ownerless would therefore read as a pick-up when
-        somebody released it: the requester gets told their ticket is now
-        being handled, and the status moves to in progress, on a ticket that
-        nobody is working.
+        somebody released it: the status moves to in progress, and the
+        requester's page says it is being worked, on a ticket that nobody is
+        working.
+
+        An ownerless ticket no longer reaches that check: choosing Unassigned
+        on it is a no-op, and _assign_one returns before it looks. The next
+        test is the one that does reach it.
         """
         ticket = self.make_ticket()
         self.assertEqual(ticket.status, TicketStatus.OPEN)
@@ -2074,6 +2517,34 @@ class HandBackToThePoolTests(AdminTicketAPITestCase):
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, TicketStatus.OPEN)
         self.assertEqual(ticket.messages.count(), messages_before)
+
+    def test_releasing_an_open_ticket_that_still_has_an_owner_keeps_it_open(self):
+        """The case that does reach the ``assignee is not None`` check.
+
+        An open ticket keeps an owner when an agent picks it up and then sets
+        the status back to Open by hand, because a status change never touches
+        the owner. Releasing it changes the owner, so the no-op return above
+        the check does not fire, and only ``assignee is not None`` stops the
+        release reading as a pick-up. The test before this one stays green
+        with that condition deleted, and so did every other ticket test.
+        """
+        ticket = self.make_ticket()
+        self.client.patch(
+            f"{QUEUE}{ticket.pk}/", {"assignee": self.agent.pk}, format="json"
+        )
+        self.client.patch(f"{QUEUE}{ticket.pk}/", {"status": "open"}, format="json")
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.OPEN)
+        self.assertEqual(ticket.assignee_id, self.agent.pk)
+
+        response = self.client.patch(
+            f"{QUEUE}{ticket.pk}/", {"assignee": None}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.assignee_id)
+        self.assertEqual(ticket.status, TicketStatus.OPEN)
 
     def test_a_handed_back_ticket_shows_up_in_the_unassigned_bucket(self):
         ticket = self.make_ticket()
@@ -3447,3 +3918,708 @@ class SupportMessagesAreRateLimitedTooTests(AdminTicketAPITestCase):
             )
 
             self.assertEqual(self.client.get(QUEUE).status_code, status.HTTP_200_OK)
+
+
+class TheRequesterIsToldOnlyWhatChangedTests(AdminTicketAPITestCase):
+    """C-05, end to end: what a student reads on their own ticket.
+
+    The client, looking at the portal ticket page: "that's the 'thanks, we're
+    looking into this and we'll get back to you shortly', 'your ticket's now
+    being handled'. I don't think that adds anything." Both lines are gone.
+
+    Driven the way it happens in production. The student raises the ticket
+    through the portal endpoint, an agent picks it up and resolves it through
+    the queue's PATCH, and the student reads it back through their own detail
+    endpoint. The last two tests are the other half of the change: the
+    resolved and reopened lines, which the client did not ask about, are
+    still written, so the removal did not take more than it was asked to.
+    """
+
+    def setUp(self):
+        super().setUp()
+        student, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(
+            user=self.requester, role=student, valid_from=timezone.now()
+        )
+
+    def raise_as_the_student(self):
+        self.client.force_login(self.requester)
+        response = self.client.post(
+            "/api/v1/tickets/",
+            {
+                "category": TicketCategory.ACCOUNT_ACCESS,
+                "subject": "Cannot sign in",
+                "body": "The login code never arrives.",
+            },
+            format="json",
+        )
+        self.client.force_login(self.agent)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()["data"]["id"]
+
+    def as_the_student(self, ticket_id):
+        """The ticket exactly as the student's own page receives it."""
+        self.client.force_login(self.requester)
+        response = self.client.get(f"/api/v1/tickets/{ticket_id}/")
+        self.client.force_login(self.agent)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["data"]
+
+    def timeline(self, ticket_id):
+        return [
+            (m["messageType"], m["body"])
+            for m in self.as_the_student(ticket_id)["messages"]
+        ]
+
+    def pick_up(self, ticket_id):
+        response = self.client.patch(
+            f"{QUEUE}{ticket_id}/", {"assignee": self.agent.pk}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def resolve(self, ticket_id):
+        response = self.client.patch(
+            f"{QUEUE}{ticket_id}/", {"status": "resolved"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_the_first_pick_up_puts_nothing_on_the_students_timeline(self):
+        ticket_id = self.raise_as_the_student()
+
+        self.pick_up(ticket_id)
+
+        payload = self.as_the_student(ticket_id)
+        # The badge is what tells them now, so it has to have moved.
+        self.assertEqual(payload["status"], "in_progress")
+        self.assertEqual(
+            [(m["messageType"], m["body"]) for m in payload["messages"]],
+            [("user_message", "The login code never arrives.")],
+        )
+
+    def test_the_first_pick_up_leaves_the_students_last_updated_alone(self):
+        """Nothing new to read, so their list does not reorder and "Last
+        updated" does not move. Before C-05 the pick-up line was what moved
+        it."""
+        ticket_id = self.raise_as_the_student()
+        before = self.as_the_student(ticket_id)["lastUpdated"]
+
+        self.pick_up(ticket_id)
+
+        self.assertEqual(self.as_the_student(ticket_id)["lastUpdated"], before)
+
+    def test_resolving_still_tells_the_student_how_to_come_back(self):
+        ticket_id = self.raise_as_the_student()
+        self.pick_up(ticket_id)
+
+        self.resolve(ticket_id)
+
+        self.assertEqual(
+            self.timeline(ticket_id),
+            [
+                ("user_message", "The login code never arrives."),
+                (
+                    "system",
+                    "This ticket has been marked as resolved. Reply here if "
+                    "you need further help and it will reopen automatically.",
+                ),
+            ],
+        )
+
+    def test_a_reply_on_a_resolved_ticket_still_says_it_reopened(self):
+        ticket_id = self.raise_as_the_student()
+        self.pick_up(ticket_id)
+        self.resolve(ticket_id)
+
+        self.client.force_login(self.requester)
+        response = self.client.post(
+            f"/api/v1/tickets/{ticket_id}/messages/",
+            {"body": "Still broken, sorry."},
+            format="json",
+        )
+        self.client.force_login(self.agent)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        payload = self.as_the_student(ticket_id)
+        self.assertEqual(payload["status"], "open")
+        self.assertEqual(
+            [(m["messageType"], m["body"]) for m in payload["messages"]],
+            [
+                ("user_message", "The login code never arrives."),
+                (
+                    "system",
+                    "This ticket has been marked as resolved. Reply here if "
+                    "you need further help and it will reopen automatically.",
+                ),
+                ("user_message", "Still broken, sorry."),
+                (
+                    "system",
+                    "Ticket reopened following your reply. Our team will "
+                    "take another look.",
+                ),
+            ],
+        )
+
+
+EXPORT = f"{QUEUE}export/"
+
+
+class QueueExportTestCase(AdminTicketAPITestCase):
+    """Readers shared by the export tests (client item C-09).
+
+    Everything goes through the endpoint and is read back with openpyxl, the
+    same way Excel would open it. Comparisons against the queue use the queue
+    endpoint itself, because the promise is that the file and the table agree
+    for the same filters, whatever the filter rules turn into later.
+
+    The export is a POST with the filters in a JSON body (QueueExportCsrfTests
+    says why). The table still reads them from its query string, so each
+    comparison sends the same dict both ways.
+    """
+
+    def export(self, params=None):
+        return self.client.post(EXPORT, params or {}, format="json")
+
+    def body_rows(self, params=None):
+        response = self.export(params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content[:300])
+        sheet = load_workbook(io.BytesIO(response.content)).active
+        return list(sheet.iter_rows(min_row=2))
+
+    def exported_subjects(self, params=None):
+        return [row[2].value for row in self.body_rows(params)]
+
+    def queue_subjects(self, params=None):
+        """Every subject the queue lists for ``params``, in its order.
+
+        One page at the largest size the queue allows. The fixtures stay far
+        below it, and a response that says there is more fails here instead
+        of comparing the file against half the queue.
+        """
+        data = self.client.get(QUEUE, {**(params or {}), "limit": 100}).json()["data"]
+        self.assertFalse(data["hasMore"], "fixture outgrew one queue page")
+        return [row["subject"] for row in data["items"]]
+
+    def export_audit_rows(self):
+        return AuditLog.objects.filter(entity_type="ticket_export")
+
+
+class QueueExportAccessTests(QueueExportTestCase):
+    def setUp(self):
+        super().setUp()
+        self.make_ticket()
+
+    def test_a_student_is_refused_and_nothing_is_recorded(self):
+        # A real student role, not just an account with no scope: the file
+        # names other students, so this is the refusal that matters most.
+        student_role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(
+            user=self.requester, role=student_role, valid_from=timezone.now()
+        )
+        self.client.force_login(self.requester)
+
+        response = self.export()
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_support_agent_gets_an_excel_file(self):
+        response = self.export()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_an_admin_without_a_support_row_gets_it_too(self):
+        self.client.force_login(self.admin)
+
+        response = self.export()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(self.body_rows()), 1)
+
+    def test_the_file_is_named_for_the_exporters_own_date(self):
+        """13:30 UTC on 1 January is already 00:30 on 2 January in Sydney.
+
+        Only the view's clock is held still. Patching django.utils.timezone.now
+        itself would also age the test client's session past its expiry.
+        """
+        moment = datetime(2030, 1, 1, 13, 30, tzinfo=dt_timezone.utc)
+        User.objects.filter(pk=self.agent.pk).update(timezone="Australia/Sydney")
+
+        with patch("apps.tickets.views_admin.timezone") as clock:
+            clock.now.return_value = moment
+            response = self.export()
+
+        self.assertEqual(
+            response["Content-Disposition"],
+            'attachment; filename="tickets-2030-01-02.xlsx"',
+        )
+
+    def test_an_exporter_on_utc_gets_the_utc_date(self):
+        moment = datetime(2030, 1, 1, 13, 30, tzinfo=dt_timezone.utc)
+
+        with patch("apps.tickets.views_admin.timezone") as clock:
+            clock.now.return_value = moment
+            response = self.export()
+
+        self.assertEqual(
+            response["Content-Disposition"],
+            'attachment; filename="tickets-2030-01-01.xlsx"',
+        )
+
+
+@override_settings(
+    MEDIA_ROOT=_MEDIA,
+    TICKET_SLA_HIGH_HOURS=4,
+    TICKET_SLA_NORMAL_HOURS=24,
+    TICKET_SLA_LOW_HOURS=72,
+)
+class QueueExportContentTests(QueueExportTestCase):
+    def test_the_heading_row_is_the_tables(self):
+        self.make_ticket()
+        response = self.export()
+        sheet = load_workbook(io.BytesIO(response.content)).active
+
+        self.assertEqual(
+            [cell.value for cell in sheet[1]],
+            ["Ticket", "Requester", "Subject", "Status", "Priority", "Assignee",
+             "Last activity"],
+        )
+
+    def test_an_empty_queue_is_still_a_file_with_its_headings(self):
+        response = self.export()
+        sheet = load_workbook(io.BytesIO(response.content)).active
+
+        self.assertEqual(sheet.max_row, 1)
+        self.assertEqual(sheet["A1"].value, "Ticket")
+
+    def test_a_row_reads_the_way_the_table_shows_it(self):
+        ticket = self.make_ticket(subject="Cannot access group workspace")
+        lifecycle.claim(ticket=ticket, actor=self.agent)
+        Ticket.objects.filter(pk=ticket.pk).update(
+            region="Australia",
+            priority=TicketPriority.HIGH,
+            # Five hours waiting on a four-hour band: overdue.
+            awaiting_support_since=timezone.now() - timedelta(hours=5),
+            support_updated_at=datetime(2026, 9, 3, 5, 37, tzinfo=dt_timezone.utc),
+        )
+        queue_row = self.client.get(QUEUE).json()["data"]["items"][0]
+        self.assertTrue(queue_row["overdue"], "precondition: the table flags it")
+
+        row = self.body_rows()[0]
+
+        self.assertEqual(
+            [cell.value for cell in row],
+            [
+                ticket.ticket_number,
+                "Mia Thompson\nAustralia",
+                "Cannot access group workspace",
+                "In progress, Overdue",
+                "High",
+                "Sam Reid",
+                datetime(2026, 9, 3, 5, 37),
+            ],
+        )
+        # The agent's profile zone is the default, UTC, and the cell says so.
+        self.assertEqual(row[6].number_format, 'd mmm yyyy, hh:mm AM/PM "UTC"')
+        # Wrapped, or Excel shows the region glued onto the name on one line.
+        self.assertTrue(row[1].alignment.wrap_text)
+
+    def test_nobody_on_either_side_reads_the_way_the_table_shows_it(self):
+        # A ticket the platform raised itself: no requester, nobody assigned.
+        # Screening stamps the flagged sender's region on it, so the region
+        # is there while the name is not, which is the case the name line
+        # exists for.
+        ticket = self.make_ticket()
+        Ticket.objects.filter(pk=ticket.pk).update(
+            created_by=None, channel="ai_screening", region="Australia"
+        )
+
+        row = self.body_rows()[0]
+
+        self.assertEqual(row[1].value, "-\nAustralia")
+        self.assertEqual(row[3].value, "Open")
+        self.assertEqual(row[5].value, "Unassigned")
+
+    def test_no_requester_and_no_region_is_still_marked(self):
+        ticket = self.make_ticket()
+        Ticket.objects.filter(pk=ticket.pk).update(
+            created_by=None, channel="ai_screening", region=""
+        )
+
+        self.assertEqual(self.body_rows()[0][1].value, "-")
+
+    def test_every_overdue_row_is_flagged_not_only_the_first(self):
+        # The flag is worked out for the whole file in one query. A one-row
+        # fixture cannot tell that apart from a query over only part of it.
+        for subject in ("First", "Second"):
+            ticket = self.make_ticket(subject=subject)
+            Ticket.objects.filter(pk=ticket.pk).update(
+                priority=TicketPriority.HIGH,
+                awaiting_support_since=timezone.now() - timedelta(hours=5),
+            )
+
+        statuses = {row[2].value: row[3].value for row in self.body_rows()}
+
+        self.assertEqual(statuses, {"First": "Open, Overdue", "Second": "Open, Overdue"})
+
+    def test_times_are_in_the_exporters_zone_and_each_cell_says_which(self):
+        """Sydney is on AEST in September and AEDT in January, so a single
+        label on the heading would be wrong for half the rows."""
+        User.objects.filter(pk=self.agent.pk).update(timezone="Australia/Sydney")
+        winter = self.make_ticket(subject="Winter")
+        summer = self.make_ticket(subject="Summer")
+        Ticket.objects.filter(pk=winter.pk).update(
+            support_updated_at=datetime(2026, 9, 3, 5, 37, tzinfo=dt_timezone.utc)
+        )
+        Ticket.objects.filter(pk=summer.pk).update(
+            support_updated_at=datetime(2026, 1, 15, 1, 0, tzinfo=dt_timezone.utc)
+        )
+
+        cells = {row[2].value: row[6] for row in self.body_rows()}
+
+        self.assertEqual(cells["Winter"].value, datetime(2026, 9, 3, 15, 37))
+        self.assertEqual(cells["Winter"].number_format, 'd mmm yyyy, hh:mm AM/PM "AEST"')
+        self.assertEqual(cells["Summer"].value, datetime(2026, 1, 15, 12, 0))
+        self.assertEqual(cells["Summer"].number_format, 'd mmm yyyy, hh:mm AM/PM "AEDT"')
+
+    def test_an_unreadable_profile_zone_falls_back_to_utc_instead_of_failing(self):
+        User.objects.filter(pk=self.agent.pk).update(timezone="Mars/Olympus_Mons")
+        ticket = self.make_ticket()
+        Ticket.objects.filter(pk=ticket.pk).update(
+            support_updated_at=datetime(2026, 9, 3, 5, 37, tzinfo=dt_timezone.utc)
+        )
+
+        cell = self.body_rows()[0][6]
+
+        self.assertEqual(cell.value, datetime(2026, 9, 3, 5, 37))
+        self.assertEqual(cell.number_format, 'd mmm yyyy, hh:mm AM/PM "UTC"')
+
+
+class QueueExportFilterTests(QueueExportTestCase):
+    """The file holds what the table holds, for the same filters."""
+
+    def setUp(self):
+        super().setUp()
+        # Five tickets that differ on every filter the queue offers.
+        self.one = self.make_ticket(
+            subject="One", region="Australia", priority=TicketPriority.HIGH,
+        )
+        self.two = self.make_ticket(
+            owner=self.other_requester, subject="Two", region="Brazil",
+            status=TicketStatus.IN_PROGRESS, assignee=self.agent,
+        )
+        self.three = self.make_ticket(
+            subject="Three", region="Australia", priority=TicketPriority.LOW,
+            status=TicketStatus.PENDING_USER, assignee=self.admin,
+            category=TicketCategory.ACCOUNT_ACCESS,
+        )
+        self.four = self.make_ticket(
+            subject="Four", region="", status=TicketStatus.RESOLVED,
+        )
+        self.five = self.make_ticket(
+            owner=self.other_requester, subject="Five", region="Brazil",
+            priority=TicketPriority.HIGH, assignee=self.admin,
+        )
+        # Moves One from last to first, so the queue's order is neither
+        # creation order nor id order.
+        lifecycle.add_internal_note(ticket=self.one, actor=self.agent, body="Bump.")
+
+    def test_the_file_is_in_the_queues_order(self):
+        self.assertEqual(self.exported_subjects(), ["One", "Five", "Four", "Three", "Two"])
+
+    def test_each_filter_combination_matches_the_queue(self):
+        cases = [
+            ({}, {"One", "Two", "Three", "Four", "Five"}),
+            ({"status": "open"}, {"One", "Five"}),
+            ({"priority": "high", "region": "Brazil"}, {"Five"}),
+            ({"region": "__unknown__"}, {"Four"}),
+            ({"assignee": str(self.admin.pk)}, {"Three", "Five"}),
+            # The sentinel hides resolved tickets unless a status or a search
+            # asks for them (queue.apply_filters); the file follows that too.
+            ({"assignee": "__unassigned__"}, {"One"}),
+            ({"assignee": "__unassigned__", "status": "resolved"}, {"Four"}),
+            ({"category": "account_access"}, {"Three"}),
+            ({"search": "Bruno"}, {"Two", "Five"}),
+            ({"status": "in_progress", "region": "Australia"}, set()),
+        ]
+        for params, expected in cases:
+            with self.subTest(params=params):
+                exported = self.exported_subjects(params)
+                self.assertEqual(exported, self.queue_subjects(params))
+                self.assertEqual(set(exported), expected)
+
+    def test_every_matching_ticket_is_in_the_file_not_only_the_page_on_screen(self):
+        for number in range(7):
+            self.make_ticket(subject=f"Extra {number}")
+        # Twelve tickets, and the queue's own first page holds ten.
+        first_page = self.client.get(QUEUE).json()["data"]
+        self.assertEqual(len(first_page["items"]), 10)
+
+        self.assertEqual(len(self.exported_subjects()), 12)
+        # The table's paging parameters choose what is on screen. They do not
+        # narrow the file.
+        self.assertEqual(len(self.exported_subjects({"page": 2, "limit": 5})), 12)
+        # Nor does the walk the table is part-way through, which it sends as
+        # asOf and after from page two on. Read as a snapshot, asOf would drop
+        # the ticket worked below; read as a cursor, after would drop the ten
+        # rows already on screen.
+        lifecycle.add_internal_note(ticket=self.two, actor=self.agent, body="Worked.")
+        walk = {"asOf": first_page["asOf"], "after": first_page["after"]}
+        self.assertEqual(len(self.exported_subjects(walk)), 12)
+
+    def test_a_deleted_ticket_is_not_in_the_file(self):
+        lifecycle.soft_delete(ticket=self.five, actor=self.admin)
+
+        exported = self.exported_subjects()
+
+        self.assertEqual(exported, ["One", "Four", "Three", "Two"])
+        self.assertEqual(exported, self.queue_subjects())
+
+    def test_an_unreadable_filter_is_refused_as_the_queue_refuses_it(self):
+        response = self.export({"assignee": "abc"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_filter_that_is_not_text_is_refused(self):
+        """A query string can only carry text, and the table's filters are
+        read as text. A JSON body can carry anything. Read as it came,
+        ``true`` for assignee is user 1 (int(True)) and a list for status
+        matches nothing. Neither is a filter the table could have sent."""
+        cases = [
+            ({"assignee": True}, "assignee must be a string."),
+            ({"assignee": self.admin.pk}, "assignee must be a string."),
+            ({"status": ["open", "resolved"]}, "status must be a string."),
+            ({"search": {"contains": "Mia"}}, "search must be a string."),
+        ]
+        for body, error in cases:
+            with self.subTest(body=body):
+                response = self.export(body)
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["error"], error)
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_body_that_is_not_an_object_is_refused(self):
+        for body in (["open"], "open", 5):
+            with self.subTest(body=body):
+                response = self.client.post(EXPORT, body, format="json")
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(
+                    response.json()["error"], "The filters must be a JSON object."
+                )
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_filters_in_the_query_string_are_not_read(self):
+        # The body is the one place the filters come from. The URL disagrees
+        # with it on status, and adds a priority the body does not carry.
+        # Read from the URL, or with the body's gaps filled from it, the file
+        # would hold no rows at all.
+        response = self.client.post(
+            f"{EXPORT}?status=resolved&priority=low", {"status": "open"}, format="json"
+        )
+        sheet = load_workbook(io.BytesIO(response.content)).active
+
+        self.assertEqual(
+            [row[2].value for row in sheet.iter_rows(min_row=2)], ["One", "Five"]
+        )
+
+
+class QueueExportAuditTests(QueueExportTestCase):
+    def test_an_export_is_recorded_with_its_filters_and_what_left(self):
+        older = self.make_ticket(subject="Older")
+        newer = self.make_ticket(subject="Newer")
+        self.make_ticket(subject="Not open", status=TicketStatus.RESOLVED)
+
+        self.export({"status": "open", "region": ""})
+
+        rows = list(self.export_audit_rows())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].action, "export")
+        self.assertEqual(rows[0].actor_user, self.agent)
+        self.assertEqual(rows[0].entity_id, self.agent.pk)
+        self.assertEqual(
+            rows[0].after_state,
+            {
+                # Empty parameters are left out: they are not filters.
+                "filters": {"status": "open"},
+                "rowCount": 2,
+                "ticketNumbers": [newer.ticket_number, older.ticket_number],
+            },
+        )
+
+    def test_the_record_stays_off_the_ticket_audit_page(self):
+        """That page lists entity_type "ticket" and links each row to the
+        ticket it names. An export names no ticket, so a row there would be a
+        link to nothing."""
+        self.make_ticket()
+        before = self.client.get(f"{QUEUE}audit/").json()["data"]["total"]
+
+        self.export()
+
+        self.assertEqual(self.export_audit_rows().count(), 1)
+        self.assertEqual(self.client.get(f"{QUEUE}audit/").json()["data"]["total"], before)
+
+    def test_a_head_request_sends_no_file_and_records_no_export(self):
+        # Left to Django, HEAD runs get() and drops the body: an export row
+        # for a file nobody received.
+        self.make_ticket()
+
+        response = self.client.head(EXPORT)
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertFalse(self.export_audit_rows().exists())
+
+
+class QueueExportCsrfTests(QueueExportTestCase):
+    """The export writes an audit row, so it has to be CSRF-checked.
+
+    The session cookie is SameSite=None in production, so a browser sends it
+    with a request another site starts. Django does not check CSRF on a GET.
+    As a GET, an <img> on any page an agent opened would build the file and
+    record an export under the agent's name. The response is not readable
+    cross-site, so nothing leaks; what is forged is the audit trail.
+
+    As a POST, SessionAuthentication checks the X-CSRFToken header against
+    the csrftoken cookie. Another site's page can get the browser to send
+    both cookies, but it cannot read the token to put it in the header.
+
+    APITestCase's own client skips that check, which is why every other test
+    here can post without a token. This client runs it, as a browser would.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.make_ticket(subject="Only one")
+        self.browser = APIClient(enforce_csrf_checks=True)
+        self.browser.force_login(self.agent)
+        # The portal's way to a token. It also sets the csrftoken cookie, so
+        # the jar holds everything a cross-site request would carry.
+        self.token = self.browser.get("/services/csrf/").json()["csrfToken"]
+        self.assertIn("csrftoken", self.browser.cookies)
+
+    def test_a_post_without_the_token_is_refused_and_records_nothing(self):
+        # What another site can make the browser send: both cookies, no header.
+        sends = [
+            ("json", lambda: self.browser.post(EXPORT, {"status": "open"}, format="json")),
+            # A plain HTML form needs no preflight to go cross-site.
+            ("form", lambda: self.browser.post(EXPORT, {"status": "open"})),
+        ]
+        for label, send in sends:
+            with self.subTest(body=label):
+                response = send()
+
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertEqual(response.json()["error"], "CSRF Failed: CSRF token missing.")
+                self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_post_with_a_token_that_is_not_the_cookies_is_refused(self):
+        response = self.browser.post(EXPORT, {}, format="json", HTTP_X_CSRFTOKEN="x" * 64)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.export_audit_rows().exists())
+
+    def test_a_post_with_the_token_gets_the_file_and_is_recorded(self):
+        moment = datetime(2030, 1, 1, 13, 30, tzinfo=dt_timezone.utc)
+
+        # Only the view's clock is held still, as in the naming tests above.
+        with patch("apps.tickets.views_admin.timezone") as clock:
+            clock.now.return_value = moment
+            response = self.browser.post(
+                EXPORT, {"status": "open"}, format="json", HTTP_X_CSRFTOKEN=self.token
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(
+            response["Content-Disposition"], 'attachment; filename="tickets-2030-01-01.xlsx"'
+        )
+        sheet = load_workbook(io.BytesIO(response.content)).active
+        self.assertEqual([row[2].value for row in sheet.iter_rows(min_row=2)], ["Only one"])
+        rows = list(self.export_audit_rows())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].actor_user, self.agent)
+        self.assertEqual(rows[0].after_state["filters"], {"status": "open"})
+
+    def test_a_get_is_not_allowed_and_records_nothing(self):
+        # The old way in, filters in the query string, which is how an
+        # <img src> would send it.
+        response = self.browser.get(EXPORT, {"status": "open"})
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertFalse(self.export_audit_rows().exists())
+
+
+class QueueExportFormulaInjectionTests(QueueExportTestCase):
+    """Text a student typed has to open in Excel as that text, never as a
+    formula. openpyxl stores any string starting with "=" as a formula, and
+    loads it back with data_type "f"; text loads back as "s"."""
+
+    def cell_for(self, subject):
+        return next(row[2] for row in self.body_rows() if row[2].value == subject)
+
+    def test_a_subject_written_as_a_formula_stays_text(self):
+        self.make_ticket(subject='=HYPERLINK("http://evil.example","Open")')
+
+        cell = self.cell_for('=HYPERLINK("http://evil.example","Open")')
+
+        self.assertEqual(cell.data_type, "s")
+        self.assertTrue(cell.quotePrefix)
+
+    def test_every_trigger_character_is_marked_as_text(self):
+        subjects = [
+            "+61 400 000 000",
+            "-1 is my score",
+            "@everyone please help",
+            "\tIndented",
+            "\rCarriage return",
+        ]
+        for subject in subjects:
+            self.make_ticket(subject=subject)
+
+        for subject in subjects:
+            with self.subTest(subject=repr(subject)):
+                cell = self.cell_for(subject)
+                self.assertEqual(cell.data_type, "s")
+                self.assertTrue(cell.quotePrefix)
+
+    def test_an_ordinary_subject_is_left_alone(self):
+        self.make_ticket(subject="Cannot log in")
+
+        self.assertFalse(self.cell_for("Cannot log in").quotePrefix)
+
+    def test_a_requester_name_is_guarded_too(self):
+        # Names arrive through registration, which has no serializer at all.
+        User.objects.filter(pk=self.requester.pk).update(first_name="=1+1")
+        self.make_ticket()
+
+        cell = self.body_rows()[0][1]
+
+        self.assertEqual(cell.value, "=1+1 Thompson\nAustralia")
+        self.assertEqual(cell.data_type, "s")
+        self.assertTrue(cell.quotePrefix)
+
+    def test_a_control_character_does_not_break_the_whole_file(self):
+        # The ticket form accepts a vertical tab and stores it. openpyxl
+        # refuses it outright, so without the strip one such subject is a 500
+        # for every export that includes it.
+        self.make_ticket(subject="Line one\x0bline two")
+
+        self.assertEqual(self.exported_subjects(), ["Line oneline two"])
+
+    def test_a_control_character_cannot_hide_a_formula(self):
+        # Stripped before the check, not after: the other order checks
+        # "\x0b=1+1", finds nothing to guard, and then writes "=1+1".
+        self.make_ticket(subject="\x0b=1+1")
+
+        cell = self.cell_for("=1+1")
+
+        self.assertEqual(cell.data_type, "s")
+        self.assertTrue(cell.quotePrefix)

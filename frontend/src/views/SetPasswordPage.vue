@@ -86,6 +86,7 @@ import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromUnknown, logApiError } from '@/utils/apiError'
+import { landingPath } from '@/utils/landing'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -146,7 +147,9 @@ async function submitPassword() {
       return
     }
 
-    await router.replace('/dashboard')
+    // The store re-read /users/me/ after the password was set, so the flags
+    // that tell a support agent from a student are current here.
+    await router.replace(landingPath(auth))
   } catch (error) {
     const apiError = apiErrorFromUnknown(error, 'Could not set your password. Please try again.')
     logApiError('set-initial-password', apiError)
@@ -164,7 +167,7 @@ async function handleLogout() {
 
 onMounted(async () => {
   if (!auth.mustChangePassword) {
-    await router.replace(auth.isAdmin ? '/login' : '/dashboard')
+    await router.replace(landingPath(auth))
     return
   }
 

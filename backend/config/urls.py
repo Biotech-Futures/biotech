@@ -80,6 +80,7 @@ _api_v1_patterns = [
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("grading/", include("apps.grading.urls")),
+    path("management/", include("apps.management.urls")),
     # Submissions is v1-only: it has no legacy unprefixed callers to support,
     # so it is deliberately left out of _DUAL_MOUNTS.
     path("submissions/", include("apps.submissions.urls")),
@@ -106,7 +107,6 @@ urlpatterns = [
     path("announcements/", include("apps.announcements.urls")),
     path("audit/", include("apps.audit.urls")),
     path("matching/", include("apps.matching_runtime.urls")),
-    path("certificates/", include("apps.certificates.urls")),
 
     path("api-auth/", include("rest_framework.urls")),  # browsable API login
 
@@ -120,7 +120,6 @@ if settings.DEBUG:
     from django.urls import re_path
     from django.views.decorators.clickjacking import xframe_options_exempt
     from django.views.static import serve as media_serve
-
     urlpatterns += [
         path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
         path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

@@ -99,7 +99,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
     # ------------------------------------------------------------------
     def test_all_recipients_failing_records_failed_delivery(self):
         with patch(
-            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             side_effect=Exception("smtp down"),
         ):
             result = send_announcement_email(self.announcement.id)
@@ -130,7 +130,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
             raise Exception("recipient rejected")
 
         with patch(
-            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             new=fake_send,
         ):
             result = send_announcement_email(self.announcement.id)
@@ -221,7 +221,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
             + "A" * 500
         )
         with patch(
-            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             side_effect=Exception(nasty),
         ):
             result = send_announcement_email(self.announcement.id)
@@ -341,7 +341,7 @@ class AnnouncementNotifyViewTests(TestCase):
 
     def test_all_failed_notify_returns_502(self):
         with patch(
-            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             side_effect=Exception("smtp dead"),
         ):
             response = self.client.post(self.url)
@@ -364,7 +364,7 @@ class AnnouncementNotifyViewTests(TestCase):
             raise Exception("rejected")
 
         with patch(
-            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             new=fake_send,
         ):
             response = self.client.post(self.url)
@@ -653,3 +653,71 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
         # The plain-text body carries the title too (mail clients without
         # HTML render it).
         self.assertIn("Subject sanity", message.body)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementSystemEmailTests(TestCase):
+    """The announcement email goes through the shared system email path."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com", password="testpass", first_name="An",
+        )
+        self.announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Poster session",
+            body="<p>Friday in the Great Hall.</p>",
+            visibility_scope="global",
+        )
+
+    def test_unedited_email_keeps_subject_and_plain_text(self):
+        from django.conf import settings
+        from django.core import mail
+
+        send_announcement_email(self.announcement.id)
+
+        message = mail.outbox[0]
+        self.assertEqual(message.subject, f"[{settings.BRAND_NAME}] Poster session")
+        self.assertTrue(message.body.startswith("Poster session\n\nFriday in the Great Hall."))
+        self.assertIn(f"/#/announcements/{self.announcement.id}", message.body)
+
+    def test_edited_email_uses_the_saved_wording(self):
+        from django.core import mail
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(
+            key="announcement",
+            subject="New: {{ title }}",
+            body_html="<p>{{ excerpt }}</p><p><a href=\"{{ detail_url }}\">Open</a></p>",
+        )
+        send_announcement_email(self.announcement.id)
+
+        message = mail.outbox[0]
+        self.assertEqual(message.subject, "New: Poster session")
+        html_body, _ = message.alternatives[0]
+        self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
+        self.assertIn(f"/#/announcements/{self.announcement.id}", html_body)
+
+    def test_switched_off_skips_without_delivery_row(self):
+        from django.core import mail
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
+        result = send_announcement_email(self.announcement.id)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(mail.outbox, [])
+        self.assertFalse(AnnouncementDelivery.objects.exists())
+
+    def test_global_switch_off_skips(self):
+        from django.core import mail
+        from apps.services.models import SystemEmailSettings
+
+        SystemEmailSettings.objects.create(emails_enabled=False)
+        result = send_announcement_email(self.announcement.id)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(mail.outbox, [])

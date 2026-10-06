@@ -81,7 +81,11 @@ def _evidence_body(ticket, *, message, verdict, text_snapshot, group, sender) ->
 
     group_name = getattr(group, "group_name", "") or "Unknown group"
     group_id = getattr(group, "pk", None)
-    admin_base = getattr(settings, "ADMIN_FRONTEND_BASE_URL", "").rstrip("/")
+    # The portal, not the admin app: the agent side of the queue moved into
+    # the Vue portal, and the admin app's host goes when that app does. A
+    # link written into a ticket outlives every deploy, so it has to point
+    # somewhere that stays.
+    portal_base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
 
     lines = [
         "A message was flagged by automated screening.",
@@ -98,8 +102,10 @@ def _evidence_body(ticket, *, message, verdict, text_snapshot, group, sender) ->
         "Review it here:",
         # The queue page opens the detail as a slide-over panel rather than
         # its own route, so this link only works if that panel honours
-        # ?ticket=<id>. W7 owns that.
-        f"1. This ticket: {admin_base}/tickets?ticket={ticket.pk}",
+        # ?ticket=<id>. Hash routing, like every other portal link we send
+        # (emails._ticket_url): without the "#" the portal's router never
+        # sees the path and sends the agent to its login page instead.
+        f"1. This ticket: {portal_base}/#/admin/tickets?ticket={ticket.pk}",
         # Group messages are a modal inside the admin groups list and have no
         # address of their own, so this half is directions rather than a link.
         f"2. The conversation: Admin → Groups → {group_name} "
@@ -159,14 +165,12 @@ def create_ticket_from_screening(message, verdict, text_snapshot) -> Ticket:
             # all: its only row is the internal note below.
             awaiting_support_since=timezone.now(),
         )
-        # One system message, not two: the acknowledgement T1 writes exists to
-        # reassure a requester, and this ticket has none.
         # INTERNAL_NOTE, not SYSTEM. SYSTEM is the type the requester is meant
-        # to read — "we are looking into this", "this has been resolved" — and
-        # views.py excludes only internal notes from their timeline. This body
-        # is a case file: it names the sender (falling back to their email
-        # address), quotes the flagged private message word for word, and
-        # links into the admin app.
+        # to read ("this ticket has been marked as resolved", "ticket
+        # reopened"), and views.py excludes only internal notes from their
+        # timeline. This body is a case file: it names the sender (falling
+        # back to their email address), quotes the flagged private message
+        # word for word, and links into the admin app.
         #
         # It is not reachable today, because these tickets are created with
         # created_by=None and the requester's queryset filters on ownership.

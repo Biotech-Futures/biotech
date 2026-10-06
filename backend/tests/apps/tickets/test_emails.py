@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives
 from django.test import TestCase, override_settings
 
@@ -1256,3 +1257,249 @@ class ExpectedResponseTests(TicketEmailTestCase):
         the constant to itself would pass for any value it is ever given.
         """
         self.assertEqual(emails.EXPECTED_REPLY, "one business day")
+
+
+class EnclosingTags(HTMLParser):
+    """For each text node holding ``needle``, the tags open around it.
+
+    A sibling of PlacesThatPrint rather than a change to it: that one only
+    needs the styles and folds them into one string. The checks below need to
+    know which element is which, and read its attributes one at a time.
+    """
+
+    VOID = PlacesThatPrint.VOID
+
+    def __init__(self, needle):
+        super().__init__(convert_charrefs=True)
+        self.needle = needle
+        self.open = []
+        self.found = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in self.VOID:
+            self.open.append((tag, dict(attrs)))
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.open) - 1, -1, -1):
+            if self.open[index][0] == tag:
+                del self.open[index:]
+                return
+
+    def handle_data(self, data):
+        if self.needle in data:
+            self.found.append(list(self.open))
+
+
+def enclosing_tags(html, needle):
+    parser = EnclosingTags(needle)
+    parser.feed(html)
+    return parser.found
+
+
+def style_of(attrs):
+    """An element's inline style, lowercased with the spaces taken out."""
+    return (attrs.get("style") or "").replace(" ", "").lower()
+
+
+class TicketEmailsThroughTheApiTestCase(TicketEmailTestCase):
+    """Each email sent by the request that sends it in production.
+
+    Four emails from one ticket: the receipt, a plain reply, a reply that
+    moves the ticket to "pending user", and the resolution. each_email() never
+    sends one while the ticket is pending, so the third is the only email here
+    that renders the pending branch of the meta block.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # The create and reply endpoints are throttled, and the counters live
+        # in the cache, which outlives the per-test rollback that recycles user
+        # ids. Safe only because settings_test pins CACHES to locmem.
+        cache.clear()
+
+    def emails_through_the_api(self):
+        """[(label, status the email was sent at, message)], in send order."""
+        sent = []
+
+        self.client.force_login(self.requester)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/v1/tickets/",
+                data=json.dumps({
+                    "category": TicketCategory.ACCOUNT_ACCESS,
+                    "subject": "Cannot log in",
+                    "body": "The code never arrives.",
+                }),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+        ticket = Ticket.objects.get(pk=response.json()["data"]["id"])
+        sent.append(("E1 submitted", ticket.status))
+
+        self.client.force_login(self.agent)
+        for label, payload in (
+            ("E2 reply", {"messageType": "support_reply", "body": "Looking into it."}),
+            ("E2 reply asking for something", {
+                "messageType": "support_reply",
+                "body": "Could you send a screenshot?",
+                "moveToPending": True,
+            }),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/v1/admin/tickets/{ticket.pk}/messages/",
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+            self.assertEqual(response.status_code, 201, response.content)
+            ticket.refresh_from_db()
+            sent.append((label, ticket.status))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/v1/admin/tickets/{ticket.pk}/",
+                data=json.dumps({"status": "resolved"}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        ticket.refresh_from_db()
+        sent.append(("E3 resolved", ticket.status))
+
+        # One email per request, so pairing them by position cannot slip by
+        # one without this failing first.
+        self.assertEqual(len(mail.outbox), len(sent))
+        return [
+            (label, status, message)
+            for (label, status), message in zip(sent, mail.outbox)
+        ]
+
+
+class TicketEmailsComeFromTheSupportAddressTests(TicketEmailsThroughTheApiTestCase):
+    """C-02. The client asked for enquiry mail to come from support@.
+
+    Two places carried info@: the From header, and the "Add ... to your
+    address book" line in the footer, which names the mailbox the email came
+    from. Both had to move, and only for these emails.
+
+    The plain-text half has no footer and names no mailbox at all, so there
+    is nothing in it to move. It is still checked for info@, so a footer added
+    to it later cannot bring the old address back.
+    """
+
+    def test_every_ticket_email_is_sent_from_the_support_address(self):
+        for label, _, message in self.emails_through_the_api():
+            with self.subTest(email=label):
+                self.assertEqual(
+                    message.from_email, "BIOTech Futures <support@biotechfutures.org>"
+                )
+
+    def test_the_footer_names_the_support_address_and_nothing_names_info(self):
+        for label, _, message in self.emails_through_the_api():
+            html = message.alternatives[0][0]
+            with self.subTest(email=label, part="html"):
+                self.assertIn('href="mailto:support@biotechfutures.org"', html)
+                self.assertIn("BIOTech Futures &lt;support@biotechfutures.org&gt;", html)
+            for part, raw in (("text", message.body), ("html", html)):
+                with self.subTest(email=label, part=part):
+                    self.assertNotIn("info@biotechfutures.org", raw)
+
+    def test_the_rest_of_the_platform_still_sends_from_info(self):
+        """Only the ticket emails move. A login code is the email every user
+        gets, and it keeps the info@ sender and the footer brand_context()
+        gives the whole platform. Moving the address in the shared layer
+        rather than in the ticket context turns this red.
+        """
+        response = self.client.post(
+            "/services/send-login-code/",
+            data=json.dumps({"email": "mia@example.com"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        html = message.alternatives[0][0]
+        self.assertEqual(message.from_email, "BIOTech Futures <info@biotechfutures.org>")
+        self.assertIn('href="mailto:info@biotechfutures.org"', html)
+        self.assertNotIn("support@biotechfutures.org", html)
+
+
+class TheAddressUnderTheButtonIsALinkTests(TicketEmailsThroughTheApiTestCase):
+    """C-03. The copyable address under the button is our own dark-green link.
+
+    It used to be plain text in a green span. Mail clients turn a bare URL
+    into a link of their own and paint it their default blue, which is what
+    the client saw. Only an anchor carrying its own inline colour keeps the
+    green, and the colour has to sit on the anchor itself: base.html resets
+    every anchor to color:inherit and text-decoration:none.
+    """
+
+    def test_every_place_the_address_is_printed_is_a_dark_green_link_to_it(self):
+        for label, _, message in self.emails_through_the_api():
+            expected = self.expected_url(message)
+            html = message.alternatives[0][0]
+            places = enclosing_tags(html, expected)
+            with self.subTest(email=label):
+                self.assertTrue(places, f"{label} does not print the address")
+            for stack in places:
+                with self.subTest(email=label):
+                    anchors = [attrs for tag, attrs in stack if tag == "a"]
+                    self.assertTrue(anchors, f"the address in {label} is not a link")
+                    anchor = anchors[-1]
+                    self.assertEqual(anchor.get("href"), expected)
+                    self.assertIn("color:#307054", style_of(anchor))
+                    self.assertIn("text-decoration:underline", style_of(anchor))
+
+
+class PendingUserStandsOutTests(TicketEmailsThroughTheApiTestCase):
+    """C-04. "Pending user" is the one status that needs the requester to act.
+
+    Style only: the words stay the label, and every other status renders as
+    before. The colours are written out here rather than read from the
+    template, so changing them means changing this too.
+    """
+
+    PILL_RULES = (
+        "display:inline-block",
+        "background:#fff4d6",
+        "border:1pxsolid#e0b252",
+        "border-radius:999px",
+        "color:#7a4b00",
+        "font-weight:700",
+    )
+
+    def test_an_email_sent_while_pending_shows_the_status_as_a_pill(self):
+        pending = [
+            (label, message)
+            for label, status, message in self.emails_through_the_api()
+            if status == "pending_user"
+        ]
+        self.assertEqual(
+            [label for label, _ in pending], ["E2 reply asking for something"],
+        )
+        html = pending[0][1].alternatives[0][0]
+
+        places = enclosing_tags(html, "Pending user")
+        self.assertTrue(places, "the pending email no longer prints the status")
+        for stack in places:
+            tag, attrs = stack[-1]
+            self.assertEqual(tag, "span")
+            for rule in self.PILL_RULES:
+                with self.subTest(rule=rule):
+                    self.assertIn(rule, style_of(attrs))
+        # The words did not change, only the box around them.
+        self.assertIn("pending user", visible_text(html))
+
+    def test_no_other_status_gets_the_pill(self):
+        others = [
+            (label, status, message)
+            for label, status, message in self.emails_through_the_api()
+            if status != "pending_user"
+        ]
+        # Open and resolved at the least, or this checks nothing.
+        self.assertTrue({"open", "resolved"} <= {status for _, status, _ in others})
+        for label, status, message in others:
+            html = message.alternatives[0][0].lower()
+            with self.subTest(email=label, status=status):
+                self.assertNotIn("#fff4d6", html)
+                self.assertNotIn("#7a4b00", html)
+                self.assertNotIn("#e0b252", html)

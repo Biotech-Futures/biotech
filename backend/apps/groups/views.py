@@ -1,13 +1,23 @@
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
-from .models import GroupAutoNameUnavailable, Groups, Countries, GroupMembership, group_name_sort_key
+from .models import (
+    Countries,
+    GroupAutoNameUnavailable,
+    GroupMembership,
+    GroupNameTaken,
+    Groups,
+    duplicate_group_name_error,
+    group_name_sort_key,
+    saving_group_name,
+)
+from .models.groups import default_group_year
 from .serializers import (
     CountrySerializer,
     GroupMembershipSerializer,
@@ -136,8 +146,13 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         self._ensure_admin_track_access(self.request, None)
-        if (serializer.validated_data.get("group_name") or "").strip():
-            group = serializer.save()
+        typed = (serializer.validated_data.get("group_name") or "").strip()
+        if typed:
+            try:
+                with saving_group_name(typed, default_group_year()):
+                    group = serializer.save()
+            except GroupNameTaken as exc:
+                raise ValidationError({"group_name": [str(exc)]}) from exc
         else:
             try:
                 group = Groups.create_auto_named()
@@ -157,7 +172,12 @@ class GroupViewSet(viewsets.ModelViewSet):
         group = serializer.instance
         self._ensure_admin_track_access(self.request, group)
         before_state = GroupSerializer(group).data
-        group = serializer.save()
+        name = serializer.validated_data.get("group_name", group.group_name)
+        try:
+            with saving_group_name(name, group.year):
+                group = serializer.save()
+        except GroupNameTaken as exc:
+            raise ValidationError({"group_name": [str(exc)]}) from exc
         log_audit_event(
             actor=self.request.user,
             entity_type="group",
@@ -183,17 +203,17 @@ class GroupViewSet(viewsets.ModelViewSet):
         self._ensure_admin_track_access(request, group)
         if group.deleted_at is None:
             return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
-        # Restore must respect the active-only uniqueness constraint.
-        if Groups.objects.filter(
-            group_name=group.group_name,
-            deleted_at__isnull=True,
-        ).exclude(pk=group.pk).exists():
-            raise ValidationError({
-                "group_name": "An active group with this name already exists."
-            })
-
+        # Names may repeat across annual challenges, but not within one: coming
+        # back must not give its year two teams of the same name.
+        taken = duplicate_group_name_error(group.group_name, group.year, exclude_id=group.pk)
+        if taken:
+            raise ValidationError({"group_name": [f"{taken} Rename one of them first."]})
         before_state = GroupSerializer(group).data
-        group.restore()
+        try:
+            with saving_group_name(group.group_name, group.year):
+                group.restore()
+        except GroupNameTaken as exc:
+            raise ValidationError({"group_name": [f"{exc} Rename one of them first."]}) from exc
         group.refresh_from_db()
         log_audit_event(
             actor=request.user,
@@ -221,18 +241,15 @@ class GroupViewSet(viewsets.ModelViewSet):
             self._ensure_admin_track_access(request, None)
             requested_name = (group_payload.get("group_name") or "").strip()
             if requested_name:
-                taken_error = ValidationError({
-                    "group_name": [f'An active group named "{requested_name}" already exists.']
-                })
-                if Groups.objects.filter(
-                    group_name=requested_name, deleted_at__isnull=True,
-                ).exists():
-                    raise taken_error
+                # Groups made earlier in this batch count too: they're already saved.
+                taken = duplicate_group_name_error(requested_name, default_group_year())
+                if taken:
+                    raise ValidationError({"group_name": [taken]})
                 try:
-                    with transaction.atomic():
+                    with saving_group_name(requested_name, default_group_year()):
                         group = Groups.objects.create(group_name=requested_name)
-                except IntegrityError as exc:
-                    raise taken_error from exc
+                except GroupNameTaken as exc:
+                    raise ValidationError({"group_name": [str(exc)]}) from exc
             else:
                 try:
                     group = Groups.create_auto_named()

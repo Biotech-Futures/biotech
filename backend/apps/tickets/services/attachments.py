@@ -11,11 +11,14 @@ context manager below deletes what it stored if the caller raises on the way
 to commit.
 """
 
+import logging
 from contextlib import ExitStack, contextmanager
 
-from apps.common.storage import ManagedFileService, get_ticket_storage
+from apps.common.storage import ManagedFileService, StoredFileMissing, get_ticket_storage
 from apps.common.upload_validation import validate_uploaded_file
 from rest_framework import serializers
+
+logger = logging.getLogger(__name__)
 
 # D9. jpg and jpeg both spelled out because the validator matches on the
 # literal suffix.
@@ -81,3 +84,26 @@ def stored_attachments(files):
             for uploaded in files
         ]
         yield rows
+
+
+def open_for_download(attachment, *, ticket_id):
+    """The attachment's stored file, open and fetched, or None if it is gone.
+
+    Takes a row the caller has already authorised; which rows a caller may see
+    stays in each view's own queryset. None means storage has lost the file,
+    and both download views answer that exactly as they answer a row that is
+    not there, because to the person clicking it is the same thing. It still
+    gets a warning, since a row outliving its file is never supposed to
+    happen.
+    """
+    try:
+        return ticket_files.open_present(attachment.storage_key)
+    except StoredFileMissing as missing:
+        # Ids only. The storage key ends in the uploader's own file name.
+        logger.warning(
+            "ticket_attachment.file_missing ticket=%s attachment=%s reason=%s",
+            ticket_id,
+            attachment.pk,
+            missing.reason,
+        )
+        return None

@@ -146,8 +146,8 @@ class AuthServiceTest(TestCase):
             last_name="Test"
         )
 
-    @patch('apps.services.auth_service.render_to_string')
-    @patch('apps.services.auth_service.EmailMultiAlternatives')
+    @patch('apps.services.system_email.render_to_string')
+    @patch('apps.services.system_email.EmailMultiAlternatives')
     def test_send_login_code_success(self, mock_email, mock_render):
         """Test successful login code sending (mocked email)"""
         # Mock template rendering and email sending
@@ -219,8 +219,8 @@ class AuthServiceIntegrationTest(TestCase):
             last_name="Test"
         )
 
-    @patch('apps.services.auth_service.render_to_string')
-    @patch('apps.services.auth_service.EmailMultiAlternatives')
+    @patch('apps.services.system_email.render_to_string')
+    @patch('apps.services.system_email.EmailMultiAlternatives')
     def test_full_auth_flow(self, mock_email, mock_render):
         """Test complete authentication flow"""
         # Mock email rendering and sending
@@ -331,8 +331,8 @@ class LoginTokenReuseTest(TestCase):
         self.assertNotEqual(fresh.pk, token.pk)
         self.assertTrue(fresh.is_valid)
 
-    @patch('apps.services.auth_service.render_to_string', return_value="<html></html>")
-    @patch('apps.services.auth_service.EmailMultiAlternatives')
+    @patch('apps.services.system_email.render_to_string', return_value="<html></html>")
+    @patch('apps.services.system_email.EmailMultiAlternatives')
     def test_mixed_case_email_still_delivers(self, mock_email, _mock_render):
         # Stored emails are lowercased on create, so an exact-match lookup would
         # silently drop anything typed with a capital and never send at all.
@@ -568,8 +568,8 @@ class PasswordResetAdminRedirectTest(TestCase):
         )
         AdminScope.objects.create(user=self.admin_user)
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_admin_reset_email_uses_admin_portal_base(self, mock_email, mock_render):
         from apps.services.auth_service import send_password_reset
 
@@ -592,8 +592,8 @@ class PasswordResetAdminRedirectTest(TestCase):
         text_body = mock_email.call_args.kwargs["body"]
         self.assertIn(settings.ADMIN_PASSWORD_RESET_REDIRECT_URL, text_body)
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_regular_user_reset_email_uses_user_frontend_base(self, mock_email, mock_render):
         from apps.services.auth_service import send_password_reset
 
@@ -607,8 +607,8 @@ class PasswordResetAdminRedirectTest(TestCase):
         self.assertNotIn("mentoringadmin.biotechfutures.org", ctx["RESET_PASSWORD_LINK"])
         self.assertIn("/auth/reset-password?token=", ctx["RESET_PASSWORD_LINK"])
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_admin_scope_user_reset_email_uses_admin_portal_base(self, mock_email, mock_render):
         """A user with an AdminScope row is routed to the admin portal."""
         from apps.users.models import AdminScope
@@ -653,8 +653,8 @@ class ContactEmailTemplateContextTest(TestCase):
             account_status=User.AccountStatus.ACTIVE,
         )
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_login_email_passes_contact_email(self, mock_email, mock_render):
         from apps.services.auth_service import send_login_code
         from django.conf import settings
@@ -667,8 +667,8 @@ class ContactEmailTemplateContextTest(TestCase):
         ctx = mock_render.call_args[0][1]
         self.assertEqual(ctx["CONTACT_EMAIL"], settings.SUPPORT_EMAIL)
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_password_reset_email_passes_contact_email(self, mock_email, mock_render):
         from apps.services.auth_service import send_password_reset
         from django.conf import settings
@@ -681,8 +681,8 @@ class ContactEmailTemplateContextTest(TestCase):
         ctx = mock_render.call_args[0][1]
         self.assertEqual(ctx["CONTACT_EMAIL"], settings.SUPPORT_EMAIL)
 
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_password_changed_email_passes_contact_email(self, mock_email, mock_render):
         from apps.services.auth_service import _send_password_changed_notification
         from django.conf import settings

@@ -1,11 +1,4 @@
-"""Submission-specific API errors.
-
-Follows the shape used in ``config/errors.py`` (a ``default_detail`` plus a
-stable machine-readable ``default_code``) but stays app-local, so adding the
-submission feature does not require editing a shared module. Errors that
-already exist centrally — notably ``GroupAccessDenied`` — are reused rather
-than duplicated here.
-"""
+"""Submission API errors, in the same shape as ``config/errors.py``."""
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
@@ -20,12 +13,6 @@ class SubmissionsNotConfigured(APIException):
     status_code = status.HTTP_403_FORBIDDEN
     default_detail = "Submissions are not open yet."
     default_code = "submissions_not_configured"
-
-
-class StudentRoleRequired(APIException):
-    status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Only students in this team can edit its submission."
-    default_code = "student_role_required"
 
 
 class SubmissionLocked(APIException):
@@ -48,6 +35,36 @@ class PosterRequired(APIException):
     default_code = "poster_required"
 
 
+class ProjectTitleRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "A project title is required before the entry can be submitted."
+    default_code = "project_title_required"
+
+
+class NotAFinalist(APIException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "This team is not in the finalist round."
+    default_code = "not_a_finalist"
+
+
+class TimesNotShown(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "The presentation sessions haven't been shared yet."
+    default_code = "times_not_shown"
+
+
+class AvailabilityRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Submit the sessions your team can attend first."
+    default_code = "availability_required"
+
+
+class PresentationRequired(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "A presentation must be uploaded before the entry can be submitted."
+    default_code = "presentation_required"
+
+
 class RequiredAnswersMissing(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Some required questions have not been answered."
@@ -55,8 +72,6 @@ class RequiredAnswersMissing(APIException):
 
     def __init__(self, prompts):
         super().__init__()
-        # Naming the questions lets the page point at them rather than making
-        # the student hunt for which one is blank.
         self.extra = {"missing": list(prompts)}
 
 
@@ -67,8 +82,6 @@ class PosterFormatRejected(APIException):
 
     def __init__(self, problems):
         super().__init__()
-        # Named individually: there are at most three and each says what to
-        # change, where "wrong format" alone would leave them guessing.
         self.extra = {"problems": list(problems)}
 
 

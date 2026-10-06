@@ -1,0 +1,500 @@
+/* Shared by the submission portal and its Finalist step; each imports it as scoped. */
+.content-area {
+
+  /* Aliases for platform tokens, so the dark theme applies automatically. */
+  --panel-bg: var(--white);
+  --panel-border: var(--border-light);
+  --field-bg: var(--white);
+  --field-border: var(--border-light);
+  --field-disabled-bg: var(--bg-light);
+  --notice-bg: var(--bg-light);
+  --muted: var(--text-muted);
+  --body-text: var(--charcoal);
+  --accent: var(--dark-green);
+  /* Muted so an over-limit warning is not signal red. */
+  --error: color-mix(in srgb, var(--danger) 70%, var(--charcoal));
+  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--charcoal));
+
+  /* Tints mixed from platform colours, so they follow the dark theme. */
+  --accent-soft: color-mix(in srgb, var(--dark-green) 12%, transparent);
+  --error-bg: color-mix(in srgb, var(--danger) 10%, transparent);
+  --ok-bg: color-mix(in srgb, var(--dark-green) 10%, transparent);
+
+  color: var(--body-text);
+  /* Overrides main.css's page-level .content-area; the group page supplies padding and scrolling. */
+  background-color: transparent;
+  padding: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+
+.submission-due {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.submission-due__date {
+  font-weight: 600;
+  color: var(--body-text);
+}
+
+.submission-due__label {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0 0.9rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.status-line__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.status-line__state {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--body-text);
+  letter-spacing: -0.005em;
+}
+
+.status-line__action {
+  margin-left: 0.3rem;
+}
+
+.status-line.is-submitted .status-line__icon {
+  background: var(--accent);
+  color: #fff;
+}
+
+.status-line.is-submitted .status-line__state {
+  color: var(--accent);
+}
+
+.status-line.is-missed .status-line__icon {
+  background: var(--field-disabled-bg);
+  color: var(--muted);
+}
+
+.status-line.is-missed .status-line__state {
+  color: var(--body-text);
+}
+
+.submission-remaining {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.submission-remaining.is-near {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.poster-notice {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--notice-bg);
+  color: var(--body-text);
+  font-size: 0.875rem;
+}
+
+.poster-notice__body {
+  margin: 0;
+}
+
+.submission-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.95rem;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: var(--ok-bg);
+  color: var(--ok-text);
+  font-size: 0.9rem;
+}
+
+.submission-message--error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+/* Fixed, since the portal scrolls inside the group page. */
+.submission-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 26, 22, 0.45);
+}
+
+.submission-dialog {
+  background: var(--panel-bg);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--shadow);
+  padding: 1.5rem;
+  max-width: 27rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.submission-dialog__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--body-text);
+}
+
+.submission-dialog__body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.submission-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.submission-message__close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 0.2rem;
+}
+
+.submission-message__close:hover {
+  opacity: 1;
+}
+
+.submission-count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--body-text);
+  margin: 0.3rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.submission-count.is-over-limit {
+  color: var(--error);
+  font-weight: 600;
+}
+
+/* Step strip */
+
+
+
+.section-head {
+  margin: 0 0 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.card-title {
+  margin: 0;
+}
+
+.section-head__sub {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 75ch;
+}
+
+.panel-subheading {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.submission-field + .submission-field {
+  margin-top: 2rem;
+}
+
+.submission-label {
+  display: block;
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.35;
+  margin-bottom: 0.55rem;
+}
+
+.field-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--body-text);
+  margin-bottom: 0.4rem;
+}
+
+.submission-muted {
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0.2rem 0;
+}
+
+/* Set explicitly, as .form-control stays white in the dark theme. */
+.submission-textarea,
+.content-area .form-control {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: var(--field-bg);
+  color: var(--body-text);
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.55;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.submission-textarea {
+  resize: vertical;
+}
+
+.content-area .form-control::placeholder,
+.submission-textarea::placeholder {
+  color: var(--muted);
+}
+
+.submission-textarea:focus,
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.submission-textarea:disabled {
+  background: var(--field-disabled-bg);
+  color: var(--body-text);
+}
+
+
+.submission-required {
+  color: var(--error);
+  font-weight: 600;
+  margin-left: 0.2rem;
+  cursor: help;
+}
+
+.submission-slot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.submission-slot--plain {
+  border-bottom: none;
+  padding-top: 0;
+}
+
+
+.content-area.is-dragging-file .preview-frame {
+  pointer-events: none;
+}
+
+.drop-zone.is-drop-target,
+.submission-slot.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.submission-slot__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.submission-hidden-input {
+  display: none;
+}
+
+.submission-file {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.submission-template-link {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.submission-template-link i {
+  font-size: 0.75em;
+  margin-left: 0.2em;
+}
+
+.preview-panel {
+  background: var(--panel-bg);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow);
+  min-height: 560px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.preview-panel.is-collapsed {
+  min-height: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.preview-panel.is-collapsed .preview-header {
+  border-bottom: none;
+  padding: 0.75rem 0;
+}
+
+.preview-header {
+  align-items: center;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+}
+
+.preview-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.preview-toggle:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.preview-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.preview-toggle__chevron {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.preview-frame {
+  border: 0;
+  display: block;
+  height: 620px;
+  width: 100%;
+}
+
+.preview-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 480px;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.preview-empty i {
+  color: var(--accent);
+  font-size: 2rem;
+}
+
+.submission-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin: 1.5rem 0 3rem;
+}
+
+.submission-savestate {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.submission-steps-nav {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.btn-icon {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.btn-icon:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.submission-savestate.is-error {
+  color: var(--error);
+  font-weight: 600;
+}

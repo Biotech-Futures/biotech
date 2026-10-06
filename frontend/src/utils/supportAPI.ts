@@ -1,8 +1,8 @@
-import { apiErrorFromResponse } from './apiError'
-import { useAuthStore } from '@/stores/auth'
-import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from './csrf'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { apiErrorFromUnknown } from './apiError'
+// The transport (CSRF, the stale-token retry and its takeover check, the
+// {msg, data} unwrap, file downloads) lives in ticketTransport.ts, shared with
+// the agent side's ticketAgentAPI.ts so both run the same guard.
+import { API_BASE_URL, fetchBlob, requestJson, saveBlob, ticketFormData } from './ticketTransport'
 
 // Kept in step with the backend's PUBLIC_TICKET_CATEGORIES, in the same order.
 // The eight the requester can pick are spelled out rather than fetched,
@@ -139,142 +139,6 @@ export interface SubmitTicketPayload {
   files?: File[]
 }
 
-// Every ticket endpoint answers {msg, data}. Callers only ever want `data`,
-// so the envelope is opened here rather than at each call site.
-interface Envelope<T> {
-  msg: string
-  data: T
-}
-
-// Django rotates the CSRF token on every login, and the token lives in a
-// module-level cache (utils/csrf.ts) that nothing invalidates. So a cached
-// token goes stale whenever a login happens after this module first read it —
-// including a login in another tab, because both front ends talk to the same
-// backend origin and therefore share one cookie jar.
-function looksLikeStaleCsrf(status: number, body: string): boolean {
-  return status === 403 && body.toLowerCase().includes('csrf')
-}
-
-// Whether the person the browser is signed in as is still the person this app
-// thinks it is. A stale CSRF token has two very different causes and only one
-// of them is safe to retry: the same user's token was rotated (retry), or
-// somebody else signed in and took over the session (do not retry — the write
-// would be filed under their name).
-async function sessionStillBelongsTo(expectedUserId: number | null): Promise<boolean> {
-  if (expectedUserId === null) return false
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
-      credentials: 'include',
-      headers: buildSessionHeaders()
-    })
-    if (!response.ok) return false
-    const me = await response.json()
-    return me?.id === expectedUserId
-  } catch {
-    return false
-  }
-}
-
-// 🔴 Deliberately NOT localStorage.
-//
-// localStorage is shared by every tab on this origin and the login flow writes
-// it (stores/auth.ts). So by the time a 403 comes back, localStorage may already
-// name whoever just signed in somewhere else — and comparing that against
-// /users/me/ would compare the new person with the new person, agree, and wave
-// through the exact write this check exists to stop.
-//
-// The Pinia store lives in THIS tab's memory. Another tab signing in does not
-// touch it, which is what makes it the right answer to "who does this page
-// think it is".
-function currentUserId(): number | null {
-  try {
-    return useAuthStore().user?.id ?? null
-  } catch {
-    // No active Pinia (unit tests, or a call before the app mounts). Unknown
-    // identity is not the same as a matching one: the caller treats null as
-    // "cannot confirm" and refuses to retry.
-    return null
-  }
-}
-
-async function sendOnce(path: string, options: RequestInit, includeCSRF: boolean) {
-  const isFormData = options.body instanceof FormData
-  return fetch(`${API_BASE_URL}${path}`, {
-    credentials: 'include',
-    ...options,
-    headers: buildSessionHeaders({
-      includeCSRF,
-      isFormData,
-      headers: {
-        Accept: 'application/json',
-        ...(options.headers || {})
-      }
-    })
-  })
-}
-
-async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const method = String(options.method || 'GET').toUpperCase()
-  const includeCSRF = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-
-  if (includeCSRF) {
-    const csrfReady = await ensureCsrfCookie(API_BASE_URL)
-    if (!csrfReady) {
-      throw new Error('Could not initialize a secure session. Please refresh and try again.')
-    }
-  }
-
-  // Captured before the request goes out, not after it comes back: the gap
-  // between the two is exactly when somebody else's sign-in would land.
-  const expected = includeCSRF ? currentUserId() : null
-
-  let response = await sendOnce(path, options, includeCSRF)
-
-  if (includeCSRF && response.status === 403) {
-    // Read the body to tell a CSRF rejection from a genuine permission denial.
-    // The response is consumed either way, so keep the text for the error.
-    const body = await response.clone().text()
-    if (looksLikeStaleCsrf(response.status, body)) {
-      resetCsrfToken()
-      const csrfReady = await ensureCsrfCookie(API_BASE_URL)
-      if (csrfReady && (await sessionStillBelongsTo(expected))) {
-        // Same person, rotated token: retry once with the fresh one. A body
-        // that is a FormData or a string can be sent again as-is.
-        response = await sendOnce(path, options, includeCSRF)
-      } else {
-        throw new Error(
-          'You appear to be signed in as someone else now — this can happen if you ' +
-            'signed in to another BIOTech page in the same browser. Please reload and sign in again.'
-        )
-      }
-    }
-  }
-
-  if (!response.ok) {
-    // The fallback is only reached when the answer carries no message of its
-    // own, which is what a gateway timeout or Django's own error page looks
-    // like: not JSON, nothing to quote. Without it the student reads
-    // apiError.ts's placeholder, "Request failed: 502". Anything the API
-    // itself says still comes through ahead of this sentence.
-    throw await apiErrorFromResponse(
-      response,
-      'Something went wrong at our end. Please try again in a moment.'
-    )
-  }
-
-  const text = await response.text()
-  const payload = (text ? JSON.parse(text) : null) as Envelope<T> | null
-  return (payload ? payload.data : null) as T
-}
-
-function ticketFormData(fields: Record<string, string>, files: File[] = []): FormData {
-  const form = new FormData()
-  Object.entries(fields).forEach(([key, value]) => form.set(key, value))
-  // Repeated under one key: the backend reads request.FILES.getlist("files").
-  files.forEach((file) => form.append('files', file))
-  return form
-}
-
 export function fetchMyTickets(
   page = 1,
   limit = 10,
@@ -318,11 +182,74 @@ export function replyToTicket(ticketId: number | string, body: string, files: Fi
   })
 }
 
-// A plain URL rather than a fetch: the browser follows it with the session
-// cookie attached, and the backend either streams the file or redirects to a
-// signed one.
+function attachmentPath(ticketId: number | string, attachmentId: number | string) {
+  return `/api/v1/tickets/${ticketId}/attachments/${attachmentId}/`
+}
+
+// The download endpoint's URL, the one the fetch below asks. Not for an href:
+// see downloadTicketAttachment for why nothing points the browser at it.
 export function attachmentUrl(ticketId: number | string, attachmentId: number | string) {
-  return `${API_BASE_URL}/api/v1/tickets/${ticketId}/attachments/${attachmentId}/`
+  return `${API_BASE_URL}${attachmentPath(ticketId, attachmentId)}`
+}
+
+// Fetched, not followed.
+//
+// A link click is a top-level navigation the browser commits to before it
+// knows what is coming back. When the answer is a file the navigation is
+// cancelled and the page stays, which is why an <a href> to this endpoint
+// looked like it worked. When the answer is a 403 or a 404 it is an ordinary
+// document and it REPLACES this one: the Support Centre is gone and the reply
+// the student was half-way through typing goes with it, because that text only
+// ever lived in the component. Their Back button does not rescue it either —
+// the page rebuilds from scratch.
+//
+// None of the refusals are exotic. A support agent deleting the enquiry as a
+// duplicate, a session that aged out (24 h from login, not from last activity),
+// or a blob missing from the container all land here with a file still on
+// screen and still clickable.
+//
+// Fetching leaves the page alone: the refusal becomes a value the caller can
+// render beside the file. The bytes come back as a blob and go to disk through
+// a blob: URL, which is same-origin and therefore honours `download` — the
+// API's own URL never did, being cross-origin.
+//
+// The fetch itself, and its load-bearing Accept: application/json, is
+// fetchBlob in ticketTransport.ts, shared with the agent side's download.
+//
+// The backend streams this endpoint rather than redirecting to a signed Azure
+// URL (prefer_stream=True in apps/tickets/views.py) precisely so this fetch has
+// one hop to make. Do not put that redirect back without giving the blob
+// container a CORS rule for this origin first: a fetch re-applies CORS at the
+// second hop and fails with a bare TypeError carrying no status at all.
+export async function downloadTicketAttachment(
+  ticketId: number | string,
+  attachmentId: number | string,
+  filename: string
+) {
+  const { blob } = await fetchBlob(
+    attachmentPath(ticketId, attachmentId),
+    'We could not download that file.'
+  )
+  // The name the timeline is already showing, not the one in
+  // Content-Disposition. When this was written the header could not be read
+  // cross-origin at all; settings.py now lists it in CORS_EXPOSE_HEADERS, but
+  // it only repeats the stored original filename, and the name the student
+  // clicked is already in hand and cannot disagree with what they saw.
+  saveBlob(blob, filename)
+}
+
+// What to put in front of a student when the download is refused. The server's
+// own sentences ("Attachment not found") describe a database row, not a
+// situation, and neither of them was written for a fifteen-year-old.
+export function attachmentErrorMessage(error: unknown): string {
+  const status = apiErrorFromUnknown(error).status
+  if (status === 401 || status === 403) {
+    return 'Your sign-in has expired. Reload this page and sign in again to open this file.'
+  }
+  if (status === 404) {
+    return 'That file is not available any more. Reload this page to see the latest version of this enquiry.'
+  }
+  return 'We could not download that file. Please check your connection and try again.'
 }
 
 // Categories a requester can be SHOWN but never OFFERED.

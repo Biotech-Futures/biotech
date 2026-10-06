@@ -1,18 +1,24 @@
-import random
-import time
+from contextlib import contextmanager
 
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CharField, F, Max, Q, Value, When
-from django.db.models.functions import Concat, Length, LPad, Substr
+from django.db.models.functions import Concat, Length, Lower, LPad, Substr, Trim
 from django.utils import timezone
 
 GROUP_NAME_PREFIX = "BTF"
 AUTO_NAME_REGEX = r"^BTF[0-9]+$"
 
+# The database refuses two active groups with the same name (ignoring case and
+# outer spaces) in the same year from this year on; earlier years had
+# duplicates and are left as they are.
+UNIQUE_NAMES_FROM_YEAR = 2026
+UNIQUE_NAME_CONSTRAINT = "unique_active_group_name_per_year"
+
+# How many numbers auto-naming tries when its name is taken the moment it saves.
+_AUTO_NAME_ATTEMPTS = 5
+
 # Ordering-only pad width; LPad truncates past it, so this bounds display order, not numbering.
 _AUTO_NAME_PAD = 12
-_AUTO_NAME_ATTEMPTS = 25
-_AUTO_NAME_BACKOFF = 0.05
 
 
 class GroupAutoNameUnavailable(Exception):
@@ -27,9 +33,19 @@ class GroupAutoNameUnavailable(Exception):
         )
 
 
+class GroupAutoNameState(models.Model):
+    """Legacy singleton counter. Allocation now follows active ``BTF<n>`` names."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    next_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "group_auto_name_state"
+
+
 def generate_group_name(number: int) -> str:
-    """Auto-name for a group -> ``BTF7``."""
-    return f"{GROUP_NAME_PREFIX}{number}"
+    """Auto-name for a group -> ``BTF07``."""
+    return f"{GROUP_NAME_PREFIX}{number:02d}"
 
 
 def default_group_year() -> int:
@@ -37,19 +53,14 @@ def default_group_year() -> int:
     return timezone.now().year
 
 
-def next_group_number() -> int:
-    """One past the highest auto-name number still on the table.
-
-    Soft-deleted rows count, so tombstones keep their number; a hand-named
-    ``BTF8`` counts as well, so the counter steps over it instead of colliding.
-    A hard delete of the *highest* group does release its number — interior
-    gaps are still never refilled.
-    """
-    auto_names = Groups.objects.filter(group_name__regex=AUTO_NAME_REGEX).annotate(
+def _highest_active_plus_one() -> int:
+    """One past the highest *active* ``BTF<n>``. Empty board starts at 1 (``BTF01``)."""
+    auto_names = Groups.objects.filter(
+        deleted_at__isnull=True,
+        group_name__regex=AUTO_NAME_REGEX,
+    ).annotate(
         digits=Substr("group_name", len(GROUP_NAME_PREFIX) + 1)
     )
-    # Pad to the widest run present rather than a constant: a fixed width would
-    # truncate longer digit runs and hand back a number that is already taken.
     width = auto_names.aggregate(width=Max(Length("digits")))["width"]
     if not width:
         return 1
@@ -58,6 +69,21 @@ def next_group_number() -> int:
         highest=Max(LPad("digits", width, Value("0")))
     )["highest"]
     return int(highest) + 1
+
+
+def next_group_number() -> int:
+    """Preview the next auto-name number without consuming it.
+
+    Only live groups count. Deleting the last group resets to ``BTF01``.
+    Deleting an interior group (e.g. BTF02 while BTF01 and BTF03 remain) still
+    yields one past the highest remaining number, so that gap is not refilled.
+    """
+    return _highest_active_plus_one()
+
+
+def allocate_group_number() -> int:
+    """Reserve and return the next ``BTF<n>`` number."""
+    return _highest_active_plus_one()
 
 
 def group_name_sort_key(field: str = "group_name"):
@@ -151,13 +177,9 @@ class Groups(models.Model):
         indexes = [
             models.Index(fields=['deleted_at']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['group_name'], name='groups_group_name_idx'),
         ]
         constraints = [
-            models.UniqueConstraint(
-                fields=['group_name'],
-                condition=Q(deleted_at__isnull=True),
-                name='unique_active_group_name'
-            ),
             models.CheckConstraint(
                 condition=Q(deleted_at__gte=F('created_at')) | Q(deleted_at__isnull=True),
                 name='group_deleted_after_created'
@@ -165,6 +187,15 @@ class Groups(models.Model):
             models.CheckConstraint(
                 condition=~Q(group_name__regex=r'^\s*$'),
                 name='group_name_not_empty'
+            ),
+            # Two active groups in the same year can't share a name, ignoring
+            # case and outer spaces, even when saved at the same instant.
+            # Years before UNIQUE_NAMES_FROM_YEAR keep their old duplicates.
+            models.UniqueConstraint(
+                Lower(Trim('group_name')),
+                F('year'),
+                condition=Q(deleted_at__isnull=True, year__gte=UNIQUE_NAMES_FROM_YEAR),
+                name=UNIQUE_NAME_CONSTRAINT,
             ),
         ]
 
@@ -175,21 +206,20 @@ class Groups(models.Model):
     def create_auto_named(cls) -> "Groups":
         """Create a group named ``BTF<n>``, the next number in the single series.
 
-        Raises:
-            GroupAutoNameUnavailable: the slot was taken on every attempt.
+        The allocated number comes from active groups only, so deleting the last
+        group resets the series to ``BTF01``. If the name is taken the moment it
+        is saved (another group created at the same instant), the next numbers
+        are tried.
         """
-        name = None
+        number = allocate_group_number()
         for attempt in range(_AUTO_NAME_ATTEMPTS):
-            if attempt:
-                # Concurrent creators abort in lock-step on the unique index; jitter breaks it up.
-                time.sleep(random.uniform(0, _AUTO_NAME_BACKOFF))
-            name = generate_group_name(next_group_number())
+            name = generate_group_name(number + attempt)
             try:
-                # Own savepoint so a lost race doesn't poison an enclosing atomic block.
                 with transaction.atomic():
                     return cls.objects.create(group_name=name)
-            except IntegrityError:
-                continue
+            except IntegrityError as exc:
+                if not is_duplicate_name_violation(exc):
+                    raise
         raise GroupAutoNameUnavailable(name)
 
     @property
@@ -200,3 +230,55 @@ class Groups(models.Model):
         # Recovery is intentionally limited to clearing the tombstone.
         self.deleted_at = None
         self.save(update_fields=["deleted_at"])
+
+
+def normalise_group_name(name: str) -> str:
+    """How group names are compared: case and extra spaces ignored."""
+    return " ".join(name.split()).casefold()
+
+
+def duplicate_name_message(name: str, year: int) -> str:
+    return f"A group named {name.strip()} already exists in {year}."
+
+
+def duplicate_group_name_error(name: str, year: int, *, exclude_id: int | None = None) -> str | None:
+    """The message to refuse ``name`` with, if another active group in ``year``
+    already has it (ignoring case and extra spaces); None when it's free.
+
+    Checked wherever a typed name is saved or a deleted group comes back, so
+    two teams in the same challenge year can't be told apart only by id
+    (the marks upload, for one, matches teams by name). The database rule
+    backs it up from 2026 for two saves at the same instant; see
+    ``saving_group_name``.
+    """
+    wanted = normalise_group_name(name)
+    others = Groups.objects.filter(deleted_at__isnull=True, year=year)
+    if exclude_id is not None:
+        others = others.exclude(pk=exclude_id)
+    for other in others.values_list("group_name", flat=True).iterator():
+        if normalise_group_name(other) == wanted:
+            return duplicate_name_message(name, year)
+    return None
+
+
+class GroupNameTaken(Exception):
+    """Another active group in the same year already has this name."""
+
+
+def is_duplicate_name_violation(exc: IntegrityError) -> bool:
+    return UNIQUE_NAME_CONSTRAINT in str(exc)
+
+
+@contextmanager
+def saving_group_name(name: str, year: int):
+    """Wrap the save of a group's name. When the database refuses it because
+    another group got the name at the same instant (after both passed
+    ``duplicate_group_name_error``), raise ``GroupNameTaken`` with the usual
+    message instead of a server error."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as exc:
+        if not is_duplicate_name_violation(exc):
+            raise
+        raise GroupNameTaken(duplicate_name_message(name, year)) from exc

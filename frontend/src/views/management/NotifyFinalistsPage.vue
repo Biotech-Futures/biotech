@@ -1,0 +1,740 @@
+<template>
+  <div class="notify-finalists">
+    <section class="card">
+      <div class="card-header">
+        <h3 class="card-title">Notify Finalists</h3>
+      </div>
+      <h3 class="notify-finalists__section-title">Set Details</h3>
+      <p class="notify-finalists__hint">
+        These go into the finalist email and announcement. Set them before sending.
+      </p>
+      <p v-if="detailsError" class="notify-finalists__load-error">
+        Failed to load the email details. {{ detailsError }}
+      </p>
+      <template v-else-if="details">
+        <div class="notify-finalists__fields">
+          <label v-for="field in DATE_FIELDS" :key="field.key" class="notify-finalists__field">
+            <span>{{ field.label }}</span>
+            <input
+              v-model="form[field.key]"
+              type="date"
+              :min="details.today"
+              :class="{ 'is-invalid': saveTried && isPast(field.key) }"
+            />
+          </label>
+          <label class="notify-finalists__field notify-finalists__field--wide">
+            <span>Registration Link</span>
+            <input v-model="form.registration_url" type="url" placeholder="https://…" />
+          </label>
+        </div>
+        <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
+          {{ pastDatesMessage }}
+        </p>
+        <div class="notify-finalists__email-actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="savingDetails"
+            @click="saveDetails"
+          >
+            {{ savingDetails ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+        <!-- Preview and test on their own line, under Save. -->
+        <div class="notify-finalists__email-actions">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="loadingPreview"
+            @click="openPreview()"
+          >
+            {{ loadingPreview ? 'Loading…' : 'Preview Email' }}
+          </button>
+          <TestEmailSender v-model:recipient="testRecipient" kind="finalist" :fields="formFields" />
+        </div>
+      </template>
+    </section>
+
+    <section class="card">
+      <h3 class="notify-finalists__section-title">Notify Finalist</h3>
+      <p class="notify-finalists__hint">
+        Send a notification email to the finalist teams.
+      </p>
+      <p class="notify-finalists__hint">
+        Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
+      </p>
+      <p v-if="loadError" class="notify-finalists__load-error">
+        Failed to load the finalist groups. {{ loadError }}
+        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+      </p>
+      <!-- Same status line as Release Marks. A team only counts as notified
+           once every member got the email. -->
+      <p
+        v-if="finalists.length"
+        class="notify-finalists__status"
+        :class="allNotified ? 'notify-finalists__status--ok' : 'notify-finalists__status--warn'"
+      >
+        <i
+          :class="allNotified ? 'fas fa-envelope-circle-check' : 'fas fa-envelope'"
+          aria-hidden="true"
+        ></i>
+        {{ allNotified ? 'Emails are sent to every group member' : 'Emails are not sent to every group member' }}
+      </p>
+      <!-- A notified team is one where every member got the email. -->
+      <p v-if="finalists.length && details" class="notify-finalists__counts">
+        <strong>Groups: {{ details.counts.groups.emailed }} of {{ details.counts.groups.total }} emailed</strong><br />
+        Students: {{ details.counts.students.emailed }} of {{ details.counts.students.total }} emailed ·
+        Mentors: {{ details.counts.mentors.emailed }} of {{ details.counts.mentors.total }} emailed
+        (Times {{ details.counts.mentors.times.emailed }} of {{ details.counts.mentors.times.total }}) ·
+        Supervisors: {{ details.counts.supervisors.emailed }} of {{ details.counts.supervisors.total }} emailed
+        (Times {{ details.counts.supervisors.times.emailed }} of {{ details.counts.supervisors.times.total }})
+      </p>
+      <p v-if="sendBlockedReason" class="notify-finalists__blocked">{{ sendBlockedReason }}</p>
+      <div class="notify-finalists__email-actions">
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          :disabled="sendingMode !== null || !canSend"
+          @click="sendEmails('all')"
+        >
+          {{ sendingMode === 'all' ? 'Sending…' : 'Email All' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.new.teams"
+          @click="sendEmails('new')"
+        >
+          {{ sendingMode === 'new' ? 'Sending…' : 'Email Newly Added' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.missed.teams"
+          @click="sendEmails('missed')"
+        >
+          {{ sendingMode === 'missed' ? 'Sending…' : 'Resend Email To Missed Individuals' }}
+        </button>
+        <span v-if="details?.sending && details.run" class="notify-finalists__progress" role="status">
+          Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
+        </span>
+        <span v-if="details?.queued" class="notify-finalists__queued" role="status">
+          {{ queuedNote(details.queued, details.ahead) }}
+        </span>
+      </div>
+      <div v-if="details?.run?.missed.length" class="notify-finalists__missed" data-testid="missed">
+        <p class="notify-finalists__missed-title">Couldn't be emailed:</p>
+        <ul>
+          <li v-for="(m, i) in details.run.missed" :key="i">
+            <MissedPerson :who="m.who" /><span v-if="m.reason" class="notify-finalists__missed-reason"> · {{ m.reason }}</span>
+          </li>
+        </ul>
+      </div>
+      <p v-if="details?.waiting.new.groups.length" class="notify-finalists__newly-added">
+        Newly added, not emailed yet: {{ details.waiting.new.groups.join(', ') }}
+      </p>
+      <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
+      <p v-if="lastEmailed" class="notify-finalists__last-emailed">
+        Last Emailed at
+        {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
+          v-if="lastEmailed.notified_by"
+        >
+          by {{ lastEmailed.notified_by }}</template
+        >.
+      </p>
+      <!-- The same news in the app, for the finalist groups emailed so far. -->
+      <OutcomeAnnouncement
+        ref="announcement"
+        kind="finalists"
+        @flash="flashAction"
+        @error="(text) => (actionError = text)"
+      />
+    </section>
+
+    <p v-if="actionError" class="notify-finalists__banner notify-finalists__banner--error">
+      {{ actionError }}
+    </p>
+    <p v-if="actionMessage" class="notify-finalists__banner notify-finalists__banner--ok">
+      {{ actionMessage }}
+    </p>
+
+    <Teleport to="body">
+      <div v-if="pendingSendMode" class="notify-finalists__overlay" @click.self="pendingSendMode = null">
+        <div
+          class="notify-finalists__dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Send notification emails"
+        >
+          <h3 class="notify-finalists__dialog-title">
+            <i class="fas fa-envelope" aria-hidden="true"></i> Send notification emails?
+          </h3>
+          <p class="notify-finalists__dialog-text">{{ confirmText }}</p>
+          <div class="notify-finalists__dialog-actions">
+            <button type="button" class="btn btn-outline btn-sm" @click="pendingSendMode = null">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" @click="confirmSend">Send</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="preview" class="notify-finalists__overlay" @click.self="preview = null">
+        <div
+          class="notify-finalists__dialog notify-finalists__dialog--preview"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Email preview"
+        >
+          <h3 class="notify-finalists__dialog-title">
+            <i class="fas fa-envelope-open-text" aria-hidden="true"></i> {{ preview.subject }}
+          </h3>
+          <p class="notify-finalists__dialog-text">
+            As the members of {{ preview.group_name }} would get it. Nothing has been sent.
+          </p>
+          <!-- The frame is as tall as the email and this box scrolls, like
+               any page section; scrolling inside a frame in a pop-up is
+               unreliable across browsers. sandbox without allow-scripts: the
+               email is shown, never run, and its links stay inert;
+               allow-same-origin only lets fitPreview measure its height. -->
+          <div class="notify-finalists__preview-body">
+            <iframe
+              class="notify-finalists__preview-frame"
+              :srcdoc="preview.html"
+              title="Email preview"
+              sandbox="allow-same-origin"
+              scrolling="no"
+              @load="fitPreview"
+            ></iframe>
+          </div>
+          <div class="notify-finalists__dialog-actions">
+            <button type="button" class="btn btn-outline btn-sm" @click="preview = null">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useEmailPreview } from '@/composables/useEmailPreview'
+import {
+  deliveryNote,
+  describeRun,
+  isBusy,
+  queuedMessage,
+  queuedNote,
+  RUN_MESSAGE_MS,
+  useEmailRun
+} from '@/composables/useEmailRun'
+import { useFlashMessage } from '@/composables/useFlashMessage'
+import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
+import {
+  fetchFinalistEmailDetails,
+  notifyFinalists,
+  type EmailRun,
+  previewFinalistEmail,
+  updateFinalistEmailDetails,
+  type FinalistEmailDetails,
+  type FinalistEmailFields,
+  type FinalistSendWhich
+} from '@/utils/managementAPI'
+import { apiErrorFromUnknown } from '@/utils/apiError'
+import { plural } from '@/utils/string'
+import MissedPerson from '@/views/management/MissedPerson.vue'
+import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
+import TestEmailSender from '@/views/management/TestEmailSender.vue'
+
+// The finalist groups, for the status line and Last Emailed.
+const list = ref<FinalistListResponse | null>(null)
+const loadError = ref('')
+const actionError = ref('')
+const { message: actionMessage, show: flashAction } = useFlashMessage()
+type SendMode = 'all' | FinalistSendWhich
+const sendingMode = ref<SendMode | null>(null)
+
+const finalists = computed(() => list.value?.finalists ?? [])
+const allNotified = computed(() => finalists.value.every((f) => f.notified))
+
+const load = async () => {
+  loadError.value = ''
+  try {
+    list.value = await fetchFinalists()
+  } catch (err) {
+    list.value = null
+    loadError.value = apiErrorFromUnknown(err).message
+  }
+}
+
+// The finalist email's details: saved values, and the form being edited.
+const DATE_FIELDS = [
+  { key: 'symposium_date', label: 'Symposium Date' },
+  { key: 'confirm_by', label: 'Confirm Attendance By' },
+  { key: 'slides_due', label: 'Slides Due' }
+] as const
+type DateField = (typeof DATE_FIELDS)[number]['key']
+
+const details = ref<FinalistEmailDetails | null>(null)
+const detailsError = ref('')
+const savingDetails = ref(false)
+const form = ref({ symposium_date: '', confirm_by: '', slides_due: '', registration_url: '' })
+
+const showDetails = (d: FinalistEmailDetails) => {
+  details.value = d
+  form.value = {
+    symposium_date: d.symposium_date ?? '',
+    confirm_by: d.confirm_by ?? '',
+    slides_due: d.slides_due ?? '',
+    registration_url: d.registration_url ?? ''
+  }
+}
+
+// The form as the API takes it: a blank date is no date.
+const formFields = (): FinalistEmailFields => ({
+  symposium_date: form.value.symposium_date || null,
+  confirm_by: form.value.confirm_by || null,
+  slides_due: form.value.slides_due || null,
+  registration_url: form.value.registration_url.trim()
+})
+
+const detailsChanged = computed(() => {
+  const d = details.value
+  if (!d) return false
+  const f = formFields()
+  return (
+    f.symposium_date !== d.symposium_date ||
+    f.confirm_by !== d.confirm_by ||
+    f.slides_due !== d.slides_due ||
+    f.registration_url !== (d.registration_url ?? '')
+  )
+})
+
+// A date before today (the server's, in Sydney). ISO dates compare as text.
+const isPast = (key: DateField) => {
+  const value = form.value[key]
+  return Boolean(value && details.value && value < details.value.today)
+}
+
+// Dates before today are only pointed out once Save is pressed: then they
+// stop the save, get a red border, and are named above the Save button.
+const saveTried = ref(false)
+const pastDates = computed(() => DATE_FIELDS.filter(({ key }) => isPast(key)))
+const pastDatesMessage = computed(() => {
+  if (!saveTried.value || !pastDates.value.length) return ''
+  const labels = pastDates.value.map((f) => f.label)
+  const named =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+  return `${named} can't be before today.`
+})
+
+const loadDetails = async () => {
+  detailsError.value = ''
+  try {
+    showDetails(await fetchFinalistEmailDetails())
+  } catch (err) {
+    detailsError.value = apiErrorFromUnknown(err).message
+  }
+}
+
+const saveDetails = async () => {
+  actionMessage.value = ''
+  actionError.value = ''
+  saveTried.value = true
+  if (pastDates.value.length) return
+  savingDetails.value = true
+  try {
+    showDetails(await updateFinalistEmailDetails(formFields()))
+    saveTried.value = false
+    flashAction('Email details saved.')
+    // Its wording has the dates and link in it.
+    void announcement.value?.reload()
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    savingDetails.value = false
+  }
+}
+
+// Why the Send buttons are off, if they are; empty when sending is allowed.
+const sendBlockedReason = computed(() => {
+  if (detailsError.value) return 'The email details could not be loaded.'
+  const d = details.value
+  if (!d) return ''
+  if (detailsChanged.value) return 'Save the email details before sending.'
+  if (!d.complete) return 'Fill in and save every email detail above before sending.'
+  if (d.dates_in_past.length) {
+    return 'Some email dates are before today. Update and save them before sending.'
+  }
+  if (d.submissions_open) return d.submissions_open
+  return ''
+})
+
+const canSend = computed(
+  () => details.value !== null && !sendBlockedReason.value
+)
+
+// The email exactly as a finalist would get it, for the details as typed.
+// The group picked in Send Test Email: the preview is its email.
+const testRecipient = ref('')
+const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
+  () => previewFinalistEmail(formFields(), testRecipient.value),
+  actionError
+)
+
+// The same news in the app, reloaded once a send finishes.
+const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
+
+onMounted(() => {
+  void load()
+  void loadDetails()
+})
+
+// The most recent successful email send across all finalists.
+const lastEmailed = computed(() => {
+  const rows = finalists.value.filter((f) => f.notified_at)
+  if (rows.length === 0) return null
+  return rows.reduce((a, b) => (a.notified_at! > b.notified_at! ? a : b))
+})
+
+// Which send is awaiting confirmation in the dialog; null = dialog closed.
+const pendingSendMode = ref<SendMode | null>(null)
+
+const confirmText = computed(() => {
+  if (pendingSendMode.value === 'all') {
+    return 'This will send the notification email to every finalist team that has not been notified yet.'
+  }
+  const waiting = details.value?.waiting
+  if (pendingSendMode.value === 'new' && waiting) {
+    return `This will send the notification email to the ${plural(waiting.new.teams, 'finalist team')} not emailed yet.`
+  }
+  if (pendingSendMode.value === 'missed' && waiting) {
+    return (
+      `This will email only the ${plural(waiting.missed.people, 'person', 'people')} earlier sends missed, ` +
+      `on ${plural(waiting.missed.teams, 'team')}.`
+    )
+  }
+  return ''
+})
+
+const sendEmails = (mode: SendMode) => {
+  pendingSendMode.value = mode
+}
+
+const confirmSend = async () => {
+  const mode = pendingSendMode.value
+  if (!mode) return
+  // The dialog closes at once; the run sends on the server, its progress
+  // beside the buttons.
+  pendingSendMode.value = null
+  actionMessage.value = ''
+  actionError.value = ''
+  sendingMode.value = mode
+  try {
+    const result = await (mode === 'all' ? notifyFinalists() : notifyFinalists(undefined, mode))
+    if (details.value) {
+      const { sending, queued, ahead, run } = result
+      details.value = { ...details.value, sending, queued, ahead, run }
+    }
+    // A run with little or nothing to send can be over by the reply.
+    if (result.queued) flashAction(queuedMessage(result.ahead))
+    else if (!isBusy(result) && result.run) reportRun(result.run)
+  } catch (err) {
+    actionError.value = apiErrorFromUnknown(err).message
+  } finally {
+    sendingMode.value = null
+  }
+}
+
+// How the run went, once this page saw it finish; then who it reached.
+const reportRun = (run: EmailRun) => {
+  const { text, isError } = describeRun(run, {
+    emailed: ['person', 'people'],
+    failed: 'team',
+    button: 'Resend Email To Missed Individuals',
+    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.',
+    sentFrom: details.value?.sent_from
+  })
+  if (isError) actionError.value = text
+  else flashAction(text, RUN_MESSAGE_MS)
+  void load()
+  // More groups emailed: more who'd see the announcement.
+  void announcement.value?.reload()
+}
+useEmailRun(() => details.value, loadDetails, reportRun)
+</script>
+
+<style scoped>
+.notify-finalists {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.notify-finalists__section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.notify-finalists__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  /* A field's error line mustn't stretch its neighbours' boxes. */
+  align-items: start;
+}
+
+.notify-finalists__field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.notify-finalists__field > span {
+  color: var(--text-muted);
+}
+
+.notify-finalists__field input.is-invalid {
+  border-color: var(--danger);
+}
+
+/* Above the Save button, once Save found a date before today. */
+.notify-finalists__field-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+/* Same boxes as Document Setup's text fields. */
+.notify-finalists__field input {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
+.notify-finalists__field input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
+/* A web address needs the whole row. */
+.notify-finalists__field--wide {
+  grid-column: 1 / -1;
+}
+
+.notify-finalists__blocked {
+  color: #b8860b;
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+/* Wider than the confirm dialog; two classes so it wins over that rule. */
+.notify-finalists__dialog.notify-finalists__dialog--preview {
+  max-width: 44rem;
+  /* Always fits the window; the email box below takes what is left. */
+  max-height: calc(100vh - 2rem);
+}
+
+.notify-finalists__preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Scrolling stops at the box's edge instead of moving the page behind. */
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #eef0ee;
+}
+
+/* Its height is set to the email's own once loaded (fitPreview). */
+.notify-finalists__preview-frame {
+  display: block;
+  width: 100%;
+  height: 60vh;
+  border: 0;
+}
+
+.notify-finalists__hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+/* As the Release Marks status line. */
+.notify-finalists__status {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.notify-finalists__status--ok {
+  color: var(--dark-green);
+}
+
+.notify-finalists__status--warn {
+  color: #eab308;
+}
+
+/* The size of the hint lines. */
+.notify-finalists__counts {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.notify-finalists__email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+.notify-finalists__email-actions + .notify-finalists__email-actions {
+  margin-top: 0.75rem;
+}
+
+.notify-finalists__progress {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Who the last run couldn't reach, under the buttons. */
+.notify-finalists__missed {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.notify-finalists__missed-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.notify-finalists__queued {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.notify-finalists__missed ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.notify-finalists__missed-reason {
+  color: var(--text-muted);
+}
+
+.notify-finalists__newly-added,
+.notify-finalists__delivery-note,
+.notify-finalists__last-emailed {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: normal;
+  margin: 1rem 0 0;
+}
+
+.notify-finalists__newly-added {
+  color: var(--charcoal);
+  font-weight: 600;
+}
+
+/* The same amber as the blocked message above the buttons. */
+.notify-finalists__delivery-note {
+  color: #b8860b;
+}
+
+.notify-finalists__newly-added + .notify-finalists__delivery-note,
+.notify-finalists__delivery-note + .notify-finalists__last-emailed {
+  margin-top: 0.25rem;
+}
+
+.notify-finalists__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.notify-finalists__banner--error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.notify-finalists__banner--ok {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+/* Above the status line, with Try again beside it. */
+.notify-finalists__load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.notify-finalists__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.notify-finalists__dialog {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px var(--shadow);
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notify-finalists__dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.notify-finalists__dialog-title i {
+  color: var(--dark-green);
+}
+
+.notify-finalists__dialog-text {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.notify-finalists__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+</style>

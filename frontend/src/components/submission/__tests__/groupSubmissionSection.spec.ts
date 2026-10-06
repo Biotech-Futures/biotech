@@ -6,14 +6,45 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Behaviour tests for the section switcher: who is offered the tab, that host
-// content is hidden not destroyed, and where the tab lands.
 
-// Stubbed: these specs are about whether the portal is mounted, not what it
-// renders. `__esModule` is required or defineAsyncComponent will not unwrap it.
+// `__esModule` is required or defineAsyncComponent will not unwrap the mock.
 vi.mock('@/views/GroupSubmissionPage.vue', () => ({
   __esModule: true,
   default: { name: 'GroupSubmissionPageStub', template: '<div data-testid="portal-stub" />' },
+}))
+
+// What's out for the group; nothing, unless a test says otherwise.
+const results = vi.hoisted(() => ({
+  current: {
+    marks_released: false,
+    certificates_released: false,
+    certificates_withheld: false,
+    has_submission: true,
+    year: 2026,
+    components: [],
+    summary: null,
+    summary_file_name: '',
+    certificates: []
+  } as Record<string, unknown>
+}))
+vi.mock('@/utils/managementAPI', () => ({
+  fetchGroupResults: vi.fn(async () => results.current)
+}))
+// Whether the group is a finalist: the server answers, or refuses.
+const finalist = vi.hoisted(() => ({ is: false }))
+vi.mock('@/utils/finalistAPI', () => ({
+  fetchFinalist: vi.fn(async () => {
+    if (!finalist.is) throw new Error('not a finalist')
+    return {}
+  })
+}))
+vi.mock('@/views/FinalistPage.vue', () => ({
+  __esModule: true,
+  default: { name: 'FinalistPageStub', template: '<div data-testid="finalist-stub" />' }
+}))
+vi.mock('../GroupResults.vue', () => ({
+  __esModule: true,
+  default: { name: 'GroupResultsStub', props: ['groupId', 'results'], template: '<div data-testid="results-stub" />' }
 }))
 
 const GroupSubmissionSection = (await import('../GroupSubmissionSection.vue')).default
@@ -27,11 +58,12 @@ const Host = {
   `,
 }
 
-// Mirrors the real records, including the redirect that keeps already-delivered
-// email links working.
+// Includes the redirect that keeps links in sent emails working.
 const ROUTES: RouteRecordRaw[] = [
   { path: '/groups/:id', name: 'group-detail', component: Host },
   { path: '/groups/:id/submission', name: 'group-submission', component: Host },
+  { path: '/groups/:id/finalist', name: 'group-finalist', component: Host },
+  { path: '/groups/:id/results', name: 'group-results', component: Host },
   { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
 ]
 
@@ -53,15 +85,12 @@ const mountAt = async (path: string, role: string | null = null) => {
 }
 
 describe('the real route table', () => {
-  // Read as text, not imported: importing the table pulls every view into the
-  // Vitest TS project, where Node's types break two unrelated pages.
+  // Read as text: importing the table would pull every view into the Vitest TS project.
   const source = readFileSync(resolve(process.cwd(), 'src/router/routes.ts'), 'utf8')
   const records = [...source.matchAll(/path:\s*'([^']*)',\s*name:\s*'([^']+)'/g)]
   const names = records.map(([, , name]) => name)
 
   it('found the route records it means to check', () => {
-    // Guards the regex above: a reformatted table fails loudly here rather than
-    // leaving the checks below passing over an empty list.
     expect(names.length).toBeGreaterThanOrEqual(15)
   })
 
@@ -78,38 +107,111 @@ describe('the real route table', () => {
   })
 
   it('still answers the old path the emails link to', () => {
-    // Both emails send students to '/#/submission/{group.id}', and reminders
-    // already delivered cannot be changed.
+    // Emails already sent link to /#/submission/{id}.
     expect(source).toMatch(/path:\s*'\/submission\/:id'/)
     expect(source).toMatch(/\/groups\/\$\{to\.params\.id\}\/submission/)
   })
 })
 
-describe('who is offered the Submission tab', () => {
-  it('offers it to a student', async () => {
+describe('the Finalist tab', () => {
+  it('is only there for a finalist group', async () => {
+    finalist.is = false
+    const notFinalist = await mountAt('/groups/1', 'student')
+    expect(notFinalist.wrapper.find('[data-testid="section-tab-finalist"]').exists()).toBe(false)
+
+    finalist.is = true
     const { wrapper } = await mountAt('/groups/1', 'student')
+    const tabs = wrapper.findAll('nav.group-sections button').map((b) => b.text())
+    expect(tabs).toEqual(['Tasks and Chat', 'Submission', 'Finalist'])
+    finalist.is = false
+  })
+
+  it('opens the finalist round on its own route', async () => {
+    finalist.is = true
+    const { wrapper, router } = await mountAt('/groups/1', 'mentor')
+
+    await wrapper.find('[data-testid="section-tab-finalist"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('group-finalist')
+    expect(wrapper.find('[data-testid="finalist-stub"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="section-tab-finalist"]').classes()).toContain('active')
+    finalist.is = false
+  })
+})
+
+describe('the Results tab', () => {
+  const release = (fields: Record<string, unknown>) => {
+    results.current = { ...results.current, ...fields }
+  }
+
+  it('stays hidden until marks or certificates are released', async () => {
+    release({ marks_released: false, certificates_released: false })
+    const { wrapper } = await mountAt('/groups/1', 'student')
+
+    expect(wrapper.find('[data-testid="section-tab-results"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['marks', { marks_released: true, certificates_released: false }],
+    ['certificates', { marks_released: false, certificates_released: true }]
+  ])('shows after Submission once %s are released', async (_what, fields) => {
+    release(fields)
+    const { wrapper } = await mountAt('/groups/1', 'mentor')
+
+    const tabs = wrapper.findAll('nav.group-sections button').map((b) => b.text())
+    expect(tabs).toEqual(['Tasks and Chat', 'Submission', 'Results'])
+  })
+
+  it('comes after Finalist for a finalist group', async () => {
+    release({ marks_released: true })
+    finalist.is = true
+    const { wrapper } = await mountAt('/groups/1', 'student')
+
+    const tabs = wrapper.findAll('nav.group-sections button').map((b) => b.text())
+    expect(tabs).toEqual(['Tasks and Chat', 'Submission', 'Finalist', 'Results'])
+    finalist.is = false
+  })
+
+  it('opens the results on its own route', async () => {
+    release({ marks_released: true })
+    const { wrapper, router } = await mountAt('/groups/1', 'student')
+
+    await wrapper.find('[data-testid="section-tab-results"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('group-results')
+    expect(wrapper.find('[data-testid="results-stub"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="section-tab-results"]').classes()).toContain('active')
+  })
+
+  it('falls back to tasks on the results route while nothing is released', async () => {
+    release({ marks_released: false, certificates_released: false })
+    const { wrapper } = await mountAt('/groups/1/results', 'student')
+
+    expect(wrapper.find('[data-testid="results-stub"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="section-tab-tasks"]').classes()).toContain('active')
+  })
+})
+
+describe('who is offered the Submission tab', () => {
+  it.each(['student', 'mentor', 'supervisor', 'admin'])('offers it to a %s', async (role) => {
+    const { wrapper } = await mountAt('/groups/1', role)
 
     expect(wrapper.find('[data-testid="section-tab-tasks"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="section-tab-submission"]').exists()).toBe(true)
   })
 
-  it.each(['mentor', 'supervisor'])('hides the whole strip from a %s', async (role) => {
-    // The server refuses them, so nothing leaks. A visible tab that 403s is a dead
-    // end, and for these roles the page should look as it did before.
-    const { wrapper } = await mountAt('/groups/1', role)
+  it.each(['mentor', 'supervisor'])('opens the portal for a %s on the submission URL', async (role) => {
+    const { wrapper } = await mountAt('/groups/1/submission', role)
 
-    expect(wrapper.find('[data-testid="section-tab-submission"]').exists()).toBe(false)
-    expect(wrapper.find('nav.group-sections').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
   })
 
-  it('shows a mentor the tasks view even on the submission URL', async () => {
-    // Typed by hand, or followed from a student's link. Falling back to tasks
-    // is friendlier than rendering an empty page.
-    const { wrapper } = await mountAt('/groups/1/submission', 'mentor')
+  it('opens the portal for an admin on the submission URL, to edit for the team', async () => {
+    const { wrapper } = await mountAt('/groups/1/submission', 'admin')
 
-    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="section-body-tasks"]').classes()).not.toContain('is-hidden')
+    expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
   })
 })
 
@@ -129,15 +231,12 @@ describe('switching between the sections', () => {
   })
 
   it('hides the host content rather than destroying it', async () => {
-    // The group page keeps live task and chat state. A v-if here would tear it
-    // down and rebuild it on every tab press.
     const { wrapper } = await mountAt('/groups/1/submission', 'student')
 
     expect(wrapper.find('[data-testid="host-content"]').exists()).toBe(true)
   })
 
   it('keeps the portal mounted after leaving, so returning does not refetch', async () => {
-    // It used to be rebuilt on every return, refetching the entry.
     const { wrapper } = await mountAt('/groups/1/submission', 'student')
     expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
 
@@ -149,8 +248,6 @@ describe('switching between the sections', () => {
   })
 
   it('lands on the group page route', async () => {
-    // The regression this pins: this route once shared its name with the old
-    // standalone portal route, and the second registration deleted the first.
     const { wrapper, router } = await mountAt('/groups/1', 'student')
 
     await wrapper.find('[data-testid="section-tab-submission"]').trigger('click')

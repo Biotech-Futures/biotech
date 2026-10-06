@@ -1,0 +1,60 @@
+/* The editor forms' shared look: System Emails' editor, Notify Finalists'
+   Edit Announcement and the Announcements page's New Announcement (its
+   title box), so a change here shows in all of them. Used as
+   <style scoped src="…/editorForm.css">. */
+
+.editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.editor__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.editor__title {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  color: #111827;
+}
+
+.editor__title:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
+}
+
+.editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.editor__actions-primary,
+.editor__actions-secondary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+:root[data-theme='dark'] .editor__title {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .editor__actions {
+  border-top-color: var(--border-light);
+}

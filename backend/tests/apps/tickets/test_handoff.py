@@ -123,11 +123,21 @@ class ScreeningHandoffTests(ScreeningFixture):
         self.assertIn("Team Photosynthesis", body)
         self.assertIn("Mia Thompson", body)
 
-    @override_settings(ADMIN_FRONTEND_BASE_URL="https://admin.example.org")
+    @override_settings(
+        FRONTEND_BASE_URL="https://portal.example.org",
+        ADMIN_FRONTEND_BASE_URL="https://admin.example.org",
+    )
     def test_the_evidence_note_links_back_to_this_ticket_and_points_at_the_group(self):
         ticket = self.raise_ticket()
         body = ticket.messages.get().body
-        self.assertIn(f"https://admin.example.org/tickets?ticket={ticket.pk}", body)
+        # The portal's queue, through its hash router, with the deep link the
+        # queue page opens the detail panel from.
+        self.assertIn(
+            f"1. This ticket: https://portal.example.org/#/admin/tickets?ticket={ticket.pk}\n",
+            body,
+        )
+        # Not the admin app, whose host goes when that app does.
+        self.assertNotIn("admin.example.org", body)
         # The group conversation is a modal with no address of its own, so
         # this half is directions rather than a link.
         self.assertIn("Admin → Groups → Team Photosynthesis (group id 7) → Messages", body)

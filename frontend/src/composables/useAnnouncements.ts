@@ -25,6 +25,8 @@ export interface Announcement {
   images: AnnouncementImage[]
   link?: string
   route?: string | null
+  archivedAt?: string | null
+  isArchived?: boolean
 }
 
 export interface LoadFailure {
@@ -291,7 +293,9 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     groupIds,
     images: extractImages(a),
     link: normalizeRichTextUrl(a?.link),
-    route: typeof a?.route === 'string' ? a.route : null
+    route: typeof a?.route === 'string' ? a.route : null,
+    archivedAt: a?.archived_at || null,
+    isArchived: Boolean(a?.archived_at)
   }
 }
 

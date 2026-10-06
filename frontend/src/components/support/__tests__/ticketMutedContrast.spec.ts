@@ -314,17 +314,42 @@ describe('muted text on a ticket', () => {
     })
   }
 
-  it('the error line on a ticket clears AA too', () => {
-    // --danger is 4.30:1 on --bg-light, which the badge next door had already
-    // measured and written down before this page went on using it.
-    const value = lightValue(TICKET_DETAIL_PAGE, '--ticket-danger') as string
-    expect(value).toMatch(/^#[0-9a-f]{6}$/i)
-    for (const name of GROUND_TOKENS) {
-      expect(contrast(opaque(value), ground(name, false))).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
-    }
-    expect(darkValue(TICKET_DETAIL_PAGE, '--ticket-danger')).toBe('var(--danger)')
-    expect(contrast(opaque(token('--danger', true)), ground('--bg-light', true))).toBeGreaterThanOrEqual(
-      AA_NORMAL_TEXT,
-    )
-  })
+  // Two files paint a red line now. TicketDetailPage.vue says the enquiry
+  // could not be loaded; TicketTimeline.vue says a file could not be
+  // downloaded, which is the sentence that replaced a navigation away from the
+  // app. Both are held to the same bar, and both are listed here rather than
+  // one being checked and the other trusted.
+  const ERROR_LINES: Record<string, string> = {
+    'TicketDetailPage.vue': TICKET_DETAIL_PAGE,
+    'TicketTimeline.vue': TIMELINE,
+  }
+
+  for (const [file, source] of Object.entries(ERROR_LINES)) {
+    it(`the error line in ${file} clears AA too`, () => {
+      // --danger is 4.30:1 on --bg-light, which the badge next door had
+      // already measured and written down before this page went on using it.
+      const value = lightValue(source, '--ticket-danger') as string
+      expect(value).toMatch(/^#[0-9a-f]{6}$/i)
+      for (const name of GROUND_TOKENS) {
+        expect(contrast(opaque(value), ground(name, false))).toBeGreaterThanOrEqual(AA_NORMAL_TEXT)
+      }
+      expect(darkValue(source, '--ticket-danger')).toBe('var(--danger)')
+      for (const spec of DARK_GROUNDS[file]) {
+        expect(contrast(opaque(token('--danger', true)), ground(spec, true))).toBeGreaterThanOrEqual(
+          AA_NORMAL_TEXT,
+        )
+      }
+    })
+
+    it(`declares --ticket-danger on ${file}'s own root, where the line can see it`, () => {
+      // Same trap as --ticket-muted: moved onto a sibling class the file reads
+      // identically and every ratio above still passes, while the screen goes
+      // back to the token that fails AA.
+      const { light, dark } = declaringSelectors(source, '--ticket-danger')
+      expect(light).toHaveLength(1)
+      expect(light[0]).toMatch(/^\.[a-z0-9_-]+$/)
+      expect(rootClasses(source)).toContain(light[0].slice(1))
+      expect(dark).toEqual([`${DARK_PREFIX}${light[0]}`])
+    })
+  }
 })

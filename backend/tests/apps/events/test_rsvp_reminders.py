@@ -35,7 +35,7 @@ def _make_event(**overrides):
 
 
 def _make_event_in_1h_window(**overrides):
-    """Event sitting in the 1h reminder window (1h–2h ahead)."""
+    """Event sitting in the 1h reminder window (30m–1.5h ahead)."""
     defaults = {
         "event_name": "Imminent Event",
         "start_datetime": timezone.now() + timedelta(hours=1, minutes=15),
@@ -165,6 +165,61 @@ class Reminder1hWindowTests(TestCase):
 
         self.assertEqual((events, sent), (1, 0))
         self.assertEqual(mail.outbox, [])
+
+    def test_1h_reminder_copy_matches_non_default_start_time(self):
+        # 1h20m out — the email must say so, not the stock "an hour".
+        event = _make_event_in_1h_window(
+            start_datetime=timezone.now() + timedelta(hours=1, minutes=20),
+        )
+        _rsvp(event, self.attendee)
+
+        send_due_rsvp_reminders(kind="1h")
+
+        body = mail.outbox[0].body
+        self.assertIn("starts in about an hour and 15 minutes", body)
+        self.assertNotIn("starts in about an hour.", body)
+
+    def test_1h_reminder_copy_still_says_an_hour_close_to_start(self):
+        # Just over an hour out — "about an hour" remains accurate.
+        event = _make_event_in_1h_window(
+            start_datetime=timezone.now() + timedelta(hours=1, minutes=2),
+        )
+        _rsvp(event, self.attendee)
+
+        send_due_rsvp_reminders(kind="1h")
+
+        self.assertIn("starts in about an hour.", mail.outbox[0].body)
+
+    def test_1h_window_catches_event_30m_out(self):
+        # Lower window edge: an event exactly 30m away is reminded.
+        fixed_now = timezone.now()
+        event = _make_event_in_1h_window(
+            start_datetime=fixed_now + timedelta(minutes=30),
+        )
+        _rsvp(event, self.attendee)
+
+        with patch("apps.events.services.timezone.now") as fake_now:
+            fake_now.return_value = fixed_now
+            events, sent, _ = send_due_rsvp_reminders(kind="1h")
+
+        self.assertEqual((events, sent), (1, 1))
+        self.assertEqual(len(mail.outbox), 1)
+        event.refresh_from_db()
+        self.assertEqual(event.reminder_1h_sent_for_start, event.start_datetime)
+
+    def test_1h_window_skips_event_over_90m_out(self):
+        # Above the window ceiling: 1h45m out must NOT be reminded.
+        event = _make_event_in_1h_window(
+            start_datetime=timezone.now() + timedelta(hours=1, minutes=45),
+        )
+        _rsvp(event, self.attendee)
+
+        events, sent, _ = send_due_rsvp_reminders(kind="1h")
+
+        self.assertEqual((events, sent), (0, 0))
+        self.assertEqual(mail.outbox, [])
+        event.refresh_from_db()
+        self.assertIsNone(event.reminder_1h_sent_for_start)
 
     def test_kind_24h_does_not_touch_1h_field(self):
         # Run only the 24h kind explicitly. Even if a candidate event
@@ -454,7 +509,7 @@ class ResilienceTests(TestCase):
             return real_send(self_msg, *args, **kwargs)
 
         with patch(
-            "apps.events.services.EmailMultiAlternatives.send",
+            "apps.services.system_email.EmailMultiAlternatives.send",
             new=flaky_send,
         ):
             events, sent, failed = send_due_rsvp_reminders()

@@ -1,5 +1,13 @@
 from django.urls import path
 
+from .finalist_views import (
+    FinalistEntryView,
+    FinalistPresentationDownloadView,
+    FinalistPresentationPreviewView,
+    FinalistPresentationView,
+    FinalistReopenView,
+    FinalistSubmitView,
+)
 from .views import (
     GroupSubmissionFileDownloadView,
     GroupSubmissionFilePreviewView,
@@ -10,11 +18,9 @@ from .views import (
     SendSubmissionRemindersView,
 )
 
-# Mounted at /api/v1/submissions/ only. No legacy unprefixed alias: nothing
-# predates this feature, so there are no existing clients to keep working.
+# Mounted at /api/v1/submissions/.
 urlpatterns = [
-    # Called by a scheduler, not a person: it authenticates with a shared
-    # secret rather than a session.
+    # Called by a scheduler with a shared token rather than a session.
     path(
         "admin/send-reminders/",
         SendSubmissionRemindersView.as_view(),
@@ -35,7 +41,7 @@ urlpatterns = [
         GroupSubmissionReopenView.as_view(),
         name="group-submission-reopen",
     ),
-    # ``slot`` is one of poster / report / prototype; the view 404s anything else.
+    # slot is poster, report or prototype.
     path(
         "groups/<int:group_id>/files/<str:slot>/",
         GroupSubmissionFileView.as_view(),
@@ -46,11 +52,40 @@ urlpatterns = [
         GroupSubmissionFileDownloadView.as_view(),
         name="group-submission-file-download",
     ),
-    # Poster and report only — see GroupSubmissionFilePreviewView for why the
-    # prototype slot is deliberately excluded.
+    # Poster and report only.
     path(
         "groups/<int:group_id>/files/<str:slot>/preview/",
         GroupSubmissionFilePreviewView.as_view(),
         name="group-submission-file-preview",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/",
+        FinalistEntryView.as_view(),
+        name="finalist-entry",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/presentation/",
+        FinalistPresentationView.as_view(),
+        name="finalist-presentation",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/presentation/download/",
+        FinalistPresentationDownloadView.as_view(),
+        name="finalist-presentation-download",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/presentation/preview/",
+        FinalistPresentationPreviewView.as_view(),
+        name="finalist-presentation-preview",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/submit/",
+        FinalistSubmitView.as_view(),
+        name="finalist-submit",
+    ),
+    path(
+        "finalist/groups/<int:group_id>/reopen/",
+        FinalistReopenView.as_view(),
+        name="finalist-reopen",
     ),
 ]

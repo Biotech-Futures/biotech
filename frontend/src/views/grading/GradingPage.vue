@@ -1,9 +1,9 @@
 <template>
-  <div class="content-area grading">
+  <div class="content-area grading" :class="{ 'grading--marking': route.meta.hideSidebar === true }">
     <header class="grading__hero">
       <div>
         <h1 class="grading__title">Grading</h1>
-        <p class="grading__subtitle">Mark submissions, release results and manage finalists.</p>
+        <p class="grading__subtitle">Mark submissions by component or group and select finalists.</p>
       </div>
     </header>
 
@@ -40,7 +40,7 @@ interface GradingTab {
 const tabs: GradingTab[] = [
   {
     label: 'By component',
-    to: '/grading/by-component',
+    to: '/grading/components/SAQ',
     icon: 'fa-list-check',
     alsoMatches: ['/grading/components']
   },
@@ -50,8 +50,8 @@ const tabs: GradingTab[] = [
     icon: 'fa-users',
     alsoMatches: ['/grading/groups']
   },
-  { label: 'Select Finalists', to: '/grading/finalists', icon: 'fa-star' },
-  { label: 'Management', to: '/grading/management', icon: 'fa-sliders' }
+  { label: 'Select Finalists', to: '/grading/finalists', icon: 'fa-star' }
+  // Management moved to the admin side nav (its pages keep their URLs).
 ]
 
 const isTabActive = (tab: GradingTab) => {
@@ -61,6 +61,12 @@ const isTabActive = (tab: GradingTab) => {
 </script>
 
 <style scoped>
+/* The marking panes reach a little past this area's right edge; that
+   overhang is cut off rather than giving the page a sideways scrollbar. */
+.grading--marking {
+  overflow-x: hidden;
+}
+
 .grading__hero {
   margin-bottom: 1.25rem;
 }
@@ -74,44 +80,48 @@ const isTabActive = (tab: GradingTab) => {
   margin: 0;
 }
 
+/* Segmented pill switcher — same design as the component switcher on the
+   tables below (and the Events page view tabs). */
 .grading__tabs {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.25rem;
+  padding: 0.3rem;
   margin-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-light);
-  padding-bottom: 0.75rem;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .grading__tab {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--border-light);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
   border-radius: 999px;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  font-size: 0.9rem;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
   text-decoration: none;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
+    color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 /* Hover states set background AND color explicitly so no global rule can
    ever combine into green-on-green (invisible text). */
-.grading__tab:hover {
+.grading__tab:hover:not(.grading__tab--active) {
+  color: var(--charcoal);
   background: var(--accent-green-soft);
-  border-color: var(--dark-green);
-  color: var(--dark-green);
 }
 
 .grading__tab--active,
 .grading__tab--active:hover {
   background: var(--dark-green);
-  border-color: var(--dark-green);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 </style>

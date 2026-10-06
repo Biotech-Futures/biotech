@@ -190,3 +190,4 @@ class BeingSignedInIsTheOnlyRequirementTests(TestCase):
                     "check is a decision to take with them, not a tidy-up.",
                 )
         self.assertTrue(re.search(r"permission_classes\s*=\s*\[IsAuthenticated\]", code))
+

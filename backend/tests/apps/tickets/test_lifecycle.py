@@ -58,21 +58,9 @@ class LifecycleTestCase(TestCase):
 
 
 class CreateTicketTests(LifecycleTestCase):
-    def test_a_new_ticket_opens_with_the_message_then_the_acknowledgement(self):
-        ticket = self.make_ticket()
-        types = [m.message_type for m in self.timeline(ticket)]
-        self.assertEqual(
-            types, [TicketMessageType.USER_MESSAGE, TicketMessageType.SYSTEM]
-        )
-
-    def test_the_acknowledgement_greets_the_requester_by_name(self):
-        ticket = self.make_ticket()
-        acknowledgement = self.timeline(ticket)[1]
-        self.assertEqual(
-            acknowledgement.body,
-            "Thanks Mia. We're looking into this and will get back to you shortly.",
-        )
-        self.assertIsNone(acknowledgement.author_id)
+    # What a new ticket's timeline holds is pinned through the endpoint, in
+    # test_api_user.TicketSubmissionTests: since C-05 it is the requester's
+    # message and nothing else.
 
     def test_a_new_ticket_gets_a_number_and_starts_open(self):
         ticket = self.make_ticket()
@@ -246,23 +234,16 @@ class SupportMessageTests(LifecycleTestCase):
 
 
 class AssignmentTests(LifecycleTestCase):
-    def test_picking_up_an_open_ticket_starts_it_and_says_so(self):
+    def test_picking_up_an_open_ticket_starts_it(self):
+        # That it says nothing on the requester's timeline while doing so
+        # (C-05) is pinned through the endpoint, in test_api_admin
+        # .TheRequesterIsToldOnlyWhatChangedTests.
         ticket = self.make_ticket()
         lifecycle.claim(ticket=ticket, actor=self.agent)
 
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, TicketStatus.IN_PROGRESS)
         self.assertEqual(ticket.assignee_id, self.agent.pk)
-        self.assertEqual(
-            self.timeline(ticket)[-1].body, system_messages.TICKET_NOW_HANDLED
-        )
-
-    def test_the_pickup_message_never_names_the_agent(self):
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        body = self.timeline(ticket)[-1].body
-        for leak in (self.agent.first_name, self.agent.last_name, self.agent.email):
-            self.assertNotIn(leak, body)
 
     def test_handing_over_a_started_ticket_is_invisible_to_the_requester(self):
         ticket = self.make_ticket()
@@ -570,37 +551,40 @@ class ConcurrentChangeTests(LifecycleTestCase):
         self.assertEqual(mail.outbox, [])
 
     def test_picking_up_is_decided_on_the_committed_status(self):
-        """A hand-off must not announce itself to the requester.
+        """A hand-off must not be mistaken for a pick-up.
 
         `_assign_one` reads the status to tell "someone picked this out of the
-        pool" (which the requester is told about) from "an agent passed it to
-        a colleague" (which is none of their business, DEC-017/D1). Read from
-        a stale OPEN instance, a hand-off writes the pick-up message and
-        bumps the requester's clock.
+        pool", which starts the work, from "an agent passed it to a
+        colleague", which changes the owner and nothing else (DEC-017/D1).
+        Read from a stale OPEN instance, a hand-off on a ticket that is by now
+        waiting on the requester reads as a pick-up and drags it back to in
+        progress: the requester's page stops saying "we are waiting on you"
+        and the ball is quietly taken off them.
+
+        The ticket goes to pending here rather than staying in progress. On an
+        in-progress ticket a pick-up and a hand-off write exactly the same
+        row, so only a status the pick-up would overwrite can tell them apart.
+        Before C-05 this test left the ticket in progress and counted "now
+        being handled" lines. Measured on that version, it still passed with
+        ``_lock`` deleted from ``_assign_one``, because the once-per-spell
+        guard also swallowed the duplicate line. This version fails without
+        the lock.
         """
         ticket = self.make_ticket()
         stale = Ticket.objects.get(pk=ticket.pk)
         self.assertEqual(stale.status, TicketStatus.OPEN)
 
-        lifecycle.assign(
-            ticket=Ticket.objects.get(pk=ticket.pk),
-            actor=self.agent,
-            assignee=self.agent,
-        )
-        before = Ticket.objects.get(pk=ticket.pk).updated_at
+        lifecycle.claim(ticket=Ticket.objects.get(pk=ticket.pk), actor=self.agent)
+        lifecycle.mark_pending(ticket=Ticket.objects.get(pk=ticket.pk), actor=self.agent)
 
         lifecycle.assign(ticket=stale, actor=self.agent, assignee=self.other_agent)
 
         ticket.refresh_from_db()
         self.assertEqual(ticket.assignee_id, self.other_agent.pk)
         self.assertEqual(
-            TicketMessage.objects.filter(
-                ticket=ticket, body=system_messages.TICKET_NOW_HANDLED
-            ).count(),
-            1,
-            "the hand-off announced itself a second time",
+            ticket.status, TicketStatus.PENDING_USER,
+            "a hand-off read from a stale status acted as a pick-up",
         )
-        self.assertEqual(ticket.updated_at, before, "a hand-off moved the requester's clock")
 
 
 @skipUnlessDBFeature("has_select_for_update")
@@ -1028,20 +1012,6 @@ class AssigningToTheCurrentOwnerDoesNothingTests(LifecycleTestCase):
         ticket.refresh_from_db()
         self.assertEqual(ticket.support_updated_at, before)
 
-    def test_it_does_not_tell_the_requester_anything_a_second_time(self):
-        """The pick-up message is the one the requester reads.
-
-        Assigning an open ticket posts "Your ticket is now being handled".
-        Repeating the same assignment must not repeat it.
-        """
-        ticket = self.make_ticket()
-        lifecycle.assign(ticket=ticket, actor=self.agent, assignee=self.agent)
-        before = ticket.messages.count()
-
-        lifecycle.assign(ticket=ticket, actor=self.agent, assignee=self.agent)
-
-        self.assertEqual(ticket.messages.count(), before)
-
     def test_a_real_change_of_owner_still_records(self):
         """The guard must not swallow the case it exists to distinguish."""
         ticket = self.make_ticket()
@@ -1205,114 +1175,6 @@ class TimestampsAreReadUnderTheLockTests(LifecycleTestCase):
             ticket.deleted_at, held[0],
             "deleted_at predates the moment the delete took the row",
         )
-
-
-class ThePickUpIsAnnouncedOncePerSpellTests(LifecycleTestCase):
-    """"Your ticket is now being handled." is said once, not once per click.
-
-    Handing a ticket back is deliberately silent, so the sentence from the
-    last pick-up is still the last thing the requester was told. Taking the
-    ticket back therefore has nothing new to tell them, and repeating it is a
-    line an agent can stack up by clicking the owner dropdown, moving the
-    requester's clock and floating the ticket to the top of their list every
-    time.
-
-    The other half of the rule is that a real interruption does put the next
-    pick-up back on the record, and the two tests at the end are what keep
-    this from being solved by never saying it twice.
-    """
-
-    def announcements(self, ticket):
-        return ticket.messages.filter(
-            body=system_messages.TICKET_NOW_HANDLED
-        ).count()
-
-    def test_the_first_pick_up_is_announced(self):
-        ticket = self.make_ticket()
-
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        self.assertEqual(self.announcements(ticket), 1)
-
-    def test_taking_a_released_ticket_back_does_not_say_it_again(self):
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        lifecycle.assign(ticket=ticket, actor=self.agent, assignee=None)
-
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        self.assertEqual(self.announcements(ticket), 1)
-
-    def test_the_owner_dropdown_cannot_stack_the_sentence_up(self):
-        """Five rounds of release and take back, still one line."""
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        for _ in range(5):
-            lifecycle.assign(ticket=ticket, actor=self.agent, assignee=None)
-            lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        self.assertEqual(self.announcements(ticket), 1)
-
-    def test_a_silent_pick_up_leaves_the_requesters_clock_alone(self):
-        """Nothing was added to their timeline, so nothing orders their list
-        differently."""
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        lifecycle.assign(ticket=ticket, actor=self.agent, assignee=None)
-        ticket.refresh_from_db()
-        updated_before = ticket.updated_at
-
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        ticket.refresh_from_db()
-        self.assertEqual(ticket.updated_at, updated_before)
-
-    def test_a_silent_pick_up_still_moves_the_status(self):
-        """The sentence is what is skipped, not the state change."""
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        lifecycle.assign(ticket=ticket, actor=self.agent, assignee=None)
-
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        ticket.refresh_from_db()
-        self.assertEqual(ticket.status, TicketStatus.IN_PROGRESS)
-        self.assertEqual(ticket.assignee_id, self.agent.pk)
-
-    def test_a_reopened_ticket_is_announced_again(self):
-        """The requester's reply put REOPENED on the timeline after the old
-        announcement, so the ticket really did stop being handled and they
-        were told so."""
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        lifecycle.resolve(ticket=ticket, actor=self.agent)
-        lifecycle.add_user_reply(
-            ticket=ticket, user=self.requester, body="Still stuck, sorry."
-        )
-
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-
-        self.assertEqual(self.announcements(ticket), 2)
-
-    def test_a_status_an_agent_corrected_by_hand_is_announced_again(self):
-        """The door beside the reopen: no requester reply anywhere in it.
-
-        Resolving by mistake and putting the status back writes its own two
-        lines, so the next pick-up is news again.
-        """
-        ticket = self.make_ticket()
-        lifecycle.claim(ticket=ticket, actor=self.agent)
-        lifecycle.resolve(ticket=ticket, actor=self.agent)
-        lifecycle.set_status(
-            ticket=ticket, new_status=TicketStatus.OPEN, actor=self.agent
-        )
-
-        lifecycle.assign(
-            ticket=ticket, actor=self.agent, assignee=self.other_agent
-        )
-
-        self.assertEqual(self.announcements(ticket), 2)
 
 
 class AnOwnerlessInProgressTicketCanBePutRightTests(LifecycleTestCase):

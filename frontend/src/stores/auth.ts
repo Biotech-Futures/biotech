@@ -43,6 +43,13 @@ interface User {
     email: string
     relationship_type: string
   }>
+  // Sent by /users/me/ (MeSerializer), not by the login response; the store
+  // always re-fetches /users/me/ after signing in, so they are here whenever
+  // a user is. Two booleans rather than one because isSupport is true for
+  // admins as well (backend serializers.py MeSerializer). isAdmin here is the
+  // server's AdminScope, which is NOT what the isAdmin getter below reads.
+  isAdmin?: boolean
+  isSupport?: boolean
 }
 
 async function parseResponseJson(response: Response): Promise<any> {
@@ -53,7 +60,17 @@ async function parseResponseJson(response: Response): Promise<any> {
   }
 }
 
-type NormalizedRole = 'admin' | 'mentor' | 'supervisor' | 'student'
+type NormalizedRole = 'admin' | 'mentor' | 'supervisor' | 'student' | 'support'
+
+// Keyed by NormalizedRole, so a role added to the union without a label here
+// fails the type check instead of being shown as somebody else's.
+const ROLE_LABELS: Record<NormalizedRole, string> = {
+  admin: 'Administrator',
+  mentor: 'Mentor',
+  supervisor: 'Supervisor',
+  student: 'Student',
+  support: 'Support',
+}
 
 function resolveNormalizedRole(user: User | null): NormalizedRole {
   const rawRole = String(user?.current_role_name || '').toLowerCase()
@@ -64,6 +81,13 @@ function resolveNormalizedRole(user: User | null): NormalizedRole {
     ['admin', 'administrator', 'local_admin', 'global_admin', 'local administrator', 'global administrator'].includes(rawRole)
   ) {
     return 'admin'
+  }
+
+  // A support agent's role name. It used to fall through to 'student' below,
+  // so an agent signed in to a student dashboard. The role says who the
+  // account is; whether it may work the queue is the separate isSupport flag.
+  if (rawRole === 'support') {
+    return 'support'
   }
 
   if (['teacher', 'mentor'].includes(rawRole)) {
@@ -137,6 +161,27 @@ export const useAuthStore = defineStore('auth', {
 
     isTeacher: (state) => ['mentor', 'supervisor'].includes(resolveNormalizedRole(state.user)),
 
+    // The ticket side reads the server's two flags, never the role name above.
+    // The backend computes "SupportScope or AdminScope" once
+    // (apps/tickets/permissions.py is_support) and says that OR must not be
+    // written out anywhere else, so it is read here, not recomputed. It is
+    // true for admins too, and for a mentor or student granted access on the
+    // roster: queue access is not the role.
+    canWorkTickets: (state) => state.user?.isSupport === true,
+
+    // The server's AdminScope, which is what deleting a ticket and the
+    // support roster are gated on (IsAdminScoped). The role-name isAdmin above
+    // is Team 1's and can disagree with it: an account whose role says admin
+    // but whose AdminScope row is gone sees admin menus that 403.
+    isTicketAdmin: (state) => state.user?.isAdmin === true,
+
+    // An account whose role is support and who is not an admin, with or
+    // without queue access. They get the queue (or the page explaining why
+    // they cannot have it) and nothing else. A mentor granted access is not
+    // support-only: they keep their member pages and gain the queue.
+    isSupportOnly: (state) =>
+      resolveNormalizedRole(state.user) === 'support' && state.user?.isAdmin !== true,
+
     mustChangePassword: (state) => state.user?.must_change_password === true,
 
     timeZone: (state) => normalizeTimeZone(state.user?.timezone),
@@ -151,14 +196,7 @@ export const useAuthStore = defineStore('auth', {
 
     organizationLabel: (state) => state.user?.ment_inst || state.user?.school_name || BRAND_NAME,
 
-    roleLabel: (state) => {
-      const role = resolveNormalizedRole(state.user)
-
-      if (role === 'admin') return 'Administrator'
-      if (role === 'mentor') return 'Mentor'
-      if (role === 'supervisor') return 'Supervisor'
-      return 'Student'
-    }
+    roleLabel: (state) => ROLE_LABELS[resolveNormalizedRole(state.user)]
   },
 
   actions: {

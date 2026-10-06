@@ -70,6 +70,20 @@ class ComponentEntry:
     # SAQ only: the same answers structured as (prompt, answer) pairs, so the
     # marking page can render one box per question instead of parsing `text`.
     answers: tuple[tuple[str, str], ...] = ()
+    # The title the team submitted; "" when it gave none.
+    project_title: str = ""
+
+
+def submitted_titles(group_ids) -> dict[int, str]:
+    """The title each of these groups submitted, by group id; a group with
+    no title (or no entry) is left out."""
+    return {
+        group_id: title
+        for group_id, title in Submission.objects.filter(group_id__in=list(group_ids)).values_list(
+            "group_id", "submitted_project_title"
+        )
+        if title
+    }
 
 
 def _answer_blocks(answers: dict) -> list[tuple[str, str]]:
@@ -105,6 +119,7 @@ def _expand(submission: Submission, components: list[SubmissionComponent]) -> li
         "submission_id": submission.id,
         "group_id": submission.group_id,
         "group_name": submission.group.group_name,
+        "project_title": submission.submitted_project_title,
         "submitted_at": submission.submitted_at,
         "is_late": submission.is_late,
     }
@@ -209,7 +224,9 @@ def open_file(entry: ComponentEntry):
     return _service_for(entry).open(entry.file["storage_key"])
 
 
-def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> dict | None:
+def entry_payload(
+    entry: ComponentEntry | None, overall_comment: str = "", *, closes_at=None
+) -> dict | None:
     """The marking API's per-component ``submission`` block.
 
     Field-compatible with the retired per-component SubmissionSerializer so
@@ -234,18 +251,20 @@ def entry_payload(entry: ComponentEntry | None, overall_comment: str = "") -> di
         ] or None,
         "link": entry.link,
         "submitted_at": entry.submitted_at,
-        "is_late": entry.is_late,
+        "is_late": is_late_against(entry, closes_at),
         "overall_comment": overall_comment,
     }
 
 
 def late_by_label(delta) -> str:
-    """'1d 3h 12m' / '3h 12m' / '45m' — how far past the deadline a submit landed."""
+    """'5d 1h' / '22h 54m' / '45m' — how far past the deadline a submit
+    landed. Minutes are dropped once a full day has passed; at that scale
+    they are noise in the tables."""
     total_minutes = max(0, int(delta.total_seconds() // 60))
     days, rest = divmod(total_minutes, 60 * 24)
     hours, minutes = divmod(rest, 60)
     if days:
-        return f"{days}d {hours}h {minutes}m"
+        return f"{days}d {hours}h"
     if hours:
         return f"{hours}h {minutes}m"
     if minutes:
@@ -253,80 +272,24 @@ def late_by_label(delta) -> str:
     return "<1m"
 
 
-def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
-    """The row's late label: None on time, '' late-but-unknown-amount, else '3h 12m'.
-
-    '' covers a deadline edited after the fact: ``is_late`` was recorded at
-    submit, so the row still says late without inventing a duration.
+def is_late_against(entry: ComponentEntry, closes_at) -> bool:
+    """Lateness derived directly from times: submitted after the deadline in
+    force for the group (extension-aware). Derived at read time rather than
+    read from the stored ``is_late`` flag, so entries submitted before the
+    flag was recorded correctly still display right.
     """
-    if not entry.is_late:
-        return None
-    if entry.submitted_at is not None and closes_at is not None and entry.submitted_at > closes_at:
-        return late_by_label(entry.submitted_at - closes_at)
-    return ""
-
-
-def deadline_status() -> dict | None:
-    """The active submission deadline as the grading UI shows it, or None.
-
-    ``is_open`` uses the enforced cutoff (announced time + quiet grace hours),
-    matching what the portal actually accepts.
-    """
-    from datetime import timedelta
-
-    from django.utils import timezone
-
-    from apps.submissions.models import Deadline
-
-    row = (
-        Deadline.objects.filter(is_active=True)
-        .select_related("set_by")
-        .order_by("-created_at")
-        .first()
+    return (
+        entry.submitted_at is not None
+        and closes_at is not None
+        and entry.submitted_at > closes_at
     )
-    if row is None:
+
+
+def lateness_label(entry: ComponentEntry, closes_at) -> str | None:
+    """The row's late label: None on time, else e.g. '3h 12m'."""
+    if not is_late_against(entry, closes_at):
         return None
-    enforced_until = row.closes_at + timedelta(hours=row.grace_hours)
-    set_by = None
-    if row.set_by is not None:
-        set_by = (
-            f"{row.set_by.first_name} {row.set_by.last_name}".strip()
-            or row.set_by.email
-        )
-    return {
-        "closes_at": row.closes_at,
-        "grace_hours": row.grace_hours,
-        "is_open": timezone.now() <= enforced_until,
-        "set_by": set_by,
-        "created_at": row.created_at,
-    }
-
-
-def submissions_still_open() -> bool:
-    """True while any team can still submit — baseline window or extension.
-
-    Guards the release gates: marks and certificates must not go out while
-    entries can still change. A missing deadline counts as closed, matching
-    the portal (where no configured deadline means nothing is accepted).
-    """
-    from datetime import timedelta
-
-    from django.utils import timezone
-
-    from apps.submissions.models import Deadline, GroupExtension
-
-    now = timezone.now()
-    row = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
-    if row is not None and now <= row.closes_at + timedelta(hours=row.grace_hours):
-        return True
-    # An extension keeps that one team's window open past the baseline, and
-    # applies even when no baseline deadline exists at all.
-    for extended_until, grace_hours in GroupExtension.objects.values_list(
-        "extended_until", "grace_hours"
-    ):
-        if now <= extended_until + timedelta(hours=grace_hours):
-            return True
-    return False
+    return late_by_label(entry.submitted_at - closes_at)
 
 
 def has_submitted(group_id: int) -> bool:
@@ -336,99 +299,19 @@ def has_submitted(group_id: int) -> bool:
     ).exists()
 
 
-def set_submission_deadline(*, closes_at, grace_hours: int, set_by=None) -> dict:
-    """Create a new active deadline row and return the resulting status.
+def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
+    """The GLOBAL announced closing time, per group.
 
-    A new row rather than an edit: old rows are kept as the record of what was
-    announced when, and the newest active row is the one in force (matching
-    the portal's ``active_deadline`` resolution).
+    Deliberately ignores per-group extensions: lateness is always judged
+    against the global deadline — an extension only keeps the portal
+    accepting, it does not make a submission on time. ``None`` when no
+    deadline is configured at all.
     """
     from apps.submissions.models import Deadline
 
-    Deadline.objects.create(
-        closes_at=closes_at, grace_hours=grace_hours, is_active=True, set_by=set_by
-    )
-    return deadline_status()
-
-
-def _extension_payload(extension) -> dict:
-    granted_by = None
-    if extension.granted_by is not None:
-        granted_by = (
-            f"{extension.granted_by.first_name} {extension.granted_by.last_name}".strip()
-            or extension.granted_by.email
-        )
-    return {
-        "group_id": extension.group_id,
-        "group_name": extension.group.group_name,
-        "extended_until": extension.extended_until,
-        "grace_hours": extension.grace_hours,
-        "reason": extension.reason,
-        "granted_at": extension.granted_at,
-        "granted_by": granted_by,
-    }
-
-
-def group_extensions() -> list[dict]:
-    """Every per-team deadline extension currently granted."""
-    from apps.submissions.models import GroupExtension
-
-    return [
-        _extension_payload(e)
-        for e in GroupExtension.objects.select_related("group", "granted_by")
-        .filter(group__deleted_at__isnull=True)
-        # Longest-running extension first — the team with the most extra time.
-        .order_by("-extended_until", "group__group_name")
-    ]
-
-
-def set_group_extension(
-    *, group_id: int, extended_until, grace_hours: int, reason: str, granted_by
-) -> dict:
-    """Grant (or update) one team's extension. One per group — newest wins."""
-    from django.utils import timezone
-
-    from apps.submissions.models import GroupExtension
-
-    extension, _ = GroupExtension.objects.update_or_create(
-        group_id=group_id,
-        defaults={
-            "extended_until": extended_until,
-            "grace_hours": grace_hours,
-            "reason": reason,
-            "granted_at": timezone.now(),
-            "granted_by": granted_by,
-        },
-    )
-    extension = GroupExtension.objects.select_related("group", "granted_by").get(pk=extension.pk)
-    return _extension_payload(extension)
-
-
-def remove_group_extension(group_id: int) -> bool:
-    """Revoke a team's extension; True if one existed."""
-    from apps.submissions.models import GroupExtension
-
-    deleted, _ = GroupExtension.objects.filter(group_id=group_id).delete()
-    return bool(deleted)
-
-
-def group_deadline_map(group_ids: list[int]) -> dict[int, "datetime | None"]:
-    """The announced closing time that applied to each group.
-
-    Per-group extensions override the active baseline deadline — same
-    resolution as the portal's ``deadline_for_group``, done in two queries so
-    a whole-cohort table doesn't pay one query per group. ``None`` when no
-    deadline is configured at all.
-    """
-    from apps.submissions.models import Deadline, GroupExtension
-
     baseline = Deadline.objects.filter(is_active=True).order_by("-created_at").first()
     default = baseline.closes_at if baseline else None
-    overrides = dict(
-        GroupExtension.objects.filter(group_id__in=group_ids)
-        .values_list("group_id", "extended_until")
-    )
-    return {gid: overrides.get(gid, default) for gid in group_ids}
+    return {gid: default for gid in group_ids}
 
 
 def feedback_map(group_ids: list[int] | None = None) -> dict[tuple[int, int], str]:

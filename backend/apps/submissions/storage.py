@@ -3,6 +3,7 @@ from apps.common.storage import (
     get_poster_storage,
     get_prototype_storage,
     get_report_storage,
+    get_slides_storage,
 )
 
 
@@ -14,6 +15,11 @@ SUBMISSION_FILE_SERVICES: dict[str, ManagedFileService] = {
     "report": ManagedFileService(get_report_storage),
     "prototype": ManagedFileService(get_prototype_storage),
 }
+
+
+# Finalists' presentation slides: uploaded on the finalist step, opened from
+# the Finalist Presentation tab.
+FINALIST_SLIDES_FILES = ManagedFileService(get_slides_storage)
 
 
 def submission_file_service(slot: str) -> ManagedFileService:

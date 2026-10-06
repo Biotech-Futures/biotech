@@ -125,18 +125,6 @@ export function useQueryEventRsvps(eventId: number | null) {
 
 // ── Reference data ────────────────────────────────────────────────────────────
 
-export function useQueryGroups() {
-  return useQuery({
-    queryKey: ["event-meta-groups"],
-    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string }[]>> => {
-      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string }[]>>(
-        "/event/meta/groups",
-      );
-      return res.data;
-    },
-  });
-}
-
 export function useQueryRoles() {
   return useQuery({
     queryKey: ["event-meta-roles"],

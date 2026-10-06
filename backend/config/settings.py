@@ -49,8 +49,8 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.submissions',
     'apps.grading',
+    'apps.management',
     'apps.services',
-    'matching',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
@@ -76,25 +76,32 @@ AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
 AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
 AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
 AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Finalists' presentation slides for the Symposium, apart from their entries.
+AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the file backend whenever credentials are configured — the
-# env cannot switch a configured deployment off Azure. With no credentials,
-# USE_AZURE_BLOB_STORAGE=false in the env swaps every managed container and
-# plain FileField onto local disk under MEDIA_ROOT (the dev setup for running
-# config.settings without an Azure account; settings_local hardcodes the
-# same). Leaving it unset keeps missing credentials a loud failure at request
-# time: production must never silently write to ephemeral disk.
+# Azure Blob is the supported cloud file backend whenever credentials are configured.
+# In local development without Azure credentials, fall back to local disk storage under MEDIA_ROOT.
+# Production (DEBUG=False) must never write to ephemeral disk: missing Azure credentials
+# or disabling Azure Blob Storage raises ImproperlyConfigured at startup.
 _AZURE_CONFIGURED = bool(
     AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
 )
 USE_AZURE_BLOB_STORAGE = _AZURE_CONFIGURED or config(
-    "USE_AZURE_BLOB_STORAGE", default="true", cast=env_bool
+    "USE_AZURE_BLOB_STORAGE",
+    default=False if DEBUG else True,
+    cast=env_bool,
 )
+if not DEBUG and not (_AZURE_CONFIGURED and USE_AZURE_BLOB_STORAGE):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Azure Blob Storage must be enabled and credentials configured when DEBUG is false. "
+        "Set USE_AZURE_BLOB_STORAGE=true and provide Azure credentials."
+    )
 # Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
 # now, so naming the backend here is what actually routes plain FileFields
 # (the grading templates and director signatures). django-storages picks up
@@ -109,6 +116,7 @@ STORAGES = {
     },
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -287,7 +295,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — local PostgreSQL for development
+# Database — local PostgreSQL for development. Local Docker/Postgres installs
+# commonly do not have TLS enabled, so default to disabled in DEBUG and allow
+# explicit override via DB_SSLMODE for production-like environments.
+_DB_SSLMODE = config("DB_SSLMODE", default="disable" if DEBUG else "require")
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -297,7 +308,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": config("DB_SSLMODE", default="require"),
+            "sslmode": _DB_SSLMODE,
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -349,8 +360,21 @@ AUTH_EMAIL_DISPATCH_SYNC = config(
 EMAIL_FROM_ADDRESS = "info@biotechfutures.org"
 DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{EMAIL_FROM_ADDRESS}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-# Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
+# Inbound mailbox users write to. Automated mail still goes out from
+# EMAIL_FROM_ADDRESS, with one exception below.
 SUPPORT_EMAIL = "support@biotechfutures.org"
+# The exception: the three emails about a support enquiry go out from
+# SUPPORT_EMAIL, because the client asked for enquiry mail to come from
+# support@ and not info@ (apps/tickets/services/emails.py). Nothing else
+# moves; login codes, announcements and the rest keep DEFAULT_FROM_EMAIL.
+#
+# No second SMTP account for this, unlike connect@ below. The client confirmed
+# on Slack that support@ is an alias of the info@ mailbox, so the same
+# EMAIL_HOST_USER login may send as it. If that alias is ever removed, expect
+# the relay to refuse these sends, and nothing raises when it does: the only
+# trace is an auth_email.send_failed log line (plus an internal note on the
+# ticket for the resolution email). Check the logs after changing either one.
+TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
 # transactional account, so it can live under its own 3000/day send quota and
@@ -447,6 +471,12 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Response headers the SPA is allowed to read on cross-origin fetches.
+# Browsers hide everything but a small safelist otherwise: without this the
+# download filename in Content-Disposition (job exports) and the X-Request-ID
+# that apiError.ts attaches to error reports both read as null in JS.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
 
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's
@@ -643,12 +673,18 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
-# Fires the "you're a finalist" email to every group member. Off by default
-# so local dev / staging don't accidentally spam real students; flip on per
-# environment via env var once the announcement copy is signed off.
-GRADING_FINALIST_EMAIL_ENABLED = config(
-    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
-)
+# The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
+# on the server once started, over this many mail server connections at once.
+# Raise it only as far as the mailbox's sending limits allow. Tests set the
+# sync flag to send inline, one at a time.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed.
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
+# Bulk email runs send one at a time; each starts this many seconds after the
+# one before it finished.
+BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -692,10 +728,10 @@ RSVP_REMINDER_24H_WINDOW_HOURS = config(
     "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
 )
 RSVP_REMINDER_1H_HOURS_AHEAD = config(
-    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=0.5, cast=float
 )
 RSVP_REMINDER_1H_WINDOW_HOURS = config(
-    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=float
 )
 
 # --- Link previews -----------------------------------------------------------
