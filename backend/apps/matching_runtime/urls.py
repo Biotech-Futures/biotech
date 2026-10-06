@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import SimpleRouter
 
-from .views import MatchRecommendationViewSet, MatchRunViewSet
+from .views import MatchRecommendationViewSet, MatchRunViewSet, MatchingConfigViewSet
 
 router = SimpleRouter()
 # Canonical routes at the app root. Exposed as legacy ``/matching/runs/`` and
@@ -9,6 +9,7 @@ router = SimpleRouter()
 # config.urls.
 router.register(r"runs", MatchRunViewSet, basename="match-runs")
 router.register(r"recommendations", MatchRecommendationViewSet, basename="match-recommendations")
+router.register(r"configs", MatchingConfigViewSet, basename="matching-configs")
 
 _canonical = [
     path("", include(router.urls)),

@@ -40,6 +40,7 @@ from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
     recommend_students_for_group,
 )
+from apps.common.matching_modes import resolve_match_mode
 from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
@@ -507,7 +508,8 @@ class MatchStudentView(APIView):
         uid = str(request.user.id) if request.user.is_authenticated else None
         if not uid:
             return Response({"msg": "Authentication required"}, status=401)
-        result = match_student(uid)
+        mode = resolve_match_mode(request.query_params.get("mode"))
+        result = match_student(uid, mode=mode)
         return Response({
             "msg": "Match retrieved successfully",
             "data": {
@@ -1123,8 +1125,7 @@ class MentorMatchRecommendView(APIView):
             request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
             return Response({"msg": "Authentication required"}, status=401)
-        raw_mode = request.query_params.get("mode")
-        mode = raw_mode if raw_mode in ("strict", "coverage") else "balanced"
+        mode = resolve_match_mode(request.query_params.get("mode"))
         result = match_mentor(admin_user_id, mode)
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
 

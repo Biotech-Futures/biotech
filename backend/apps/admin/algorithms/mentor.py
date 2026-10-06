@@ -1,6 +1,8 @@
 import math
-from typing import TypedDict, Optional, Union, Literal, List, Dict, Set, Tuple, Any
+from typing import TypedDict, Optional, Union, List, Dict, Set, Tuple, Any
 from enum import Enum
+
+from apps.common.matching_modes import MatchMode, resolve_match_mode
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -10,8 +12,6 @@ INTEREST_OVERLAP_MAX_BONUS = 30
 TIMEZONE_WEIGHT = 2
 TIMEZONE_MAX_PENALTY = 18
 CAPACITY_BONUS_PER_SLOT = 2
-
-MatchMode = Literal["balanced", "strict", "coverage"]
 
 # ── Type Definitions ───────────────────────────────────────────────────────
 
@@ -436,9 +436,16 @@ def build_results(
 def match_mentors(
     groups: List[GroupSource],
     mentors: List[MentorSource],
-    mode: MatchMode = "balanced",
+    mode: Union[MatchMode, str] = "balanced",
 ) -> List[MentorGroupRecommendation]:
-    """Main API for mentor-to-group matching."""
+    """Main API for mentor-to-group matching.
+
+    ``mode`` is normalised on entry: the branches below are ``balanced``,
+    ``strict`` then an unguarded coverage fall-through, so an unknown value
+    reaching them would silently run coverage rather than the default.
+    """
+    mode = resolve_match_mode(mode)
+
     available_mentors = [m for m in mentors if m["currentAcceptedCount"] < m["maxGroupCount"]]
 
     if not groups:

@@ -10,7 +10,12 @@ from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
+from apps.matching_runtime.services import (
+    build_scoring_rules_snapshot,
+    resolve_scoring_rules,
+)
 from apps.groups.models import Countries, CountryStates
+from apps.common.matching_modes import resolve_match_mode
 from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.student import (
     build_groups,
@@ -255,13 +260,14 @@ def _build_form_recommendations(
     return recommendations, objective_by_student_id
 
 
-def match_student(uid: str) -> MatchStudentResult:
+def match_student(uid: str, mode: str = 'balanced') -> MatchStudentResult:
     """
     Run student matching algorithm combining join-or-form strategy.
-    
+
     Args:
         uid: Admin user ID initiating the match
-        
+        mode: Matching mode ('balanced', 'strict', 'coverage')
+
     Returns:
         MatchStudentResult with recommendations, unmatched students, and available groups
     """
@@ -433,9 +439,16 @@ def match_student(uid: str) -> MatchStudentResult:
             for student in formatted_individual_students
         ],
     )
-    join_recommendations = recommend_groups_by_country(join_input)
+    student_mode = resolve_match_mode(mode)
+    scoring_rules = resolve_scoring_rules()
+    scoring_weights = scoring_rules.weights
 
-    baseline_form = build_groups(ungrouped_students)
+    join_recommendations = recommend_groups_by_country(
+        join_input,
+        mode=student_mode,
+        weights=scoring_weights,
+    )
+    baseline_form = build_groups(ungrouped_students, mode=student_mode, weights=scoring_weights)
     _, baseline_objective_by_student_id = _build_form_recommendations(
         ungrouped_students,
         baseline_form,
@@ -499,7 +512,7 @@ def match_student(uid: str) -> MatchStudentResult:
         for student in ungrouped_students
         if str(student['id']) not in selected_join_student_ids
     ]
-    final_form = build_groups(form_pool)
+    final_form = build_groups(form_pool, mode=student_mode, weights=scoring_weights)
     final_form_recommendations, _ = _build_form_recommendations(form_pool, final_form)
 
     selected_join_recommendations = [
@@ -580,6 +593,9 @@ def match_student(uid: str) -> MatchStudentResult:
         run_type='student-match',
         rules_snapshot={
             'strategy': 'hybrid-join-or-form',
+            # 'mode' plus the weights actually applied, so a run stays
+            # explainable after an admin retunes the config.
+            **build_scoring_rules_snapshot(student_mode, scoring_rules),
             'studentCount': len(ungrouped_students),
             'joinInput': join_input,
             'baselineForm': baseline_form,

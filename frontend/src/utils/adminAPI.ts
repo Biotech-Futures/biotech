@@ -1281,7 +1281,7 @@ export const fetchStudentMatch = () =>
 export const fetchIndividualStudents = () =>
   adminGet<AdminEnvelope<unknown>>('/match/individual/').then((env) => env.data)
 
-/** Mentor-match modes, mirroring MatchMode in apps/admin/algorithms/mentor.py. */
+/** Mentor-match modes, mirroring MatchMode in apps/common/matching_modes.py. */
 export type MentorMatchMode = 'balanced' | 'strict' | 'coverage'
 
 /**
