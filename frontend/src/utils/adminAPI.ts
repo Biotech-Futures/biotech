@@ -1267,22 +1267,30 @@ export const fetchTaskRoleRecipients = (
 // ---------------------------------------------------------------------------
 
 /**
- * Run the student matcher (GET /match/student/).
+ * Matching modes shared by the student and mentor matchers, mirroring MatchMode
+ * in apps/common/matching_modes.py.
+ */
+export type MatchMode = 'balanced' | 'strict' | 'coverage'
+
+/** Mentor-match modes — the shared contract, kept under its original name. */
+export type MentorMatchMode = MatchMode
+
+/**
+ * Run the student matcher (GET /match/student/?mode=).
  *
  * The payload shape is unstable — snake_case wrapper keys, and
  * `recommendations` that may be flat per-student or already grouped. Returned
  * raw here on purpose; `normalizeStudentMatchData` in utils/adminMatching.ts
  * owns the reshaping so it stays testable on its own.
+ *
+ * An unrecognised mode is coerced to "balanced" server-side (MatchStudentView).
  */
-export const fetchStudentMatch = () =>
-  adminGet<AdminEnvelope<unknown>>('/match/student/').then((env) => env.data)
+export const fetchStudentMatch = (mode: MatchMode = 'balanced') =>
+  adminGet<AdminEnvelope<unknown>>(`/match/student/?mode=${mode}`).then((env) => env.data)
 
 /** Students not currently in any group (GET /match/individual/). */
 export const fetchIndividualStudents = () =>
   adminGet<AdminEnvelope<unknown>>('/match/individual/').then((env) => env.data)
-
-/** Mentor-match modes, mirroring MatchMode in apps/common/matching_modes.py. */
-export type MentorMatchMode = 'balanced' | 'strict' | 'coverage'
 
 /**
  * Run the mentor matcher (GET /mentor-match/recommend/?mode=).

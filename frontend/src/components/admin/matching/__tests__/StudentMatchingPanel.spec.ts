@@ -120,6 +120,12 @@ const runMatch = async (wrapper: VueWrapper) => {
   await flushPromises()
 }
 
+const modeButton = (wrapper: VueWrapper, label: string) =>
+  wrapper.findAll('[role="radio"]').find((button) => button.text().trim() === label)!
+
+const matchUrls = (fetch: ReturnType<typeof fetchMock>) =>
+  fetch.mock.calls.map((call) => String(call[0])).filter((url) => url.includes('/match/student/'))
+
 let wrapper: VueWrapper | null = null
 
 afterEach(() => {
@@ -148,6 +154,79 @@ describe('StudentMatchingPanel', () => {
 
     const calls = fetch.mock.calls.filter((call) => String(call[0]).includes('/match/student/'))
     expect(calls).toHaveLength(0)
+  })
+
+  it('defaults to balanced mode', () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+
+    const radios = wrapper.findAll('[role="radio"]')
+    expect(radios.map((radio) => radio.text().trim())).toEqual(['Balanced', 'Strict', 'Coverage'])
+    expect(modeButton(wrapper, 'Balanced').attributes('aria-checked')).toBe('true')
+    expect(modeButton(wrapper, 'Strict').attributes('aria-checked')).toBe('false')
+    expect(modeButton(wrapper, 'Coverage').attributes('aria-checked')).toBe('false')
+  })
+
+  it('describes each mode in a tooltip tied to its button', () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+
+    const strict = modeButton(wrapper, 'Strict')
+    const tip = wrapper.find(`#${strict.attributes('aria-describedby')}`)
+    expect(tip.attributes('role')).toBe('tooltip')
+    expect(tip.text()).toContain('same country')
+  })
+
+  it('sends the selected mode to the matcher', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+
+    await runMatch(wrapper)
+    await modeButton(wrapper, 'Strict').trigger('click')
+    expect(modeButton(wrapper, 'Strict').attributes('aria-checked')).toBe('true')
+    expect(modeButton(wrapper, 'Balanced').attributes('aria-checked')).toBe('false')
+    await runMatch(wrapper)
+    await modeButton(wrapper, 'Coverage').trigger('click')
+    await runMatch(wrapper)
+
+    expect(matchUrls(fetch)).toEqual([
+      expect.stringContaining('/match/student/?mode=balanced'),
+      expect.stringContaining('/match/student/?mode=strict'),
+      expect.stringContaining('/match/student/?mode=coverage')
+    ])
+    // MA3 holds in every mode: the formed group is still never a target.
+    expect(wrapper.text()).toContain('Suggested Group 1')
+    expect(wrapper.text()).not.toContain('BTF10')
+  })
+
+  it('clears the board when the matching mode changes', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+    await runMatch(wrapper)
+    expect(wrapper.text()).toContain('Suggested Group 1')
+
+    // Results are mode-specific; leaving stale ones on screen would
+    // misrepresent what is about to be confirmed.
+    await modeButton(wrapper, 'Coverage').trigger('click')
+
+    expect(wrapper.text()).not.toContain('Suggested Group 1')
+    expect(wrapper.text()).not.toContain('Waiting Area')
+    expect(wrapper.text()).toContain('to load recommended groups')
+    expect(buttonByText(wrapper, 'Confirm')!.attributes('disabled')).toBeDefined()
+    expect(buttonByText(wrapper, 'Reset board')!.attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps the board when the active mode is clicked again', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+    await runMatch(wrapper)
+
+    await modeButton(wrapper, 'Balanced').trigger('click')
+
+    expect(wrapper.text()).toContain('Suggested Group 1')
+    expect(matchUrls(fetch)).toHaveLength(1)
   })
 
   it('renders proposed groups, the waiting area and the stats after a run', async () => {

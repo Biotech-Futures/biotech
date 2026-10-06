@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { confirmStudentAssignments, fetchStudentMatch } from '@/utils/adminAPI'
+import { type MatchMode, confirmStudentAssignments, fetchStudentMatch } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import {
   type MatchGroupId,
@@ -25,6 +25,31 @@ export interface BoardGroup {
   existingStudents: MatchStudent[]
   sharedInterests: string[]
 }
+
+/**
+ * Copy for the mode selector. Same three modes as mentor matching, but worded
+ * for how build_groups() in algorithms/student.py actually forms groups.
+ */
+export const STUDENT_MATCH_MODES: { value: MatchMode; label: string; description: string }[] = [
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    description:
+      'Forms groups within each country first, then groups the remaining students across countries. Picks the highest-scoring groups for the best overall fit.'
+  },
+  {
+    value: 'strict',
+    label: 'Strict',
+    description:
+      'Only forms groups of students from the same country (a student with no country set can join any group). Students with no same-country match are left waiting.'
+  },
+  {
+    value: 'coverage',
+    label: 'Coverage',
+    description:
+      'Forms groups like Balanced, but prefers groups that leave no other student without a compatible partner. Places as many students as possible, even if some groups score lower.'
+  }
+]
 
 export type GroupFilter = 'all' | 'needs_action' | 'has_space' | 'full'
 
@@ -67,6 +92,7 @@ export function useStudentMatching() {
   /** False until the first run, so an unrun board never reads as "all matched". */
   const hasRun = ref(false)
 
+  const mode = ref<MatchMode>('balanced')
   const data = ref<StudentMatchData>(emptyData())
   const groups = ref<BoardGroup[]>([])
 
@@ -201,7 +227,7 @@ export function useStudentMatching() {
     loading.value = true
     error.value = ''
     try {
-      const parsed = parseStudentMatchData(await fetchStudentMatch())
+      const parsed = parseStudentMatchData(await fetchStudentMatch(mode.value))
       if (!parsed.ok) {
         // Surface the shape mismatch rather than rendering coerced defaults —
         // these assignments get written straight to production on confirm.
@@ -222,6 +248,16 @@ export function useStudentMatching() {
     } finally {
       loading.value = false
     }
+  }
+
+  const setMode = (next: MatchMode) => {
+    if (mode.value === next) return
+    mode.value = next
+    // Results are mode-specific, so a stale board would misrepresent the choice.
+    data.value = emptyData()
+    seedBoard(emptyData())
+    error.value = ''
+    hasRun.value = false
   }
 
   /** Restore the algorithm's original proposal, discarding manual moves. */
@@ -285,6 +321,7 @@ export function useStudentMatching() {
     confirming,
     error,
     hasRun,
+    mode,
     groups,
     buckets,
     waiting,
@@ -303,6 +340,7 @@ export function useStudentMatching() {
     recommendedGroupOf,
     isInRecommendedGroup,
     run,
+    setMode,
     reset,
     confirm
   }

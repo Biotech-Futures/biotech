@@ -10,6 +10,30 @@
       </div>
 
       <div class="student-matching__actions">
+        <div class="student-matching__modes" role="radiogroup" aria-label="Matching mode">
+          <span v-for="entry in modes" :key="entry.value" class="student-matching__mode-wrap">
+            <button
+              type="button"
+              role="radio"
+              :aria-checked="mode === entry.value"
+              :aria-describedby="`student-mode-desc-${entry.value}`"
+              class="student-matching__mode"
+              :class="{ 'student-matching__mode--active': mode === entry.value }"
+              :disabled="loading"
+              @click="setMode(entry.value)"
+            >
+              {{ entry.label }}
+            </button>
+            <span
+              :id="`student-mode-desc-${entry.value}`"
+              class="student-matching__mode-tip"
+              role="tooltip"
+            >
+              {{ entry.description }}
+            </span>
+          </span>
+        </div>
+
         <button type="button" class="btn btn-sm btn-primary" :disabled="loading" @click="run">
           <i class="fas fa-shuffle" aria-hidden="true"></i>
           <span>{{ loading ? 'Matching...' : 'Run match' }}</span>
@@ -213,7 +237,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import draggable from 'vuedraggable'
-import { GROUP_FILTERS, useStudentMatching } from '@/composables/admin/useStudentMatching'
+import {
+  GROUP_FILTERS,
+  STUDENT_MATCH_MODES,
+  useStudentMatching
+} from '@/composables/admin/useStudentMatching'
 import StudentChip from '@/components/admin/matching/StudentChip.vue'
 import type { RecommendedStudent } from '@/utils/adminMatching'
 
@@ -221,6 +249,7 @@ import type { RecommendedStudent } from '@/utils/adminMatching'
 const DRAG_GROUP = { name: 'matching-students' }
 
 const groupFilters = GROUP_FILTERS
+const modes = STUDENT_MATCH_MODES
 
 const studentKey = (entry: RecommendedStudent) => String(entry.student.id)
 
@@ -233,6 +262,7 @@ const {
   confirming,
   error,
   hasRun,
+  mode,
   buckets,
   waiting,
   search,
@@ -248,6 +278,7 @@ const {
   recommendedGroupOf,
   isInRecommendedGroup,
   run,
+  setMode,
   reset,
   confirm
 } = useStudentMatching()
@@ -293,6 +324,67 @@ const onConfirm = () => {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+/* Segmented mode pills — same look as the Mentor Matching tab. */
+.student-matching__modes {
+  display: inline-flex;
+  padding: 0.15rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--bg-light);
+}
+
+.student-matching__mode {
+  padding: 0.3rem 0.85rem;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.student-matching__mode--active {
+  background-color: var(--charcoal);
+  color: var(--white);
+}
+
+.student-matching__mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mode description tooltip */
+.student-matching__mode-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.student-matching__mode-tip {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 30;
+  display: none;
+  width: 17rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--surface-elevated);
+  box-shadow: 0 8px 24px var(--shadow);
+  color: var(--charcoal);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.student-matching__mode-wrap:hover .student-matching__mode-tip,
+.student-matching__mode-wrap:focus-within .student-matching__mode-tip {
+  display: block;
 }
 
 .student-matching__badge {
