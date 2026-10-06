@@ -22,12 +22,25 @@ const scoreBreakdown = {
   objectiveScore: 91
 }
 
+/** A group the matcher proposes forming — the only kind of automatic target. */
 const targetGroup = {
+  id: 'new-Australia-1',
+  groupName: 'Suggested Group 1',
+  maxSize: 5,
+  tutor: null,
+  groupStudent: []
+}
+
+/**
+ * An already-formed group. The backend can still propose joins into one until
+ * its MA3 gating lands, so the board has to refuse it on its own.
+ */
+const formedGroup = {
   id: 10,
   groupName: 'BTF10',
   maxSize: 5,
   tutor: null,
-  groupStudent: []
+  groupStudent: [{ id: 6, name: 'Theo Park', interests: ['Biology'] }]
 }
 
 const matchData = {
@@ -43,6 +56,13 @@ const matchData = {
       recommendGroup: targetGroup,
       reason: 'Shares interest biology with the group.',
       score: 88,
+      scoreBreakdown
+    },
+    {
+      student: { id: 3, name: 'Omar Haddad', country: 'Australia', interests: ['Biology'] },
+      recommendGroup: formedGroup,
+      reason: 'Joins an existing group.',
+      score: 80,
       scoreBreakdown
     }
   ],
@@ -135,15 +155,42 @@ describe('StudentMatchingPanel', () => {
     wrapper = mount(StudentMatchingPanel)
     await runMatch(wrapper)
 
-    expect(wrapper.text()).toContain('BTF10')
+    expect(wrapper.text()).toContain('Suggested Group 1')
     expect(wrapper.text()).toContain('Ava Nguyen')
     // Unmatched students start in the waiting area.
     expect(wrapper.text()).toContain('Waiting Area')
     expect(wrapper.text()).toContain('Liam Costa')
-    // notFullGroups render as drop targets even with nobody proposed for them.
-    expect(wrapper.text()).toContain('BTF11')
-    expect(wrapper.text()).toContain('Nina Larsen')
     expect(wrapper.text()).toContain('Total groups')
+  })
+
+  it('does not offer already-formed groups as drop targets', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+    await runMatch(wrapper)
+
+    const groupNames = wrapper
+      .findAll('.student-matching__board article')
+      .map((card) => card.text())
+    expect(groupNames).toHaveLength(1)
+    expect(groupNames[0]).toContain('Suggested Group 1')
+    // Neither a not-full group nor one the matcher proposed a join into.
+    expect(wrapper.text()).not.toContain('BTF11')
+    expect(wrapper.text()).not.toContain('Nina Larsen')
+    expect(wrapper.text()).not.toContain('BTF10')
+    expect(wrapper.text()).not.toContain('Theo Park')
+  })
+
+  it('keeps students recommended into an existing group in the waiting area', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+    await runMatch(wrapper)
+
+    const waitingArea = wrapper.find('.student-matching__waiting')
+    expect(waitingArea.text()).toContain('Omar Haddad')
+    expect(waitingArea.text()).toContain('Liam Costa')
+    expect(waitingArea.text()).toContain('2 students')
+    // Not offered as a pointer back to the formed group either.
+    expect(waitingArea.text()).not.toContain('BTF10')
   })
 
   it('shows the size-bonus-inclusive score on the chip', async () => {
@@ -172,7 +219,7 @@ describe('StudentMatchingPanel', () => {
     expect(buttonByText(wrapper, 'Retry')).toBeDefined()
     // A half-loaded board would be worse than none: confirming it would write
     // the wrong assignments.
-    expect(wrapper.text()).not.toContain('BTF10')
+    expect(wrapper.text()).not.toContain('Suggested Group 1')
   })
 
   it('rejects a malformed payload rather than rendering coerced defaults', async () => {
@@ -260,19 +307,44 @@ describe('StudentMatchingPanel', () => {
     )
     expect(confirmCall).toBeDefined()
     const body = JSON.parse((confirmCall![1] as RequestInit).body as string)
-    expect(body.assignments).toEqual([{ studentId: 1, groupId: 10 }])
+    // Omar's join into the formed group BTF10 is never written.
+    expect(body.assignments).toEqual([{ studentId: 1, groupId: 'new-Australia-1' }])
   })
 
   it('filters the board with the group filter', async () => {
-    vi.stubGlobal('fetch', fetchMock())
+    const recommend = (id: number, name: string, group: typeof targetGroup) => ({
+      student: { id, name, interests: [] },
+      recommendGroup: group,
+      reason: 'Formed a new group.',
+      score: 90,
+      scoreBreakdown: null
+    })
+    const fullGroup = {
+      ...targetGroup,
+      id: 'new-Australia-2',
+      groupName: 'Suggested Group 2',
+      maxSize: 1
+    }
+    vi.stubGlobal(
+      'fetch',
+      fetchMock({
+        match: {
+          recommendations: [
+            recommend(1, 'Ava Nguyen', targetGroup),
+            recommend(2, 'Liam Costa', fullGroup)
+          ]
+        }
+      })
+    )
     wrapper = mount(StudentMatchingPanel)
     await runMatch(wrapper)
 
-    expect(wrapper.text()).toContain('BTF11')
+    expect(wrapper.text()).toContain('Suggested Group 1')
+    expect(wrapper.text()).toContain('Suggested Group 2')
 
-    // "Has recommended students" hides the group nobody was proposed for.
-    await wrapper.find('select').setValue('needs_action')
-    expect(wrapper.text()).toContain('BTF10')
-    expect(wrapper.text()).not.toContain('BTF11')
+    // "Full groups" hides the proposed group that still has open seats.
+    await wrapper.find('select').setValue('full')
+    expect(wrapper.text()).toContain('Suggested Group 2')
+    expect(wrapper.text()).not.toContain('Suggested Group 1')
   })
 })

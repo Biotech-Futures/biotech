@@ -7,13 +7,17 @@ import {
   type MatchTutor,
   type RecommendedStudent,
   type StudentMatchData,
+  isSyntheticGroupId,
   parseStudentMatchData,
   toConfirmGroupId
 } from '@/utils/adminMatching'
 
-/** A group rendered as a drop target, merged from notFullGroups + recommendations. */
+/**
+ * A group rendered as a drop target. Only groups the matcher proposes forming
+ * qualify: already-formed groups are never automatic matching targets (MA3).
+ */
 export interface BoardGroup {
-  /** Integer for existing groups, `new-*` for ones the matcher proposes forming. */
+  /** Always a `new-*` id — the matcher's placeholder for a group not yet created. */
   id: MatchGroupId
   groupName: string
   maxSize: number
@@ -91,22 +95,23 @@ export function useStudentMatching() {
     const byId = new Map<string, BoardGroup>()
     const nextBuckets: Record<string, RecommendedStudent[]> = {}
     const nextRecommended = new Map<string, { id: MatchGroupId; groupName: string }>()
+    const nextWaiting = [...source.unmatchedStudents]
 
-    // Not-full groups first: they render as empty drop targets even when the
-    // matcher proposed nobody for them.
-    for (const group of source.notFullGroups) {
-      byId.set(String(group.id), {
-        id: group.id,
-        groupName: group.groupName,
-        maxSize: group.maxSize ?? DEFAULT_MAX_SIZE,
-        tutor: group.tutor,
-        existingStudents: group.existingStudents,
-        sharedInterests: sharedInterestsOf(group.existingStudents)
-      })
-      nextBuckets[String(group.id)] = []
-    }
-
+    // `notFullGroups` is deliberately ignored: every entry is an already-formed
+    // group, and those are off-limits to automatic matching (MA3). Admins still
+    // add members to them through normal group management.
     for (const group of source.recommendations) {
+      // Until the backend stops proposing joins, a recommendation can still
+      // point at an existing group. Hold those students back for the admin
+      // rather than offering the formed group as a target.
+      if (!isSyntheticGroupId(group.id)) {
+        const existingIds = new Set(group.existingStudents.map((student) => student.id))
+        nextWaiting.push(
+          ...group.recommendStudents.filter((entry) => !existingIds.has(entry.student.id))
+        )
+        continue
+      }
+
       if (!byId.has(String(group.id))) {
         byId.set(String(group.id), {
           id: group.id,
@@ -134,7 +139,7 @@ export function useStudentMatching() {
 
     groups.value = [...byId.values()]
     buckets.value = nextBuckets
-    waiting.value = [...source.unmatchedStudents]
+    waiting.value = nextWaiting
     recommendedGroup.value = nextRecommended
   }
 
@@ -229,6 +234,10 @@ export function useStudentMatching() {
     if (confirming.value) return false
 
     const payload = Object.entries(buckets.value)
+      // Only groups the matcher proposes forming: automatic matching must
+      // never write students into an already-formed group (MA3), even if one
+      // slipped onto the board.
+      .filter(([groupId]) => isSyntheticGroupId(groupId))
       .flatMap(([groupId, bucket]) =>
         bucket.map((entry) => ({
           studentId: Number(entry.student.id),
