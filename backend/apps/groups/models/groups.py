@@ -1,10 +1,21 @@
-from django.db import models, transaction
+from contextlib import contextmanager
+
+from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CharField, F, Max, Q, Value, When
-from django.db.models.functions import Concat, Length, LPad, Substr
+from django.db.models.functions import Concat, Length, Lower, LPad, Substr, Trim
 from django.utils import timezone
 
 GROUP_NAME_PREFIX = "BTF"
 AUTO_NAME_REGEX = r"^BTF[0-9]+$"
+
+# The database refuses two active groups with the same name (ignoring case and
+# outer spaces) in the same year from this year on; earlier years had
+# duplicates and are left as they are.
+UNIQUE_NAMES_FROM_YEAR = 2026
+UNIQUE_NAME_CONSTRAINT = "unique_active_group_name_per_year"
+
+# How many numbers auto-naming tries when its name is taken the moment it saves.
+_AUTO_NAME_ATTEMPTS = 5
 
 # Ordering-only pad width; LPad truncates past it, so this bounds display order, not numbering.
 _AUTO_NAME_PAD = 12
@@ -177,6 +188,15 @@ class Groups(models.Model):
                 condition=~Q(group_name__regex=r'^\s*$'),
                 name='group_name_not_empty'
             ),
+            # Two active groups in the same year can't share a name, ignoring
+            # case and outer spaces, even when saved at the same instant.
+            # Years before UNIQUE_NAMES_FROM_YEAR keep their old duplicates.
+            models.UniqueConstraint(
+                Lower(Trim('group_name')),
+                F('year'),
+                condition=Q(deleted_at__isnull=True, year__gte=UNIQUE_NAMES_FROM_YEAR),
+                name=UNIQUE_NAME_CONSTRAINT,
+            ),
         ]
 
     def __str__(self):
@@ -187,11 +207,20 @@ class Groups(models.Model):
         """Create a group named ``BTF<n>``, the next number in the single series.
 
         The allocated number comes from active groups only, so deleting the last
-        group resets the series to ``BTF01``. Duplicate display names are
-        allowed; ``id`` is the unique identifier.
+        group resets the series to ``BTF01``. If the name is taken the moment it
+        is saved (another group created at the same instant), the next numbers
+        are tried.
         """
-        with transaction.atomic():
-            return cls.objects.create(group_name=generate_group_name(allocate_group_number()))
+        number = allocate_group_number()
+        for attempt in range(_AUTO_NAME_ATTEMPTS):
+            name = generate_group_name(number + attempt)
+            try:
+                with transaction.atomic():
+                    return cls.objects.create(group_name=name)
+            except IntegrityError as exc:
+                if not is_duplicate_name_violation(exc):
+                    raise
+        raise GroupAutoNameUnavailable(name)
 
     @property
     def is_deleted(self):
@@ -201,3 +230,55 @@ class Groups(models.Model):
         # Recovery is intentionally limited to clearing the tombstone.
         self.deleted_at = None
         self.save(update_fields=["deleted_at"])
+
+
+def normalise_group_name(name: str) -> str:
+    """How group names are compared: case and extra spaces ignored."""
+    return " ".join(name.split()).casefold()
+
+
+def duplicate_name_message(name: str, year: int) -> str:
+    return f"A group named {name.strip()} already exists in {year}."
+
+
+def duplicate_group_name_error(name: str, year: int, *, exclude_id: int | None = None) -> str | None:
+    """The message to refuse ``name`` with, if another active group in ``year``
+    already has it (ignoring case and extra spaces); None when it's free.
+
+    Checked wherever a typed name is saved or a deleted group comes back, so
+    two teams in the same challenge year can't be told apart only by id
+    (the marks upload, for one, matches teams by name). The database rule
+    backs it up from 2026 for two saves at the same instant; see
+    ``saving_group_name``.
+    """
+    wanted = normalise_group_name(name)
+    others = Groups.objects.filter(deleted_at__isnull=True, year=year)
+    if exclude_id is not None:
+        others = others.exclude(pk=exclude_id)
+    for other in others.values_list("group_name", flat=True).iterator():
+        if normalise_group_name(other) == wanted:
+            return duplicate_name_message(name, year)
+    return None
+
+
+class GroupNameTaken(Exception):
+    """Another active group in the same year already has this name."""
+
+
+def is_duplicate_name_violation(exc: IntegrityError) -> bool:
+    return UNIQUE_NAME_CONSTRAINT in str(exc)
+
+
+@contextmanager
+def saving_group_name(name: str, year: int):
+    """Wrap the save of a group's name. When the database refuses it because
+    another group got the name at the same instant (after both passed
+    ``duplicate_group_name_error``), raise ``GroupNameTaken`` with the usual
+    message instead of a server error."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as exc:
+        if not is_duplicate_name_violation(exc):
+            raise
+        raise GroupNameTaken(duplicate_name_message(name, year)) from exc

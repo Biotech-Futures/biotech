@@ -18,8 +18,9 @@ Division of labour with the send path (``apps.services.system_email``):
 
 Security notes:
 
-* Admin-written bodies are sanitised with ``nh3`` on every save and preview so
-  a stored email can never carry a <script> or handler attribute into an inbox.
+* Admin-written bodies are sanitised with ``nh3`` (``clean_email_body``) on
+  every save and preview so a stored email can never carry a <script> or
+  handler attribute into an inbox. Only the box and button styles survive.
 * Merge tags are validated against the registry before anything is persisted,
   so a subject/body that references a tag the email cannot fill is rejected
   with a field-level error instead of arriving at the recipient literally.
@@ -30,7 +31,6 @@ Security notes:
 import logging
 import textwrap
 
-import nh3
 from django.db import transaction
 from django.template import Context, TemplateDoesNotExist
 from django.template.loader import get_template
@@ -44,7 +44,14 @@ from apps.services.email_registry import (
     unknown_merge_tags,
 )
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
-from apps.services.system_email import build_message, render_system_email
+from apps.services.system_email import (
+    build_message,
+    clean_email_body,
+    render_system_email,
+    sender_connection,
+    sender_for,
+    senders,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +100,15 @@ def _render_content_block(template_name: str, context: dict) -> str:
     return template.render(Context(context)).strip()
 
 
+def _sender_key(email_type, row) -> str:
+    """The sender it goes from: the one picked, else its type's default (as
+    ``system_email.sender_for`` sends it)."""
+    keys = {sender.key for sender in senders()}
+    if row is not None and row.sender in keys:
+        return row.sender
+    return email_type.default_sender if email_type.default_sender in keys else senders()[0].key
+
+
 def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
     """One admin-facing dict for a registry entry, merged with its saved state.
 
@@ -113,6 +129,9 @@ def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
         "defaultBody": _default_body(email_type),
         "subject": row.subject if row is not None else "",
         "body": row.body_html if row is not None else "",
+        # The mailbox it goes from, and those it could (settings.EMAIL_SENDERS).
+        "sender": _sender_key(email_type, row),
+        "senders": [{"key": sender.key, "address": sender.address} for sender in senders()],
         "updatedBy": _editor_name(row.updated_by) if row is not None and row.updated_by else None,
         "updatedAt": row.updated_at.isoformat() if row is not None and row.updated_at else None,
         "mergeTags": [
@@ -235,7 +254,7 @@ def update_email_template(
     *,
     requested_by,
 ) -> dict:
-    """Apply the provided ``subject`` / ``body`` / ``enabled`` edits.
+    """Apply the provided ``subject`` / ``body`` / ``enabled`` / ``sender`` edits.
 
     ``fields`` only contains keys the client actually sent (PATCH semantics),
     so toggling an email does not disturb its wording and vice versa. A blank
@@ -262,6 +281,9 @@ def update_email_template(
     if "enabled" in fields:
         row.is_enabled = bool(fields["enabled"])
 
+    if "sender" in fields:
+        row.sender = fields["sender"]
+
     if "subject" in fields:
         error = _validate_editable_text(key, "subject", fields.get("subject"))
         if error:
@@ -272,7 +294,7 @@ def update_email_template(
         error = _validate_editable_text(key, "body", fields.get("body"))
         if error:
             return {"msg": error, "data": None}
-        row.body_html = nh3.clean(fields.get("body") or "")
+        row.body_html = clean_email_body(fields.get("body") or "")
         # Derived at render time by the send path; no need to keep in lockstep.
         row.body_text = ""
 
@@ -340,7 +362,7 @@ def _preview_fields(key: str, subject, body) -> tuple:
         error = _validate_editable_text(key, "body", body)
         if error:
             return None, None, error
-        body = nh3.clean(body or "")
+        body = clean_email_body(body or "")
     return subject, body, None
 
 
@@ -423,7 +445,11 @@ def send_test_email(
             + "Write some body content and try again.",
             "data": None,
         }
-    message = build_message(rendered, requested_by.email)
+    # From the sender picked for it, as the real email goes.
+    sender = sender_for(key)
+    message = build_message(
+        rendered, requested_by.email, from_email=sender.from_email, connection=sender_connection(sender),
+    )
 
     try:
         message.send(fail_silently=False)

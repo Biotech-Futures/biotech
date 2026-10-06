@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.submissions',
     'apps.grading',
+    'apps.management',
     'apps.services',
     'drf_spectacular',
     'rest_framework',
@@ -78,6 +79,8 @@ AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototy
 # container is private; the application returns time-limited URLs when a
 # profile is serialized.
 AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
+# Finalists' presentation slides for the Symposium, apart from their entries.
+AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -375,6 +378,27 @@ EMAIL_CONNECT_HOST_PASSWORD = config("EMAIL_CONNECT_HOST_PASSWORD", default="")
 CONNECT_FROM_ADDRESS = "connect@biotechfutures.org"
 CONNECT_DEFAULT_FROM_EMAIL = f"{BRAND_CONNECT} <{CONNECT_FROM_ADDRESS}>"
 
+# The mailboxes the site can send from, picked per email on System Emails
+# (``apps.services.system_email.sender_for``). Hostinger rejects an email whose
+# From doesn't match the signed-in mailbox or one of its aliases, so each
+# carries its own SMTP login: adding a sender means adding its login settings
+# (its password in the environment) and an entry here. Each names the
+# settings it's read from when sending: its address, its From header, and the
+# prefix of its EMAIL_*_HOST, _PORT, _HOST_USER, _HOST_PASSWORD and _USE_SSL
+# login settings (none for the default account, EMAIL_HOST_USER above).
+EMAIL_SENDERS = {
+    "info": {
+        "address": "EMAIL_FROM_ADDRESS",
+        "from_email": "DEFAULT_FROM_EMAIL",
+        "login": None,
+    },
+    "connect": {
+        "address": "CONNECT_FROM_ADDRESS",
+        "from_email": "CONNECT_DEFAULT_FROM_EMAIL",
+        "login": "EMAIL_CONNECT_",
+    },
+}
+
 REDIS_URL = config("REDIS_URL", default="")
 
 if REDIS_URL:
@@ -629,12 +653,18 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # a daemon thread after transaction.on_commit, but tests set this true to
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
-# Fires the "you're a finalist" email to every group member. Off by default
-# so local dev / staging don't accidentally spam real students; flip on per
-# environment via env var once the announcement copy is signed off.
-GRADING_FINALIST_EMAIL_ENABLED = config(
-    "GRADING_FINALIST_EMAIL_ENABLED", default="false", cast=env_bool,
-)
+# The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
+# on the server once started, over this many mail server connections at once.
+# Raise it only as far as the mailbox's sending limits allow. Tests set the
+# sync flag to send inline, one at a time.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed.
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
+# Bulk email runs send one at a time; each starts this many seconds after the
+# one before it finished.
+BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

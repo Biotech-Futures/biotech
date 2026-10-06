@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const tokenFor = (name: string) => mergeTagToken(name)
 
 const tagTitle = (tag: SystemEmailMergeTag) =>
-  tag.sample ? `${tag.description} — e.g. ${tag.sample}` : tag.description
+  tag.sample ? `${tag.description} - e.g. ${tag.sample}` : tag.description
 </script>
 
 <style scoped>

@@ -3,33 +3,18 @@ from django.urls import path
 from .views import (
     AllSubmissionsDownloadView,
     BulkUploadMarksView,
-    CertificatesReleaseView,
-    GroupExtensionDetailView,
-    GroupExtensionListView,
-    SubmissionDeadlineView,
-    ComponentAnalyticsView,
     ComponentDownloadView,
     ComponentMarkingListView,
     FinalistCandidatesView,
     FinalistListView,
-    FinalistNotifyAllView,
     FinalistToggleView,
     GradeBulkView,
     GradeUpdateView,
     GradingJobDetailView,
     GradingJobDownloadView,
-    GradingSettingsView,
     GroupCategoriesView,
     GroupDownloadView,
     GroupMarkingView,
-    MarksReleaseView,
-    MyCertificateView,
-    MyGradesView,
-    MySummaryView,
-    SupervisorDownloadView,
-    SupervisorGradesView,
-    TemplateScanView,
-    TemplateTestRenderView,
 )
 
 app_name = "grading"
@@ -59,44 +44,8 @@ urlpatterns = [
     # PATCH a single grade — used by inline edits and quick amendments.
     path("grades/<int:pk>/", GradeUpdateView.as_view(), name="grade-detail"),
 
-    # Submission deadline: view + set the window students can submit in.
-    path("deadline/", SubmissionDeadlineView.as_view(), name="deadline"),
-    # Per-team extensions on top of the global deadline.
-    path("deadline/extensions/", GroupExtensionListView.as_view(), name="deadline-extensions"),
-    path("deadline/extensions/<int:group_id>/", GroupExtensionDetailView.as_view(), name="deadline-extension-detail"),
-
-    # M6 — release toggles + configurable director/template settings.
-    path("release/", MarksReleaseView.as_view(), name="release"),
-    path("certificates-release/", CertificatesReleaseView.as_view(), name="certificates-release"),
-    path("settings/", GradingSettingsView.as_view(), name="settings"),
-    # Which placeholders the active template actually contains.
-    path(
-        "settings/template-scan/<str:kind>/",
-        TemplateScanView.as_view(),
-        name="settings-template-scan",
-    ),
-    # Render the active template with synthetic data to check placeholders.
-    path(
-        "settings/test-render/<str:kind>/",
-        TemplateTestRenderView.as_view(),
-        name="settings-test-render",
-    ),
-
-    # Student-facing read views (gated on MarksRelease.released_at).
-    path("me/grades/", MyGradesView.as_view(), name="me-grades"),
-    path("me/summary/", MySummaryView.as_view(), name="me-summary"),
-    path("me/certificate/", MyCertificateView.as_view(), name="me-certificate"),
-
-    # Supervisor-facing (gated on release + student.supervisor FK).
-    path("supervisor/students/grades/", SupervisorGradesView.as_view(), name="supervisor-grades"),
-    path("supervisor/download/", SupervisorDownloadView.as_view(), name="supervisor-download"),
-
-    # M8 — finalist flagging + optional notification.
+    # M8 — finalist flagging (the finalist email is Management's).
     path("finalists/", FinalistListView.as_view(), name="finalist-list"),
-    path("finalists/notify/", FinalistNotifyAllView.as_view(), name="finalist-notify"),
     path("finalists/candidates/", FinalistCandidatesView.as_view(), name="finalist-candidates"),
     path("groups/<int:group_id>/finalist/", FinalistToggleView.as_view(), name="finalist-toggle"),
-
-    # M9 — read-only analytics for Team 4's dashboards.
-    path("components/<str:code>/analytics/", ComponentAnalyticsView.as_view(), name="component-analytics"),
 ]

@@ -100,6 +100,20 @@ export function useSystemEmails() {
       : [...templates.value, updated]
   }
 
+  /**
+   * The wording to preview or test. While an email still uses its built-in
+   * wording, the parts the admin hasn't changed are left out so the server
+   * renders the template file itself: exactly what gets sent, which the
+   * editor's copy only approximates.
+   */
+  const draftToRender = (template: SystemEmailTemplate): Partial<SystemEmailDraft> => {
+    if (template.usingSavedContent) return { ...draft.value }
+    const fields: Partial<SystemEmailDraft> = {}
+    if (draft.value.subject !== template.defaultSubject) fields.subject = draft.value.subject
+    if (draft.value.body !== template.defaultBody) fields.body = draft.value.body
+    return fields
+  }
+
   const clearMessages = () => {
     error.value = ''
     notice.value = ''
@@ -161,10 +175,7 @@ export function useSystemEmails() {
     if (options?.quiet) previewQueued.value = false
     else error.value = ''
     try {
-      preview.value = await previewSystemEmailTemplate(template.key, {
-        subject: draft.value.subject,
-        body: draft.value.body
-      })
+      preview.value = await previewSystemEmailTemplate(template.key, draftToRender(template))
     } catch (previewError) {
       logApiError('admin.system-emails.preview', previewError)
       if (!options?.quiet) {
@@ -210,10 +221,7 @@ const testSend = async () => {
     testing.value = true
     clearMessages()
     try {
-      const result = await testSendSystemEmailTemplate(template.key, {
-        subject: draft.value.subject,
-        body: draft.value.body
-      })
+      const result = await testSendSystemEmailTemplate(template.key, draftToRender(template))
       notice.value = `Test email sent to ${result.sentTo}.`
     } catch (testError) {
       logApiError('admin.system-emails.test-send', testError)
@@ -280,6 +288,21 @@ const testSend = async () => {
     }
   }
 
+  // Which mailbox it goes from; saved at once, like the on/off switch.
+  const changeSender = async (template: SystemEmailTemplate, sender: string) => {
+    if (sender === template.sender) return
+    togglingKey.value = template.key
+    clearMessages()
+    try {
+      replaceTemplate(await updateSystemEmailTemplate(template.key, { sender }))
+    } catch (senderError) {
+      logApiError('admin.system-emails.sender', senderError)
+      error.value = messageFrom('Unable to change who this email is sent from.', senderError)
+    } finally {
+      togglingKey.value = null
+    }
+  }
+
   const toggleGlobal = async (enabled: boolean) => {
     togglingGlobal.value = true
     clearMessages()
@@ -324,6 +347,7 @@ const testSend = async () => {
     save,
     restore,
     toggleEnabled,
+    changeSender,
     toggleGlobal
   }
 }

@@ -71,6 +71,9 @@ const payload = (over: Record<string, unknown> = {}) => ({
   ...over
 })
 
+// What the stubbed upload dialog reports on apply; set per test before mounting.
+let appliedCounts = { overwritten: 2, created: 1 }
+
 const mountPage = async () => {
   const wrapper = mount(ComponentTablePage, {
     global: {
@@ -78,9 +81,11 @@ const mountPage = async () => {
         BulkUploadDialog: {
           props: ['code'],
           emits: ['applied'],
-          template: '<button class="bulk-stub" @click="$emit(\'applied\', 3)">Upload marks</button>'
+          setup: () => ({ counts: appliedCounts }),
+          template: '<button class="bulk-stub" @click="$emit(\'applied\', counts)">Upload marks</button>'
         },
-        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+        teleport: true
       }
     }
   })
@@ -175,16 +180,29 @@ describe('the table', () => {
     expect(wrapper.find('.component-table__empty').text()).toBe('No groups match your search.')
   })
 
+  it('sorting by group name starts ascending and toggles', async () => {
+    const wrapper = await mountPage()
+    const groupSort = wrapper
+      .findAll('.component-table__sort')
+      .find((b) => b.text().includes('Group'))!
+    await groupSort.trigger('click')
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
+    await groupSort.trigger('click')
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    expect(names).toEqual(['BTF-2', 'BTF-1', 'Alpha Team'])
+  })
+
   it('progress sort pins unsubmitted rows last in both directions', async () => {
     const wrapper = await mountPage()
     const progressSort = wrapper
       .findAll('.component-table__sort')
       .find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
     await progressSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[1]!.text())
+    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
   })
 
@@ -199,24 +217,45 @@ describe('the table', () => {
 })
 
 describe('exports and uploads', () => {
-  it('offers the XLSX export only for SAQ', async () => {
-    const wrapper = await mountPage()
-    expect(wrapper.findAll('button').some((b) => /XLSX/.test(b.text()))).toBe(true)
+  const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+    wrapper.findAll('button').find((b) => b.text() === label)!
 
+  it('SAQ has one Download button, its popup offering xlsx, pdf and txt', async () => {
+    const wrapper = await mountPage()
+    // Download, as on the other components, then Upload marks.
+    expect(wrapper.findAll('.component-table__actions button').map((b) => b.text())).toEqual([
+      'Download',
+      'Upload marks'
+    ])
+    expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+
+    await buttonNamed(wrapper, 'Download').trigger('click')
+    const popup = wrapper.find('[aria-label="Download SAQs"]')
+    expect(popup.find('.component-table__formats').findAll('button').map((b) => b.text())).toEqual([
+      'xlsx',
+      'pdf',
+      'txt'
+    ])
+    expect(startJob).not.toHaveBeenCalled()
+
+    // Each starts its export and closes the popup.
+    for (const [label, format] of [['xlsx', 'xlsx'], ['pdf', 'pdf'], ['txt', 'zip']] as const) {
+      await buttonNamed(wrapper, 'Download').trigger('click')
+      await buttonNamed(wrapper, label).trigger('click')
+      expect(startJob).toHaveBeenLastCalledWith('SAQ', format)
+      expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+    }
+  })
+
+  it('the other components download their uploads straight away', async () => {
     rowsMock.mockResolvedValue(
       payload({ component: { ...payload().component, code: 'POSTER' } }) as never
     )
     routeState.params.code = 'POSTER'
-    await flushPromises()
-    expect(wrapper.findAll('button').some((b) => /XLSX/.test(b.text()))).toBe(false)
-  })
-
-  it('starts the export job for the routed component', async () => {
     const wrapper = await mountPage()
-    await wrapper.findAll('button').find((b) => /XLSX/.test(b.text()))!.trigger('click')
-    expect(startJob).toHaveBeenCalledWith('SAQ', 'xlsx')
-    await wrapper.findAll('button').find((b) => /Download/.test(b.text()))!.trigger('click')
-    expect(startJob).toHaveBeenCalledWith('SAQ', 'zip')
+    await buttonNamed(wrapper, 'Download').trigger('click')
+    expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+    expect(startJob).toHaveBeenCalledWith('POSTER', 'zip')
   })
 
   it('a failed export shows the job error banner', async () => {
@@ -226,12 +265,27 @@ describe('exports and uploads', () => {
     expect(wrapper.find('.component-table__banner--error').text()).toBe('disk full')
   })
 
-  it('an applied upload reports the rows written and refreshes the table', async () => {
+  it('an applied upload names overwritten and new groups in a sentence and refreshes the table', async () => {
+    appliedCounts = { overwritten: 2, created: 1 }
     const wrapper = await mountPage()
-    // The dialog child announces how much it wrote.
+    // The dialog child announces how many groups it overwrote and wrote new.
     await wrapper.find('.bulk-stub').trigger('click')
     await flushPromises()
-    expect(wrapper.find('.component-table__banner--ok').text()).toBe('Marks applied - wrote 3 rows.')
+    expect(wrapper.find('.component-table__banner--ok').text()).toBe(
+      'Marks applied. Overwrote existing records for 2 groups and wrote new records for 1 group.'
+    )
     expect(rowsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    [{ overwritten: 1, created: 0 }, 'Marks applied. Overwrote existing records for 1 group.'],
+    [{ overwritten: 0, created: 3 }, 'Marks applied. Wrote new records for 3 groups.'],
+    [{ overwritten: 0, created: 0 }, 'Marks applied. No records changed.']
+  ])('an applied upload of %o reads "%s"', async (counts, message) => {
+    appliedCounts = counts
+    const wrapper = await mountPage()
+    await wrapper.find('.bulk-stub').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.component-table__banner--ok').text()).toBe(message)
   })
 })

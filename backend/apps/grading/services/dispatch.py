@@ -10,7 +10,7 @@ set ``GRADING_JOB_DISPATCH_SYNC=True`` to run inline.
 Job params (dict on ``GradingJob.params``):
 
     {
-      "kind": "component_zip" | "component_xlsx",
+      "kind": "component_zip" | "component_xlsx" | "component_pdf",
       "component_code": "POSTER",
       "group_ids": [1, 2, 3],   # optional; empty/absent = all groups
     }
@@ -30,21 +30,20 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
-from django.contrib.auth import get_user_model
+from apps.groups.models.groups import Groups
+from apps.submissions.models import SubmissionQuestion
+from apps.submissions.services import current_cohort
 
-from apps.groups.models.group_members import GroupMembership
-from apps.users.models import StudentProfile
-
-from ..models import Grade, GradingJob, RubricCriterion, SubmissionComponent
-from .content import feedback_map, submission_entries
-from .docx import (
-    certificate_context,
-    marks_summary_context,
-    render_marks_summary,
-    render_participation_certificate,
+from ..models import (
+    Grade,
+    GradingJob,
+    GroupMarkingCategories,
+    RubricCriterion,
+    SubmissionComponent,
 )
+from .content import feedback_map, submission_entries
 from .xlsx import build_saq_xlsx
-from .zip import _safe, build_submissions_zip
+from .zip import _COMPONENT_LABELS, build_submissions_zip
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +65,9 @@ def _run_job(job_id: int) -> None:
         if not kind:
             raise ValueError(f"job {job_id} missing kind in params")
 
-        # Only the per-component exports need a component; the supervisor
-        # bundle spans all of a supervisor's students.
+        # Only the per-component exports need a component.
         component = entries = None
-        if kind in ("component_zip", "component_xlsx"):
+        if kind in ("component_zip", "component_xlsx", "component_pdf"):
             component_code = job.params.get("component_code")
             if not component_code:
                 raise ValueError(f"job {job_id} missing component_code in params")
@@ -80,9 +78,14 @@ def _run_job(job_id: int) -> None:
             )
 
         if kind == "component_zip":
-            # One component per job — skip the redundant folder layer.
-            payload = build_submissions_zip(entries, component_folder=False)
-            filename = f"{component.code}-bundle.zip"
+            # Flat — one component per bundle, so group file names can't
+            # collide and folders would just be an extra layer.
+            # SAQ's txt download: its answers as text files. Its pdf
+            # download is component_pdf.
+            payload = build_submissions_zip(entries, group_folder=False, saq_text=True)
+            label = _COMPONENT_LABELS.get(component.code, component.code)
+            suffix = "_TXT" if component.code == "SAQ" else ""
+            filename = f"{current_cohort()}_BTF_{label}{suffix}.zip"
         elif kind == "component_xlsx":
             criteria = list(
                 RubricCriterion.objects
@@ -103,17 +106,42 @@ def _run_job(job_id: int) -> None:
                 ).items()
                 if component_id == component.id
             }
-            payload = build_saq_xlsx(entries, criteria, grades_by_pair, feedback_by_group)
-            filename = f"{component.code}-saq.xlsx"
+            categories_by_group = {
+                c.group_id: c
+                for c in GroupMarkingCategories.objects.filter(
+                    group_id__in=[e.group_id for e in entries]
+                )
+            }
+            # Every prompt in form order fixes the qN column order; the export
+            # keeps only the questions some group actually answered.
+            questions = SubmissionQuestion.objects.order_by("order", "id").values_list(
+                "prompt", flat=True
+            )
+            # Each team's challenge year, for the sheet's year column.
+            years_by_group = dict(
+                Groups.objects.filter(id__in=[e.group_id for e in entries]).values_list(
+                    "id", "year"
+                )
+            )
+            payload = build_saq_xlsx(
+                entries,
+                criteria,
+                grades_by_pair,
+                feedback_by_group,
+                categories_by_group,
+                questions=list(questions),
+                years_by_group=years_by_group,
+            )
+            filename = f"{current_cohort()}_BTF_SAQs.xlsx"
+        elif kind == "component_pdf":
+            # SAQ only: each group's answers as its own PDF, zipped, as the
+            # component zip has them.
+            payload = build_submissions_zip(entries, group_folder=False)
+            filename = f"{current_cohort()}_BTF_SAQs_PDF.zip"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.
             payload = build_submissions_zip(submission_entries())
-            filename = "all-submissions.zip"
-        elif kind == "supervisor_bundle":
-            year = int(job.params.get("year"))
-            supervisor_user_id = int(job.params.get("supervisor_user_id"))
-            payload = _build_supervisor_bundle(supervisor_user_id, year)
-            filename = f"supervisor-{supervisor_user_id}-{year}.zip"
+            filename = f"{current_cohort()}_BTF_All.zip"
         else:
             raise ValueError(f"job {job_id} unknown kind {kind!r}")
 
@@ -137,95 +165,6 @@ def _run_job(job_id: int) -> None:
             error=str(exc)[:2000],
             finished_at=timezone.now(),
         )
-
-
-def _build_supervisor_bundle(supervisor_user_id: int, year: int) -> bytes:
-    """Bundle the RELEASED documents for every supervised student.
-
-    Adapts to the two release gates: marks summaries only once marks are out,
-    certificates only once certificates are — matching exactly what students
-    themselves can download at that moment. Runs off the `_grades_payload`
-    helper so the docx context matches ``/me/summary/``.
-    """
-    import io
-    import zipfile
-
-    from ..models import CertificatesRelease, MarksRelease
-    # Local import to avoid a circular between views.student and services.dispatch.
-    from ..views.student import _grades_payload
-
-    include_summaries = MarksRelease.load().released_at is not None
-    certificates_release = CertificatesRelease.load()
-    include_certificates = certificates_release.released_at is not None
-    if not (include_summaries or include_certificates):
-        # Both gates closed between request and run (e.g. an emergency
-        # unrelease) — fail the job loudly rather than produce an empty zip.
-        raise ValueError("nothing is released to bundle")
-
-    User = get_user_model()
-    supervisor = User.objects.filter(pk=supervisor_user_id).first()
-    if supervisor is None:
-        raise ValueError(f"supervisor user {supervisor_user_id} not found")
-    profile = getattr(supervisor, "supervisorprofile", None)
-    if profile is None:
-        raise ValueError(f"user {supervisor_user_id} is not a supervisor")
-
-    students = list(
-        StudentProfile.objects.filter(supervisor=profile).select_related("user")
-    )
-
-    student_groups = {}
-    student_user_ids = [sp.user_id for sp in students]
-    if student_user_ids:
-        for m in (
-            GroupMembership.objects.filter(
-                user_id__in=student_user_ids,
-                left_at__isnull=True,
-                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-            )
-            .select_related("group")
-            .order_by("-joined_at")
-        ):
-            student_groups.setdefault(m.user_id, m.group)
-
-    # Mirrors the student endpoint: excluded finalists get no participation
-    # certificate in the bundle either, so the two downloads never disagree.
-    excluded_group_ids: set[int] = set()
-    if include_certificates and certificates_release.exclude_finalists:
-        from ..models import FinalistFlag
-
-        excluded_group_ids = set(
-            FinalistFlag.objects.filter(
-                group__in=[g.id for g in student_groups.values()]
-            ).values_list("group_id", flat=True)
-        )
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for sp in students:
-            group = student_groups.get(sp.user_id)
-            if group is None:
-                continue
-            folder = _safe(sp.user.get_full_name() or sp.user.email)
-            if include_summaries:
-                components = _grades_payload(group, year)
-                summary_bytes = render_marks_summary(
-                    marks_summary_context(group, year, components)
-                )
-                zf.writestr(f"{folder}/marks-summary.docx", summary_bytes)
-            if include_certificates and group.id not in excluded_group_ids:
-                cert_bytes = render_participation_certificate(
-                    certificate_context(
-                        sp.user.get_full_name() or sp.user.email,
-                        group.group_name,
-                        year,
-                        first_name=sp.user.first_name,
-                        last_name=sp.user.last_name,
-                    )
-                )
-                zf.writestr(f"{folder}/certificate.docx", cert_bytes)
-
-    return buffer.getvalue()
 
 
 def dispatch_job(job: GradingJob) -> None:

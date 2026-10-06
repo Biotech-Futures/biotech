@@ -150,7 +150,9 @@ class ConcurrentSubmitTests(TestCase):
 
     def _make_submittable(self, user):
         client = self._client_for(user)
-        client.put(self.detail_url, {"answers": self._answers()}, format="json")
+        client.put(
+            self.detail_url, {"project_title": "Our Project", "answers": self._answers()}, format="json"
+        )
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
         return client
 
@@ -192,7 +194,8 @@ class ConcurrentSubmitTests(TestCase):
         client = self._make_submittable(self.ada)
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
         after_first = len(mail.outbox)
-        self.assertEqual(after_first, 2)
+        # One confirmation email for the team.
+        self.assertEqual(after_first, 1)
 
         second = self._client_for(self.grace).post(self.submit_url, {}, format="json")
 

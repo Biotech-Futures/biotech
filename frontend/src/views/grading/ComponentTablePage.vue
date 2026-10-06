@@ -36,7 +36,7 @@
               v-model="searchQuery"
               type="search"
               class="component-table__search-input"
-              placeholder="Group name or ID"
+              placeholder="Group name"
               aria-label="Search groups"
             />
           </div>
@@ -46,27 +46,22 @@
           {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
         </p>
         <div class="component-table__actions">
-            <button
-              v-if="payload.component.code === 'SAQ'"
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="job.isBusy.value"
-              @click="startJob('xlsx')"
-            >
-              <i class="fas fa-download" aria-hidden="true"></i> XLSX
-            </button>
+            <!-- SAQ asks which format; the others download their uploads. -->
             <button
               type="button"
               class="btn btn-outline btn-sm"
               :disabled="job.isBusy.value"
-              @click="startJob('zip')"
+              @click="onDownload"
             >
               <i class="fas fa-download" aria-hidden="true"></i> Download
             </button>
-            <BulkUploadDialog :code="code" @applied="onUploadApplied" />
+            <BulkUploadDialog :code="code" :year="payload.year" @applied="onUploadApplied" />
           </div>
       </div>
 
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--ok">
+        Processing files for Download
+      </p>
       <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
@@ -79,14 +74,13 @@
           <thead>
             <tr>
               <th>
-                <button type="button" class="component-table__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
+                <button type="button" class="component-table__sort" @click="setSort('group')">
+                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
                 </button>
               </th>
-              <th>Group</th>
               <th>
                 <button type="button" class="component-table__sort" @click="setSort('time')">
-                  Submitted At <i :class="sortIcon('time')" aria-hidden="true"></i>
+                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>Late</th>
@@ -109,16 +103,15 @@
           </thead>
           <tbody>
             <tr v-if="displayRows.length === 0">
-              <td colspan="8" class="component-table__empty">
+              <td colspan="7" class="component-table__empty">
                 {{ searchQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
               </td>
             </tr>
             <tr v-for="r in displayRows" :key="r.group_id">
-              <td>{{ r.group_id }}</td>
               <td class="component-table__cell--strong">{{ r.group_name }}</td>
               <td>
                 <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB') }}
+                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
                   {{
                     new Date(r.submitted_at).toLocaleTimeString([], {
                       hour: '2-digit',
@@ -180,6 +173,33 @@
       </div>
     </div>
   </div>
+
+  <!-- SAQ's answers, in the format picked. Styled as Upload marks. -->
+  <Teleport to="body">
+    <div v-if="choosingFormat" class="component-table__overlay" @click.self="choosingFormat = false">
+      <div class="component-table__dialog" role="dialog" aria-modal="true" aria-label="Download SAQs">
+        <div class="component-table__dialog-head">
+          <h3 class="component-table__dialog-title">Download Short Answer Questions</h3>
+          <button
+            type="button"
+            class="component-table__dialog-close"
+            aria-label="Close"
+            @click="choosingFormat = false"
+          >
+            &times;
+          </button>
+        </div>
+        <ul class="component-table__formats">
+          <li v-for="option in SAQ_FORMATS" :key="option.format">
+            <button type="button" class="btn btn-outline btn-sm" @click="pickFormat(option.format)">
+              <i class="fas fa-download" aria-hidden="true"></i> {{ option.label }}
+            </button>
+            <span class="component-table__format-desc">{{ option.desc }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -189,6 +209,7 @@ import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
 import {
   fetchComponentRows,
+  type ComponentDownloadFormat,
   type ComponentListPayload,
   type ComponentRow
 } from '@/utils/gradingAPI'
@@ -219,17 +240,51 @@ const searchQuery = ref('')
 const job = useJobPolling()
 const uploadMessage = ref('')
 
-const startJob = (format: 'zip' | 'xlsx') => {
+const startJob = (format: ComponentDownloadFormat) => {
   uploadMessage.value = ''
   void job.start(code.value, format)
 }
 
-const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied - wrote ${written} row${written === 1 ? '' : 's'}.`
+// SAQ's answers come three ways; the other components' uploads one.
+const SAQ_FORMATS: { format: ComponentDownloadFormat; label: string; desc: string }[] = [
+  { format: 'xlsx', label: 'xlsx', desc: "Every group's answers and marks in one spreadsheet." },
+  { format: 'pdf', label: 'pdf', desc: "Each group's answers as its own PDF, zipped." },
+  { format: 'zip', label: 'txt', desc: "Each group's answers as its own text file, zipped." }
+]
+const choosingFormat = ref(false)
+
+const onDownload = () => {
+  if (payload.value?.component.code === 'SAQ') choosingFormat.value = true
+  else startJob('zip')
+}
+
+const pickFormat = (format: ComponentDownloadFormat) => {
+  choosingFormat.value = false
+  startJob(format)
+}
+
+const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
+
+// "Marks applied. Overwrote existing records for 2 groups and wrote new
+// records for 1 group." Counted in groups, like the upload preview.
+const appliedMessage = ({ overwritten, created }: { overwritten: number; created: number }) => {
+  const parts: string[] = []
+  if (overwritten) parts.push(`overwrote existing records for ${groupCount(overwritten)}`)
+  if (created) parts.push(`wrote new records for ${groupCount(created)}`)
+  if (!parts.length) return 'Marks applied. No records changed.'
+  const detail = parts.join(' and ')
+  return `Marks applied. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+}
+
+const onUploadApplied = async (counts: { overwritten: number; created: number }) => {
+  uploadMessage.value = appliedMessage(counts)
   await load()
 }
 
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -300,7 +355,6 @@ const sortIcon = (key: SortKey) => {
 }
 
 const sortValue = (r: ComponentRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.criteria_graded : null
 }
@@ -309,12 +363,11 @@ const displayRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   let rows = [...(payload.value?.rows ?? [])]
   if (query) {
-    rows = rows.filter(
-      (r) => r.group_name.toLowerCase().includes(query) || String(r.group_id).includes(query)
-    )
+    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
   }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -428,8 +481,15 @@ const displayRows = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex: 1 1 180px;
+  flex: 1 1 140px;
+  /* Explicit floor — otherwise the input's intrinsic minimum (~170px)
+     wins and crowds the stats out of the row. */
+  min-width: 155px;
   max-width: 252px;
+}
+
+.component-table__search-field .component-table__search-input {
+  min-width: 0;
 }
 
 .component-table__search-label {
@@ -458,7 +518,9 @@ const displayRows = computed(() => {
 .component-table__search-input {
   width: 100%;
   height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  /* Slim right padding — text clips at the content edge, so a wide pad
+     cuts the placeholder well short of the visible border. */
+  padding: 0.5rem 0 0.5rem 2rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
@@ -471,6 +533,82 @@ const displayRows = computed(() => {
   /* Auto inline margins center the stats between the search box and the
      export buttons. */
   margin: 0 auto;
+}
+
+/* The format picker, as the Upload marks dialog. */
+.component-table__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.component-table__dialog {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px var(--shadow);
+  width: 100%;
+  max-width: 30rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.component-table__dialog-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.component-table__dialog-close:hover {
+  color: var(--charcoal);
+}
+
+.component-table__formats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.component-table__formats li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The buttons line up, whatever their label. */
+.component-table__formats .btn {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+.component-table__format-desc {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .component-table__actions {

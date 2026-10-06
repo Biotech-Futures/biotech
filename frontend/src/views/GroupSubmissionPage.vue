@@ -1,6 +1,12 @@
 <template>
   <!-- Design tokens for this section are declared on .content-area. -->
-  <div class="content-area">
+  <!-- Stray drops are swallowed so the browser never navigates away to the file. -->
+  <div
+    class="content-area"
+    :class="{ 'is-dragging-file': isDraggingFile }"
+    @dragover.prevent
+    @drop.prevent
+  >
     <div v-if="isLoading" class="card">
       <p>Loading submission…</p>
     </div>
@@ -90,21 +96,12 @@
         </button>
       </div>
 
-      <nav class="submission-steps" aria-label="Submission sections">
-        <button
-          v-for="(tab, index) in TABS"
-          :key="tab.key"
-          type="button"
-          class="submission-step"
-          :class="{ 'is-active': activeTab === tab.key }"
-          :aria-current="activeTab === tab.key ? 'step' : undefined"
-          @click="goToStep(index)"
-        >
-          <span class="submission-step__index">{{ index + 1 }}</span>
-          <span class="submission-step__label">{{ tab.label }}</span>
-          <span class="submission-step__state">{{ stepSummary(tab.key) }}</span>
-        </button>
-      </nav>
+      <SubmissionStepStrip
+        :steps="tabs"
+        :active="activeTab"
+        :summary="stepSummary"
+        @select="selectTab"
+      />
 
       <!-- 1. Short-answer questions -->
       <section v-show="activeTab === 'questions'" class="card">
@@ -112,6 +109,21 @@
           <h2 v-if="sectionHeading" class="card-title">{{ sectionHeading }}</h2>
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
+
+        <div class="submission-field">
+          <label class="submission-label" for="project-title">
+            Project title
+            <span class="submission-required" title="Required" aria-label="required">*</span>
+          </label>
+          <input
+            id="project-title"
+            v-model="projectTitle"
+            class="form-control"
+            type="text"
+            :maxlength="PROJECT_TITLE_MAX_LENGTH"
+            :disabled="!isEditable"
+          />
+        </div>
 
         <p v-if="!questions.length" class="submission-muted">
           No questions have been set up yet.
@@ -158,9 +170,20 @@
           </p>
         </header>
 
+        <!-- The slot and its preview form one drop zone. -->
+        <div
+          class="drop-zone"
+          :class="{ 'is-drop-target': dragSlot === 'poster' }"
+          data-testid="drop-poster"
+          @dragover.prevent="onDragOver('poster', $event)"
+          @dragleave="onDragLeave('poster', $event)"
+          @drop.prevent="onDrop('poster', $event)"
+        >
         <div class="submission-slot submission-slot--plain">
           <div class="submission-slot__info">
-            <p class="submission-muted">PDF only · up to {{ maxSizeLabel('poster') }}</p>
+            <p class="submission-muted">
+              PDF only · up to {{ maxSizeLabel('poster') }}<span v-if="isEditable"> · or drop it here</span>
+            </p>
 
             <p v-if="storedFile('poster')" class="submission-file">
               <a :href="downloadUrl('poster')" target="_blank" rel="noopener noreferrer">
@@ -207,20 +230,21 @@
         </div>
 
         <!-- Checks the slot too, since hidden steps stay in the DOM. -->
-        <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.poster }">
+        <article class="preview-panel" :class="{ 'is-collapsed': isFolded('poster') }">
           <div class="preview-header">
             <h2 class="preview-title">
               <button
                 type="button"
                 class="preview-toggle"
-                :aria-expanded="!previewCollapsed.poster"
+                :aria-expanded="!isFolded('poster')"
                 aria-controls="poster-preview-body"
                 data-testid="toggle-poster-preview"
+                :disabled="isPreviewShut('poster')"
                 @click="togglePreview('poster')"
               >
                 <i
                   class="fas preview-toggle__chevron"
-                  :class="previewCollapsed.poster ? 'fa-chevron-right' : 'fa-chevron-down'"
+                  :class="isFolded('poster') ? 'fa-chevron-right' : 'fa-chevron-down'"
                   aria-hidden="true"
                 ></i>
                 Preview
@@ -239,7 +263,7 @@
           </div>
 
           <!-- Hidden rather than destroyed, so reopening does not refetch the document. -->
-          <div v-show="!previewCollapsed.poster" id="poster-preview-body">
+          <div v-show="!isFolded('poster')" id="poster-preview-body">
             <div v-if="isPosterPreviewOpen && isPreviewLoading" class="preview-empty">
               <p>Preparing preview…</p>
             </div>
@@ -255,6 +279,7 @@
             </div>
           </div>
         </article>
+        </div>
       </section>
 
       <!-- 3. Additional materials -->
@@ -265,10 +290,20 @@
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
+          <div
+            class="drop-zone"
+            :class="{ 'is-drop-target': dragSlot === 'report' }"
+            data-testid="drop-report"
+            @dragover.prevent="onDragOver('report', $event)"
+            @dragleave="onDragLeave('report', $event)"
+            @drop.prevent="onDrop('report', $event)"
+          >
           <div class="submission-slot submission-slot--plain">
             <div class="submission-slot__info">
               <h2 class="panel-subheading">Scientific report</h2>
-              <p class="submission-muted">PDF only · up to {{ maxSizeLabel('report') }}</p>
+              <p class="submission-muted">
+                PDF only · up to {{ maxSizeLabel('report') }}<span v-if="isEditable"> · or drop it here</span>
+              </p>
 
               <p v-if="storedFile('report')" class="submission-file">
                 <a :href="downloadUrl('report')" target="_blank" rel="noopener noreferrer">
@@ -307,20 +342,21 @@
             </div>
           </div>
 
-          <article class="preview-panel" :class="{ 'is-collapsed': previewCollapsed.report }">
+          <article class="preview-panel" :class="{ 'is-collapsed': isFolded('report') }">
             <div class="preview-header">
               <h2 class="preview-title">
                 <button
                   type="button"
                   class="preview-toggle"
-                  :aria-expanded="!previewCollapsed.report"
+                  :aria-expanded="!isFolded('report')"
                   aria-controls="report-preview-body"
                   data-testid="toggle-report-preview"
-                  @click="togglePreview('report')"
+                  :disabled="isPreviewShut('report')"
+                @click="togglePreview('report')"
                 >
                   <i
                     class="fas preview-toggle__chevron"
-                    :class="previewCollapsed.report ? 'fa-chevron-right' : 'fa-chevron-down'"
+                    :class="isFolded('report') ? 'fa-chevron-right' : 'fa-chevron-down'"
                     aria-hidden="true"
                   ></i>
                   Preview
@@ -337,7 +373,7 @@
               </a>
             </div>
 
-            <div v-show="!previewCollapsed.report" id="report-preview-body">
+            <div v-show="!isFolded('report')" id="report-preview-body">
               <div v-if="isReportPreviewOpen && isPreviewLoading" class="preview-empty">
                 <p>Preparing preview…</p>
               </div>
@@ -353,14 +389,22 @@
               </div>
             </div>
           </article>
+          </div>
         </section>
 
         <section class="card">
-          <div class="submission-slot submission-slot--plain">
+          <div
+            class="submission-slot submission-slot--plain"
+            :class="{ 'is-drop-target': dragSlot === 'prototype' }"
+            data-testid="drop-prototype"
+            @dragover.prevent="onDragOver('prototype', $event)"
+            @dragleave="onDragLeave('prototype', $event)"
+            @drop.prevent="onDrop('prototype', $event)"
+          >
             <div class="submission-slot__info">
               <h2 class="panel-subheading">Prototype</h2>
               <p class="submission-muted">
-                Any file type · up to {{ maxSizeLabel('prototype') }}
+                Any file type · up to {{ maxSizeLabel('prototype') }}<span v-if="isEditable"> · or drop it here</span>
               </p>
               <p class="submission-muted">
                 If your submission is greater than {{ maxSizeLabel('prototype') }},
@@ -404,7 +448,7 @@
             </div>
           </div>
 
-          <div class="submission-field">
+          <div v-if="isEditable || prototypeUrl" class="submission-field">
             <label class="field-label" for="prototype-url">Prototype link</label>
             <input
               id="prototype-url"
@@ -417,6 +461,7 @@
           </div>
         </section>
       </div>
+
 
       <div class="submission-actions">
 
@@ -433,8 +478,8 @@
             class="btn btn-outline btn-icon"
             type="button"
             :disabled="isBusy || isFirstStep"
-            :aria-label="isFirstStep ? 'Previous step' : `Back: ${TABS[stepIndex - 1].label}`"
-            :title="isFirstStep ? undefined : `Back: ${TABS[stepIndex - 1].label}`"
+            :aria-label="isFirstStep ? 'Previous step' : `Back: ${tabs[stepIndex - 1].label}`"
+            :title="isFirstStep ? undefined : `Back: ${tabs[stepIndex - 1].label}`"
             @click="goToStep(stepIndex - 1)"
           >
             <i class="fas fa-arrow-left" aria-hidden="true"></i>
@@ -443,8 +488,8 @@
             class="btn btn-outline btn-icon"
             type="button"
             :disabled="isBusy || isLastStep"
-            :aria-label="isLastStep ? 'Next step' : `Next: ${TABS[stepIndex + 1].label}`"
-            :title="isLastStep ? undefined : `Next: ${TABS[stepIndex + 1].label}`"
+            :aria-label="isLastStep ? 'Next step' : `Next: ${tabs[stepIndex + 1].label}`"
+            :title="isLastStep ? undefined : `Next: ${tabs[stepIndex + 1].label}`"
             @click="goToStep(stepIndex + 1)"
           >
             <i class="fas fa-arrow-right" aria-hidden="true"></i>
@@ -467,6 +512,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
+import { useFileDragging } from '@/components/submission/useFileDragging'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
@@ -493,6 +540,7 @@ import {
 } from '@/utils/submissionsAPI'
 
 type TabKey = 'questions' | 'poster' | 'extras'
+
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'questions', label: 'Questions' },
@@ -523,6 +571,8 @@ const loadError = ref('')
 
 const answers = reactive<Record<string, string>>({})
 const prototypeUrl = ref('')
+const projectTitle = ref('')
+const PROJECT_TITLE_MAX_LENGTH = 150
 
 /** Answers the server holds, so only changes are sent. */
 let savedAnswers: Record<string, string> = {}
@@ -615,12 +665,19 @@ function shownFile(slot: SubmissionSlot): StoredFile | null {
     ? submission[`submitted_${slot}` as const]
     : submission[slot]
 }
-const stepIndex = computed(() => TABS.findIndex((tab) => tab.key === activeTab.value))
+// The finalist round has a section of its own on the group page.
+const tabs = computed(() => TABS)
+
+function selectTab(key: string) {
+  goToStep(tabs.value.findIndex((tab) => tab.key === key))
+}
+
+const stepIndex = computed(() => tabs.value.findIndex((tab) => tab.key === activeTab.value))
 const isFirstStep = computed(() => stepIndex.value <= 0)
-const isLastStep = computed(() => stepIndex.value >= TABS.length - 1)
+const isLastStep = computed(() => stepIndex.value >= tabs.value.length - 1)
 
 function goToStep(index: number) {
-  const target = TABS[Math.min(Math.max(index, 0), TABS.length - 1)]
+  const target = tabs.value[Math.min(Math.max(index, 0), tabs.value.length - 1)]
   if (!target || target.key === activeTab.value) return
   activeTab.value = target.key
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -636,7 +693,17 @@ const previewCollapsed = reactive<Record<'poster' | 'report', boolean>>({
   report: false,
 })
 
+/** Nothing can be uploaded any more and nothing was, so there is nothing to preview. */
+function isPreviewShut(slot: 'poster' | 'report') {
+  return !isEditable.value && !storedFile(slot)
+}
+
+function isFolded(slot: 'poster' | 'report') {
+  return previewCollapsed[slot] || isPreviewShut(slot)
+}
+
 function togglePreview(slot: 'poster' | 'report') {
+  if (isPreviewShut(slot)) return
   previewCollapsed[slot] = !previewCollapsed[slot]
 }
 
@@ -651,6 +718,13 @@ const saveStateLabel = computed(() => {
 const stage = computed<SubmissionStage>(
   () => detail.value?.submission?.stage ?? 'not_started'
 )
+
+const recordedProjectTitle = computed(() => {
+  const submission = detail.value?.submission
+  return (
+    (showsSubmittedCopy.value ? submission?.submitted_project_title : submission?.project_title) ?? ''
+  )
+})
 
 const CLOSED = 'Submissions are closed.'
 
@@ -735,9 +809,14 @@ const deadlineDetail = computed(() => {
 
 const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-function stepSummary(key: TabKey): string {
+const TITLE_STEP_KEY = '__project_title'
+
+function stepSummary(key: string): string {
   if (key === 'questions') {
-    return describeQuestionStep(answers, questions.value.map((q) => q.key))
+    return describeQuestionStep(
+      { ...answers, [TITLE_STEP_KEY]: projectTitle.value },
+      [TITLE_STEP_KEY, ...questions.value.map((q) => q.key)]
+    )
   }
   if (key === 'poster') return 'Required'
   return 'Optional'
@@ -828,21 +907,22 @@ function unansweredQuestions() {
 
 function submissionBlockers(): { message: string; step: TabKey; focusKey?: string } | null {
   const unanswered = unansweredQuestions()
+  const titleMissing = !projectTitle.value.trim()
   const posterMissing = !shownFile('poster')
 
-  if (unanswered.length && posterMissing) {
+  if (titleMissing || unanswered.length) {
+    const focusKey = titleMissing ? 'project-title' : unanswered[0].key
+    const problem = unanswered.length
+      ? 'Some required questions have not been answered'
+      : 'A project title is required'
     return {
-      message:
-        'Some required questions have not been answered, and no poster has been uploaded.',
+      message: posterMissing
+        ? `${problem}, and no poster has been uploaded.`
+        : unanswered.length
+          ? `${problem}.`
+          : 'A project title is required before the entry can be submitted.',
       step: 'questions',
-      focusKey: unanswered[0].key
-    }
-  }
-  if (unanswered.length) {
-    return {
-      message: 'Some required questions have not been answered.',
-      step: 'questions',
-      focusKey: unanswered[0].key
+      focusKey
     }
   }
   if (posterMissing) {
@@ -855,11 +935,11 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
 }
 
 async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
-  goToStep(TABS.findIndex((tab) => tab.key === blocker.step))
+  goToStep(tabs.value.findIndex((tab) => tab.key === blocker.step))
   if (!blocker.focusKey) return
   await nextTick()
   const field = document.getElementById(blocker.focusKey)
-  if (!(field instanceof HTMLTextAreaElement)) return
+  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) return
   field.focus()
   // jsdom has no layout, so this rejects in tests.
   if (typeof field.scrollIntoView === 'function') {
@@ -923,6 +1003,7 @@ function syncFromDetail() {
     (showsSubmittedCopy.value
       ? submission?.submitted_prototype_url
       : submission?.prototype_url) ?? ''
+  projectTitle.value = recordedProjectTitle.value
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
@@ -943,7 +1024,7 @@ async function load() {
 }
 
 function currentSnapshot() {
-  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value })
+  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value, projectTitle: projectTitle.value })
 }
 
 function formatTime(value: Date) {
@@ -962,7 +1043,8 @@ async function persistDraft() {
     applyResult(
       await saveDraft(groupId.value, {
         answers: sent,
-        prototype_url: prototypeUrl.value
+        prototype_url: prototypeUrl.value,
+        project_title: projectTitle.value
       })
     )
     // Only keys this save sent join the baseline, so a teammate's newer answer is kept.
@@ -1049,7 +1131,8 @@ async function onSubmit() {
     applyResult(
       await saveDraft(groupId.value, {
         answers: sent,
-        prototype_url: prototypeUrl.value
+        prototype_url: prototypeUrl.value,
+        project_title: projectTitle.value
       })
     )
     Object.assign(savedAnswers, sent)
@@ -1066,12 +1149,41 @@ async function onSubmit() {
 async function onFileChosen(slot: SubmissionSlot, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (file) await uploadFile(slot, file)
+  // Cleared so choosing the same file again still fires a change.
+  input.value = ''
+}
 
+const dragSlot = ref<SubmissionSlot | ''>('')
+const isDraggingFile = useFileDragging(() => {
+  dragSlot.value = ''
+})
+
+function onDragOver(slot: SubmissionSlot, event: DragEvent) {
+  if (!isEditable.value || busySlot.value) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  dragSlot.value = slot
+}
+
+function onDragLeave(slot: SubmissionSlot, event: DragEvent) {
+  // Moving onto a child element of the same slot is not leaving it.
+  const next = event.relatedTarget as Node | null
+  if (next && (event.currentTarget as HTMLElement).contains(next)) return
+  if (dragSlot.value === slot) dragSlot.value = ''
+}
+
+function onDrop(slot: SubmissionSlot, event: DragEvent) {
+  dragSlot.value = ''
+  isDraggingFile.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (!file || !isEditable.value || busySlot.value) return
+  uploadFile(slot, file)
+}
+
+async function uploadFile(slot: SubmissionSlot, file: File) {
   // Checked before uploading; the server enforces it too.
   if (file.size > maxSizeFor(slot)) {
     setMessage(`That file is ${formatSize(file.size)}. The limit is ${maxSizeLabel(slot)}.`, true)
-    input.value = ''
     return
   }
 
@@ -1096,8 +1208,6 @@ async function onFileChosen(slot: SubmissionSlot, event: Event) {
   } finally {
     busySlot.value = ''
     uploadPercent.value = 0
-    // Cleared so choosing the same file again still fires a change.
-    input.value = ''
   }
 }
 
@@ -1139,7 +1249,7 @@ watch(now, async () => {
   }
 })
 
-watch([answers, prototypeUrl], scheduleAutosave, { deep: true })
+watch([answers, prototypeUrl, projectTitle], scheduleAutosave, { deep: true })
 
 watch(activeTab, () => {
   // Save on leaving a step rather than waiting for the timer.
@@ -1156,7 +1266,53 @@ watch(groupId, () => {
   load()
 })
 
+const REFRESH_MIN_GAP_MS = 5000
+let lastRefreshAt = 0
+
+/** Picks up an extension or closure made while the page sat open. */
+async function refreshDeadline() {
+  if (!detail.value || isLoading.value || isBusy.value) return
+  if (Date.now() - lastRefreshAt < REFRESH_MIN_GAP_MS) return
+  lastRefreshAt = Date.now()
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    if (!detail.value || isBusy.value) return
+    const changed =
+      latest.deadline.is_open !== detail.value.deadline.is_open ||
+      latest.deadline.closes_at !== detail.value.deadline.closes_at
+    if (!changed) return
+    deadlineRecheckDone = false
+    if (!isOpen.value && latest.deadline.is_open) {
+      // Nothing was editable while closed, so the whole entry can be reloaded safely.
+      detail.value = latest
+      syncFromDetail()
+      await syncPreviewForTab()
+    } else {
+      detail.value = { ...detail.value, deadline: latest.deadline }
+    }
+  } catch {
+    // Best effort: a write still reports an authoritative closure.
+  }
+}
+
+watch(
+  () => route.name,
+  (name, previous) => {
+    if (name === 'group-submission' && previous && previous !== name) refreshDeadline()
+  }
+)
+
+function onPageVisible() {
+  if (document.visibilityState === 'visible' && route.name === 'group-submission') {
+    refreshDeadline()
+  }
+}
+window.addEventListener('focus', onPageVisible)
+document.addEventListener('visibilitychange', onPageVisible)
+
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', onPageVisible)
+  document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)
   if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
   clearInterval(clockTimer)
@@ -1164,548 +1320,4 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
-.content-area {
-
-  /* Aliases for platform tokens, so the dark theme applies automatically. */
-  --panel-bg: var(--white);
-  --panel-border: var(--border-light);
-  --field-bg: var(--white);
-  --field-border: var(--border-light);
-  --field-disabled-bg: var(--bg-light);
-  --notice-bg: var(--bg-light);
-  --muted: var(--text-muted);
-  --body-text: var(--charcoal);
-  --accent: var(--dark-green);
-  /* Muted so an over-limit warning is not signal red. */
-  --error: color-mix(in srgb, var(--danger) 70%, var(--charcoal));
-  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--charcoal));
-
-  /* Tints mixed from platform colours, so they follow the dark theme. */
-  --accent-soft: color-mix(in srgb, var(--dark-green) 12%, transparent);
-  --error-bg: color-mix(in srgb, var(--danger) 10%, transparent);
-  --ok-bg: color-mix(in srgb, var(--dark-green) 10%, transparent);
-
-  color: var(--body-text);
-  /* Overrides main.css's page-level .content-area; the group page supplies padding and scrolling. */
-  background-color: transparent;
-  padding: 0;
-  min-height: 0;
-  overflow: visible;
-}
-
-
-.submission-due {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: auto;
-  font-size: 0.875rem;
-  white-space: nowrap;
-}
-
-.submission-due__date {
-  font-weight: 600;
-  color: var(--body-text);
-}
-
-.submission-due__label {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.status-line {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  padding: 0 0.9rem;
-  margin-bottom: 1.5rem;
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-
-.status-line__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 0.7rem;
-  flex-shrink: 0;
-}
-
-.status-line__state {
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--body-text);
-  letter-spacing: -0.005em;
-}
-
-.status-line__action {
-  margin-left: 0.3rem;
-}
-
-.status-line.is-submitted .status-line__icon {
-  background: var(--accent);
-  color: #fff;
-}
-
-.status-line.is-submitted .status-line__state {
-  color: var(--accent);
-}
-
-.status-line.is-missed .status-line__icon {
-  background: var(--field-disabled-bg);
-  color: var(--muted);
-}
-
-.status-line.is-missed .status-line__state {
-  color: var(--body-text);
-}
-
-.submission-remaining {
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
-.submission-remaining.is-near {
-  background: var(--error-bg);
-  color: var(--error);
-}
-
-.poster-notice {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-left: 4px solid var(--accent);
-  border-radius: 8px;
-  background: var(--notice-bg);
-  color: var(--body-text);
-  font-size: 0.875rem;
-}
-
-.poster-notice__body {
-  margin: 0;
-}
-
-.submission-message {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.65rem 0.95rem;
-  margin-bottom: 1.5rem;
-  border-radius: 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  background: var(--ok-bg);
-  color: var(--ok-text);
-  font-size: 0.9rem;
-}
-
-.submission-message--error {
-  background: var(--error-bg);
-  color: var(--error);
-}
-
-/* Fixed, since the portal scrolls inside the group page. */
-.submission-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: rgba(6, 26, 22, 0.45);
-}
-
-.submission-dialog {
-  background: var(--panel-bg);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px var(--shadow);
-  padding: 1.5rem;
-  max-width: 27rem;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.submission-dialog__title {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--body-text);
-}
-
-.submission-dialog__body {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.submission-dialog__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  margin-top: 0.6rem;
-}
-
-.submission-message__close {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
-  color: inherit;
-  opacity: 0.6;
-  padding: 0 0.2rem;
-}
-
-.submission-message__close:hover {
-  opacity: 1;
-}
-
-.submission-count {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--body-text);
-  margin: 0.3rem 0 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.submission-count.is-over-limit {
-  color: var(--error);
-  font-weight: 600;
-}
-
-/* Step strip */
-.submission-steps {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.submission-step {
-  flex: 1 1 180px;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.7rem 0.9rem;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: var(--body-text);
-  margin-bottom: -1px;
-}
-
-.submission-step:hover {
-  color: var(--accent);
-}
-
-.submission-step.is-active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.submission-step__index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  font-size: 0.8rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.submission-step.is-active .submission-step__index {
-  background: var(--accent);
-  color: #fff;
-}
-
-.submission-step__label {
-  font-weight: 700;
-  font-size: 1rem;
-  flex: 1;
-}
-
-.submission-step__state {
-  font-size: 0.875rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-
-
-.section-head {
-  margin: 0 0 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.card-title {
-  margin: 0;
-}
-
-.section-head__sub {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.55;
-  max-width: 75ch;
-}
-
-.panel-subheading {
-  margin: 0 0 0.3rem;
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.submission-field + .submission-field {
-  margin-top: 2rem;
-}
-
-.submission-label {
-  display: block;
-  font-weight: 600;
-  font-size: 1rem;
-  line-height: 1.35;
-  margin-bottom: 0.55rem;
-}
-
-.field-label {
-  display: block;
-  font-weight: 600;
-  font-size: 0.875rem;
-  color: var(--body-text);
-  margin-bottom: 0.4rem;
-}
-
-.submission-muted {
-  color: var(--muted);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  margin: 0.2rem 0;
-}
-
-/* Set explicitly, as .form-control stays white in the dark theme. */
-.submission-textarea,
-.content-area .form-control {
-  width: 100%;
-  padding: 0.7rem 0.85rem;
-  background: var(--field-bg);
-  color: var(--body-text);
-  border: 1px solid var(--field-border);
-  border-radius: 8px;
-  font: inherit;
-  line-height: 1.55;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.submission-textarea {
-  resize: vertical;
-}
-
-.content-area .form-control::placeholder,
-.submission-textarea::placeholder {
-  color: var(--muted);
-}
-
-.submission-textarea:focus,
-.form-control:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.submission-textarea:disabled {
-  background: var(--field-disabled-bg);
-  color: var(--body-text);
-}
-
-
-.submission-required {
-  color: var(--error);
-  font-weight: 600;
-  margin-left: 0.2rem;
-  cursor: help;
-}
-
-.submission-slot {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.9rem 0;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.submission-slot--plain {
-  border-bottom: none;
-  padding-top: 0;
-}
-
-.submission-slot__actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.submission-hidden-input {
-  display: none;
-}
-
-.submission-file {
-  margin: 0.35rem 0 0;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.submission-template-link {
-  color: var(--accent);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.submission-template-link i {
-  font-size: 0.75em;
-  margin-left: 0.2em;
-}
-
-.preview-panel {
-  background: var(--panel-bg);
-  border-radius: 8px;
-  box-shadow: 0 2px 4px var(--shadow);
-  min-height: 560px;
-  overflow: hidden;
-  margin-top: 1rem;
-}
-
-.preview-panel.is-collapsed {
-  min-height: 0;
-  background: none;
-  box-shadow: none;
-}
-
-.preview-panel.is-collapsed .preview-header {
-  border-bottom: none;
-  padding: 0.75rem 0;
-}
-
-.preview-header {
-  align-items: center;
-  border-bottom: 1px solid var(--panel-border);
-  display: flex;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-}
-
-.preview-title {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.preview-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-.preview-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.preview-toggle__chevron {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.preview-frame {
-  border: 0;
-  display: block;
-  height: 620px;
-  width: 100%;
-}
-
-.preview-empty {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  min-height: 480px;
-  justify-content: center;
-  padding: 2rem;
-  text-align: center;
-}
-
-.preview-empty i {
-  color: var(--accent);
-  font-size: 2rem;
-}
-
-.submission-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  justify-content: flex-end;
-  margin: 1.5rem 0 3rem;
-}
-
-.submission-savestate {
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-
-.submission-steps-nav {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.btn-icon {
-  min-width: 44px;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.btn-icon:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.submission-savestate.is-error {
-  color: var(--error);
-  font-weight: 600;
-}
-</style>
+<style scoped src="../components/submission/submissionPortal.css"></style>

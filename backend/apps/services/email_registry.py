@@ -41,6 +41,9 @@ class EmailType:
     # Locked types can be edited but never switched off, including by the
     # global toggle, so nobody can lock every user out of the platform.
     locked: bool = False
+    # Which of settings.EMAIL_SENDERS it goes from until System Emails picks
+    # another.
+    default_sender: str = "info"
 
     def tag(self, name: str) -> Optional[MergeTag]:
         for merge_tag in self.merge_tags:
@@ -113,6 +116,8 @@ EMAIL_TYPES = (
         description="Scheduled summary of unread group chat messages.",
         default_subject="You have {{ unread_summary }} on {{ brand_connect }}",
         default_template="emails/unread_messages.html",
+        # Its own mailbox, under its own sending limit.
+        default_sender="connect",
         merge_tags=(
             _FIRST_NAME,
             MergeTag("unread_summary", "Unread count with wording, e.g. \"3 unread messages\"", "3 unread messages", "UNREAD_SUMMARY"),
@@ -212,11 +217,87 @@ EMAIL_TYPES = (
     EmailType(
         key="finalist_notification",
         name="Finalist notification",
-        description="Sent to a group's members when an admin marks the group as a finalist.",
-        default_subject="Congratulations — {{ group_name }} is a {{ brand_name }} finalist",
+        description="Sent to finalist teams from Notify Finalists.",
+        default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
         default_template="emails/finalist_notification.html",
         merge_tags=(
             MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("confirm_by", "Confirm attendance by", "Sunday, 4 October 2026", "CONFIRM_BY"),
+            MergeTag("slides_due", "Slides due", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="nonfinalist_invitation",
+        name="Non-finalist invitation",
+        description="Sent to teams not picked as finalists, from Notify Nonfinalist.",
+        default_subject="Thank you for your submission – Invitation to the Symposium",
+        default_template="emails/nonfinalist_invitation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="nonsubmission_notice",
+        name="Non-submission notice",
+        description="Sent to teams that didn't submit, from Notify Nonfinalist.",
+        default_subject="{{ brand_name }} – No Submission Received",
+        default_template="emails/nonsubmission_notice.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="results_team",
+        name="Results (To groups)",
+        description="Sent to each group's students and mentors from Release Results.",
+        default_subject="Your {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_team.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "survey_url",
+                "Feedback survey link",
+                "https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
+                "SURVEY_URL",
+            ),
+            MergeTag("survey_closes", "Survey closes", "30th of November", "SURVEY_CLOSES"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="results_supervisor",
+        name="Results (To supervisors)",
+        description="Sent to their supervisors from Release Results.",
+        default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_supervisor.html",
+        merge_tags=(
+            MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
     ),

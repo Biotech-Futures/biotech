@@ -107,6 +107,20 @@ export function formatAnnouncementDateAU(value: string | Date): string {
   })
 }
 
+/** Sydney's clock on a day ("YYYY-MM-DD"): AEDT in daylight saving
+ *  (UTC+11), else AEST (UTC+10). */
+export function sydneyClockOn(isoDate: string): { name: 'AEDT' | 'AEST'; daylight: boolean; offset: string } {
+  // Midday in Sydney that day, well clear of a clock change in the small hours.
+  const at = new Date(`${isoDate}T02:00:00Z`)
+  const zone = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', timeZoneName: 'longOffset' })
+    .formatToParts(at)
+    .find((part) => part.type === 'timeZoneName')?.value
+  const daylight = zone === 'GMT+11:00'
+  return daylight
+    ? { name: 'AEDT', daylight, offset: 'UTC+11' }
+    : { name: 'AEST', daylight, offset: 'UTC+10' }
+}
+
 export const DEFAULT_TIME_ZONE = 'UTC'
 
 const toValidDate = (value: string | Date | null | undefined): Date | null => {

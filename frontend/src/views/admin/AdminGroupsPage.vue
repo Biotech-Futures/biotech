@@ -187,6 +187,14 @@
           <button type="button" class="btn btn-sm btn-outline" @click.stop="openDetail(toGroup(row))">
             View
           </button>
+          <!-- The group's own page, as its members see it: tasks, chat and submission. -->
+          <RouterLink
+            :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
+            class="btn btn-sm btn-outline"
+            @click.stop
+          >
+            Open
+          </RouterLink>
           <button type="button" class="btn btn-sm btn-outline" @click.stop="openRename(toGroup(row))">
             Rename
           </button>
@@ -215,7 +223,7 @@
       <label class="admin-groups__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
         <span>
-          Force delete — also permanently delete any hosted workshops linked to these groups.
+          Force delete - also permanently delete any hosted workshops linked to these groups.
           Required to remove groups that still have one.
         </span>
       </label>
@@ -589,7 +597,7 @@ const runBulkDelete = async () => {
     if (isSelectAll && (stalled || handled < expectedCount)) {
       reasons.push(
         `Deleted ${deletedIds.length} of ${expectedCount} ${expectedCount === 1 ? 'group' : 'groups'}. ` +
-          'The matching set changed since you reviewed it — close this dialog, refresh, and re-check the rest.'
+          'The matching set changed since you reviewed it - close this dialog, refresh, and re-check the rest.'
       )
     }
 

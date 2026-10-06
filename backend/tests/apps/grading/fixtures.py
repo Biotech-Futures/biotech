@@ -2,54 +2,30 @@
 
 Split out of the original monolithic test module: every test file in this
 package builds on ``_GradingFixture`` (one group with a submitted entry, the
-seeded components, SAQ + POSTER rubrics, a staff user) and the docx template
-helpers below.
+seeded components, SAQ + POSTER rubrics, a staff user). The document
+templates' helpers are Management's (tests/apps/management/fixtures.py).
 """
-import io
+from datetime import datetime, timedelta
 from decimal import Decimal
 from importlib import import_module
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils import timezone
 
-from apps.grading.models import (
-    GradingSettings,
-    Rubric,
-    RubricCriterion,
-    SubmissionComponent,
-)
+from apps.grading.models import Rubric, RubricCriterion, SubmissionComponent
 from apps.groups.models.groups import Groups
 from apps.submissions.models import Submission, SubmissionQuestion
+from apps.submissions.services import current_cohort
 from apps.users.models import User
 
 
-def _build_docx(text: str) -> bytes:
-    """A one-paragraph docx for template fixtures."""
-    from docx import Document as NewDocument
-
-    doc = NewDocument()
-    doc.add_paragraph(text)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-def _seed_doc_templates():
-    """Upload token templates — no fallbacks ship in the repo any more."""
-    row = GradingSettings.load()
-    row.marks_summary_template = SimpleUploadedFile(
-        "marks.docx",
-        _build_docx(
-            "Team {{TeamCode}} S1 {{S1}} ({{S1Comment}}) total {{CombinedTotal}} "
-            "poster: {{PosterComment}}"
-        ),
-    )
-    row.certificate_template = SimpleUploadedFile(
-        "cert.docx", _build_docx("{{firstName}} {{lastName}} — {{projectTitle}}")
-    )
-    row.save()
-    return row
-
+def just_closed(hours: float = 24) -> datetime:
+    """A closing time ``hours`` ago, but never before this year began. The
+    competition year comes from the deadline, so on New Year's Day "a day ago"
+    would make last year the cohort, not this year's teams made in the test."""
+    now = timezone.now()
+    start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    return max(now - timedelta(hours=hours), start_of_year)
 
 class _GradingFixture(TestCase):
     """Shared setup: one group with a submitted entry (SAQ answers + a poster),
@@ -78,8 +54,11 @@ class _GradingFixture(TestCase):
         cls.saq = SubmissionComponent.objects.get(code="SAQ")
         cls.poster = SubmissionComponent.objects.get(code="POSTER")
 
-        cls.saq_rubric = Rubric.objects.create(component=cls.saq, year=2026, active=True)
-        cls.poster_rubric = Rubric.objects.create(component=cls.poster, year=2026, active=True)
+        # This year's rubrics, as the app looks them up: never a fixed year,
+        # which would stop matching once the calendar moves on.
+        cls.year = current_cohort()
+        cls.saq_rubric = Rubric.objects.create(component=cls.saq, year=cls.year, active=True)
+        cls.poster_rubric = Rubric.objects.create(component=cls.poster, year=cls.year, active=True)
 
         cls.saq_c1 = RubricCriterion.objects.create(rubric=cls.saq_rubric, name="Content", max_mark=Decimal("10.00"), order=10)
         cls.saq_c2 = RubricCriterion.objects.create(rubric=cls.saq_rubric, name="Clarity", max_mark=Decimal("5.00"), order=20)

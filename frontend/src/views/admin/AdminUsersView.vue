@@ -124,7 +124,7 @@
       <label class="admin-users__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
         <span>
-          Force delete — also permanently delete each user's chat messages, uploaded resources,
+          Force delete - also permanently delete each user's chat messages, uploaded resources,
           workshops, and match runs. Required to remove accounts that have any activity.
         </span>
       </label>
@@ -159,7 +159,7 @@
       <label class="admin-users__force-toggle">
         <input v-model="singleDelete.force" type="checkbox" />
         <span>
-          Force delete — also permanently delete this user's chat messages, uploaded resources,
+          Force delete - also permanently delete this user's chat messages, uploaded resources,
           workshops, and match runs. Required to remove accounts that have any activity.
         </span>
       </label>

@@ -12,24 +12,28 @@ call ``build_message`` per recipient inside their existing send loops.
 
 Admin-written text is never passed to Django's template engine: only merge tags
 listed in the email registry are substituted, with their values HTML-escaped.
-Bodies are expected to be sanitised when they are saved (and before previewing).
+Bodies are expected to be sanitised with ``clean_email_body`` when they are
+saved (and before previewing).
 """
 
 import html as html_lib
 import logging
 import re
 from datetime import date, datetime
+from email.mime.base import MIMEBase
 from typing import NamedTuple, Optional
 
+import nh3
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail.message import SafeMIMEMultipart
 from django.db import DatabaseError
 from django.template.loader import render_to_string
 from django.utils import dateformat
 from django.utils.html import strip_tags
 
 from .email_branding import attach_inline_logo, brand_context
-from .email_registry import MERGE_TAG_RE, get_email_type
+from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
 
@@ -40,6 +44,71 @@ SKIPPED = "skipped"
 FAILED = "failed"
 
 WRAPPER_TEMPLATE = "emails/system_wrapper.html"
+
+
+class Sender(NamedTuple):
+    """A mailbox the site can send from (settings.EMAIL_SENDERS)."""
+
+    key: str
+    # "info@biotechfutures.org": shown on System Emails, and where mail that
+    # can't be delivered comes back to.
+    address: str
+    # The From header, e.g. "BIOTech Futures <info@biotechfutures.org>".
+    from_email: str
+    # get_connection arguments that sign in as it; empty for the default account.
+    connection: dict
+
+
+def _login(prefix: Optional[str]) -> dict:
+    """get_connection arguments for the login settings named ``prefix``, e.g.
+    EMAIL_CONNECT_HOST_USER; none for the default account."""
+    if not prefix:
+        return {}
+    return {
+        "host": getattr(settings, f"{prefix}HOST"),
+        "port": getattr(settings, f"{prefix}PORT"),
+        "username": getattr(settings, f"{prefix}HOST_USER"),
+        "password": getattr(settings, f"{prefix}HOST_PASSWORD"),
+        "use_ssl": getattr(settings, f"{prefix}USE_SSL"),
+    }
+
+
+def senders() -> list[Sender]:
+    """Every mailbox the site can send from, as System Emails offers them,
+    read from their settings when asked (see settings.EMAIL_SENDERS)."""
+    return [
+        Sender(
+            key,
+            getattr(settings, sender["address"]),
+            getattr(settings, sender["from_email"]),
+            _login(sender.get("login")),
+        )
+        for key, sender in settings.EMAIL_SENDERS.items()
+    ]
+
+
+def _sender(key: str) -> Optional[Sender]:
+    return next((sender for sender in senders() if sender.key == key), None)
+
+
+def sender_for(key: str) -> Sender:
+    """The mailbox email ``key`` goes from: the one picked on System Emails,
+    else its type's default (info@, or connect@ for the chat digest). A key
+    System Emails doesn't know goes from the first sender, info@."""
+    if not is_known_email_type(key):
+        return senders()[0]
+    row = _load_override(key)
+    return (
+        (_sender(row.sender) if row is not None and row.sender else None)
+        or _sender(get_email_type(key).default_sender)
+        or senders()[0]
+    )
+
+
+def sender_connection(sender: Sender, **kwargs):
+    """A mail connection signed in as ``sender``'s mailbox: Hostinger only
+    sends as the signed-in mailbox or its aliases."""
+    return get_connection(**{**sender.connection, **kwargs})
 
 
 class RenderedEmail(NamedTuple):
@@ -82,6 +151,45 @@ def is_email_enabled(key: str) -> bool:
     except DatabaseError:
         logger.exception("system_email.toggle_check_failed key=%s", key)
         return True
+
+
+# --- admin-written bodies --------------------------------------------------
+
+# The editor's box and button blocks, and its tables' cells, carry inline
+# styles, since email clients ignore most stylesheets. Only these properties
+# are kept: enough to draw a box, a button or a table's lines, and nothing
+# that can load a URL or move content around.
+EMAIL_STYLE_PROPERTIES = frozenset({
+    "background-color", "border", "border-collapse", "border-radius", "color", "display",
+    "font-family", "font-size", "font-weight", "letter-spacing", "line-height",
+    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "text-align", "text-decoration",
+})
+
+_BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
+_BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
+_BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
+# Tables keep their lines and cell padding.
+for _tag in ("table", "th", "td"):
+    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {"style"}
+
+
+def clean_email_body(html: str) -> str:
+    """Sanitise an admin-written body before it is saved or previewed.
+
+    Strips scripts, event handlers and javascript: URLs like a plain
+    ``nh3.clean``, but keeps the editor's boxes and buttons: their classes
+    (``cta-link`` also makes a button full width on phones) and their styles,
+    and its tables' borders and padding, all limited to
+    ``EMAIL_STYLE_PROPERTIES``.
+    """
+    return nh3.clean(
+        html or "",
+        attributes=_BODY_ATTRIBUTES,
+        allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+        filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
+    )
 
 
 # --- merge tags ------------------------------------------------------------
@@ -229,16 +337,46 @@ def render_system_email(
 
 # --- sending ---------------------------------------------------------------
 
+class _MessageWithFiles(EmailMultiAlternatives):
+    """An email carrying files as well as the inline logo.
+
+    Django puts every attachment in one container, so the files would sit
+    beside the logo inside multipart/related, where some clients don't list
+    them as attachments. Here the email and its logo stay together in
+    multipart/related, and that and the files go in multipart/mixed.
+    """
+
+    def _create_attachments(self, msg):
+        encoding = self.encoding or settings.DEFAULT_CHARSET
+        inline = [a for a in self.attachments if isinstance(a, MIMEBase)]
+        files = [a for a in self.attachments if not isinstance(a, MIMEBase)]
+        if inline:
+            related = SafeMIMEMultipart(_subtype="related", encoding=encoding)
+            related.attach(msg)
+            for part in inline:
+                related.attach(part)
+            msg = related
+        if files:
+            mixed = SafeMIMEMultipart(_subtype="mixed", encoding=encoding)
+            mixed.attach(msg)
+            for file in files:
+                mixed.attach(self._create_attachment(*file))
+            msg = mixed
+        return msg
+
+
 def build_message(
     rendered: RenderedEmail,
     to,
     *,
     from_email: Optional[str] = None,
     connection=None,
+    files=(),
 ) -> EmailMultiAlternatives:
-    """An ``EmailMultiAlternatives`` for one rendered email, with the logo attached."""
+    """An ``EmailMultiAlternatives`` for one rendered email, with the logo
+    attached, and ``files`` ((filename, content, mimetype) each) if given."""
     recipients = [to] if isinstance(to, str) else list(to)
-    message = EmailMultiAlternatives(
+    message = (_MessageWithFiles if files else EmailMultiAlternatives)(
         subject=rendered.subject,
         body=rendered.text,
         from_email=from_email or settings.DEFAULT_FROM_EMAIL,
@@ -247,6 +385,8 @@ def build_message(
     )
     message.attach_alternative(rendered.html, "text/html")
     attach_inline_logo(message)
+    for filename, content, mimetype in files:
+        message.attach(filename, content, mimetype)
     return message
 
 
@@ -272,6 +412,10 @@ def send_system_email(
 
     # Rendered here, not in the pool: the worker thread must do no ORM work.
     rendered = render_system_email(key, context, default_text=default_text)
+    if from_email is None and connection is None:
+        # From the mailbox picked for it on System Emails, signed in as it.
+        sender = sender_for(key)
+        from_email, connection = sender.from_email, sender_connection(sender)
     message = build_message(rendered, to, from_email=from_email, connection=connection)
 
     if background:

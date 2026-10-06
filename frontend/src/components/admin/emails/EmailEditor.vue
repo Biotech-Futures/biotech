@@ -48,42 +48,77 @@
     >
       <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
       These are the current built-in contents. Save to switch to your custom wording.
+      Saving your own wording replaces the built-in design: boxes and buttons are kept, but
+      other styling, such as coloured or smaller text, becomes plain.
     </p>
 
-    <div class="email-editor__field">
-      <label class="email-editor__label" for="email-subject">Subject</label>
+    <!-- The mailbox it goes from: only those the server can sign in to, since
+         Hostinger rejects a From that isn't the signed-in mailbox or one of
+         its aliases. Saved at once, like the on/off switch. -->
+    <div class="editor__field">
+      <label class="editor__label" :for="`${emailTemplate.key}-sender`">Send from</label>
+      <select
+        :id="`${emailTemplate.key}-sender`"
+        class="editor__title email-editor__sender"
+        :value="emailTemplate.sender"
+        :disabled="busy"
+        @change="emit('change-sender', ($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="sender in emailTemplate.senders" :key="sender.key" :value="sender.key">
+          {{ sender.address }}
+        </option>
+      </select>
+    </div>
+
+    <!-- Tags go into whichever of Subject or Body was used last. -->
+    <div class="editor__field">
+      <span class="editor__label">Placeholders</span>
+      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
+    </div>
+
+    <div class="editor__field">
+      <label class="editor__label" for="template-subject">Subject</label>
+      <!-- Not a login field: an id with "email" in it, and no autocomplete
+           hint, made password managers (Bitwarden) offer to fill it. -->
       <input
-        id="email-subject"
+        id="template-subject"
         ref="subjectInput"
         type="text"
-        class="email-editor__subject"
+        autocomplete="off"
+        data-bwignore
+        data-1p-ignore
+        data-lpignore="true"
+        class="editor__title"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"
-        :disabled="busy"
+        :disabled="saving || restoring"
         maxlength="255"
         @focus="activeField = 'subject'"
         @input="emit('update:subject', ($event.target as HTMLInputElement).value)"
       />
     </div>
 
-    <div class="email-editor__field">
-      <label class="email-editor__label">Body</label>
-      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
+    <div class="editor__field">
+      <label class="editor__label">Body</label>
+      <!-- Like Subject, read-only only while its wording is being written: a
+           read-only editor drops its toolbar, which flashed on quick saves like
+           Send from. -->
       <div class="email-editor__body" @focusin="activeField = 'body'">
         <RichEditor
           ref="bodyEditor"
           :model-value="body"
           email-mode
           compact
-          :read-only="busy"
+          :link-placeholders="linkPlaceholders"
+          :read-only="saving || restoring"
           @update:model-value="emit('update:body', $event)"
           @focus="activeField = 'body'"
         />
       </div>
     </div>
 
-    <footer class="email-editor__actions">
-      <div class="email-editor__actions-primary">
+    <footer class="editor__actions">
+      <div class="editor__actions-primary">
         <button
           type="button"
           class="btn btn-primary"
@@ -106,7 +141,7 @@
         </button>
       </div>
 
-      <div class="email-editor__actions-secondary">
+      <div class="editor__actions-secondary">
         <button type="button" class="btn btn-outline" :disabled="busy" @click="emit('test-send')">
           <i v-if="testing" class="fas fa-spinner fa-spin" aria-hidden="true"></i>
           <i v-else class="fas fa-paper-plane" aria-hidden="true"></i>
@@ -118,8 +153,9 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
+import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import { mergeTagToken, type SystemEmailMergeTag, type SystemEmailTemplate } from '@/utils/systemEmail'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
@@ -134,6 +170,11 @@ const props = defineProps<{
   testing: boolean
   restoring: boolean
 }>()
+
+/** This email's placeholders that hold a link, offered in the link dialog. */
+const linkPlaceholders = computed(() =>
+  props.emailTemplate.mergeTags.filter((tag) => isLinkPlaceholder(tag.name)).map((tag) => mergeTagToken(tag.name))
+)
 
 const lockReason = () => {
   if (!props.emailTemplate.locked) return ''
@@ -165,6 +206,7 @@ const emit = defineEmits<{
   (e: 'update:subject', value: string): void
   (e: 'update:body', value: string): void
   (e: 'toggle-enabled', enabled: boolean): void
+  (e: 'change-sender', sender: string): void
   (e: 'save'): void
   (e: 'restore'): void
   (e: 'test-send'): void
@@ -294,11 +336,19 @@ const insertIntoSubject = (token: string) => {
   min-width: 3.5rem;
 }
 
+/* As wide as its addresses, not the whole column. */
+.email-editor__sender {
+  width: auto;
+  min-width: 16rem;
+  background: var(--surface-elevated, #fff);
+}
+
 .email-editor__last-edited {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  margin: 0.25rem 0 0;
+  /* The same space as below it, the editor's 1rem gap. */
+  margin: 1rem 0 0;
   font-size: 0.75rem;
   color: #6b7280;
 }
@@ -320,49 +370,119 @@ const insertIntoSubject = (token: string) => {
   color: #6b7280;
 }
 
-.email-editor__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+/* Dark theme: the note, subject and body editor take the grey other pages
+   give their boxes, with light text. */
+:root[data-theme='dark'] .email-editor__title {
+  color: var(--charcoal);
 }
 
-.email-editor__label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #6b7280;
+:root[data-theme='dark'] .email-editor__switch-label {
+  color: var(--text-muted);
 }
 
-.email-editor__subject {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  color: #111827;
+:root[data-theme='dark'] .email-editor__note--muted {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-color: var(--border-light);
 }
 
-.email-editor__subject:focus {
-  outline: none;
-  border-color: var(--dark-green);
-  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
+:root[data-theme='dark'] .email-editor__note--muted {
+  color: var(--text-muted);
 }
 
-.email-editor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e5e7eb;
+:root[data-theme='dark'] .email-editor :deep(.rich-editor-container) {
+  background-color: var(--surface-elevated);
+  border-color: var(--border-light);
 }
 
-.email-editor__actions-primary,
-.email-editor__actions-secondary {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+:root[data-theme='dark'] .email-editor :deep(.rich-editor-toolbar) {
+  background-color: var(--surface-elevated);
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn) {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn:hover:not(:disabled)),
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item:hover) {
+  background-color: var(--border-light);
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-btn.active),
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item.active) {
+  background-color: rgba(96, 165, 250, 0.18);
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.toolbar-sep),
+:root[data-theme='dark'] .email-editor :deep(.email-look-sep) {
+  background-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.heading-dropdown-menu) {
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.dropdown-item) {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.table-context-bar) {
+  background-color: rgba(96, 165, 250, 0.12);
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.table-context-heading),
+:root[data-theme='dark'] .email-editor :deep(.table-context-title),
+:root[data-theme='dark'] .email-editor :deep(.table-action-btn:not(.danger)) {
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.raw-html-textarea),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h1),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h2),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h3),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h4) {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror blockquote) {
+  color: var(--text-muted);
+  border-left-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror a) {
+  color: var(--info);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror code),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th) {
+  background-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror td) {
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror hr) {
+  border-top-color: var(--border-light);
+}
+
+/* The email's own boxes keep their light backgrounds, so their text stays
+   dark and their links blue. */
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box) {
+  color: #1f2937;
+}
+
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box a:not([style])) {
+  color: #2563eb;
 }
 </style>
+
+<!-- The title box, fields and button bar the announcement editors share. -->
+<style scoped src="../editorForm.css"></style>

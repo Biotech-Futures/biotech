@@ -6,7 +6,6 @@ import re
 from django.db.models import Q, Exists, OuterRef, F
 from django.utils import timezone
 from django.db import transaction
-from django.core.mail import get_connection
 from django.conf import settings
 
 from apps.announcements.models import (
@@ -23,6 +22,8 @@ from apps.services.system_email import (
     build_message,
     is_email_enabled,
     render_system_email,
+    sender_connection,
+    sender_for,
 )
 
 if TYPE_CHECKING:
@@ -76,6 +77,8 @@ class CreateAnnouncementInput(TypedDict, total=False):
     visibility_scope: str
     role_ids: Optional[List[int]]
     group_ids: Optional[List[int]]
+    # People targeted one by one; New Announcement doesn't set them.
+    user_ids: Optional[List[int]]
     send_email: bool
 
 
@@ -85,6 +88,8 @@ class UpdateAnnouncementInput(TypedDict, total=False):
     visibility_scope: Optional[str]
     role_ids: Optional[List[int]]
     group_ids: Optional[List[int]]
+    # People targeted one by one; New Announcement doesn't set them.
+    user_ids: Optional[List[int]]
     send_email: bool
 
 
@@ -124,13 +129,14 @@ def _resolve_recipient_emails(
 
     audience_rows = AnnouncementAudience.objects.filter(
         announcement_id=announcement_id
-    ).values_list("role_id", "group_id")
+    ).values_list("role_id", "group_id", "user_id")
 
     if not audience_rows:
         return []
 
     role_ids = [row[0] for row in audience_rows if row[0] is not None]
     group_ids = [row[1] for row in audience_rows if row[1] is not None]
+    user_ids = [row[2] for row in audience_rows if row[2] is not None]
 
     emails: set = set()
     now = timezone.now()
@@ -168,6 +174,9 @@ def _resolve_recipient_emails(
         )
         emails.update(group_emails)
 
+    if user_ids:
+        emails.update(User.objects.filter(is_active=True, id__in=user_ids).values_list("email", flat=True))
+
     return list(emails)
 
 
@@ -176,26 +185,37 @@ def _sync_audience(
     announcement_id: int,
     role_ids: Optional[List[int]] = None,
     group_ids: Optional[List[int]] = None,
+    user_ids: Optional[List[int]] = None,
 ) -> str:
     """
     Sync audience targeting for an announcement.
     Returns the resolved visibility_scope string.
+
+    ``user_ids`` of None keeps the people it already targets one by one:
+    New Announcement doesn't show them, so saving there mustn't drop them
+    (and make it global).
     """
-    AnnouncementAudience.objects.filter(announcement_id=announcement_id).delete()
+    rows = AnnouncementAudience.objects.filter(announcement_id=announcement_id)
+    if user_ids is None:
+        rows = rows.filter(user__isnull=True)
+    rows.delete()
 
     role_ids = [r for r in (role_ids or []) if r]
     group_ids = [g for g in (group_ids or []) if g]
+    user_ids = list(dict.fromkeys(u for u in (user_ids or []) if u))
 
     records = []
     for rid in role_ids:
         records.append(AnnouncementAudience(announcement_id=announcement_id, role_id=rid))
     for gid in group_ids:
         records.append(AnnouncementAudience(announcement_id=announcement_id, group_id=gid))
+    for uid in user_ids:
+        records.append(AnnouncementAudience(announcement_id=announcement_id, user_id=uid))
 
     if records:
         AnnouncementAudience.objects.bulk_create(records)
 
-    if role_ids or group_ids:
+    if AnnouncementAudience.objects.filter(announcement_id=announcement_id).exists():
         return "role_based"
     return "global"
 
@@ -430,7 +450,7 @@ def create_announcement(
         author_user_id=resolved_author_id,
     )
 
-    resolved_scope = _sync_audience(announcement.id, role_ids, group_ids)
+    resolved_scope = _sync_audience(announcement.id, role_ids, group_ids, input_data.get("user_ids"))
     announcement.visibility_scope = resolved_scope
     announcement.save(update_fields=["visibility_scope"])
 
@@ -465,12 +485,12 @@ def update_announcement(
     if "body" in input_data and input_data["body"] is not None:
         announcement.body = input_data["body"]
 
-    audience_fields = {"role_ids", "group_ids"}
+    audience_fields = {"role_ids", "group_ids", "user_ids"}
     if audience_fields.intersection(input_data.keys()):
         role_ids = input_data.get("role_ids") or []
         group_ids = input_data.get("group_ids") or []
 
-        resolved_scope = _sync_audience(announcement_id, role_ids, group_ids)
+        resolved_scope = _sync_audience(announcement_id, role_ids, group_ids, input_data.get("user_ids"))
         announcement.visibility_scope = resolved_scope
 
     announcement.save()
@@ -580,7 +600,9 @@ def _deliver_announcement_to_recipients(
         # ``fail_silently=False`` ensures SMTP / DNS / auth errors raise
         # instead of being swallowed. We catch them ourselves so we can
         # still persist a useful delivery row.
-        connection = get_connection(fail_silently=False)
+        # From the mailbox picked on System Emails, signed in as it.
+        sender = sender_for("announcement")
+        connection = sender_connection(sender, fail_silently=False)
     except Exception as exc:  # extremely unlikely — backend resolution failed
         connection_error = _sanitize_error(exc)
         logger.exception(
@@ -606,7 +628,7 @@ def _deliver_announcement_to_recipients(
 
     try:
         for addr in emails:
-            message = build_message(rendered, addr, connection=connection)
+            message = build_message(rendered, addr, from_email=sender.from_email, connection=connection)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
@@ -761,7 +783,7 @@ def send_announcement_email(
     if succeeded == 0:
         status_value = AnnouncementDelivery.Status.FAILED
         msg = (
-            "Announcement send failed — no recipients accepted the message"
+            "Announcement send failed - no recipients accepted the message"
             if failure_count
             else "Announcement send failed"
         )

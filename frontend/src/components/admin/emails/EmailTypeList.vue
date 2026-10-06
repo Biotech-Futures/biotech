@@ -8,6 +8,10 @@
         class="email-type-list__search-input"
         placeholder="Search emails"
         aria-label="Search email types"
+        autocomplete="off"
+        data-bwignore
+        data-1p-ignore
+        data-lpignore="true"
       />
     </div>
 
@@ -190,5 +194,21 @@ const filtered = computed(() => {
 .email-type-list__status.is-off {
   color: #b91c1c;
   background: #fee2e2;
+}
+
+/* Dark theme: grey boxes with light text, as other pages' inputs. */
+:root[data-theme='dark'] .email-type-list__search,
+:root[data-theme='dark'] .email-type-list__item:not(.is-selected):not(:hover) {
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .email-type-list__search-input,
+:root[data-theme='dark'] .email-type-list__name {
+  color: var(--charcoal);
+}
+
+:root[data-theme='dark'] .email-type-list__description {
+  color: var(--text-muted);
 }
 </style>

@@ -12,29 +12,33 @@ generic zip.
 """
 from __future__ import annotations
 
+import logging
 import mimetypes
 
 from django.core.files.storage import default_storage
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from apps.submissions.services import current_cohort
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..models import GradingJob, SubmissionComponent
-from ..permissions import IsGrader
 from ..services import content
 from ..services.dispatch import dispatch_job
-from ..services.zip import build_submissions_zip, zip_filename
+from ..services.zip import _COMPONENT_LABELS, build_submissions_zip, safe_name
+
+logger = logging.getLogger(__name__)
 
 
 class GroupDownloadView(APIView):
     """GET /api/v1/grading/groups/<id>/download/?component=all|<code>"""
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
@@ -45,18 +49,22 @@ class GroupDownloadView(APIView):
             component_code=None if component_code == "all" else component_code,
         )
 
-        # The component layer only earns its place when mixing components.
-        payload = build_submissions_zip(entries, component_folder=(component_code == "all"))
-        prefix = f"group-{group.id}" + ("" if component_code == "all" else f"-{component_code}")
+        payload = build_submissions_zip(entries, group_folder=False)
+        # Named year + group name, with
+        # the component label appended for single-component downloads.
+        name = f"{current_cohort()}_{safe_name(group.group_name)}"
+        if component_code != "all":
+            name += f"_{_COMPONENT_LABELS.get(component_code, component_code)}"
         response = HttpResponse(payload, content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{zip_filename(prefix)}"'
+        response["Content-Disposition"] = f'attachment; filename="{name}.zip"'
         return response
 
 
 class ComponentDownloadView(APIView):
     """POST /api/v1/grading/components/<code>/download/
 
-    Body: ``{"group_ids": [1,2,3] | null, "format": "zip" | "xlsx"}``
+    Body: ``{"group_ids": [1,2,3] | null, "format": "zip" | "xlsx" | "pdf"}``
+    (``pdf``: SAQ only, a zip of each group's answers as its own PDF)
     Returns 202 with ``{"job_id": <int>}`` — client polls the job endpoint.
 
     POST (not GET) because kicking off a job mutates server state (creates a
@@ -65,21 +73,21 @@ class ComponentDownloadView(APIView):
     up jobs.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request, code: str):
         component = get_object_or_404(SubmissionComponent, code=code)
         fmt = (request.data.get("format") or "zip").lower()
-        if fmt not in {"zip", "xlsx"}:
+        if fmt not in {"zip", "xlsx", "pdf"}:
             return Response(
-                {"detail": f"format must be zip|xlsx, got {fmt!r}"},
+                {"detail": f"format must be zip|xlsx|pdf, got {fmt!r}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if fmt == "xlsx" and component.code != "SAQ":
-            # XLSX is a text-oriented export; only SAQ has text. Rejecting
-            # early avoids producing an empty spreadsheet for POSTER etc.
+        if fmt in {"xlsx", "pdf"} and component.code != "SAQ":
+            # XLSX and PDF are text-oriented exports; only SAQ has text.
+            # Rejecting early avoids producing empty files for POSTER etc.
             return Response(
-                {"detail": "xlsx format only makes sense for text-bearing components (SAQ)"},
+                {"detail": f"{fmt} format only makes sense for text-bearing components (SAQ)"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -94,7 +102,7 @@ class ComponentDownloadView(APIView):
             kind=GradingJob.KIND_BULK_ZIP,
             status=GradingJob.STATUS_PENDING,
             params={
-                "kind": "component_xlsx" if fmt == "xlsx" else "component_zip",
+                "kind": {"xlsx": "component_xlsx", "pdf": "component_pdf"}.get(fmt, "component_zip"),
                 "component_code": component.code,
                 "group_ids": group_ids,
             },
@@ -112,7 +120,7 @@ class AllSubmissionsDownloadView(APIView):
     contract as ComponentDownloadView: 202 with ``{"job_id": <int>}``.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
         job = GradingJob.objects.create(
@@ -136,7 +144,7 @@ class GradingJobDetailView(generics.RetrieveAPIView):
     """
 
     queryset = GradingJob.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def retrieve(self, request, *args, **kwargs):
         job = self.get_object()
@@ -156,16 +164,45 @@ class GradingJobDetailView(generics.RetrieveAPIView):
         })
 
 
-class GradingJobDownloadView(APIView):
-    """GET /api/v1/grading/jobs/<id>/download/ — stream the artefact.
+# How long a signed link to a finished export works: long enough to start
+# the download (it carries on past this), short enough not to linger.
+DIRECT_LINK_SECS = 10 * 60
 
-    Opens the stored key via ``default_storage`` and pipes bytes back with a
-    filename derived from the storage key. Works whether the file lives on
-    the local filesystem (dev, ``FileSystemStorage``) or Azure Blob (prod,
-    ``AzureStorage``) — the storage abstraction hides the difference.
+
+def _direct_link(name: str, filename: str, content_type: str) -> str | None:
+    """A short-lived signed Azure link that saves ``name`` as ``filename``, so
+    the browser downloads it straight from Azure; None when the file isn't on
+    Azure (local and test storage), where it's streamed instead."""
+    try:
+        from storages.backends.azure_storage import AzureStorage
+    except ImportError:  # pragma: no cover - only without django-storages.
+        return None
+    if not isinstance(default_storage, AzureStorage):
+        return None
+    try:
+        return default_storage.url(
+            name,
+            expire=DIRECT_LINK_SECS,
+            parameters={
+                "content_disposition": f'attachment; filename="{filename}"',
+                "content_type": content_type,
+            },
+        )
+    except Exception:  # noqa: BLE001 - streaming it instead still works
+        logger.exception("grading_job.direct_link_failed name=%s", name)
+        return None
+
+
+class GradingJobDownloadView(APIView):
+    """GET /api/v1/grading/jobs/<id>/download/ — the artefact, as a download.
+
+    On Azure (prod) it redirects to a short-lived signed link, so the browser
+    downloads straight from Azure with its own progress bar and this server
+    isn't in the way. Elsewhere (dev, tests: ``FileSystemStorage``) it streams
+    the bytes back with a filename derived from the storage key.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, pk: int):
         job = get_object_or_404(GradingJob, pk=pk)
@@ -177,6 +214,10 @@ class GradingJobDownloadView(APIView):
 
         filename = job.result_url.rsplit("/", 1)[-1] or f"grading-job-{job.pk}.bin"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+        link = _direct_link(job.result_url, filename, content_type)
+        if link:
+            return HttpResponseRedirect(link)
 
         # StreamingHttpResponse hands raw file chunks back without buffering
         # a full multi-MB archive in Python memory — matters most in prod

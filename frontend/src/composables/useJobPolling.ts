@@ -3,30 +3,37 @@ import {
   downloadJobResult,
   fetchJobStatus,
   startAllSubmissionsDownload,
-  startComponentDownload
+  startComponentDownload,
+  type ComponentDownloadFormat
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 export type JobPhase = 'idle' | 'starting' | 'preparing' | 'downloading' | 'done' | 'failed'
 
+/** Gaps between status checks: quick at first, since most exports finish in
+ *  well under a second, then every 2s so a long job doesn't flood the server. */
+export const POLL_DELAYS_MS = [250, 500, 1000, 2000]
+
 /**
- * Drives an async grading download: kick off the job, poll its status every
- * 2s, and save the file once it's done. One job at a time per composable
- * instance; the interval is cleaned up on unmount or when a new job starts.
+ * Drives an async grading download: kick off the job, check its status
+ * (see POLL_DELAYS_MS), and save the file once it's done. One job at a time
+ * per composable instance; checks stop on unmount or when a new job starts.
  */
 export function useJobPolling() {
   const phase = ref<JobPhase>('idle')
   const error = ref('')
 
   let timer: number | null = null
-  let checking = false
+  // Bumped by every stop, so a check still in flight for an abandoned job
+  // (a newer one started, or the page closed) knows to do nothing.
+  let currentRun = 0
 
   const stop = () => {
+    currentRun++
     if (timer != null) {
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
       timer = null
     }
-    checking = false
   }
 
   const fail = (message: string) => {
@@ -37,38 +44,47 @@ export function useJobPolling() {
 
   const begin = async (startJob: () => Promise<number>) => {
     stop()
+    const run = currentRun
     error.value = ''
     phase.value = 'starting'
     let jobId: number
     try {
       jobId = await startJob()
     } catch (err) {
-      fail(`Download failed: ${apiErrorFromUnknown(err).message}`)
+      if (run === currentRun) fail(`Download failed: ${apiErrorFromUnknown(err).message}`)
       return
     }
+    if (run !== currentRun) return
     phase.value = 'preparing'
-    timer = window.setInterval(async () => {
-      if (checking) return
-      checking = true
+
+    let checks = 0
+    const scheduleCheck = () => {
+      const delay = POLL_DELAYS_MS[Math.min(checks, POLL_DELAYS_MS.length - 1)]
+      checks++
+      timer = window.setTimeout(check, delay)
+    }
+    const check = async () => {
+      timer = null
       try {
         const job = await fetchJobStatus(jobId)
+        if (run !== currentRun) return
         if (job.status === 'done') {
-          stop()
           phase.value = 'downloading'
           await downloadJobResult(job)
-          phase.value = 'done'
+          if (run === currentRun) phase.value = 'done'
         } else if (job.status === 'failed') {
           fail(job.error || 'The export job failed.')
+        } else {
+          scheduleCheck()
         }
       } catch (err) {
-        fail(`Download failed: ${apiErrorFromUnknown(err).message}`)
-      } finally {
-        checking = false
+        if (run === currentRun) fail(`Download failed: ${apiErrorFromUnknown(err).message}`)
       }
-    }, 2000)
+    }
+    scheduleCheck()
   }
 
-  const start = (code: string, format: 'zip' | 'xlsx', groupIds?: number[]) =>
+  const start = (code: string, format: ComponentDownloadFormat, groupIds?: number[]) =>
     begin(() => startComponentDownload(code, format, groupIds))
 
   // The everything-zip: every group, every component.

@@ -27,11 +27,17 @@
         <dd>{{ preview.subject }}</dd>
       </dl>
       <div class="email-preview__frame-wrap">
+        <!-- The frame grows to the whole email and the page scrolls: scrolling
+             inside a frame is unreliable across browsers. sandbox without
+             allow-scripts still never runs anything in the email;
+             allow-same-origin only lets fitFrame measure its height. -->
         <iframe
           class="email-preview__frame"
           title="Email preview"
-          sandbox=""
+          sandbox="allow-same-origin"
+          scrolling="no"
           :srcdoc="preview.html"
+          @load="fitFrame"
         ></iframe>
       </div>
     </template>
@@ -45,6 +51,13 @@ defineProps<{
   preview: SystemEmailPreview | null
   loading: boolean
 }>()
+
+// Size the frame to the email each time it (re)loads, so the page scrolls.
+const fitFrame = (event: Event) => {
+  const frame = event.target as HTMLIFrameElement
+  const page = frame.contentDocument?.documentElement
+  if (page) frame.style.height = `${page.scrollHeight}px`
+}
 </script>
 
 <style scoped>

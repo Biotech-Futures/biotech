@@ -15,28 +15,15 @@ export interface ComponentBlock {
   name: string
   submitted: boolean
   criteria: CriterionMark[]
+  /** The marker's comment on the part as a whole; "" when none. */
+  overall_comment?: string
+  /** On the Results section: the part's marks added up, e.g. "14.5". */
+  subtotal?: string
+  /** The most they could be, e.g. "20". */
+  subtotal_max?: string
 }
 
-export interface MyGradesPayload {
-  group: { id: number; group_name: string }
-  year: number
-  components: ComponentBlock[]
-}
-
-// GET /api/v1/grading/release/ — surfaces released_at so the UI can decide
-// whether to render the Results tab. Kept public-ish (any authenticated user
-// can hit it if it becomes needed) but the current backend limits it to
-// is_staff. Front-of-house code should treat 403 here as "not released yet".
-export interface ReleaseStatus {
-  released_at: string | null
-  released_by: string | null
-  /** Certificates gate only: finalist teams are held out of the release. */
-  exclude_finalists?: boolean
-  /** True while any team can still submit — releasing is refused until closed. */
-  submissions_open?: boolean
-}
-
-async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Promise<T> {
+export async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Promise<T> {
   const method = String(options.method || 'GET').toUpperCase()
   const isFormData = options.body instanceof FormData
   const includeCSRF = !['GET', 'HEAD', 'OPTIONS'].includes(method)
@@ -70,10 +57,6 @@ async function requestJson<T>(pathOrUrl: string, options: RequestInit = {}): Pro
   return (text ? JSON.parse(text) : null) as T
 }
 
-export function fetchMyGrades(): Promise<MyGradesPayload> {
-  return requestJson<MyGradesPayload>('/api/v1/grading/me/grades/')
-}
-
 // Submission file URLs are absolute when storage is Azure (SAS-signed) but
 // relative (/media/...) with local dev storage — resolve those against the
 // API origin so they don't 404 against the SPA dev server.
@@ -98,7 +81,7 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
 
 // GET a binary endpoint with the session cookie and return the blob plus the
 // server-suggested filename (from Content-Disposition, if any).
-async function requestBlob(
+export async function requestBlob(
   pathOrUrl: string,
   options: RequestInit = {}
 ): Promise<{ blob: Blob; filename: string | null }> {
@@ -129,21 +112,6 @@ async function requestBlob(
 export async function downloadSubmissionFile(url: string, fallbackName: string): Promise<void> {
   const { blob, filename } = await requestBlob(url)
   triggerBlobDownload(blob, filename ?? fallbackName)
-}
-
-// Fetch bytes for the summary/certificate docx and trigger a browser download.
-// Rendered server-side via docxtpl (see backend/apps/grading/services/docx.py).
-async function downloadDocx(path: string, filename: string) {
-  const { blob } = await requestBlob(path)
-  triggerBlobDownload(blob, filename)
-}
-
-export function downloadMySummary(groupName: string) {
-  return downloadDocx('/api/v1/grading/me/summary/', `marks-summary-${groupName}.docx`)
-}
-
-export function downloadMyCertificate(groupName: string) {
-  return downloadDocx('/api/v1/grading/me/certificate/', `certificate-${groupName}.docx`)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +159,6 @@ export interface RubricCriterion {
   id: number
   rubric: number
   name: string
-  description: string
   max_mark: string
   order: number
 }
@@ -219,7 +186,8 @@ export interface GroupMarkingComponentBlock {
 }
 
 export interface GroupMarkingPayload {
-  group: { id: number; group_name: string }
+  /** project_title: the title the team submitted; "" when it gave none. */
+  group: { id: number; group_name: string; project_title: string }
   year: number
   components: GroupMarkingComponentBlock[]
 }
@@ -229,6 +197,16 @@ export interface GradeBulkItem {
   criterion: number
   mark: string | null
   comment: string
+  /** The mark and comment the marker started from: the server refuses the
+   *  save if another marker has changed them since. */
+  expected_mark?: string | null
+  expected_comment?: string
+}
+
+/** An overall comment edited on the marking page, and the one it started from. */
+export interface OverallCommentEdit {
+  comment: string
+  expected: string
 }
 
 // One row per group, whether or not they've submitted. Powers the
@@ -284,6 +262,9 @@ export interface BulkUploadRowEntry {
   mark: string | null
   comment: string
   grade_id?: number
+  // Updates only: the group's name and the sheet columns whose values differ.
+  group_name?: string | null
+  columns?: string[]
   old_mark?: string | null
   old_comment?: string
 }
@@ -297,23 +278,63 @@ export interface BulkUploadSummary {
   creates: number
   updates: number
   unchanged: number
+  overall_comments?: number
+  // SAQ sheets only: marking key selections parsed from the sheet.
+  marking_categories?: number
   errors: number
 }
 
 /** Categorised validation report shown on preview. */
 export interface BulkUploadChecks {
   missing_headers: string[]
-  expected_type: string
-  found_type: string | null
-  type_ok: boolean
+  /** Why the known headers are out of order, e.g. "product_category should
+   *  come before r1_mark"; "" when they are in order. */
+  header_order?: string
+  // The sheet's type column check ("SAQs", "Poster", …).
+  expected_type?: string
+  /** The only year the sheet's rows may carry: the current challenge year. */
+  expected_year?: number
+  /** The first wrong year a row carried, or the sheet's year when all are right. */
+  found_year?: string | null
+  year_ok?: boolean
+  found_type?: string | null
+  type_ok?: boolean
   bad_group_rows: { row: number; reason: string }[]
   bad_marks: { row: number; column: string; hint: string }[]
+}
+
+export interface BulkUploadCategoryEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  // The category columns this change touches, and those of them that had a
+  // stored value (replaced or cleared) rather than being set for the first time.
+  columns?: string[]
+  overwritten_columns?: string[]
+  product_categories: string[]
+  product_category_other: string
+  solution_category: string
+  solution_category_other: string
+}
+
+/** A group's overall comment the sheet changes. An empty old_comment means
+ *  none was stored (a new record); otherwise it's replaced or cleared. */
+export interface BulkUploadOverallCommentEntry {
+  row: number
+  group_id: number
+  group_name?: string | null
+  component_id: number
+  comment: string
+  old_comment: string
 }
 
 export interface BulkUploadResponse {
   creates: BulkUploadRowEntry[]
   updates: BulkUploadRowEntry[]
   unchanged: BulkUploadRowEntry[]
+  overall_comments?: BulkUploadOverallCommentEntry[]
+  // SAQ shape only: marking key changes parsed from the sheet.
+  marking_categories?: BulkUploadCategoryEntry[]
   errors: BulkUploadError[]
   checks?: BulkUploadChecks
   summary: BulkUploadSummary
@@ -333,112 +354,6 @@ export interface FinalistRow {
 
 export interface FinalistListResponse {
   finalists: FinalistRow[]
-}
-
-export interface GradingSettingsDetail {
-  director_1_name: string
-  director_1_signature: string | null
-  director_2_name: string
-  director_2_signature: string | null
-  marks_summary_template: string | null
-  certificate_template: string | null
-  component_weights: Record<string, number>
-}
-
-// GET /api/v1/grading/certificates-release/ — the certificates gate, separate
-// from marks so certificates can go out on a different day.
-export function fetchCertificatesRelease(): Promise<ReleaseStatus> {
-  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/')
-}
-
-// POST /api/v1/grading/certificates-release/ — flip certificates on/off.
-export function toggleCertificatesRelease(release: boolean): Promise<ReleaseStatus> {
-  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/', {
-    method: 'POST',
-    body: JSON.stringify({ release })
-  })
-}
-
-// POST — change only the finalist exclusion; the release stamp stays put.
-export function setCertificatesFinalistExclusion(exclude: boolean): Promise<ReleaseStatus> {
-  return requestJson<ReleaseStatus>('/api/v1/grading/certificates-release/', {
-    method: 'POST',
-    body: JSON.stringify({ exclude_finalists: exclude })
-  })
-}
-
-// Per-team extra time on top of the global deadline.
-export interface GroupExtension {
-  /** Row id — group_id is no longer unique since revoked rows are kept. */
-  id: number
-  group_id: number
-  group_name: string
-  extended_until: string
-  /** Quiet extra hours the server accepts past the granted time. */
-  grace_hours: number
-  reason: string
-  granted_at: string
-  granted_by: string | null
-  /** Soft revoke: set when an admin revoked this extension; row stays listed. */
-  revoked_at: string | null
-  revoked_by: string | null
-}
-
-// GET /api/v1/grading/deadline/extensions/ — every granted extension.
-export function fetchGroupExtensions(): Promise<{ extensions: GroupExtension[] }> {
-  return requestJson<{ extensions: GroupExtension[] }>('/api/v1/grading/deadline/extensions/')
-}
-
-// POST — grant or update one team's extension (one per team).
-export function saveGroupExtension(
-  groupId: number,
-  extendedUntil: string,
-  graceHours: number,
-  reason: string
-): Promise<{ extension: GroupExtension }> {
-  return requestJson<{ extension: GroupExtension }>('/api/v1/grading/deadline/extensions/', {
-    method: 'POST',
-    body: JSON.stringify({
-      group_id: groupId,
-      extended_until: extendedUntil,
-      grace_hours: graceHours,
-      reason
-    })
-  })
-}
-
-// DELETE — revoke a team's extension (idempotent).
-export function removeGroupExtension(groupId: number): Promise<void> {
-  return requestJson<void>(`/api/v1/grading/deadline/extensions/${groupId}/`, {
-    method: 'DELETE'
-  })
-}
-
-// The active submission deadline; null means submissions are closed until set.
-export interface SubmissionDeadline {
-  closes_at: string
-  /** Quiet extra hours the server accepts past the announced time. */
-  grace_hours: number
-  is_open: boolean
-  /** Display name of the admin who set it; null for script-created rows. */
-  set_by: string | null
-  created_at: string
-}
-
-// GET /api/v1/grading/deadline/ — the deadline currently in force.
-export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadline | null }> {
-  return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/')
-}
-
-// POST /api/v1/grading/deadline/ — set a new deadline (newest active row wins).
-export function saveSubmissionDeadline(
-  closesAt: string,
-  graceHours: number
-): Promise<{ deadline: SubmissionDeadline | null }> {
-  return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/grading/deadline/', {
-    method: 'POST',
-    body: JSON.stringify({ closes_at: closesAt, grace_hours: graceHours })
-  })
 }
 
 // GET /api/v1/grading/groups/{id}/ — composite marking payload for one group.
@@ -466,24 +381,13 @@ export function saveGradesBulk(
   // server whenever the entry has content for more than one component: a
   // submission id covers the group's whole entry, so the id alone cannot say
   // which component's comment this is.
-  overallComments?: { submission: number; component?: string; comment: string }[]
+  overallComments?: { submission: number; component?: string; comment: string; expected_comment?: string }[]
 ): Promise<Grade[]> {
   return requestJson<Grade[]>('/api/v1/grading/grades/bulk/', {
     method: 'POST',
     body: JSON.stringify(
       overallComments?.length ? { items, overall_comments: overallComments } : { items }
     )
-  })
-}
-
-// PATCH /api/v1/grading/grades/{id}/ — inline edit for a single grade.
-export function updateGrade(
-  gradeId: number,
-  patch: { mark?: string | null; comment?: string }
-): Promise<Grade> {
-  return requestJson<Grade>(`/api/v1/grading/grades/${gradeId}/`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch)
   })
 }
 
@@ -494,60 +398,6 @@ export function fetchComponentRows(code: string, year?: number): Promise<Compone
   return requestJson<ComponentListPayload>(`/api/v1/grading/components/${encodeURIComponent(code)}/${qs}`)
 }
 
-// Which placeholders the active docx template actually contains.
-export interface TemplateScan {
-  uploaded: boolean
-  dialect: 'tokens' | 'controls' | 'none'
-  /** Placeholders present that the renderer knows how to fill. */
-  present: string[]
-  /** Placeholders present that would be left blank — usually typos. */
-  unknown: string[]
-}
-
-// GET /api/v1/grading/settings/template-scan/{kind}/
-export function fetchTemplateScan(kind: 'marks-summary' | 'certificate'): Promise<TemplateScan> {
-  return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`)
-}
-
-// POST /api/v1/grading/settings/template-scan/{kind}/ — scan a picked file
-// WITHOUT saving it, so the page can preview a selection before Save
-// replaces the stored template. A file the renderer can't open 400s.
-export function scanTemplateCandidate(
-  kind: 'marks-summary' | 'certificate',
-  file: File
-): Promise<TemplateScan> {
-  const fd = new FormData()
-  fd.append('file', file)
-  return requestJson<TemplateScan>(`/api/v1/grading/settings/template-scan/${kind}/`, {
-    method: 'POST',
-    body: fd
-  })
-}
-
-// GET /api/v1/grading/settings/test-render/{kind}/ — render the active docx
-// template with synthetic data and save it, so admins can check placeholders.
-export async function downloadTemplateTestRender(
-  kind: 'marks-summary' | 'certificate'
-): Promise<void> {
-  const { blob, filename } = await requestBlob(`/api/v1/grading/settings/test-render/${kind}/`)
-  triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
-}
-
-// POST /api/v1/grading/settings/test-render/{kind}/ — render a picked file
-// with synthetic data while the saved template stays active.
-export async function downloadCandidateTestRender(
-  kind: 'marks-summary' | 'certificate',
-  file: File
-): Promise<void> {
-  const fd = new FormData()
-  fd.append('file', file)
-  const { blob, filename } = await requestBlob(
-    `/api/v1/grading/settings/test-render/${kind}/`,
-    { method: 'POST', body: fd }
-  )
-  triggerBlobDownload(blob, filename ?? `test-${kind}.docx`)
-}
-
 // GET /api/v1/grading/groups/{id}/download/ — sync zip fetch + browser save.
 export async function downloadGroupZip(groupId: number, component?: string): Promise<void> {
   const qs = component ? `?component=${encodeURIComponent(component)}` : ''
@@ -555,11 +405,15 @@ export async function downloadGroupZip(groupId: number, component?: string): Pro
   triggerBlobDownload(blob, filename ?? `group-${groupId}.zip`)
 }
 
+/** zip: the component's files (SAQ: its answers as text files); xlsx: SAQ's
+ *  answers and marks as a spreadsheet; pdf: SAQ's answers, a PDF per group. */
+export type ComponentDownloadFormat = 'zip' | 'xlsx' | 'pdf'
+
 // POST /api/v1/grading/components/{code}/download/ — kicks off a GradingJob,
 // returns the job id. Caller polls fetchJobStatus until done/failed.
 export async function startComponentDownload(
   code: string,
-  format: 'zip' | 'xlsx',
+  format: ComponentDownloadFormat,
   groupIds?: number[]
 ): Promise<number> {
   const data = await requestJson<{ job_id: number }>(
@@ -585,10 +439,18 @@ export function fetchJobStatus(jobId: number): Promise<GradingJobDetail> {
 }
 
 // Fetch a finished job's file (session-authenticated) and save it.
+// Hands the finished export to the browser: its own download bar takes over
+// at once, with progress, instead of the page holding the whole file in
+// memory first. The link signs in with the session cookie; on Azure it
+// redirects to a short-lived link to the file itself.
 export async function downloadJobResult(job: GradingJobDetail): Promise<void> {
   if (!job.download_url) throw new Error('Job has no download URL yet.')
-  const { blob, filename } = await requestBlob(job.download_url)
-  triggerBlobDownload(blob, filename ?? `grading-job-${job.id}`)
+  const a = document.createElement('a')
+  a.href = job.download_url
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 // POST /api/v1/grading/components/{code}/bulk-upload/ — multipart spreadsheet
@@ -606,36 +468,6 @@ export function bulkUploadMarks(
     `/api/v1/grading/components/${encodeURIComponent(code)}/bulk-upload/`,
     { method: 'POST', body: form }
   )
-}
-
-// GET /api/v1/grading/release/ — current release status (admin view).
-export function fetchRelease(): Promise<ReleaseStatus> {
-  return requestJson<ReleaseStatus>('/api/v1/grading/release/')
-}
-
-// POST /api/v1/grading/release/ — flip release on (or off with release=false).
-export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
-  return requestJson<ReleaseStatus>('/api/v1/grading/release/', {
-    method: 'POST',
-    body: JSON.stringify({ release })
-  })
-}
-
-// GET /api/v1/grading/settings/ — director names + template metadata.
-export function fetchGradingSettings(): Promise<GradingSettingsDetail> {
-  return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/')
-}
-
-// PATCH /api/v1/grading/settings/ — JSON for name-only edits, FormData when
-// any file (signature / docx template) is being uploaded.
-export function updateGradingSettings(
-  patch: Partial<Pick<GradingSettingsDetail, 'director_1_name' | 'director_2_name' | 'component_weights'>> | FormData
-): Promise<GradingSettingsDetail> {
-  const isForm = patch instanceof FormData
-  return requestJson<GradingSettingsDetail>('/api/v1/grading/settings/', {
-    method: 'PATCH',
-    body: isForm ? patch : JSON.stringify(patch)
-  })
 }
 
 // The marking key's header categories for one group (per-group, not per
@@ -675,8 +507,15 @@ export interface FinalistCandidateRow {
   markers: string[]
   /** Latest marker per rubric criterion, e.g. {label: "SAQ 1", marker: "Ada"}. */
   criterion_markers: { label: string; marker: string }[]
+  /** The title the team submitted; "" when it gave none. */
+  project_title: string
+  /** The categories picked on the marking key; "" when none. */
+  project_category: string
+  solution_category: string
   is_finalist: boolean
   has_submission: boolean
+  /** Components the team submitted that still have unmarked criteria. */
+  incomplete: string[]
 }
 
 export interface FinalistCandidatesResponse {
@@ -689,28 +528,15 @@ export function fetchFinalistCandidates(): Promise<FinalistCandidatesResponse> {
   return requestJson<FinalistCandidatesResponse>('/api/v1/grading/finalists/candidates/')
 }
 
-// POST /api/v1/grading/finalists/notify/ — email finalist teams not yet
-// notified. Pass groupIds to restrict the send to those teams; omitted means
-// all. Safe to repeat: already-notified flags are skipped server-side.
-export function notifyFinalists(groupIds?: number[]): Promise<{ sent: number; pending: number }> {
-  return requestJson<{ sent: number; pending: number }>('/api/v1/grading/finalists/notify/', {
-    method: 'POST',
-    body: JSON.stringify(groupIds?.length ? { group_ids: groupIds } : {})
-  })
-}
-
 // GET /api/v1/grading/finalists/ — the current finalist set.
 export function fetchFinalists(): Promise<FinalistListResponse> {
   return requestJson<FinalistListResponse>('/api/v1/grading/finalists/')
 }
 
-// POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert; optionally
-// fires the notification email (server-gated by GRADING_FINALIST_EMAIL_ENABLED).
-export function addFinalist(groupId: number, notify = false): Promise<void> {
-  return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, {
-    method: 'POST',
-    body: JSON.stringify({ notify })
-  })
+// POST /api/v1/grading/groups/{id}/finalist/ — idempotent upsert. Telling
+// the team is Notify Finalists' job.
+export function addFinalist(groupId: number): Promise<void> {
+  return requestJson<void>(`/api/v1/grading/groups/${groupId}/finalist/`, { method: 'POST' })
 }
 
 // DELETE /api/v1/grading/groups/{id}/finalist/ — idempotent removal.

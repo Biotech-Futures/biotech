@@ -1,5 +1,4 @@
 """Request-shape validation for admin endpoints."""
-import nh3
 from rest_framework import serializers
 
 from apps.admin.services.user import ROLES
@@ -8,6 +7,7 @@ from apps.services.email_registry import (
     is_known_email_type,
     unknown_merge_tags,
 )
+from apps.services.system_email import clean_email_body, senders
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -63,7 +63,7 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
     Every field is optional (PATCH semantics) so toggling an email does not
     disturb its wording and vice versa. The serializer rejects wording that
     references a merge tag the email type cannot fill, refuses to switch off a
-    locked type, and sanitises the body with nh3 before it is ever stored.
+    locked type, and sanitises the body before it is ever stored.
     """
 
     subject = serializers.CharField(
@@ -71,6 +71,13 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
     )
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     enabled = serializers.BooleanField(required=False)
+    # Which mailbox it goes from: a key of settings.EMAIL_SENDERS.
+    sender = serializers.CharField(required=False, max_length=32)
+
+    def validate_sender(self, value: str) -> str:
+        if value not in {sender.key for sender in senders()}:
+            raise serializers.ValidationError("It can only go from one of the mailboxes listed.")
+        return value
 
     def validate(self, attrs):
         key = self.context.get("key", "")
@@ -105,10 +112,10 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
                     }
                 )
 
-        # nh3 keeps the formatting an admin can produce in the editor and
-        # strips scripts, event handlers and javascript: URLs.
+        # Keeps the formatting an admin can produce in the editor, boxes and
+        # buttons included, and strips scripts, event handlers and javascript: URLs.
         if attrs.get("body"):
-            attrs["body"] = nh3.clean(attrs["body"])
+            attrs["body"] = clean_email_body(attrs["body"])
         return attrs
 
 

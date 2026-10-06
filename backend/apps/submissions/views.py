@@ -25,6 +25,7 @@ from .errors import (
     NotSubmittedYet,
     PosterFormatRejected,
     PosterRequired,
+    ProjectTitleRequired,
     RequiredAnswersMissing,
     SubmissionLocked,
     SubmissionsClosed,
@@ -58,7 +59,7 @@ def _require_can_view(user, group_id: int) -> None:
     """Any member of the team can read it; so can admins.
 
     Staff and superusers pass alongside AdminScope admins so the definition
-    matches grading's ``IsGrader``: anyone who can mark an entry can read the
+    matches ``common.rbac.IsStaffOrAdmin``: anyone who can mark an entry can read the
     files they are marking.
     """
     if is_admin(user) or user.is_staff or user.is_superuser:
@@ -68,9 +69,9 @@ def _require_can_view(user, group_id: int) -> None:
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Only members of the team can edit; admins can view but not author."""
-    if not group_participant_qs(user, group_id).exists():
-        raise GroupAccessDenied()
+    """Members of the team can edit, submit and reopen; so can admins, for a
+    team that needs a hand. The deadline and lock still apply to both."""
+    _require_can_view(user, group_id)
 
 
 def _require_unlocked(submission) -> None:
@@ -140,6 +141,8 @@ class GroupSubmissionView(APIView):
             )
             _require_unlocked(submission)
 
+            if "project_title" in data:
+                submission.project_title = data["project_title"]
             if "answers" in data:
                 # Merged, not replaced, so teammates on different questions do not collide.
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
@@ -298,6 +301,9 @@ class GroupSubmissionSubmitView(APIView):
 
             if not submission.poster:
                 raise PosterRequired()
+
+            if not submission.project_title.strip():
+                raise ProjectTitleRequired()
 
             # Enforced only at submit, so a half-finished draft can still be saved.
             missing = missing_required_answers(submission)

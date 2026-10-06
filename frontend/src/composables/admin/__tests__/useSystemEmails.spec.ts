@@ -39,6 +39,11 @@ const buildTemplate = (overrides: Partial<SystemEmailTemplate> = {}): SystemEmai
   body: '',
   updatedBy: null,
   updatedAt: null,
+  sender: 'info',
+  senders: [
+    { key: 'info', address: 'info@biotechfutures.org' },
+    { key: 'connect', address: 'connect@biotechfutures.org' }
+  ],
   mergeTags: [
     { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
   ],
@@ -126,14 +131,45 @@ describe('useSystemEmails', () => {
       expect(previewSystemEmailTemplate).not.toHaveBeenCalled()
 
       await vi.advanceTimersByTimeAsync(200)
+      // The body is untouched, so the server renders it from the template file.
       expect(previewSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {
-        subject: 'Almost done',
-        body: '<p>Hi Alex, reset your password.</p>'
+        subject: 'Almost done'
       })
       expect(view.preview.value).toEqual(preview)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('previews and tests the template file until the built-in wording is changed', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'admin@example.com'
+    })
+
+    await view.refreshPreview()
+    await view.testSend()
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {})
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {})
+
+    view.setBody('<p>Hi</p>')
+    await view.refreshPreview()
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {
+      body: '<p>Hi</p>'
+    })
+  })
+
+  it('always previews saved wording as it is in the editor', async () => {
+    const view = await loadOnce([
+      buildTemplate({ subject: 'Saved', body: '<p>Saved</p>', usingSavedContent: true })
+    ])
+
+    await view.refreshPreview()
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {
+      subject: 'Saved',
+      body: '<p>Saved</p>'
+    })
   })
 
   it('surfaces a save failure without clearing the draft', async () => {

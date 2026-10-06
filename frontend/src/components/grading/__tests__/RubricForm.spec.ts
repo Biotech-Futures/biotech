@@ -18,7 +18,6 @@ const criterion = (id: number, name = `Criterion ${id}`, max = '10.00'): RubricC
   id,
   rubric: 1,
   name,
-  description: '',
   max_mark: max,
   order: id * 10
 })
@@ -104,10 +103,10 @@ describe('what the form renders', () => {
     ).toContain('Overall comment on the poster')
   })
 
-  it('calls the action Save Comment when the rubric is only the comment box', () => {
+  it('calls the action Save, with criteria or with only the comment box', () => {
     const wrapper = mountForm({ criteria: [], overallCommentLabel: 'Overall comment' })
-    expect(saveButton(wrapper).text()).toBe('Save Comment')
-    expect(mountForm().find('button[type="submit"]').text()).toBe('Save marks')
+    expect(saveButton(wrapper).text()).toBe('Save')
+    expect(mountForm().find('button[type="submit"]').text()).toBe('Save')
   })
 
   it('says Saving and stays disabled while a save is in flight', async () => {
@@ -153,24 +152,50 @@ describe('what counts as an unsaved edit', () => {
 })
 
 describe('what a save sends', () => {
-  it('sends every criterion, with empty marks as null so nothing reads as a zero', async () => {
-    const wrapper = mountForm()
+  it('sends only the rows edited, each with what it started from, empty marks as null', async () => {
+    const wrapper = mountForm({ grades: [grade(2, '4.00', 'Tidy')] })
     await markInputs(wrapper)[0]!.setValue('8.5')
+    await markInputs(wrapper)[1]!.setValue('')
     await wrapper.find('form').trigger('submit')
     const [items, overall] = wrapper.emitted('save')![0]!
     expect(items).toEqual([
-      { submission: 1, criterion: 1, mark: '8.5', comment: '' },
-      { submission: 1, criterion: 2, mark: null, comment: '' }
+      { submission: 1, criterion: 1, mark: '8.5', comment: '', expected_mark: null, expected_comment: '' },
+      { submission: 1, criterion: 2, mark: null, comment: 'Tidy', expected_mark: '4.00', expected_comment: 'Tidy' }
     ])
     expect(overall).toBeNull()
   })
 
-  it('sends the overall comment when its box is shown', async () => {
-    const wrapper = mountForm({ overallCommentLabel: 'Overall comment' })
-    await markInputs(wrapper)[0]!.setValue('8')
+  it('leaves out a row that was not touched, so it is never written', async () => {
+    const wrapper = mountForm({ grades: [grade(2, '4.00')] })
+    await markInputs(wrapper)[0]!.setValue('6')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 1, mark: '6', comment: '', expected_mark: null, expected_comment: '' }
+    ])
+  })
+
+  it('keeps a mark to two decimal places', async () => {
+    const wrapper = mountForm()
+    await markInputs(wrapper)[0]!.setValue('7.256')
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('7.25')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toContainEqual(
+      expect.objectContaining({ submission: 1, criterion: 1, mark: '7.25' })
+    )
+  })
+
+  it('sends the overall comment once edited, with the one it started from', async () => {
+    const wrapper = mountForm({ submission: submission(1, 'Draft.'), overallCommentLabel: 'Overall comment' })
     await wrapper.find('.rubric-form__overall-input').setValue('Well argued.')
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.emitted('save')![0]![1]).toBe('Well argued.')
+    expect(wrapper.emitted('save')![0]![1]).toEqual({ comment: 'Well argued.', expected: 'Draft.' })
+  })
+
+  it('leaves the overall comment out when only marks changed', async () => {
+    const wrapper = mountForm({ submission: submission(1, 'Draft.'), overallCommentLabel: 'Overall comment' })
+    await markInputs(wrapper)[0]!.setValue('8')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![1]).toBeNull()
   })
 })
 
@@ -189,6 +214,31 @@ describe('a refetch after saving', () => {
     await wrapper.setProps({ grades: [grade(1, '9.00')] })
     expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('9.00')
     expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it("shows another marker's change on a row left alone, instead of keeping it stale", async () => {
+    const wrapper = mountForm({ grades: [grade(1, '7.00')] })
+    await markInputs(wrapper)[1]!.setValue('3')
+    // The refetch after saving the other section brings their 8 for row one.
+    await wrapper.setProps({ grades: [grade(1, '8.00', 'Theirs')] })
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('8.00')
+    expect((markInputs(wrapper)[1]!.element as HTMLInputElement).value).toBe('3')
+    // Only the real edit is sent, not their row.
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 2, mark: '3', comment: '', expected_mark: null, expected_comment: '' }
+    ])
+  })
+
+  it('an edit of a row another marker also changed keeps where it started, so the server can refuse it', async () => {
+    const wrapper = mountForm({ grades: [grade(1, '7.00')] })
+    await markInputs(wrapper)[0]!.setValue('9')
+    await wrapper.setProps({ grades: [grade(1, '8.00')] })
+    expect((markInputs(wrapper)[0]!.element as HTMLInputElement).value).toBe('9')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('save')![0]![0]).toEqual([
+      { submission: 1, criterion: 1, mark: '9', comment: '', expected_mark: '7.00', expected_comment: '' }
+    ])
   })
 
   it('drops edits when a different entry loads', async () => {
@@ -213,6 +263,17 @@ describe('leaving with unsaved edits', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     expect(guards.leave[0]!()).toBe(false)
     expect(confirm).toHaveBeenCalledOnce()
+  })
+
+  it('unsaved edits outside the form (the SAQ categories) enable Save and the guard', async () => {
+    const wrapper = mountForm({ extraDirty: true })
+    expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(guards.leave[0]!()).toBe(false)
+    expect(confirm).toHaveBeenCalledOnce()
+
+    await wrapper.setProps({ extraDirty: false })
+    expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
   })
 
   it('guards Prev/Next navigation the same way as leaving the page', async () => {

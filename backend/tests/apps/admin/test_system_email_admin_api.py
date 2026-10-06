@@ -183,6 +183,52 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertNotIn("<iframe", row.body_html)
         self.assertIn("<p>Hi</p>", row.body_html)
 
+    # A box and a button as the editor writes them, plus things that must go.
+    BOX_AND_BUTTON = (
+        '<div class="email-box" style="padding: 12px 14px; background-color: rgb(233, 246, 241); '
+        'position: absolute; background: url(https://tracker.example/x.png);"><p>Important</p></div>'
+        '<div class="email-button" style="margin: 20px 0px; text-align: left;">'
+        '<a class="cta-link sneaky" href="{{ reset_link }}" onclick="steal()" '
+        'style="display: inline-block; background-color: rgb(1, 113, 81); color: rgb(255, 255, 255);">'
+        "Reset</a></div>"
+        '<p style="color: red;">Plain text stays plain.</p>'
+    )
+
+    def assertKeepsBoxAndButton(self, html):
+        self.assertIn('class="email-box"', html)
+        self.assertIn("padding:12px 14px", html)
+        self.assertIn("background-color:rgb(233, 246, 241)", html)
+        self.assertIn('class="email-button"', html)
+        self.assertIn('class="cta-link"', html)
+        self.assertIn("background-color:rgb(1, 113, 81)", html)
+        self.assertIn("<p>Plain text stays plain.</p>", html)
+        for gone in ("position", "url(", "tracker", "onclick", "sneaky"):
+            self.assertNotIn(gone, html)
+
+    def test_update_keeps_the_editors_boxes_and_buttons(self):
+        update_email_template(
+            "password_reset", {"body": self.BOX_AND_BUTTON}, requested_by=self.admin
+        )
+        body = SystemEmailTemplate.objects.get(key="password_reset").body_html
+        self.assertKeepsBoxAndButton(body)
+        self.assertIn('href="{{ reset_link }}"', body)
+
+    def test_update_keeps_a_tables_lines_and_padding(self):
+        table = (
+            '<table style="border-collapse: collapse; min-width: 75px; position: absolute">'
+            '<tbody><tr><th style="border: 1px solid #d1d5db; padding: 6px 10px">Day</th></tr>'
+            '<tr><td style="border: 1px solid #d1d5db; padding: 6px 10px; background: url(https://x.example/t.png)">'
+            "Saturday</td></tr></tbody></table>"
+        )
+        update_email_template("password_reset", {"body": table}, requested_by=self.admin)
+        body = SystemEmailTemplate.objects.get(key="password_reset").body_html
+        self.assertIn("border-collapse:collapse", body)
+        self.assertIn("border:1px solid #d1d5db", body)
+        self.assertIn("padding:6px 10px", body)
+        self.assertIn("Saturday", body)
+        for gone in ("position", "min-width", "url("):
+            self.assertNotIn(gone, body)
+
     def test_update_rejects_unknown_merge_tag(self):
         result = update_email_template(
             "password_reset",
@@ -347,6 +393,10 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn("<p>ok</p>", result["data"]["html"])
         self.assertNotIn("<script", result["data"]["html"])
 
+    def test_preview_keeps_the_editors_boxes_and_buttons(self):
+        result = preview_email_template("password_reset", body=self.BOX_AND_BUTTON)
+        self.assertKeepsBoxAndButton(result["data"]["html"])
+
     def test_preview_rejects_unknown_tag(self):
         result = preview_email_template("password_reset", subject="{{ not_a_tag }}")
         self.assertIsNone(result["data"])
@@ -469,6 +519,19 @@ class SystemEmailAdminApiTests(TestCase):
         self.assertNotIn("<script", body["body"])
         self.assertTrue(body["usingSavedContent"])
 
+    def test_patch_keeps_box_and_button_styles(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/",
+            {"body": SystemEmailAdminServiceTests.BOX_AND_BUTTON},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()["data"]["body"]
+        self.assertIn("background-color:rgb(233, 246, 241)", body)
+        self.assertIn('class="cta-link"', body)
+        self.assertNotIn("position", body)
+        self.assertNotIn("url(", body)
+
     def test_patch_unknown_tag_returns_400(self):
         response = self.client.patch(
             "/api/v1/admin/email-template/password_reset/",
@@ -477,6 +540,40 @@ class SystemEmailAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("nope", response.json()["msg"])
+
+    def test_each_email_shows_its_sender_and_the_mailboxes_it_could_go_from(self):
+        items = {item["key"]: item for item in self.client.get("/api/v1/admin/email-template/").json()["data"]["items"]}
+        self.assertEqual(items["login_code"]["sender"], "info")
+        self.assertEqual(items["unread_messages"]["sender"], "connect")
+        self.assertEqual(items["login_code"]["senders"], [
+            {"key": "info", "address": "info@biotechfutures.org"},
+            {"key": "connect", "address": "connect@biotechfutures.org"},
+        ])
+
+    def test_patch_picks_a_sender_kept_through_restore_default(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "connect"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+        self.assertEqual(SystemEmailTemplate.objects.get(key="login_code").sender, "connect")
+        # Restore default puts the wording back, not the sender.
+        response = self.client.post("/api/v1/admin/email-template/login_code/restore-default/")
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+
+    def test_patch_refuses_a_sender_not_listed(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "someone@else.com"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("mailboxes listed", response.json()["msg"])
+
+    @override_settings(EMAIL_BACKEND=LOCMEM)
+    def test_test_send_goes_from_the_sender_picked(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        response = self.client.post("/api/v1/admin/email-template/password_reset/test-send/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
 
     def test_patch_locked_disable_returns_400(self):
         response = self.client.patch(

@@ -49,7 +49,6 @@
       <div class="group-marking__header">
         <h2 class="group-marking__title">
           {{ payload.group.group_name }}
-          <span class="group-marking__id">#{{ groupId }}</span>
         </h2>
         <div class="group-marking__search-field">
           <span class="group-marking__search-label">Search</span>
@@ -60,14 +59,14 @@
               class="group-marking__picker"
               @select="onSearchSelect"
             />
-            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <button type="submit" class="btn btn-outline btn-sm">Open</button>
             <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
           </form>
         </div>
         <div class="group-marking__header-actions">
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="prevId == null"
             @click="goto(prevId)"
           >
@@ -75,7 +74,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="nextId == null"
             @click="goto(nextId)"
           >
@@ -83,7 +82,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-primary btn-sm"
             :disabled="nextUnmarkedId == null"
             @click="goto(nextUnmarkedId)"
           >
@@ -101,36 +100,52 @@
         </div>
       </div>
 
+      <!-- The title the team submitted: under the name and search, above
+           the Marker line. -->
+      <p v-if="payload.group.project_title" class="group-marking__project-title">
+        <span class="group-marking__project-title-label">Title:</span>
+        {{ payload.group.project_title }}
+      </p>
+
       <p v-if="actionError" class="group-marking__banner group-marking__banner--error">
         {{ actionError }}
       </p>
-      <p v-if="saveStatus === 'saved'" class="group-marking__banner group-marking__banner--ok">
-        Marks saved.
+      <p v-if="categoriesError" class="group-marking__banner group-marking__banner--error">
+        {{ categoriesError }}
+      </p>
+      <p v-if="savedMessage" class="group-marking__banner group-marking__banner--ok">
+        {{ savedMessage }}
+      </p>
+      <p
+        v-if="isDownloading || isStampDownloading"
+        class="group-marking__banner group-marking__banner--ok"
+      >
+        Processing files for Download
       </p>
 
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
            starts at the same height beneath it. -->
-      <ResizableSplit v-if="isCombined && saqBlock && posterBlock" right-max="23rem">
+      <ResizableSplit
+        v-if="isCombined && saqBlock && posterBlock"
+        ref="rubricsSplit"
+        right-max="21rem"
+        memory="combined-rubrics"
+      >
         <template #left>
           <div>
             <!-- The stamp row lives inside the left pane so its actions hug
                  the PDF's right edge, tracking the divider when dragged. -->
             <p class="group-marking__pane-stamp">
-              <span v-if="combinedSubmittedLabel">
-                Submitted at {{ combinedSubmittedLabel }}<template v-if="combinedIsLate"> (late)</template>
-                <template v-if="combinedMarkerText">
-                  · Marker:
-                  <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
-                    {{ combinedMarkerText }}
-                  </span>
-                </template>
-                <span
-                  v-if="categoriesStatus"
-                  class="group-marking__stamp-status"
-                  :class="{ 'is-error': categoriesStatus.error }"
-                >
-                  · {{ categoriesStatus.text }}
+              <span>
+                Marker:
+                <span class="group-marking__stamp-marker" :title="combinedMarkerTooltip">
+                  {{ combinedMarkerText }}
+                  <i
+                    v-if="combinedHasMultipleMarkers"
+                    class="fas fa-users group-marking__stamp-marker-icon"
+                    aria-hidden="true"
+                  ></i>
                 </span>
               </span>
               <span v-if="posterLinks.previewable" class="group-marking__stamp-actions">
@@ -153,14 +168,13 @@
                 </button>
               </span>
             </p>
-            <!-- Category boxes span above the nested split, so the answers
-                 AND the pdf both start below them. -->
-            <MarkingCategories :group-id="groupId" @status="categoriesStatus = $event" />
             <!-- Nested split: drag the divider to trade space between the
                  answers and the poster. -->
-            <ResizableSplit>
+            <ResizableSplit ref="answersPosterSplit" memory="combined-answers-poster">
               <template #left>
                 <SubmissionPreview
+                  ref="saqPreview"
+                  memory="combined:SAQ"
                   :submission="saqBlock.submission"
                   :component="saqBlock.component"
                   :last-grader-name="saqBlock.last_grader_name"
@@ -170,6 +184,8 @@
               </template>
               <template #right>
                 <SubmissionPreview
+                  ref="posterPreview"
+                  memory="combined:POSTER"
                   :submission="posterBlock.submission"
                   :component="posterBlock.component"
                   :last-grader-name="posterBlock.last_grader_name"
@@ -182,6 +198,17 @@
         </template>
         <template #right>
           <div class="group-marking__pane-offset">
+          <!-- Puts this view's dividers and heights back; on once one is moved. -->
+          <div class="group-marking__reset-row">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="!layoutMoved"
+              @click="resetLayout"
+            >
+              <i class="fas fa-rotate-left" aria-hidden="true"></i> Reset view
+            </button>
+          </div>
           <div
             ref="rubricsEl"
             class="group-marking__combined-rubrics"
@@ -191,6 +218,13 @@
           >
             <div>
               <h4 class="group-marking__rubric-title">{{ saqBlock.component.name }}</h4>
+              <!-- Category boxes open the SAQ rubric; its Save button stores
+                   them together with the marks. -->
+              <MarkingCategories
+                ref="categoriesForm"
+                :group-id="groupId"
+                @status="onCategoriesStatus"
+              />
               <RubricForm
                 ref="saqForm"
                 :submission="saqBlock.submission"
@@ -198,6 +232,7 @@
                 :grades="saqBlock.grades"
                 :overall-comment-label="overallCommentLabel(saqBlock.component.code)"
                 :is-saving="saveStatus === 'saving'"
+                :extra-dirty="categoriesDirty"
                 @save="saveSaqMarks"
               />
             </div>
@@ -230,32 +265,27 @@
         </template>
       </ResizableSplit>
       <template v-else-if="activeBlock">
-        <ResizableSplit v-if="activeBlock.submission" right-max="23rem">
+        <ResizableSplit
+          v-if="activeBlock.submission"
+          :key="activeBlock.component.code"
+          ref="singleSplit"
+          right-max="21rem"
+          :memory="`rubrics:${activeBlock.component.code}`"
+        >
           <template #left>
             <div>
               <!-- Stamp row inside the pane: actions hug the preview's right
                    edge; the rubric column offsets to stay level below. -->
               <p class="group-marking__pane-stamp">
                 <span>
-                  Submitted at {{ singleSubmittedLabel
-                  }}<template v-if="activeBlock.submission.is_late"> (late)</template>
-                  <template v-if="singleMarkerName">
-                    · Marker:
-                    <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
-                      {{ singleMarkerName }}
-                      <i
-                        v-if="(singleGraderNames?.length ?? 0) > 1"
-                        class="fas fa-users group-marking__stamp-marker-icon"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </template>
-                  <span
-                    v-if="categoriesStatus && activeBlock.component.code === 'SAQ'"
-                    class="group-marking__stamp-status"
-                    :class="{ 'is-error': categoriesStatus.error }"
-                  >
-                    · {{ categoriesStatus.text }}
+                  Marker:
+                  <span class="group-marking__stamp-marker" :title="singleMarkerTooltip">
+                    {{ singleMarkerName }}
+                    <i
+                      v-if="(singleGraderNames?.length ?? 0) > 1"
+                      class="fas fa-users group-marking__stamp-marker-icon"
+                      aria-hidden="true"
+                    ></i>
                   </span>
                 </span>
                 <span v-if="singleLinks.previewable" class="group-marking__stamp-actions">
@@ -277,12 +307,8 @@
                   </button>
                 </span>
               </p>
-              <MarkingCategories
-                v-if="activeBlock.component.code === 'SAQ'"
-                :group-id="groupId"
-                @status="categoriesStatus = $event"
-              />
               <SubmissionPreview
+                ref="singlePreview"
                 :submission="activeBlock.submission"
                 :component="activeBlock.component"
                 :criterion-markers="criterionMarkers"
@@ -292,6 +318,25 @@
           </template>
           <template #right>
             <div class="group-marking__pane-offset">
+              <!-- Puts this view's dividers and heights back; on once one is moved. -->
+              <div class="group-marking__reset-row">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="!layoutMoved"
+                  @click="resetLayout"
+                >
+                  <i class="fas fa-rotate-left" aria-hidden="true"></i> Reset view
+                </button>
+              </div>
+              <!-- Category boxes open the SAQ rubric; its Save button stores
+                   them together with the marks. -->
+              <MarkingCategories
+                v-if="activeBlock.component.code === 'SAQ'"
+                ref="categoriesForm"
+                :group-id="groupId"
+                @status="onCategoriesStatus"
+              />
               <RubricForm
                 ref="rubricForm"
                 :submission="activeBlock.submission"
@@ -299,6 +344,7 @@
                 :grades="activeBlock.grades"
                 :overall-comment-label="overallCommentLabel(activeBlock.component.code)"
                 :is-saving="saveStatus === 'saving'"
+                :extra-dirty="activeBlock.component.code === 'SAQ' && categoriesDirty"
                 @save="saveMarks"
               >
                 <template #actions>
@@ -321,9 +367,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markingFullWidth } from '@/composables/markingLayout'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 import MarkingCategories from '@/components/grading/MarkingCategories.vue'
 import ResizableSplit from '@/components/grading/ResizableSplit.vue'
@@ -339,9 +386,11 @@ import {
   saveGradesBulk,
   type ComponentListPayload,
   type GradeBulkItem,
+  type OverallCommentEdit,
   type GroupMarkingPayload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/utils/storage'
 
 // One page serves both marking flows with the same chrome (search, prev/next,
 // Download all). The route only decides section navigation: by group
@@ -371,7 +420,8 @@ const allRows = ref<ComponentListPayload[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+const saveStatus = ref<'idle' | 'saving'>('idle')
+const { message: savedMessage, show: flashSaved } = useFlashMessage()
 const isDownloading = ref(false)
 const activeCode = ref<string | null>(null)
 const rubricForm = ref<InstanceType<typeof RubricForm> | null>(null)
@@ -386,20 +436,38 @@ const posterBlock = computed<ComponentBlock | null>(
 )
 const combinedAvailable = computed(() => saqBlock.value != null && posterBlock.value != null)
 
+// Whether this group has the section: the combined one needs both blocks.
+const hasSection = (target: string) =>
+  target === COMBINED_CODE
+    ? combinedAvailable.value
+    : Boolean(payload.value?.components.some((b) => b.component.code === target))
+
+// By group, the section picked stays open from group to group; a group
+// without it shows its default (SAQs & Poster when it has both).
 const effectiveCode = computed(() =>
   isComponentMode.value
     ? code.value
-    : (activeCode.value ??
-      (combinedAvailable.value
+    : activeCode.value && hasSection(activeCode.value)
+      ? activeCode.value
+      : combinedAvailable.value
         ? COMBINED_CODE
-        : (payload.value?.components[0]?.component.code ?? null)))
+        : (payload.value?.components[0]?.component.code ?? null)
 )
 
 const isCombined = computed(() => effectiveCode.value === COMBINED_CODE)
 
-// Categories save-state, surfaced on the "Submitted" line rather than in
-// the boxes themselves; cleared whenever the section or group changes.
-const categoriesStatus = ref<{ text: string; error: boolean } | null>(null)
+// The SAQ category boxes save with the SAQ Save button; their unsaved edits
+// count as the SAQ form's own (enabling Save and the leave guards).
+const categoriesForm = ref<InstanceType<typeof MarkingCategories> | null>(null)
+const categoriesDirty = computed(() => Boolean(categoriesForm.value?.isDirty))
+
+// Only a failed category load reports here. It has its own banner so a
+// marks save never clears it; it is cleared whenever the section or group
+// changes.
+const categoriesError = ref('')
+const onCategoriesStatus = (status: { text: string; error: boolean } | null) => {
+  categoriesError.value = status?.error ? status.text : ''
+}
 
 // Full browser width for the pdf/answer splits; Prototype (a link + zip)
 // doesn't need it and keeps the normal centred layout.
@@ -407,7 +475,7 @@ watch(
   effectiveCode,
   (code) => {
     markingFullWidth.value = code != null && code !== 'PROTOTYPE'
-    categoriesStatus.value = null
+    categoriesError.value = ''
   },
   { immediate: true }
 )
@@ -469,26 +537,6 @@ const markersFor = (block: ComponentBlock) => {
 
 const criterionMarkers = computed(() => (activeBlock.value ? markersFor(activeBlock.value) : []))
 
-// Both combined sections share one Submission row, so the stamp is shown
-// once above them rather than repeated per pane.
-const combinedSubmission = computed(
-  () => saqBlock.value?.submission ?? posterBlock.value?.submission ?? null
-)
-// "9/2/2026 19:48" — 24-hour, no seconds, no comma, matching the tables.
-const stampLabel = (iso: string) => {
-  const d = new Date(iso)
-  return `${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  })}`
-}
-
-const combinedSubmittedLabel = computed(() =>
-  combinedSubmission.value ? stampLabel(combinedSubmission.value.submitted_at) : ''
-)
-const combinedIsLate = computed(() => combinedSubmission.value?.is_late === true)
-
 // Last marker of each combined section; collapsed to one name when the same
 // person marked both. The tooltip lists every criterion's marker.
 const combinedMarkerText = computed(() => {
@@ -509,6 +557,16 @@ const combinedMarkerTooltip = computed(() => {
     lines.push(...markersFor(posterBlock.value).map((m) => `Poster ${m.name}: ${m.marker}`))
   }
   return lines.join('\n')
+})
+
+// Several distinct people marked across the two sections — flagged with
+// the same group icon the tables use.
+const combinedHasMultipleMarkers = computed(() => {
+  const names = new Set<string>()
+  for (const block of [saqBlock.value, posterBlock.value]) {
+    if (block) markersFor(block).forEach((m) => names.add(m.marker))
+  }
+  return names.size > 1
 })
 
 // Open/Download live on the hoisted stamp line. Same rules as the preview's
@@ -532,22 +590,23 @@ const singleLinks = computed(() => fileLinks(activeBlock.value?.submission ?? nu
 
 // Download via a blob fetch so it saves instead of opening — a plain link is
 // cross-origin (download attribute ignored) and local /media/ serves inline.
+const isStampDownloading = ref(false)
 const downloadStampFile = async (url: string | null, fileName?: string | null) => {
   if (!url) return
+  isStampDownloading.value = true
   try {
     await downloadSubmissionFile(url, fileName || 'submission.pdf')
   } catch {
     // If the fetch is blocked (e.g. Azure blob CORS), fall back to the direct
     // URL — its SAS attachment disposition still downloads there.
     window.open(url, '_blank', 'noopener')
+  } finally {
+    isStampDownloading.value = false
   }
 }
 
 // Single-tab stamp, hoisted above the split like the combined one. Marker
 // info mirrors what SubmissionPreview would have shown in its own stamp.
-const singleSubmittedLabel = computed(() =>
-  activeBlock.value?.submission ? stampLabel(activeBlock.value.submission.submitted_at) : ''
-)
 const singleMarkerName = computed(() =>
   isComponentMode.value ? currentRow.value?.last_grader_name : activeBlock.value?.last_grader_name
 )
@@ -630,13 +689,13 @@ const goto = (id: number | null) => {
   )
 }
 
-// Same search box as the marking tables; Open resolves the typed name or ID
+// Same search box as the marking tables; Open resolves the typed name
 // and navigates within the current mode (component or by-group).
 const openSearch = () => {
   searchError.value = ''
   const id = picker.value?.resolveId() ?? null
   if (id == null) {
-    searchError.value = 'No group matches that name or ID.'
+    searchError.value = 'No group matches that name.'
     return
   }
   searchQuery.value = ''
@@ -653,8 +712,13 @@ const onSearchSelect = ({ id }: { id: number }) => {
 // Drag the bar under the combined rubric stack to change its height — the
 // same mechanic as the answer/PDF blocks in SubmissionPreview.
 const MIN_RUBRICS_PX = 240
+const RUBRICS_HEIGHT_KEY = 'grading-height:rubrics'
 const rubricsEl = ref<HTMLDivElement | null>(null)
-const rubricsHeight = ref<number | null>(null)
+const savedRubricsHeight = Number(safeLocalStorageGet(RUBRICS_HEIGHT_KEY))
+const rubricsHeight = ref<number | null>(savedRubricsHeight >= MIN_RUBRICS_PX ? savedRubricsHeight : null)
+watch(rubricsHeight, (px) => {
+  if (px !== null) safeLocalStorageSet(RUBRICS_HEIGHT_KEY, String(px))
+})
 
 const startRubricsDrag = (event: PointerEvent) => {
   const el = rubricsEl.value
@@ -689,9 +753,41 @@ const onRubricsKeydown = (e: KeyboardEvent) => {
   }
 }
 
+// -- Reset view: this view's dividers and heights back where they start --------
+
+type SplitView = InstanceType<typeof ResizableSplit>
+type PreviewView = InstanceType<typeof SubmissionPreview>
+const rubricsSplit = ref<SplitView | null>(null)
+const answersPosterSplit = ref<SplitView | null>(null)
+const singleSplit = ref<SplitView | null>(null)
+const saqPreview = ref<PreviewView | null>(null)
+const posterPreview = ref<PreviewView | null>(null)
+const singlePreview = ref<PreviewView | null>(null)
+
+// Only what's on screen: a view not shown has no parts here.
+const layoutParts = () =>
+  [rubricsSplit, answersPosterSplit, singleSplit, saqPreview, posterPreview, singlePreview]
+    .map((part) => part.value)
+    .filter((part): part is SplitView | PreviewView => part !== null)
+
+const layoutMoved = computed(
+  () => (isCombined.value && rubricsHeight.value !== null) || layoutParts().some((part) => part.moved)
+)
+
+const resetLayout = () => {
+  for (const part of layoutParts()) part.reset()
+  if (isCombined.value) {
+    rubricsHeight.value = null
+    safeLocalStorageRemove(RUBRICS_HEIGHT_KEY)
+  }
+}
+
 const load = async () => {
   if (!Number.isFinite(groupId.value) || groupId.value <= 0) return
   if (isComponentMode.value && !code.value) return
+  // The Loading line briefly shortens the page, which would leave the marker
+  // at its top after Prev, Next or Next Unmarked; they stay where they were.
+  const scrolledTo = window.scrollY
   isLoading.value = true
   loadError.value = ''
   try {
@@ -711,15 +807,21 @@ const load = async () => {
   } finally {
     isLoading.value = false
   }
+  if (scrolledTo > 0) {
+    await nextTick()
+    window.scrollTo({ top: scrolledTo })
+  }
 }
 
-// Reload when navigating between groups or sections; reset the local tab so
-// by-group mode shows its default section for the new group.
+// Reload when navigating between groups or sections. Next and prev keep the
+// by-group section open; switching between by group and by component starts
+// again from the default.
 watch(
   () => [groupId.value, code.value, isComponentMode.value] as const,
-  () => {
-    activeCode.value = null
+  (now, before) => {
+    if (!before || now[2] !== before[2]) activeCode.value = null
     saveStatus.value = 'idle'
+    savedMessage.value = ''
     actionError.value = ''
     void load()
   },
@@ -729,19 +831,29 @@ watch(
 const saveMarksForBlock = async (
   block: ComponentBlock,
   items: GradeBulkItem[],
-  overallComment: string | null
+  overallComment: OverallCommentEdit | null,
+  withCategories = false
 ) => {
   saveStatus.value = 'saving'
+  savedMessage.value = ''
   actionError.value = ''
   try {
     const submissionId = block.submission?.id
     const componentCode = block.component.code
-    await saveGradesBulk(
-      items,
+    const overall =
       overallComment !== null && submissionId != null && componentCode
-        ? [{ submission: submissionId, component: componentCode, comment: overallComment }]
+        ? [{
+            submission: submissionId,
+            component: componentCode,
+            comment: overallComment.comment,
+            expected_comment: overallComment.expected
+          }]
         : undefined
-    )
+    // Only edits go; the category boxes may be all that changed. A 409 here
+    // is another marker's change, named in the error.
+    if (items.length || overall) await saveGradesBulk(items, overall)
+    // The SAQ Save also stores the category boxes (a no-op when unchanged).
+    if (withCategories) await categoriesForm.value?.save()
     // Refetch so grades (ids, graded_by) mirror the server after the upsert.
     // In the combined view the other section's form keeps its unsaved edits
     // across this — RubricForm preserves dirty rows for the same entry.
@@ -751,22 +863,26 @@ const saveMarksForBlock = async (
     ])
     payload.value = groupPayload
     rows.value = rowsPayload
-    saveStatus.value = 'saved'
+    saveStatus.value = 'idle'
+    flashSaved('Marks saved.')
   } catch (err) {
     saveStatus.value = 'idle'
     actionError.value = `Save failed: ${apiErrorFromUnknown(err).message}`
   }
 }
 
-const saveMarks = (items: GradeBulkItem[], overallComment: string | null) => {
-  if (activeBlock.value) void saveMarksForBlock(activeBlock.value, items, overallComment)
+const saveMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
+  const block = activeBlock.value
+  if (block) {
+    void saveMarksForBlock(block, items, overallComment, block.component.code === 'SAQ')
+  }
 }
 
-const saveSaqMarks = (items: GradeBulkItem[], overallComment: string | null) => {
-  if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment)
+const saveSaqMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
+  if (saqBlock.value) void saveMarksForBlock(saqBlock.value, items, overallComment, true)
 }
 
-const savePosterMarks = (items: GradeBulkItem[], overallComment: string | null) => {
+const savePosterMarks = (items: GradeBulkItem[], overallComment: OverallCommentEdit | null) => {
   if (posterBlock.value) void saveMarksForBlock(posterBlock.value, items, overallComment)
 }
 
@@ -809,14 +925,22 @@ const downloadAll = async () => {
   gap: 1rem;
 }
 
-/* Search sits centered in the header row, between the title and the Prev/
-   Next/Download buttons. The error overlays below so it never stretches
+/* Search fills the header row between the title and the Prev/Next/
+   Download buttons. The error overlays below so it never stretches
    the row. */
 /* Unlike the table pages, the label sits inline, left of the textbox. */
 .group-marking__search-field {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  /* Basis = the cluster with the box at its 155px floor (label + gaps +
+     box + Open). The wrapping header breaks lines at basis sizes, so the
+     basis must be the floor-sized cluster or the row wraps before the
+     box has shrunk back to 155. Cap = the same cluster with the box at
+     its 252px cap; once capped, the auto margins center it in the row. */
+  flex: 1 1 300px;
+  min-width: 0;
+  max-width: 400px;
   margin-inline: auto;
 }
 
@@ -833,11 +957,16 @@ const downloadAll = async () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-/* Same width as the By Component page's search box. */
+/* Absorbs the header row's leftover space between the table pages'
+   155px floor and 252px cap; the Open button rides its right edge. */
 .group-marking__picker {
-  width: 252px;
+  flex: 1 1 155px;
+  min-width: 155px;
+  max-width: 252px;
 }
 
 .group-marking__search-error {
@@ -863,12 +992,20 @@ const downloadAll = async () => {
 .group-marking__title {
   margin: 0;
   font-size: 1.35rem;
+  font-weight: 400;
 }
 
-.group-marking__id {
+/* The team's submitted title, on its own line above the Marker line. The
+   negative bottom margin takes back most of the page's 1rem gap between
+   sections, as the Marker line's 2rem-tall row brings space of its own. */
+.group-marking__project-title {
+  margin: -0.25rem 0 -0.7rem;
+  color: var(--charcoal);
+  font-size: 0.95rem;
+}
+
+.group-marking__project-title-label {
   color: var(--text-muted);
-  font-size: 1.35rem;
-  font-weight: 400;
 }
 
 .group-marking__header-actions {
@@ -878,19 +1015,6 @@ const downloadAll = async () => {
   flex-wrap: wrap;
   /* Stays right-aligned even when the header wraps it onto its own line. */
   margin-left: auto;
-}
-
-/* Soft green fill lifts Prev/Next off the page without competing with the
-   solid-green primary actions (Save marks). Download all stays plain outline. */
-.group-marking__nav-btn {
-  background: var(--accent-green-soft);
-  border-color: var(--dark-green);
-  color: var(--dark-green);
-}
-
-.group-marking__nav-btn:hover:not(:disabled) {
-  background: var(--dark-green);
-  color: #fff;
 }
 
 .group-marking__header-actions .btn:disabled {
@@ -984,8 +1108,15 @@ const downloadAll = async () => {
 
 /* min-height + margin of the stamp row above, so the rubric column starts
    where the preview content starts. */
-.group-marking__pane-offset {
-  padding-top: 3rem;
+/* Level with the stamp row beside it (Open, Download): Reset view,
+   right-aligned, above the rubrics. */
+.group-marking__reset-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 2rem;
+  margin: 0 0 1rem;
+  padding-right: 0.8rem;
 }
 
 .group-marking__stamp-marker {
@@ -1000,21 +1131,29 @@ const downloadAll = async () => {
   color: var(--text-muted);
 }
 
-.group-marking__stamp-status {
-  color: var(--dark-green);
-}
+/* The answers, preview and rubric reach further out to both sides than the
+   heading, tabs and search above them (on the left, up to the sidebar's
+   arrow at the page's edge). */
+@media (min-width: 769px) {
+  .group-marking > .split {
+    margin-left: -1.75rem;
+    margin-right: -2.5rem;
+  }
 
-.group-marking__stamp-status.is-error {
-  color: var(--danger);
+  /* That runs 0.5rem past the grading area, which clips it; Save stays
+     clear of the cut. */
+  .group-marking > .split :deep(.rubric-form__actions) {
+    padding-right: 0.85rem;
+  }
 }
 
 .group-marking__combined-rubrics {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0;
   /* Scrolls within its own pane, like the answers and PDF beside it, so a
      long rubric stack doesn't stretch the page. */
-  max-height: 94vh;
+  max-height: 100vh;
   overflow-y: auto;
   padding-right: 0.25rem;
 }

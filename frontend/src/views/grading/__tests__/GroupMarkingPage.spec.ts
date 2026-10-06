@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
+import { defineComponent, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import * as vueRouter from 'vue-router'
 import GroupMarkingPage from '@/views/grading/GroupMarkingPage.vue'
@@ -57,7 +57,7 @@ const GroupSearchInputStub = defineComponent({
 const formDirty = { value: false }
 const RubricFormStub = defineComponent({
   name: 'RubricForm',
-  props: ['submission', 'criteria', 'grades', 'overallCommentLabel', 'isSaving'],
+  props: ['submission', 'criteria', 'grades', 'overallCommentLabel', 'isSaving', 'extraDirty'],
   emits: ['save'],
   computed: {
     isDirty(): boolean {
@@ -65,27 +65,64 @@ const RubricFormStub = defineComponent({
     }
   },
   template:
-    '<div class="rubric-stub"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? \'Great\' : null)">save</button><slot name="actions" /></div>'
+    '<div class="rubric-stub" :data-extra-dirty="String(!!extraDirty)"><button class="save-stub" @click="$emit(\'save\', [{submission: 11, criterion: 2, mark: \'5\', comment: \'\'}], overallCommentLabel ? { comment: \'Great\', expected: \'\' } : null)">save</button><slot name="actions" /></div>'
 })
 
+// The page reads isDirty and calls save() on the category boxes through a
+// template ref; the stub exposes both, steered per test.
+const categoriesDirty = ref(false)
+const categoriesSaveMock = vi.fn<() => Promise<void>>()
 const MarkingCategoriesStub = defineComponent({
   name: 'MarkingCategories',
   props: ['groupId'],
   emits: ['status'],
+  computed: {
+    isDirty(): boolean {
+      return categoriesDirty.value
+    }
+  },
+  methods: {
+    save(): Promise<void> {
+      return categoriesSaveMock()
+    }
+  },
   template:
-    '<button class="categories-stub" @click="$emit(\'status\', { text: \'Saved.\', error: false })"></button>'
+    '<div class="categories-stub">' +
+    '<button class="categories-error-stub" @click="$emit(\'status\', { text: \'Category load failed: not allowed\', error: true })"></button>' +
+    '</div>'
 })
+
+// The dividers and previews say whether they were moved, as the real ones
+// do; Reset view puts them back.
+const layoutMoved = ref(false)
+const layoutReset = vi.fn(() => {
+  layoutMoved.value = false
+})
+const movable = {
+  setup(_props: unknown, { expose }: { expose: (exposed: Record<string, unknown>) => void }) {
+    expose({
+      get moved() {
+        return layoutMoved.value
+      },
+      reset: layoutReset
+    })
+    return {}
+  }
+}
 
 const stubs = {
   GroupSearchInput: GroupSearchInputStub,
   RubricForm: RubricFormStub,
   MarkingCategories: MarkingCategoriesStub,
   ResizableSplit: {
-    template: '<div class="split-stub"><slot name="left" /><slot name="right" /></div>'
+    ...movable,
+    props: ['memory', 'rightMax'],
+    template: '<div class="split-stub" :data-memory="memory"><slot name="left" /><slot name="right" /></div>'
   },
   SubmissionPreview: {
-    props: ['submission', 'component', 'lastGraderName', 'criterionMarkers', 'graderNames', 'hideSubmitted'],
-    template: '<div class="preview-stub">{{ component.code }}</div>'
+    ...movable,
+    props: ['submission', 'component', 'lastGraderName', 'criterionMarkers', 'graderNames', 'hideSubmitted', 'memory'],
+    template: '<div class="preview-stub" :data-memory="memory">{{ component.code }}</div>'
   },
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
 }
@@ -124,7 +161,7 @@ const block = (code: string, over: Record<string, unknown> = {}) => ({
 })
 
 const markingPayload = (components: unknown[]) => ({
-  group: { id: 3, group_name: 'Alpha Team' },
+  group: { id: 3, group_name: 'Alpha Team', project_title: 'Plant Sensors' },
   year: 2026,
   components
 })
@@ -161,11 +198,16 @@ const mountPage = async () => {
 }
 
 beforeEach(() => {
+  layoutMoved.value = false
+  layoutReset.mockClear()
+  window.localStorage.clear()
   routeState.name = 'grading-group'
   routeState.params = { groupId: '3' }
   pushMock.mockReset()
   resolveIdMock.mockReset()
   formDirty.value = false
+  categoriesDirty.value = false
+  categoriesSaveMock.mockReset().mockResolvedValue(undefined)
   zipMock.mockReset()
   fileMock.mockReset()
   saveMock.mockReset().mockResolvedValue([] as never)
@@ -193,7 +235,15 @@ describe('the combined SAQs & Poster view', () => {
   it('is the default when both sections exist, under the group heading', async () => {
     const wrapper = await mountPage()
     expect(wrapper.find('.group-marking__title').text()).toContain('Alpha Team')
-    expect(wrapper.find('.group-marking__title').text()).toContain('#3')
+    // The heading shows the group name alone — no id.
+    expect(wrapper.find('.group-marking__title').text()).not.toContain('#')
+    // The title the team submitted: its own line after the heading and
+    // search, before the Marker line.
+    const title = wrapper.find('.group-marking__project-title')
+    expect(title.text()).toBe('Title: Plant Sensors')
+    expect(title.element.previousElementSibling?.classList.contains('group-marking__header')).toBe(true)
+    const html = wrapper.html()
+    expect(html.indexOf('group-marking__project-title')).toBeLessThan(html.indexOf('Marker:'))
     const active = wrapper.find('[role="tab"][aria-selected="true"]')
     expect(active.text()).toBe('SAQs & Poster')
     // Both previews and both rubric forms render.
@@ -204,7 +254,9 @@ describe('the combined SAQs & Poster view', () => {
   it('hoists one shared stamp naming each section marker', async () => {
     const wrapper = await mountPage()
     const stamp = wrapper.find('.group-marking__pane-stamp')
-    expect(stamp.text()).toContain('Submitted')
+    // The stamp carries the marker only — no submitted-at timestamp.
+    expect(stamp.text()).not.toContain('Submitted')
+    expect(stamp.text()).toContain('Marker:')
     expect(stamp.find('.group-marking__stamp-marker').text()).toBe('SAQ: Ada Grader · Poster: Bob Marker')
     expect(stamp.find('.group-marking__stamp-marker').attributes('title')).toContain('SAQ 1: Ada Grader')
     // The poster PDF gets its Open action on the stamp line.
@@ -219,10 +271,31 @@ describe('the combined SAQs & Poster view', () => {
     expect(wrapper.find('.group-marking__stamp-marker').text()).toBe('Ada Grader')
   })
 
-  it('the categories status surfaces on the stamp line', async () => {
+  it('the category boxes sit above the SAQ rubric in the rubric column', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('.categories-stub').trigger('click')
-    expect(wrapper.find('.group-marking__stamp-status').text()).toContain('Saved.')
+    const column = wrapper.find('.group-marking__combined-rubrics').html()
+    const categories = column.indexOf('categories-stub')
+    const saqForm = column.indexOf('rubric-stub')
+    expect(categories).toBeGreaterThanOrEqual(0)
+    expect(categories).toBeLessThan(saqForm)
+    expect(wrapper.findAll('.categories-stub')).toHaveLength(1)
+  })
+
+  it('unsaved categories count as unsaved edits on the SAQ form only', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.findAll('.rubric-stub')[0]!.attributes('data-extra-dirty')).toBe('false')
+    categoriesDirty.value = true
+    await flushPromises()
+    expect(wrapper.findAll('.rubric-stub')[0]!.attributes('data-extra-dirty')).toBe('true')
+    expect(wrapper.findAll('.rubric-stub')[1]!.attributes('data-extra-dirty')).toBe('false')
+  })
+
+  it('a failed category load shows the red banner', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('.categories-error-stub').trigger('click')
+    expect(wrapper.find('.group-marking__banner--error').text()).toBe(
+      'Category load failed: not allowed'
+    )
   })
 
   it('widens the layout for marking, and releases it on unmount', async () => {
@@ -240,10 +313,24 @@ describe('saving marks', () => {
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith(
       [{ submission: 11, criterion: 2, mark: '5', comment: '' }],
-      [{ submission: 11, component: 'POSTER', comment: 'Great' }]
+      [{ submission: 11, component: 'POSTER', comment: 'Great', expected_comment: '' }]
     )
     expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
     expect(markingMock).toHaveBeenCalledTimes(2) // refetch after the upsert
+  })
+
+  it('the Marks saved message clears itself after 3.5 seconds', async () => {
+    const wrapper = await mountPage()
+    vi.useFakeTimers()
+    try {
+      await wrapper.findAll('.save-stub')[1]!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
+      await vi.advanceTimersByTimeAsync(3500)
+      expect(wrapper.find('.group-marking__banner--ok').exists()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('an SAQ save sends no overall comment — SAQ has no box', async () => {
@@ -253,6 +340,28 @@ describe('saving marks', () => {
     expect(saveMock).toHaveBeenCalledWith(expect.any(Array), undefined)
   })
 
+  it('the SAQ Save also stores the category boxes; the Poster Save does not', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('.save-stub')[1]!.trigger('click') // poster form
+    await flushPromises()
+    expect(categoriesSaveMock).not.toHaveBeenCalled()
+
+    await wrapper.findAll('.save-stub')[0]!.trigger('click') // SAQ form
+    await flushPromises()
+    expect(saveMock).toHaveBeenCalledTimes(2)
+    expect(categoriesSaveMock).toHaveBeenCalledOnce()
+    expect(wrapper.find('.group-marking__banner--ok').text()).toBe('Marks saved.')
+  })
+
+  it('a failed category save is reported like a failed marks save', async () => {
+    categoriesSaveMock.mockRejectedValueOnce(new Error('refused'))
+    const wrapper = await mountPage()
+    await wrapper.findAll('.save-stub')[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.group-marking__banner--error').text()).toBe('Save failed: refused')
+    expect(wrapper.find('.group-marking__banner--ok').exists()).toBe(false)
+  })
+
   it('a refused save is reported without claiming success', async () => {
     saveMock.mockRejectedValueOnce(new Error('mismatched criterion'))
     const wrapper = await mountPage()
@@ -260,6 +369,66 @@ describe('saving marks', () => {
     await flushPromises()
     expect(wrapper.find('.group-marking__banner--error').text()).toContain('mismatched criterion')
     expect(wrapper.find('.group-marking__banner--ok').exists()).toBe(false)
+  })
+})
+
+describe('Reset view', () => {
+  const resetButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+    wrapper.findAll('button').find((b) => b.text() === 'Reset view')!
+
+  it('sits above the rubrics, off until something is moved', async () => {
+    const wrapper = await mountPage()
+    const row = wrapper.find('.group-marking__reset-row')
+    expect(row.text()).toBe('Reset view')
+    // Above the rubrics in their column.
+    expect(row.element.nextElementSibling?.classList).toContain('group-marking__combined-rubrics')
+    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
+
+    layoutMoved.value = true
+    await flushPromises()
+    expect(resetButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it("puts the view's dividers and heights back, then goes off again", async () => {
+    layoutMoved.value = true
+    const wrapper = await mountPage()
+    await resetButton(wrapper).trigger('click')
+    // Both splits and both previews in SAQs & Poster.
+    expect(layoutReset).toHaveBeenCalledTimes(4)
+    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('the rubrics height counts too, and is remembered', async () => {
+    window.localStorage.setItem('grading-height:rubrics', '500')
+    const wrapper = await mountPage()
+    expect(wrapper.find('.group-marking__combined-rubrics').attributes('style')).toContain('height: 500px')
+    expect(resetButton(wrapper).attributes('disabled')).toBeUndefined()
+    await resetButton(wrapper).trigger('click')
+    expect(wrapper.find('.group-marking__combined-rubrics').attributes('style')).toBeUndefined()
+    expect(window.localStorage.getItem('grading-height:rubrics')).toBeNull()
+  })
+
+  it('each subtab keeps its own positions', async () => {
+    const wrapper = await mountPage()
+    const memories = (selector: string) => wrapper.findAll(selector).map((el) => el.attributes('data-memory'))
+    // SAQs & Poster's own, not the SAQ or Poster tab's.
+    expect(memories('.split-stub')).toEqual(['combined-rubrics', 'combined-answers-poster'])
+    expect(memories('.preview-stub')).toEqual(['combined:SAQ', 'combined:POSTER'])
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    expect(memories('.split-stub')).toEqual(['rubrics:POSTER'])
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'Short Answer Questions')!.trigger('click')
+    expect(memories('.split-stub')).toEqual(['rubrics:SAQ'])
+  })
+
+  it('is above the rubric on a single section too', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    expect(wrapper.find('.group-marking__reset-row').exists()).toBe(true)
+    layoutMoved.value = true
+    await flushPromises()
+    await resetButton(wrapper).trigger('click')
+    // Its one split and one preview.
+    expect(layoutReset).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -296,6 +465,30 @@ describe('walking the cohort', () => {
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/5')
   })
 
+  it('keeps the section open when moving to another group', async () => {
+    const wrapper = await mountPage()
+    await wrapper.findAll('[role="tab"]').find((t) => t.text() === 'POSTER')!.trigger('click')
+    routeState.params = { groupId: '5' }
+    await flushPromises()
+    expect(markingMock).toHaveBeenLastCalledWith(5)
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').text()).toBe('POSTER')
+  })
+
+  it('keeps the page where it was scrolled while the next group loads', async () => {
+    await mountPage()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { value: 640, configurable: true })
+    try {
+      routeState.params = { groupId: '5' }
+      await flushPromises()
+      expect(markingMock).toHaveBeenLastCalledWith(5)
+      expect(scrollTo).toHaveBeenCalledWith({ top: 640 })
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+      scrollTo.mockRestore()
+    }
+  })
+
   it('search opens the resolved group and refuses an unknown one', async () => {
     resolveIdMock.mockReturnValue(5)
     const wrapper = await mountPage()
@@ -305,7 +498,7 @@ describe('walking the cohort', () => {
     pushMock.mockClear()
     resolveIdMock.mockReturnValue(null)
     await wrapper.find('.group-marking__search-form').trigger('submit')
-    expect(wrapper.find('.group-marking__search-error').text()).toBe('No group matches that name or ID.')
+    expect(wrapper.find('.group-marking__search-error').text()).toBe('No group matches that name.')
     expect(pushMock).not.toHaveBeenCalled()
   })
 })

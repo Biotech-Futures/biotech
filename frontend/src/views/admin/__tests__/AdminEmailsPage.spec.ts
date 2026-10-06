@@ -48,6 +48,11 @@ const buildTemplate = (overrides: Partial<SystemEmailTemplate> = {}): SystemEmai
   body: '',
   updatedBy: null,
   updatedAt: null,
+  sender: 'info',
+  senders: [
+    { key: 'info', address: 'info@biotechfutures.org' },
+    { key: 'connect', address: 'connect@biotechfutures.org' }
+  ],
   mergeTags: [
     { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
   ],
@@ -104,7 +109,7 @@ describe('AdminEmailsPage', () => {
 
   it('pre-fills the editor with the built-in wording', async () => {
     const wrapper = await mountPage()
-    const subject = wrapper.find('#email-subject')
+    const subject = wrapper.find('#template-subject')
     expect((subject.element as HTMLInputElement).value).toBe('Reset your password')
   })
 
@@ -138,7 +143,7 @@ describe('AdminEmailsPage', () => {
     })
     vi.mocked(updateSystemEmailTemplate).mockResolvedValue(updated)
 
-    await wrapper.find('#email-subject').setValue('New subject')
+    await wrapper.find('#template-subject').setValue('New subject')
     const saveButton = wrapper
       .findAll('button')
       .find((button) => button.text().includes('Save changes'))
@@ -152,19 +157,92 @@ describe('AdminEmailsPage', () => {
     })
   })
 
-  it('flips the global switch', async () => {
+  it('picks the mailbox it goes from, saved at once', async () => {
+    const wrapper = await mountPage()
+    vi.mocked(updateSystemEmailTemplate).mockResolvedValue(buildTemplate({ sender: 'connect' }))
+
+    const select = wrapper.find<HTMLSelectElement>('#password_reset-sender')
+    // Only the mailboxes the server can sign in to.
+    expect(select.findAll('option').map((option) => option.text())).toEqual([
+      'info@biotechfutures.org',
+      'connect@biotechfutures.org'
+    ])
+    expect(select.element.value).toBe('info')
+    await select.setValue('connect')
+    await flushPromises()
+
+    expect(updateSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { sender: 'connect' })
+    expect(wrapper.find<HTMLSelectElement>('#password_reset-sender').element.value).toBe('connect')
+  })
+
+  it('keeps Subject and Body editable while Send from saves', async () => {
+    const wrapper = await mountPage()
+    let finish: (template: SystemEmailTemplate) => void = () => {}
+    vi.mocked(updateSystemEmailTemplate).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+
+    await wrapper.find('#password_reset-sender').setValue('connect')
+    // Disabling them flashed the Subject box and dropped the Body's toolbar.
+    expect(wrapper.find<HTMLInputElement>('#template-subject').element.disabled).toBe(false)
+    expect(wrapper.findComponent({ name: 'RichEditor' }).props('readOnly')).toBe(false)
+
+    finish(buildTemplate({ sender: 'connect' }))
+    await flushPromises()
+  })
+
+  const dialogTitled =(wrapper: Awaited<ReturnType<typeof mountPage>>, title: string) =>
+    wrapper.findAllComponents(ConfirmDialog).find((dialog) => dialog.props('title') === title)!
+
+  it('asks before pausing all emails, and pauses only once confirmed', async () => {
     const wrapper = await mountPage()
     vi.mocked(updateSystemEmailSettings).mockResolvedValue({
       emailsEnabled: false,
       updatedAt: null
     })
 
-    const globalSwitch = wrapper.find('.admin-emails__global input[role="switch"]')
+    const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')
     await globalSwitch.setValue(false)
+    await flushPromises()
+
+    const dialog = dialogTitled(wrapper, 'Pause all system emails?')
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(updateSystemEmailSettings).not.toHaveBeenCalled()
+    expect(globalSwitch.element.checked).toBe(true)
+
+    await dialog.vm.$emit('confirm')
     await flushPromises()
 
     expect(updateSystemEmailSettings).toHaveBeenCalledWith(false)
     expect(wrapper.text()).toContain('Emails paused')
+  })
+
+  it('keeps emails on when the pause is cancelled', async () => {
+    const wrapper = await mountPage()
+    const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')
+    await globalSwitch.setValue(false)
+    await flushPromises()
+
+    await dialogTitled(wrapper, 'Pause all system emails?').vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(updateSystemEmailSettings).not.toHaveBeenCalled()
+    expect(globalSwitch.element.checked).toBe(true)
+    expect(wrapper.text()).toContain('Emails on')
+  })
+
+  it('turns paused emails back on without asking', async () => {
+    vi.mocked(fetchSystemEmailSettings).mockResolvedValue({ emailsEnabled: false, updatedAt: null })
+    const wrapper = await mountPage()
+    vi.mocked(updateSystemEmailSettings).mockResolvedValue({ emailsEnabled: true, updatedAt: null })
+
+    await wrapper.find('.admin-emails__global input[role="switch"]').setValue(true)
+    await flushPromises()
+
+    expect(updateSystemEmailSettings).toHaveBeenCalledWith(true)
+    expect(dialogTitled(wrapper, 'Pause all system emails?').props('modelValue')).toBe(false)
   })
 
   it('confirms before restoring default wording', async () => {
@@ -178,7 +256,7 @@ describe('AdminEmailsPage', () => {
     await editor.vm.$emit('restore')
     await flushPromises()
 
-    const dialog = wrapper.findComponent(ConfirmDialog)
+    const dialog = dialogTitled(wrapper, 'Restore default wording?')
     expect(dialog.props('modelValue')).toBe(true)
 
     await dialog.vm.$emit('confirm')
@@ -205,10 +283,8 @@ describe('AdminEmailsPage', () => {
     await wrapper.findComponent(EmailEditor).vm.$emit('test-send')
     await flushPromises()
 
-    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {
-      subject: 'Reset your password',
-      body: '<p>Hi Alex, reset your password.</p>'
-    })
+    // Unchanged built-in wording is sent from the template file.
+    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {})
     expect(wrapper.text()).toContain('admin@example.com')
   })
 })

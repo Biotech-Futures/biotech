@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
-import { useJobPolling } from '@/composables/useJobPolling'
+import { POLL_DELAYS_MS, useJobPolling } from '@/composables/useJobPolling'
 import {
   downloadJobResult,
   fetchJobStatus,
@@ -51,6 +51,10 @@ const tick = async (ms: number) => {
   await vi.advanceTimersByTimeAsync(ms)
 }
 
+// When each check fires: 250 ms after the start, then 500 ms, 1 s and every
+// 2 s after that.
+const [FIRST, SECOND] = POLL_DELAYS_MS
+
 beforeEach(() => {
   vi.useFakeTimers()
   startMock.mockReset()
@@ -80,15 +84,15 @@ describe('the happy path', () => {
     expect(polling.phase.value).toBe('preparing')
     expect(polling.isBusy.value).toBe(true)
 
-    await tick(2000) // first poll: still running
+    await tick(FIRST) // first check: still running
     expect(polling.phase.value).toBe('preparing')
 
-    await tick(2000) // second poll: done → download
+    await tick(SECOND) // second check: done → download
     expect(downloadMock).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }))
     expect(polling.phase.value).toBe('done')
     expect(polling.isBusy.value).toBe(false)
 
-    // The interval is stopped: no further status checks.
+    // Checking has stopped: no further status requests.
     statusMock.mockClear()
     await tick(6000)
     expect(statusMock).not.toHaveBeenCalled()
@@ -101,8 +105,39 @@ describe('the happy path', () => {
 
     const { polling } = mountPolling()
     await polling.startAll()
-    await tick(2000)
+    await tick(FIRST)
     expect(startAllMock).toHaveBeenCalled()
+    expect(polling.phase.value).toBe('done')
+  })
+})
+
+describe('how often it checks', () => {
+  it('checks quickly at first, then eases off to every 2 seconds', async () => {
+    startMock.mockResolvedValueOnce(11)
+    statusMock.mockResolvedValue(job('running'))
+    const { polling } = mountPolling()
+    await polling.start('SAQ', 'xlsx')
+
+    // Checks land at 250 ms, 750 ms, 1.75 s, 3.75 s, 5.75 s, 7.75 s after the start.
+    const checksAt = [250, 750, 1750, 3750, 5750, 7750]
+    let now = 0
+    for (const [index, at] of checksAt.entries()) {
+      await tick(at - 1 - now)
+      expect(statusMock).toHaveBeenCalledTimes(index)
+      await tick(1)
+      expect(statusMock).toHaveBeenCalledTimes(index + 1)
+      now = at
+    }
+  })
+
+  it('a quick job is downloaded a quarter of a second after it starts', async () => {
+    startMock.mockResolvedValueOnce(11)
+    statusMock.mockResolvedValueOnce(job('done'))
+    downloadMock.mockResolvedValueOnce()
+    const { polling } = mountPolling()
+    await polling.start('SAQ', 'xlsx')
+    await tick(250)
+    expect(downloadMock).toHaveBeenCalledTimes(1)
     expect(polling.phase.value).toBe('done')
   })
 })
@@ -123,7 +158,7 @@ describe('failure paths', () => {
     statusMock.mockResolvedValueOnce(job('failed', 'disk full'))
     const { polling } = mountPolling()
     await polling.start('SAQ', 'xlsx')
-    await tick(2000)
+    await tick(FIRST)
     expect(polling.phase.value).toBe('failed')
     expect(polling.error.value).toBe('disk full')
   })
@@ -133,7 +168,7 @@ describe('failure paths', () => {
     statusMock.mockResolvedValueOnce(job('failed', null))
     const { polling } = mountPolling()
     await polling.start('SAQ', 'zip')
-    await tick(2000)
+    await tick(FIRST)
     expect(polling.error.value).toBe('The export job failed.')
   })
 
@@ -142,7 +177,7 @@ describe('failure paths', () => {
     statusMock.mockRejectedValueOnce(new Error('network down'))
     const { polling } = mountPolling()
     await polling.start('SAQ', 'zip')
-    await tick(2000)
+    await tick(FIRST)
     expect(polling.phase.value).toBe('failed')
     statusMock.mockClear()
     await tick(6000)
@@ -156,13 +191,30 @@ describe('lifecycle', () => {
     statusMock.mockResolvedValue(job('running'))
     const { polling } = mountPolling()
     await polling.start('SAQ', 'zip')
-    await tick(2000)
+    await tick(FIRST)
     const pollsBefore = statusMock.mock.calls.length
 
     await polling.start('POSTER', 'zip')
-    await tick(2000)
-    // Only ONE interval is live: one extra poll, not two.
+    await tick(FIRST)
+    // Only the new job is being checked: one extra check, not two.
     expect(statusMock.mock.calls.length).toBe(pollsBefore + 1)
+  })
+
+  it('a check that returns after a newer job started is ignored', async () => {
+    let answerOld!: (value: GradingJobDetail) => void
+    startMock.mockResolvedValueOnce(11).mockResolvedValueOnce(12)
+    statusMock
+      .mockImplementationOnce(() => new Promise((resolve) => (answerOld = resolve)))
+      .mockResolvedValue(job('running'))
+    const { polling } = mountPolling()
+    await polling.start('SAQ', 'zip')
+    await tick(FIRST) // the old job's check is now in flight
+
+    await polling.start('POSTER', 'zip')
+    answerOld(job('done')) // too late: the old job was abandoned
+    await tick(0)
+    expect(downloadMock).not.toHaveBeenCalled()
+    expect(polling.phase.value).toBe('preparing')
   })
 
   it('unmounting stops the poll so no request fires afterwards', async () => {
@@ -170,7 +222,7 @@ describe('lifecycle', () => {
     statusMock.mockResolvedValue(job('running'))
     const { wrapper, polling } = mountPolling()
     await polling.start('SAQ', 'zip')
-    await tick(2000)
+    await tick(FIRST)
     expect(statusMock).toHaveBeenCalled()
 
     wrapper.unmount()
