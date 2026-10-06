@@ -24,7 +24,8 @@ vi.mock('@/utils/managementAPI', () => ({
   updatePresentationSlot: vi.fn(),
   deletePresentationSlot: vi.fn(),
   setPresentationTimesShown: vi.fn(),
-  presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`
+  presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`,
+  presentationSlidesDownloadUrl: (groupId: number) => `/slides/${groupId}/file/?download=1`
 }))
 const fetchMock = vi.mocked(fetchPresentationSlots)
 const addMock = vi.mocked(addPresentationSlot)
@@ -296,19 +297,39 @@ describe('Finalist Presentation', () => {
     const table = wrapper.find('.finalist-presentation__submissions')
     expect(table.find('h3').text()).toBe('Finalist Submission')
     expect(table.text()).toContain("Each finalist team's presentation slides, due Friday 16 October 2026")
-    expect(table.findAll('thead th').map((h) => h.text())).toEqual(['Group', 'Submitted', ''])
+    expect(table.findAll('thead th').map((h) => h.text())).toEqual(['Group', 'Submitted', 'Type', ''])
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
     expect(cells[1]!.text()).toMatch(/^10\/10\/26 \d{2}:05$/)
-    // Open takes the slides to a new tab; their name is on hover.
-    const open = cells[2]!.find('a')
-    expect(open.text()).toBe('Open')
-    expect(open.attributes('href')).toBe('/slides/2/file/')
-    expect(open.attributes('target')).toBe('_blank')
-    expect(open.attributes('title')).toBe('BTF2 slides.pptx')
+    expect(cells[2]!.text()).toBe('PPTX')
+    // PowerPoint can't show in the browser: only Download, its name on hover.
+    const links = cells[3]!.findAll('a')
+    expect(links.map((a) => a.text())).toEqual(['Download'])
+    expect(links[0]!.attributes('href')).toBe('/slides/2/file/?download=1')
+    expect(links[0]!.attributes('title')).toBe('BTF2 slides.pptx')
     expect(btf10!.text()).toBe('BTF10Not submitted yet')
     expect(btf10!.find('a').exists()).toBe(false)
+  })
+
+  it('a PDF opens in a new tab, with Download to its right', async () => {
+    slidesMock.mockResolvedValue({
+      slides_due: '2026-10-16',
+      teams: [
+        {
+          group_id: 2, group_name: 'BTF2', submitted: true, file_name: 'BTF2 slides.pdf',
+          submitted_by: 'Amy Chen', submitted_at: '2026-10-10T00:05:00Z'
+        }
+      ]
+    })
+    const wrapper = await mountPage()
+    const row = wrapper.find('.finalist-presentation__submissions tbody tr')
+    expect(row.findAll('td')[2]!.text()).toBe('PDF')
+    const [open, download] = row.findAll('a')
+    expect([open!.text(), download!.text()]).toEqual(['Open', 'Download'])
+    expect(open!.attributes('href')).toBe('/slides/2/file/')
+    expect(open!.attributes('target')).toBe('_blank')
+    expect(download!.attributes('href')).toBe('/slides/2/file/?download=1')
   })
 
   it('asks for the slides due date while it is not set', async () => {

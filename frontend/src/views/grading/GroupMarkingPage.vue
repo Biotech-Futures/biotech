@@ -59,14 +59,14 @@
               class="group-marking__picker"
               @select="onSearchSelect"
             />
-            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <button type="submit" class="btn btn-outline btn-sm">Open</button>
             <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
           </form>
         </div>
         <div class="group-marking__header-actions">
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="prevId == null"
             @click="goto(prevId)"
           >
@@ -74,7 +74,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="nextId == null"
             @click="goto(nextId)"
           >
@@ -82,7 +82,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-primary btn-sm"
             :disabled="nextUnmarkedId == null"
             @click="goto(nextUnmarkedId)"
           >
@@ -1015,19 +1015,6 @@ const downloadAll = async () => {
   flex-wrap: wrap;
   /* Stays right-aligned even when the header wraps it onto its own line. */
   margin-left: auto;
-}
-
-/* Soft green fill lifts Prev/Next off the page without competing with the
-   solid-green primary actions (Save). Download all stays plain outline. */
-.group-marking__nav-btn {
-  background: var(--accent-green-soft);
-  border-color: var(--dark-green);
-  color: var(--dark-green);
-}
-
-.group-marking__nav-btn:hover:not(:disabled) {
-  background: var(--dark-green);
-  color: #fff;
 }
 
 .group-marking__header-actions .btn:disabled {

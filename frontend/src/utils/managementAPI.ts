@@ -467,6 +467,9 @@ export interface OutcomeAnnouncement {
   merge_tags: SystemEmailMergeTag[]
   /** Changed from the email's wording. */
   edited: boolean
+  /** Who saved the edited wording and when; null until edited. */
+  edited_by: string | null
+  edited_at: string | null
   /** The groups, or supervisors, the email has reached so far: who sees it. */
   recipients: number
   /** What they are, e.g. "finalist group". */
@@ -640,6 +643,11 @@ export function fetchPresentationSlides(): Promise<PresentationSlides> {
 // team's slides, for a link: a PDF opens in the browser, anything else downloads.
 export function presentationSlidesUrl(groupId: number): string {
   return `${API_BASE_URL}/api/v1/management/finalists/presentation-slides/${groupId}/file/`
+}
+
+// The same, always saved as a download, even a PDF.
+export function presentationSlidesDownloadUrl(groupId: number): string {
+  return `${presentationSlidesUrl(groupId)}?download=1`
 }
 
 // GET /api/v1/management/finalists/presentation-responses/ — this year's

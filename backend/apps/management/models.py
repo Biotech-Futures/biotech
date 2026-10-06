@@ -117,6 +117,14 @@ class OutcomeAnnouncement(models.Model):
     title = models.CharField(max_length=255, blank=True)
     body = models.TextField(blank=True)
     edited_at = models.DateTimeField(null=True, blank=True)
+    # Who saved the edited wording; shown as "Last edited by" in Edit.
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     announcement = models.ForeignKey(
         "announcements.Announcement",
         on_delete=models.SET_NULL,

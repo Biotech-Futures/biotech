@@ -7,7 +7,7 @@ from apps.services.email_registry import (
     is_known_email_type,
     unknown_merge_tags,
 )
-from apps.services.system_email import clean_email_body
+from apps.services.system_email import clean_email_body, senders
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -77,6 +77,13 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
     )
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     enabled = serializers.BooleanField(required=False)
+    # Which mailbox it goes from: a key of settings.EMAIL_SENDERS.
+    sender = serializers.CharField(required=False, max_length=32)
+
+    def validate_sender(self, value: str) -> str:
+        if value not in {sender.key for sender in senders()}:
+            raise serializers.ValidationError("It can only go from one of the mailboxes listed.")
+        return value
 
     def validate(self, attrs):
         key = self.context.get("key", "")

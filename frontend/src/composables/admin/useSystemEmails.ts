@@ -288,6 +288,21 @@ const testSend = async () => {
     }
   }
 
+  // Which mailbox it goes from; saved at once, like the on/off switch.
+  const changeSender = async (template: SystemEmailTemplate, sender: string) => {
+    if (sender === template.sender) return
+    togglingKey.value = template.key
+    clearMessages()
+    try {
+      replaceTemplate(await updateSystemEmailTemplate(template.key, { sender }))
+    } catch (senderError) {
+      logApiError('admin.system-emails.sender', senderError)
+      error.value = messageFrom('Unable to change who this email is sent from.', senderError)
+    } finally {
+      togglingKey.value = null
+    }
+  }
+
   const toggleGlobal = async (enabled: boolean) => {
     togglingGlobal.value = true
     clearMessages()
@@ -332,6 +347,7 @@ const testSend = async () => {
     save,
     restore,
     toggleEnabled,
+    changeSender,
     toggleGlobal
   }
 }

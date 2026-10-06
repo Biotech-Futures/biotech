@@ -23,6 +23,8 @@ vi.mock('@/utils/managementAPI', () => ({
     preview: { title: `${kind} news`, body: '<p>News.</p>' },
     merge_tags: [],
     edited: false,
+    edited_by: null,
+    edited_at: null,
     recipients: 1,
     noun: 'group',
     blocked: '',

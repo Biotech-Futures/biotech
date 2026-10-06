@@ -16,12 +16,10 @@ from __future__ import annotations
 import logging
 import smtplib
 
-from django.conf import settings
-from django.core.mail import get_connection
 from django.db import IntegrityError, transaction
 
-from apps.groups.models.group_members import GroupMembership
-from apps.services.system_email import RenderedEmail, build_message
+from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
+from apps.submissions.emails import to_and_cc
 
 from ..models import EmailDelivery
 
@@ -137,9 +135,10 @@ def _record(email: str, group, address: str) -> None:
 
 
 def _own_connection(email: str, log_as: str):
-    """A connection opened for one send, or None when the mail server can't
-    be reached."""
-    connection = get_connection(fail_silently=False)
+    """A connection opened for one send, signed in as ``email``'s sender (see
+    ``system_email.sender_for``), or None when the mail server can't be
+    reached."""
+    connection = sender_connection(sender_for(email), fail_silently=False)
     try:
         connection.open()
     except Exception as exc:  # noqa: BLE001
@@ -148,30 +147,14 @@ def _own_connection(email: str, log_as: str):
     return connection
 
 
-def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
-    """``addresses`` on ``group`` as its one email takes them: its students in
-    To, its mentors and supervisors in CC."""
-    students = {
-        address.lower()
-        for address in GroupMembership.objects.filter(
-            group=group, left_at__isnull=True, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-        ).values_list("user__email", flat=True)
-        if address
-    }
-    return (
-        [address for address in addresses if address.lower() in students],
-        [address for address in addresses if address.lower() not in students],
-    )
-
-
 def send_group(
     rendered: RenderedEmail, addresses, connection=None, *, email: str, group, files=(), log_as: str,
     cc_staff: bool = True,
 ) -> dict[str, str]:
     """``group``'s one email to those of ``addresses`` it's still due: its
     students in To, its mentors and supervisors in CC (in To when no student
-    is due it, or without ``cc_staff``), replies going to support. Each address is recorded once it's
-    gone. Without ``connection`` it opens one of its own. Returns
+    is due it, or without ``cc_staff``), replies going back to the sender.
+    Each address is recorded once it's gone. Without ``connection`` it opens one of its own. Returns
     ``{address: why}`` for everyone it was for when it couldn't go, or for
     those the mail server refused when it took the rest."""
     done = already_sent(email, [group.id]).get(group.id, set())
@@ -187,9 +170,10 @@ def send_group(
         if connection is None:
             return {address: UNREACHABLE for address in due}
     try:
-        message = build_message(rendered, to, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection, files=files)
+        message = build_message(
+            rendered, to, from_email=sender_for(email).from_email, connection=connection, files=files,
+        )
         message.cc = cc
-        message.reply_to = [settings.SUPPORT_EMAIL]
         reason, refused = deliver(message)
     finally:
         if own:
@@ -215,7 +199,7 @@ def send_each(
     rendered: RenderedEmail, addresses, connection=None, *, email: str, group=None, files=(), log_as: str,
 ) -> dict[str, str]:
     """Each address its own copy, so nobody sees the others, with replies going
-    to support: the supervisor results email. With ``group``: anyone who
+    back to the sender: the supervisor results email. With ``group``: anyone who
     already has ``email`` from that team is skipped, and each copy that goes is
     recorded. Without ``connection`` it opens one of its own. Returns
     ``{address: why}`` for those it couldn't reach."""
@@ -231,9 +215,8 @@ def send_each(
             if address.lower() in done:
                 continue
             message = build_message(
-                rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection, files=files,
+                rendered, address, from_email=sender_for(email).from_email, connection=connection, files=files,
             )
-            message.reply_to = [settings.SUPPORT_EMAIL]
             # One address: a refusal fails the send.
             reason, _ = deliver(message)
             if reason:

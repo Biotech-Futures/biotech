@@ -226,16 +226,21 @@ describe('blob downloads', () => {
     expect(clicks).toEqual(['poster.pdf'])
   })
 
-  it('downloadJobResult refuses a job with no URL and saves one that has it', async () => {
+  it('downloadJobResult refuses a job with no URL and hands one that has it to the browser', async () => {
     const job = {
       id: 11, kind: 'bulk_zip', status: 'done' as const, download_url: null,
       error: null, created_at: '', finished_at: null
     }
     await expect(api.downloadJobResult(job)).rejects.toThrow(/no download URL/i)
 
-    fetchMock.mockResolvedValueOnce(blobResponse())
-    await api.downloadJobResult({ ...job, download_url: '/api/v1/grading/jobs/11/download/' })
-    expect(clicks).toEqual(['grading-job-11'])
+    const hrefs: string[] = []
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(function (this: HTMLAnchorElement) {
+      hrefs.push(this.getAttribute('href') ?? '')
+    })
+    await api.downloadJobResult({ ...job, download_url: 'https://api.example/api/v1/grading/jobs/11/download/' })
+    // Followed by the browser itself, not fetched into the page first.
+    expect(hrefs).toEqual(['https://api.example/api/v1/grading/jobs/11/download/'])
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('a failed blob fetch surfaces as an ApiError, not a broken save', async () => {

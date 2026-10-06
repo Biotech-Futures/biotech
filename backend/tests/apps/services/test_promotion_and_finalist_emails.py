@@ -143,7 +143,8 @@ class FinalistEmailTests(TestCase):
             self.assertIn("Dear members of CRISPR Research 01,", message.body)
             self.assertIn("Your team has been selected as a finalist", message.body)
             self.assertIn("CRISPR Research 01", _html(message))
-            self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+            # Replies go back to the sender, info@.
+            self.assertEqual(message.reply_to, [])
         self.flag.refresh_from_db()
         self.assertTrue(self.flag.notified)
         self.assertEqual(self.flag.notified_by, self.admin)

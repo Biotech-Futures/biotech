@@ -56,7 +56,11 @@ export const systemEmailTemplateSchema = z.object({
   body: z.string(),
   updatedBy: z.string().nullable(),
   updatedAt: z.string().nullable(),
-  mergeTags: z.array(systemEmailMergeTagSchema)
+  mergeTags: z.array(systemEmailMergeTagSchema),
+  /** The mailbox it goes from, e.g. "info". */
+  sender: z.string(),
+  /** The mailboxes it could go from: those the server can sign in to. */
+  senders: z.array(z.object({ key: z.string(), address: z.string() }))
 })
 
 export type SystemEmailTemplate = z.infer<typeof systemEmailTemplateSchema>
@@ -108,6 +112,8 @@ export interface SystemEmailTemplateUpdatePayload {
   subject?: string
   body?: string
   enabled?: boolean
+  /** A key of the template's `senders`. */
+  sender?: string
 }
 
 /** Optional unsaved wording for preview/test-send. */
