@@ -56,7 +56,22 @@
           <i class="fas fa-rotate-left" aria-hidden="true"></i>
           <span>Reset board</span>
         </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline"
+          :aria-expanded="showWeights"
+          aria-controls="student-matching-weights"
+          @click="toggleWeights"
+        >
+          <i class="fas fa-sliders" aria-hidden="true"></i>
+          <span>Scoring weights</span>
+        </button>
       </div>
+    </div>
+
+    <!-- Mounted on first open, then only hidden, so collapsing keeps edits. -->
+    <div id="student-matching-weights" :hidden="!showWeights">
+      <MatchingConfigPanel v-if="weightsOpened" />
     </div>
 
     <!-- Stat tiles -->
@@ -243,6 +258,7 @@ import {
   useStudentMatching
 } from '@/composables/admin/useStudentMatching'
 import StudentChip from '@/components/admin/matching/StudentChip.vue'
+import MatchingConfigPanel from '@/components/admin/matching/MatchingConfigPanel.vue'
 import type { RecommendedStudent } from '@/utils/adminMatching'
 
 // Shared name means students can move between any bucket and the waiting area.
@@ -256,6 +272,15 @@ const studentKey = (entry: RecommendedStudent) => String(entry.student.id)
 // Hover cards are hidden mid-drag so they can't cover the drop zones you're
 // aiming at (the reference app does the same via `suppressTooltip`).
 const isDragging = ref(false)
+
+// The weights editor loads only when first opened, so admins who never open
+// it don't pay for the request.
+const showWeights = ref(false)
+const weightsOpened = ref(false)
+const toggleWeights = () => {
+  showWeights.value = !showWeights.value
+  weightsOpened.value = true
+}
 
 const {
   loading,

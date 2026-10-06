@@ -100,6 +100,26 @@ const fetchMock = (options: { match?: unknown; matchStatus?: number } = {}) =>
     if (String(url).includes('/services/csrf/')) {
       return jsonResponse({ csrfToken: 'csrf-test' })
     }
+    if (String(url).includes('/matching/configs/active/')) {
+      return jsonResponse({
+        data: null,
+        weights: {
+          yearWeight: 8.0,
+          countryMismatchPenalty: 12.0,
+          timezoneWeight: 2.0,
+          timezoneMaxPenalty: 18.0,
+          sizeBonusWeight: 6.0
+        },
+        requiredTotal: '100.00',
+        defaults: {
+          year_weight: 20.0,
+          country_mismatch_weight: 15.0,
+          timezone_weight: 25.0,
+          timezone_max_weight: 20.0,
+          size_bonus_weight: 20.0
+        }
+      })
+    }
     if (String(url).includes('/match/confirm/')) {
       return jsonResponse({ msg: 'ok', data: { assigned_count: 1 } })
     }
@@ -227,6 +247,46 @@ describe('StudentMatchingPanel', () => {
 
     expect(wrapper.text()).toContain('Suggested Group 1')
     expect(matchUrls(fetch)).toHaveLength(1)
+  })
+
+  it('does not load the scoring weights until they are opened', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+    await flushPromises()
+
+    expect(buttonByText(wrapper, 'Scoring weights')!.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.text()).not.toContain('Student matching weights')
+    expect(fetch.mock.calls.some((call) => String(call[0]).includes('/matching/configs/'))).toBe(
+      false
+    )
+  })
+
+  it('opens the student matching weights editor from the toolbar', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+
+    const toggle = buttonByText(wrapper, 'Scoring weights')!
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const region = wrapper.find(`#${toggle.attributes('aria-controls')}`)
+    expect(region.attributes('hidden')).toBeUndefined()
+    expect(region.text()).toContain('Student matching weights')
+    expect(region.text()).toContain('student matching only')
+
+    // Collapsing hides it but keeps it mounted, so edits survive and reopening
+    // does not refetch.
+    await toggle.trigger('click')
+    expect(region.attributes('hidden')).toBeDefined()
+    await toggle.trigger('click')
+    await flushPromises()
+    const activeCalls = fetch.mock.calls.filter((call) =>
+      String(call[0]).includes('/matching/configs/active/')
+    )
+    expect(activeCalls).toHaveLength(1)
   })
 
   it('renders proposed groups, the waiting area and the stats after a run', async () => {
