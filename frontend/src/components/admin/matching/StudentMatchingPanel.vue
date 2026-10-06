@@ -1,12 +1,18 @@
 <template>
   <div class="student-matching">
-    <!-- Toolbar -->
+    <!-- Heading, then the mode selector and actions — same layout as the
+         Mentor Matching tab's "Mentor Assignment". -->
     <div class="student-matching__header">
-      <div class="student-matching__title">
-        <h2>Student Matching</h2>
-        <span v-if="hasRun" class="student-matching__badge">
-          {{ assignmentCount }} proposed
-        </span>
+      <div class="student-matching__head">
+        <div class="student-matching__title">
+          <h2>Student Grouping</h2>
+          <span v-if="hasRun" class="student-matching__badge">
+            {{ assignmentCount }} proposed
+          </span>
+        </div>
+        <p class="student-matching__subtitle">
+          Run the algorithm, review suggested groups, then confirm assignments.
+        </p>
       </div>
 
       <div class="student-matching__actions">
@@ -320,12 +326,18 @@ const onConfirm = () => {
   gap: 1rem;
 }
 
+/* Heading on top, controls below it, as on the Mentor Matching tab. */
 .student-matching__header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.75rem;
+}
+
+.student-matching__subtitle {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .student-matching__title {

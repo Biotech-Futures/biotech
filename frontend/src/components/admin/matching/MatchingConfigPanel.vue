@@ -1,11 +1,8 @@
 <template>
   <section class="matching-config" aria-labelledby="matching-config-title">
     <div class="matching-config__head">
-      <h3 id="matching-config-title" class="matching-config__title">Student matching weights</h3>
-      <p class="matching-config__scope">
-        These weights apply to <strong>student matching only</strong>. Mentor matching is not
-        affected. Changes take effect from the next student matching run.
-      </p>
+      <h3 id="matching-config-title" class="matching-config__title">Scoring weights</h3>
+      <p class="matching-config__scope">Changes apply to the next student matching run.</p>
     </div>
 
     <p v-if="status === 'loading'" class="matching-config__state" role="status">
@@ -46,10 +43,6 @@
         </p>
       </div>
 
-      <p v-else class="matching-config__muted">
-        Editing the active configuration. Saving updates it in place.
-      </p>
-
       <div class="form-field">
         <label class="form-label" for="matching-config-name">Configuration name</label>
         <input
@@ -72,8 +65,33 @@
       </div>
 
       <div class="matching-config__grid">
-        <div v-for="field in fields" :key="field.key" class="form-field">
-          <label class="form-label" :for="`matching-config-${field.key}`">{{ field.label }}</label>
+        <div v-for="(field, index) in fields" :key="field.key" class="form-field">
+          <div class="matching-config__label-row">
+            <label class="form-label" :for="`matching-config-${field.key}`">
+              {{ field.label }}
+            </label>
+            <!-- Help lives in a tooltip to keep the row compact. It stays in the
+                 input's aria-describedby, so screen readers still hear it with
+                 the field, and the button opens it on keyboard focus. -->
+            <span class="matching-config__tip-wrap">
+              <button
+                type="button"
+                class="matching-config__info"
+                :aria-label="`About the ${field.label} weight`"
+                :aria-describedby="`matching-config-${field.key}-help`"
+              >
+                <i class="fas fa-circle-info" aria-hidden="true"></i>
+              </button>
+              <span
+                :id="`matching-config-${field.key}-help`"
+                class="matching-config__tip"
+                :class="{ 'matching-config__tip--end': index === fields.length - 1 }"
+                role="tooltip"
+              >
+                {{ field.help }}
+              </span>
+            </span>
+          </div>
           <div class="matching-config__input-wrap">
             <input
               :id="`matching-config-${field.key}`"
@@ -89,9 +107,6 @@
             />
             <span class="matching-config__suffix" aria-hidden="true">%</span>
           </div>
-          <p :id="`matching-config-${field.key}-help`" class="matching-config__help">
-            {{ field.help }}
-          </p>
           <p
             v-if="weightError(field.key)"
             :id="`matching-config-${field.key}-error`"
@@ -100,19 +115,6 @@
             {{ weightError(field.key) }}
           </p>
         </div>
-      </div>
-
-      <div class="matching-config__total" :class="{ 'matching-config__total--ok': totalMatches }">
-        <p class="matching-config__total-value" aria-live="polite">
-          Total: <strong>{{ totalLabel }}</strong>
-        </p>
-        <p class="matching-config__help">
-          The weights must total exactly {{ requiredTotal }}%. They are not adjusted
-          automatically, so change them until the total matches.
-        </p>
-        <p v-if="fieldErrors?.weightTotal" class="matching-config__field-error" role="alert">
-          {{ fieldErrors.weightTotal }}
-        </p>
       </div>
 
       <p v-if="saveError" class="matching-config__error" role="alert">
@@ -125,8 +127,37 @@
         <span>{{ notice }}</span>
       </p>
 
+      <!-- Total on the left, Save on the right. -->
       <div class="matching-config__footer">
-        <button type="submit" class="btn btn-sm btn-primary" :disabled="!canSave">
+        <div
+          id="matching-config-total"
+          class="matching-config__total"
+          :class="{ 'matching-config__total--invalid': !totalMatches }"
+        >
+          <p class="matching-config__total-value" aria-live="polite">
+            <i
+              v-if="!totalMatches"
+              class="fas fa-triangle-exclamation"
+              aria-hidden="true"
+            ></i>
+            Total: <strong>{{ totalLabel }}</strong>
+          </p>
+          <p class="matching-config__total-hint">
+            Weights must total exactly {{ requiredTotal }}%. They are not adjusted
+            automatically.
+          </p>
+          <p v-if="fieldErrors?.weightTotal" class="matching-config__field-error" role="alert">
+            {{ fieldErrors.weightTotal }}
+          </p>
+        </div>
+
+        <!-- Described by the total, so a disabled Save says why. -->
+        <button
+          type="submit"
+          class="btn btn-sm btn-primary"
+          :disabled="!canSave"
+          aria-describedby="matching-config-total"
+        >
           <i class="fas fa-floppy-disk" aria-hidden="true"></i>
           <span>{{ saving ? 'Saving...' : 'Save weights' }}</span>
         </button>
@@ -197,17 +228,10 @@ onMounted(() => {
 }
 
 .matching-config__scope,
-.matching-config__muted,
-.matching-config__help {
+.matching-config__muted {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.85rem;
-}
-
-.matching-config__help {
-  margin-top: 0.3rem;
-  font-size: 0.78rem;
-  line-height: 1.4;
 }
 
 .matching-config__form {
@@ -274,18 +298,79 @@ onMounted(() => {
 }
 
 /* Fields — same look as the admin form sheets. */
+/* Five across at desktop widths; auto-fit wraps them on narrower screens. */
 .matching-config__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.matching-config__label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
 }
 
 .form-label {
   display: block;
-  margin-bottom: 0.3rem;
+  margin: 0;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--charcoal);
+}
+
+/* Field help tooltip — same pattern as the matching mode pills. */
+.matching-config__tip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.matching-config__info {
+  display: inline-flex;
+  padding: 0.1rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: help;
+}
+
+.matching-config__info:hover,
+.matching-config__info:focus-visible {
+  color: var(--charcoal);
+}
+
+.matching-config__tip {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 30;
+  display: none;
+  width: 15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--surface-elevated);
+  box-shadow: 0 8px 24px var(--shadow);
+  color: var(--charcoal);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* The last field opens inwards so the tip stays inside the panel. */
+.matching-config__tip--end {
+  right: 0;
+  left: auto;
+}
+
+.matching-config__tip-wrap:hover .matching-config__tip,
+.matching-config__tip-wrap:focus-within .matching-config__tip {
+  display: block;
 }
 
 .form-input {
@@ -326,20 +411,28 @@ onMounted(() => {
   font-size: 0.8rem;
 }
 
-/* Live total */
+/* Live total, in the footer row beside Save. */
 .matching-config__total {
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-}
-
-.matching-config__total--ok {
-  border-color: var(--border-light);
+  min-width: 0;
 }
 
 .matching-config__total-value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin: 0;
   font-size: 0.95rem;
+}
+
+.matching-config__total-hint {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.matching-config__total--invalid .matching-config__total-value,
+.matching-config__total--invalid .matching-config__total-hint {
+  color: var(--danger);
 }
 
 .matching-config__state {
@@ -372,6 +465,11 @@ onMounted(() => {
 
 .matching-config__footer {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light);
 }
 </style>
