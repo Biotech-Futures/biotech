@@ -570,7 +570,9 @@ class PasswordResetAdminRedirectTest(TestCase):
 
     @patch("apps.services.system_email.render_to_string")
     @patch("apps.services.system_email.EmailMultiAlternatives")
-    def test_admin_reset_email_uses_admin_portal_base(self, mock_email, mock_render):
+    def test_admin_reset_email_uses_the_merged_app(self, mock_email, mock_render):
+        """Admins sign in to the same app as everyone else since the interface
+        merge, so their reset link must not point at the old admin portal."""
         from apps.services.auth_service import send_password_reset
 
         mock_render.return_value = "<html>reset</html>"
@@ -581,16 +583,15 @@ class PasswordResetAdminRedirectTest(TestCase):
 
         ctx = mock_render.call_args[0][1]
         self.assertIn(
-            f"{settings.ADMIN_PASSWORD_RESET_REDIRECT_URL}?token=",
+            f"{settings.PASSWORD_RESET_REDIRECT_URL}?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
-        # The admin SPA serves this page at /reset-password (no /auth prefix, unlike
-        # the Vue app and the /auth/callback magic-link route) — guard the link path.
-        self.assertIn("/reset-password?token=", ctx["RESET_PASSWORD_LINK"])
-        self.assertNotIn("/auth/reset-password", ctx["RESET_PASSWORD_LINK"])
-        # Plaintext body must also use the admin portal base
+        self.assertIn("/auth/reset-password?token=", ctx["RESET_PASSWORD_LINK"])
+        self.assertNotIn("mentoringadmin", ctx["RESET_PASSWORD_LINK"])
+        # Plaintext body carries the same link
         text_body = mock_email.call_args.kwargs["body"]
-        self.assertIn(settings.ADMIN_PASSWORD_RESET_REDIRECT_URL, text_body)
+        self.assertIn(settings.PASSWORD_RESET_REDIRECT_URL, text_body)
+        self.assertNotIn("mentoringadmin", text_body)
 
     @patch("apps.services.system_email.render_to_string")
     @patch("apps.services.system_email.EmailMultiAlternatives")
@@ -609,8 +610,8 @@ class PasswordResetAdminRedirectTest(TestCase):
 
     @patch("apps.services.system_email.render_to_string")
     @patch("apps.services.system_email.EmailMultiAlternatives")
-    def test_admin_scope_user_reset_email_uses_admin_portal_base(self, mock_email, mock_render):
-        """A user with an AdminScope row is routed to the admin portal."""
+    def test_admin_scope_user_reset_email_uses_the_merged_app(self, mock_email, mock_render):
+        """A user with an AdminScope row gets the same link as everyone else."""
         from apps.users.models import AdminScope
         from apps.services.auth_service import send_password_reset
 
@@ -631,9 +632,10 @@ class PasswordResetAdminRedirectTest(TestCase):
 
         ctx = mock_render.call_args[0][1]
         self.assertIn(
-            f"{settings.ADMIN_PASSWORD_RESET_REDIRECT_URL}?token=",
+            f"{settings.PASSWORD_RESET_REDIRECT_URL}?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
+        self.assertNotIn("mentoringadmin", ctx["RESET_PASSWORD_LINK"])
 
 
 class ContactEmailTemplateContextTest(TestCase):

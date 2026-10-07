@@ -119,8 +119,12 @@
               </div>
 
               <ul class="password-rules" aria-label="Password requirements">
-                <li :class="{ passed: newPassword.length >= 8 }">At least 8 characters</li>
+                <li :class="{ passed: hasMinLength }">At least 8 characters</li>
+                <li :class="{ passed: isNotAllNumbers }">Not entirely numbers</li>
                 <li :class="{ passed: passwordsMatch && confirmPassword.length > 0 }">Passwords match</li>
+                <!-- The common-password and similar-to-your-details rules live
+                     on the server, so they are reported as errors on submit
+                     rather than listed here where they could never tick. -->
               </ul>
 
               <p v-if="passwordError" class="error-message" role="alert">{{ passwordError }}</p>
@@ -129,7 +133,11 @@
                 <li v-for="message in fieldMessages" :key="message">{{ message }}</li>
               </ul>
 
-              <button type="submit" class="primary-action" :disabled="submittingPassword">
+              <button
+                type="submit"
+                class="primary-action"
+                :disabled="submittingPassword || !meetsLocalRules"
+              >
                 <span v-if="submittingPassword" class="button-spinner" aria-hidden="true"></span>
                 <span>{{ submittingPassword ? 'Updating password...' : 'Update password' }}</span>
               </button>
@@ -258,6 +266,21 @@ const token = computed(() => {
 const hasToken = computed(() => token.value.trim().length > 0)
 const passwordsMatch = computed(() => newPassword.value === confirmPassword.value)
 
+// The rules the browser can judge on its own. The common-password and
+// similar-to-your-details checks need the server, so they are listed for the
+// user but can't gate the button.
+const hasMinLength = computed(() => newPassword.value.length >= 8)
+const isNotAllNumbers = computed(
+  () => newPassword.value.length > 0 && !/^\d+$/.test(newPassword.value),
+)
+const meetsLocalRules = computed(
+  () =>
+    hasMinLength.value &&
+    isNotAllNumbers.value &&
+    confirmPassword.value.length > 0 &&
+    passwordsMatch.value,
+)
+
 function clearFieldErrors() {
   passwordError.value = ''
   fieldMessages.value = []
@@ -277,6 +300,11 @@ function validatePasswordForm() {
 
   if (newPassword.value.length < 8) {
     passwordError.value = 'Password must be at least 8 characters.'
+    return false
+  }
+
+  if (/^\d+$/.test(newPassword.value)) {
+    passwordError.value = 'Password cannot be entirely numbers.'
     return false
   }
 
@@ -319,8 +347,11 @@ function applyApiError(context: string, error: unknown, fallback: string) {
   logApiError(context, apiError)
 
   if (apiError.code === 'weak_password' || apiError.code === 'WeakPassword') {
-    fieldMessages.value = apiError.fields?.new_password || []
-    passwordError.value = apiError.message
+    const reasons = apiError.fields?.new_password || []
+    fieldMessages.value = reasons
+    // The server sends a generic "does not meet security requirements" wrapper
+    // alongside the real reasons; showing both just says the same thing twice.
+    passwordError.value = reasons.length ? '' : apiError.message
     return
   }
 
