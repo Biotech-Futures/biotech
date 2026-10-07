@@ -230,8 +230,16 @@ def upsert_student_profile(
         profile_data["joinperm_responseID"] = response_id
         profile_data["has_join_permission"] = response_id is not None
     else:
-        profile_data["has_join_permission"] = True
-        profile_data["joinperm_responseID"] = None
+        # _UNSET means "don't touch consent": keep whatever is on record (a
+        # brand-new profile has none). Consent is granted only by the external
+        # join-permission webhook or an explicit response id — never as a side
+        # effect of an admin editing a student's school / year / supervisor.
+        profile_data["has_join_permission"] = bool(
+            existing_profile and existing_profile.has_join_permission
+        )
+        profile_data["joinperm_responseID"] = (
+            existing_profile.joinperm_responseID if existing_profile else None
+        )
 
     if profile_data["has_join_permission"]:
         profile_data["joinperm_granted_at"] = existing_granted_at or timezone.now()

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -100,7 +102,9 @@ class AdminUserServiceTests(TestCase):
         self.assertFalse(result["data"]["isAdmin"])
         self.assertFalse(AdminScope.objects.filter(user=self.user).exists())
 
-    def test_update_user_always_sets_student_join_permission(self):
+    def test_update_user_does_not_grant_consent_to_a_new_student(self):
+        # Turning someone into a student does not fabricate parental consent:
+        # that comes from the external join-permission form, not an admin edit.
         result = update_user(
             self.user.id,
             {
@@ -110,13 +114,53 @@ class AdminUserServiceTests(TestCase):
                 "schoolName": "Test School",
                 "yearLevel": 10,
                 "interests": ["Biotechnology"],
-                "joinPermissionReceived": False,
             },
         )
 
         self.assertEqual(result["msg"], "User updated successfully")
         profile = StudentProfile.objects.get(user=self.user)
+        self.assertFalse(profile.has_join_permission)
+        self.assertIsNone(profile.joinperm_granted_at)
+        self.assertFalse(result["data"]["joinPermissionReceived"])
+
+    def test_update_user_preserves_existing_student_consent(self):
+        # An admin editing an already-consented student (school / year / etc.)
+        # must not wipe the consent or its recorded response id.
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(
+            user=self.user, role=role, valid_from=timezone.now(),
+        )
+        granted_at = timezone.now() - timedelta(days=5)
+        StudentProfile.objects.create(
+            user=self.user,
+            pg_first_name="Parent",
+            pg_last_name="Supervisor",
+            parent_guardian_flag=True,
+            school_name="Old School",
+            year_lvl="9",
+            has_join_permission=True,
+            joinperm_responseID="R_existing",
+            joinperm_granted_at=granted_at,
+        )
+
+        result = update_user(
+            self.user.id,
+            {
+                "firstName": "Chen",
+                "lastName": "Supervisor",
+                "role": "student",
+                "schoolName": "New School",
+                "yearLevel": 10,
+                "interests": ["Biotechnology"],
+            },
+        )
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        profile = StudentProfile.objects.get(user=self.user)
+        self.assertEqual(profile.school_name, "New School")
         self.assertTrue(profile.has_join_permission)
+        self.assertEqual(profile.joinperm_responseID, "R_existing")
+        self.assertEqual(profile.joinperm_granted_at, granted_at)
         self.assertTrue(result["data"]["joinPermissionReceived"])
 
     def test_query_users_filters_students_with_active_group(self):
@@ -437,6 +481,31 @@ class AdminUserServiceCreateUserTests(TestCase):
         self.assertIsNotNone(result["data"])
         self.assertEqual(result["data"]["email"], "student@example.com")
         self.assertEqual(result["data"]["role"], "student")
+        # No response id supplied → consent is not fabricated.
+        profile = StudentProfile.objects.get(user_id=result["data"]["id"])
+        self.assertFalse(profile.has_join_permission)
+        self.assertIsNone(profile.joinperm_granted_at)
+        self.assertFalse(result["data"]["joinPermissionReceived"])
+
+    def test_create_student_with_response_id_records_consent(self):
+        result = create_user({
+            "email": "consented@example.com",
+            "firstName": "Cara",
+            "lastName": "Student",
+            "role": "student",
+            "state": "NSW",
+            "schoolName": "Test High School",
+            "yearLevel": 10,
+            "interests": ["Biotech"],
+            "joinpermResponseId": "R_abc123",
+        })
+
+        self.assertEqual(result["msg"], "User created successfully")
+        profile = StudentProfile.objects.get(user_id=result["data"]["id"])
+        self.assertTrue(profile.has_join_permission)
+        self.assertEqual(profile.joinperm_responseID, "R_abc123")
+        self.assertIsNotNone(profile.joinperm_granted_at)
+        self.assertTrue(result["data"]["joinPermissionReceived"])
 
     def test_create_student_missing_school_returns_error(self):
         result = create_user({
