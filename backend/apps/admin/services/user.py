@@ -208,6 +208,15 @@ def upsert_student_profile(
     }
     if guardian_email is not None:
         profile_data["pg_email"] = (guardian_email or "").strip() or None
+    if any(v is not None for v in (guardian_first_name, guardian_last_name, guardian_email)):
+        # An admin setting the guardian outright supersedes any change the
+        # student has pending.
+        profile_data.update(
+            pending_pg_first_name="",
+            pending_pg_last_name="",
+            pending_pg_email=None,
+            pending_pg_requested_at=None,
+        )
 
     existing_profile = StudentProfile.objects.filter(user_id=user_id).first()
     existing_granted_at = (

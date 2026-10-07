@@ -159,7 +159,99 @@
         </div>
 
         <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
-          <h3 class="profile-section-title">Guardian Details</h3>
+          <div class="guardian-heading">
+            <h3 class="profile-section-title">Guardian Details</h3>
+            <button
+              v-if="!guardianEditing"
+              class="btn btn-outline"
+              type="button"
+              data-test="guardian-edit"
+              @click="startGuardianEdit"
+            >
+              Edit guardian
+            </button>
+          </div>
+
+          <form
+            v-if="guardianEditing"
+            class="guardian-form"
+            data-test="guardian-form"
+            novalidate
+            @submit.prevent="saveGuardian"
+          >
+            <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
+              {{ user.guardian.consentingName }} has already given consent and stays on file
+              until your new guardian completes the consent form.
+            </p>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-first-name">First name:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-first-name"
+                  v-model.trim="guardianForm.first_name"
+                  class="guardian-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.first_name" class="guardian-error">{{ guardianErrors.first_name }}</span>
+              </div>
+            </div>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-last-name">Last name:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-last-name"
+                  v-model.trim="guardianForm.last_name"
+                  class="guardian-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.last_name" class="guardian-error">{{ guardianErrors.last_name }}</span>
+              </div>
+            </div>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-email">Email:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-email"
+                  v-model.trim="guardianForm.email"
+                  class="guardian-input"
+                  type="email"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.email" class="guardian-error">{{ guardianErrors.email }}</span>
+              </div>
+            </div>
+            <div class="guardian-actions">
+              <button class="btn btn-outline" type="button" :disabled="guardianSaving" @click="cancelGuardianEdit">
+                Cancel
+              </button>
+              <button class="btn btn-primary" type="submit" :disabled="guardianSaving" data-test="guardian-save">
+                {{ guardianSaving ? 'Saving...' : 'Save guardian' }}
+              </button>
+            </div>
+          </form>
+
+          <div v-if="user.guardian.pending && !guardianEditing" class="guardian-pending" data-test="guardian-pending">
+            <p>
+              <strong>Change requested:</strong>
+              {{ user.guardian.pending.name }} ({{ user.guardian.pending.email }}).
+              Waiting for their consent — until then {{ user.guardian.consentingName }} stays on file.
+            </p>
+            <button
+              class="btn btn-outline"
+              type="button"
+              :disabled="guardianSaving"
+              data-test="guardian-withdraw"
+              @click="withdrawGuardianChange"
+            >
+              {{ guardianSaving ? 'Withdrawing...' : 'Withdraw change' }}
+            </button>
+          </div>
+
           <div class="profile-field">
             <span class="profile-field-label">Name:</span>
             <span class="profile-field-value" data-test="guardian-name">{{ user.guardian.name }}</span>
@@ -426,12 +518,24 @@ const user = computed(() => {
     guardian: {
       hasDetails: hasStudentDetails,
       name: (!isPlaceholderGuardian && guardianName) || unsetLabel,
+      consentingName: (!isPlaceholderGuardian && guardianName) || 'Your current guardian',
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
       consentReceivedOn: consentReceived && source?.join_perm_granted_at
         ? formatLongDateAU(source.join_perm_granted_at)
-        : ''
+        : '',
+      pending: source?.pending_guardian
+        ? {
+          name: `${source.pending_guardian.first_name} ${source.pending_guardian.last_name}`.trim(),
+          firstName: source.pending_guardian.first_name,
+          lastName: source.pending_guardian.last_name,
+          email: source.pending_guardian.email
+        }
+        : null,
+      // Form defaults: blank when the guardian fields only hold the placeholder.
+      firstName: isPlaceholderGuardian ? '' : String(source?.pg_firstname || ''),
+      lastName: isPlaceholderGuardian ? '' : String(source?.pg_lastname || '')
     },
     mentor: {
       hasDetails: hasMentorDetails,
@@ -450,6 +554,97 @@ const user = computed(() => {
     }
   }
 })
+
+const guardianEditing = ref(false)
+const guardianSaving = ref(false)
+const guardianForm = ref({ first_name: '', last_name: '', email: '' })
+const guardianErrors = ref({})
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const startGuardianEdit = () => {
+  const { guardian } = user.value
+  // Editing a pending change picks up where the student left off.
+  guardianForm.value = guardian.pending
+    ? { first_name: guardian.pending.firstName, last_name: guardian.pending.lastName, email: guardian.pending.email }
+    : { first_name: guardian.firstName, last_name: guardian.lastName, email: guardian.emailAddress }
+  guardianErrors.value = {}
+  error.value = ''
+  guardianEditing.value = true
+}
+
+const cancelGuardianEdit = () => {
+  guardianEditing.value = false
+  guardianErrors.value = {}
+}
+
+const validateGuardianForm = () => {
+  const errors = {}
+  const form = guardianForm.value
+  if (!form.first_name) errors.first_name = 'Enter their first name.'
+  if (!form.last_name) errors.last_name = 'Enter their last name.'
+  if (!form.email) {
+    errors.email = 'Enter their email.'
+  } else if (!EMAIL_PATTERN.test(form.email)) {
+    errors.email = 'Enter a valid email address.'
+  } else if (form.email.toLowerCase() === String(auth.user?.email || '').toLowerCase()) {
+    errors.email = "Enter your parent or guardian's email, not your own."
+  }
+  guardianErrors.value = errors
+  return Object.keys(errors).length === 0
+}
+
+const showStatus = (message) => {
+  clearStatusMessageTimer()
+  statusMessage.value = message
+  statusMessageTimer = window.setTimeout(() => {
+    statusMessage.value = ''
+    statusMessageTimer = null
+  }, 3200)
+}
+
+const saveGuardian = async () => {
+  if (!validateGuardianForm()) return
+
+  guardianSaving.value = true
+  error.value = ''
+  const hadConsent = user.value.guardian.consentReceived
+
+  try {
+    await auth.updateGuardian({ ...guardianForm.value })
+    guardianEditing.value = false
+    showStatus(hadConsent && user.value.guardian.pending
+      ? 'Saved. Your new guardian needs to complete the consent form.'
+      : 'Your guardian details have been updated.')
+  } catch (saveError) {
+    const fields = saveError?.fields || {}
+    guardianErrors.value = Object.fromEntries(
+      Object.entries(fields).map(([key, messages]) => [key, [].concat(messages)[0]])
+    )
+    if (!Object.keys(guardianErrors.value).length) {
+      error.value = saveError instanceof Error
+        ? saveError.message
+        : 'Your guardian details could not be updated right now.'
+    }
+  } finally {
+    guardianSaving.value = false
+  }
+}
+
+const withdrawGuardianChange = async () => {
+  guardianSaving.value = true
+  error.value = ''
+
+  try {
+    await auth.withdrawGuardianChange()
+    showStatus('The guardian change has been withdrawn.')
+  } catch (withdrawError) {
+    error.value = withdrawError instanceof Error
+      ? withdrawError.message
+      : 'The guardian change could not be withdrawn right now.'
+  } finally {
+    guardianSaving.value = false
+  }
+}
 
 const getInitials = (name) => String(name || 'U')
   .split(' ')
@@ -687,6 +882,76 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.guardian-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.guardian-heading .btn {
+  margin: 0;
+}
+
+.guardian-form {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.guardian-form-hint {
+  margin: 0 0 0.75rem;
+}
+
+.guardian-form-field {
+  align-items: flex-start;
+}
+
+.guardian-input-wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.guardian-input {
+  width: min(100%, 360px);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  color: var(--charcoal);
+}
+
+.guardian-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.guardian-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.guardian-actions .btn,
+.guardian-pending .btn {
+  margin: 0;
+}
+
+.guardian-pending {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background: var(--accent-green-soft);
+}
+
+.guardian-pending p {
+  margin: 0 0 0.75rem;
+  color: var(--charcoal);
+}
+
 .profile-link {
   color: var(--dark-green);
   overflow-wrap: anywhere;
@@ -718,7 +983,8 @@ onMounted(() => {
     width: auto;
   }
 
-  .timezone-actions {
+  .timezone-actions,
+  .guardian-actions {
     flex-direction: column;
     align-items: stretch;
   }

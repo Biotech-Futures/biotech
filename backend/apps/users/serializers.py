@@ -56,6 +56,7 @@ class UserSerializer(serializers.ModelSerializer):
     school_name = serializers.SerializerMethodField()
     join_perm = serializers.SerializerMethodField()
     join_perm_granted_at = serializers.SerializerMethodField()
+    pending_guardian = serializers.SerializerMethodField()
 
     #mentor
     ment_inst = serializers.SerializerMethodField()
@@ -103,6 +104,7 @@ class UserSerializer(serializers.ModelSerializer):
             "school_name",
             "join_perm",
             "join_perm_granted_at",
+            "pending_guardian",
             "ment_inst",
             "ment_reason",
             "ment_max_groups",
@@ -274,6 +276,18 @@ class UserSerializer(serializers.ModelSerializer):
         sp = self._student_profile(obj)
         return None if sp is None or sp.joinperm_granted_at is None else sp.joinperm_granted_at.isoformat()
     
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_pending_guardian(self, obj):
+        sp = self._student_profile(obj)
+        if sp is None or not sp.has_pending_guardian:
+            return None
+        return {
+            "first_name": sp.pending_pg_first_name,
+            "last_name": sp.pending_pg_last_name,
+            "email": sp.pending_pg_email,
+            "requested_at": sp.pending_pg_requested_at.isoformat(),
+        }
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_ment_inst(self, obj):
         mp = self._mentor_profile(obj)
@@ -408,6 +422,21 @@ class SupervisedMentorSerializer(serializers.Serializer):
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+
+
+class StudentGuardianUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    last_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        user = self.context["request"].user
+        if value == (user.email or "").strip().lower():
+            raise serializers.ValidationError(
+                "Enter your parent or guardian's email, not your own."
+            )
+        return value
 
 
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):

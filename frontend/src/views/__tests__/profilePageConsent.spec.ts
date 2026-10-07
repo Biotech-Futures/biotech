@@ -100,4 +100,66 @@ describe('ProfilePage guardian consent', () => {
 
     expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(false)
   })
+
+  it('saves edited guardian details', async () => {
+    const wrapper = await mountAs({ ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: false })
+    const auth = useAuthStore()
+    const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await wrapper.find('#guardian-first-name').setValue('Robin')
+    await wrapper.find('#guardian-email').setValue('robin@example.com')
+    await wrapper.find('[data-test="guardian-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith({ first_name: 'Robin', last_name: 'Fischer', email: 'robin@example.com' })
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
+  })
+
+  it('does not submit the student\'s own email', async () => {
+    const wrapper = await mountAs({ ...baseUser, join_perm: false })
+    const auth = useAuthStore()
+    const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await wrapper.find('#guardian-first-name').setValue('Robin')
+    await wrapper.find('#guardian-last-name').setValue('Carer')
+    await wrapper.find('#guardian-email').setValue('Student@example.com')
+    await wrapper.find('[data-test="guardian-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('not your own')
+  })
+
+  it('shows a pending change alongside the consenting guardian', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Pat',
+      pg_lastname: 'Fischer',
+      pg_email: 'pat@example.com',
+      join_perm: true,
+      pending_guardian: { first_name: 'Robin', last_name: 'Carer', email: 'robin@example.com', requested_at: '2026-10-01T00:00:00Z' },
+    })
+
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Pat Fischer')
+    const pending = wrapper.find('[data-test="guardian-pending"]').text()
+    expect(pending).toContain('Robin Carer (robin@example.com)')
+    expect(pending).toContain('Pat Fischer stays on file')
+  })
+
+  it('withdraws a pending change', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      join_perm: true,
+      pending_guardian: { first_name: 'Robin', last_name: 'Carer', email: 'robin@example.com', requested_at: '2026-10-01T00:00:00Z' },
+    })
+    const auth = useAuthStore()
+    const withdraw = vi.spyOn(auth, 'withdrawGuardianChange').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-withdraw"]').trigger('click')
+    await flushPromises()
+
+    expect(withdraw).toHaveBeenCalled()
+  })
 })

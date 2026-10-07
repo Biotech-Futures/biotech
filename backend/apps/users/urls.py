@@ -9,6 +9,7 @@ from .supervisor_group_views import (
 from .views import (
     UserListHTMLView,
     UsersRetrieveUpdateView,
+    MeGuardianView,
     MeRetrieveView,
     UserRegisterView,
     ReceiveJoinPermissionView,
@@ -24,6 +25,7 @@ urlpatterns = [
     path("login/", PasswordLoginView.as_view(), name="password-login"),
     path("set-password/", SetPasswordView.as_view(), name="set-password"),
     path("users/me/", MeRetrieveView.as_view(), name="MeListHTMLView"),
+    path("users/me/guardian/", MeGuardianView.as_view(), name="me-guardian"),
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/<int:pk>/", SupervisedStudentDetailView.as_view(), name="supervised-student-detail"),
     path("users/supervised-groups/mentors/", SupervisedMentorsView.as_view(), name="supervised-mentors"),

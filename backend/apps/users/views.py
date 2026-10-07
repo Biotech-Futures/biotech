@@ -29,13 +29,14 @@ from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
+    StudentGuardianUpdateSerializer,
     SupervisedStudentGuardianSerializer,
     SupervisedStudentProfileUpdateSerializer,
     SupervisedStudentSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
 )
-from apps.common.rbac import is_admin
+from apps.common.rbac import is_admin, user_has_role
 from rest_framework.exceptions import PermissionDenied
 from apps.common.pii import email_log_tag
 from config.errors import (
@@ -488,6 +489,69 @@ def _supervised_student_row(profile):
     }
 
 
+class MeGuardianView(APIView):
+    """A student updates the parent/guardian on their own profile.
+
+    Before consent is received the change applies straight away — there is no
+    consent to protect. Afterwards the consenting guardian stays on file and
+    the new details are held as pending until the new guardian consents (see
+    ``ReceiveJoinPermissionView``). DELETE withdraws a pending change.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def _profile(self, request):
+        if not user_has_role(request.user, ROLE_STUDENT):
+            raise PermissionDenied("Only students have guardian details.")
+        profile = StudentProfile.objects.select_for_update().filter(user=request.user).first()
+        if profile is None:
+            raise PermissionDenied("Only students have guardian details.")
+        return profile
+
+    def _response(self, request):
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(request=StudentGuardianUpdateSerializer, responses={200: UserSerializer})
+    @transaction.atomic
+    def put(self, request):
+        profile = self._profile(request)
+        serializer = StudentGuardianUpdateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        first_name = serializer.validated_data["first_name"]
+        last_name = serializer.validated_data["last_name"]
+        email = serializer.validated_data["email"]
+
+        if not profile.has_join_permission:
+            profile.pg_first_name = first_name
+            profile.pg_last_name = last_name
+            profile.pg_email = email
+            profile.parent_guardian_flag = True
+            profile.clear_pending_guardian()
+        elif (
+            first_name == profile.pg_first_name
+            and last_name == profile.pg_last_name
+            and email == (profile.pg_email or "").strip().lower()
+        ):
+            # Back to the guardian who already consented — nothing pending.
+            profile.clear_pending_guardian()
+        else:
+            profile.pending_pg_first_name = first_name
+            profile.pending_pg_last_name = last_name
+            profile.pending_pg_email = email
+            profile.pending_pg_requested_at = timezone.now()
+        profile.save()
+        return self._response(request)
+
+    @extend_schema(request=None, responses={200: UserSerializer})
+    @transaction.atomic
+    def delete(self, request):
+        profile = self._profile(request)
+        profile.clear_pending_guardian()
+        profile.save()
+        return self._response(request)
+
+
 class SupervisedStudentDetailView(APIView):
     """Update a supervised student profile after parent/guardian permission."""
 
@@ -712,6 +776,15 @@ class ReceiveJoinPermissionView(APIView):
 
         sp = get_object_or_404(StudentProfile, user=user)
 
+        if sp.has_join_permission and sp.has_pending_guardian:
+            # Consent after a guardian change comes from the new guardian:
+            # they replace the old one, and consent dates from now.
+            sp.pg_first_name = sp.pending_pg_first_name
+            sp.pg_last_name = sp.pending_pg_last_name
+            sp.pg_email = sp.pending_pg_email
+            sp.parent_guardian_flag = True
+            sp.clear_pending_guardian()
+            sp.joinperm_granted_at = timezone.now()
         sp.has_join_permission = True
         sp.joinperm_responseID = databody["ResponseID"]
         if sp.joinperm_granted_at is None:

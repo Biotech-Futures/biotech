@@ -14,6 +14,13 @@ class StudentProfile(models.Model):
     has_join_permission = models.BooleanField(default=False)
     joinperm_responseID = models.CharField(max_length=255, null=True)
     joinperm_granted_at = models.DateTimeField(blank=True, null=True)
+    # A guardian change the student asked for after consent was received. The
+    # consenting guardian stays on file until the new one consents, at which
+    # point the join-permission webhook promotes these into pg_*.
+    pending_pg_first_name = models.CharField(max_length=255, blank=True, default="")
+    pending_pg_last_name = models.CharField(max_length=255, blank=True, default="")
+    pending_pg_email = models.EmailField(blank=True, null=True)
+    pending_pg_requested_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'student_profile'
@@ -44,6 +51,16 @@ class StudentProfile(models.Model):
             name='permission_requires_parent_guardian'
         )
         ]
+
+    @property
+    def has_pending_guardian(self):
+        return self.pending_pg_requested_at is not None
+
+    def clear_pending_guardian(self):
+        self.pending_pg_first_name = ""
+        self.pending_pg_last_name = ""
+        self.pending_pg_email = None
+        self.pending_pg_requested_at = None
 
     def __str__(self):
         return str(self.user)

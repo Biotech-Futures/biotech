@@ -847,3 +847,154 @@ class MeGuardianDetailsTests(TestCase):
 
         self.assertIsNone(data["pg_email"])
         self.assertIsNone(data["join_perm_granted_at"])
+
+
+class MeGuardianUpdateTests(TestCase):
+    """Students update their guardian; one consenting guardian stays on file
+    until a new guardian consents."""
+
+    def setUp(self):
+        from apps.resources.models import RoleAssignmentHistory
+        from apps.users.models import StudentProfile
+
+        self.client = APIClient()
+        self.student = User.objects.create_user(
+            email="guardian-edit@test.com",
+            first_name="Alex",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.student,
+            role=Roles.objects.create(role_name=ROLE_STUDENT),
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat.parent@test.com",
+            parent_guardian_flag=True,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.client.force_authenticate(user=self.student)
+        self.url = reverse("me-guardian")
+        self.new_guardian = {
+            "first_name": "Robin",
+            "last_name": "Carer",
+            "email": "Robin.Carer@test.com",
+        }
+
+    def _grant_consent(self):
+        self.granted_at = timezone.now() - timedelta(days=10)
+        self.profile.has_join_permission = True
+        self.profile.joinperm_responseID = "R_old"
+        self.profile.joinperm_granted_at = self.granted_at
+        self.profile.save()
+
+    def _post_consent(self, response_id):
+        with self.settings(JOIN_PERMISSION_WEBHOOK_TOKEN="secret-token"):
+            return self.client.post(
+                reverse("join_perm"),
+                {"body": {"Email": self.student.email, "ResponseID": response_id}},
+                format="json",
+                HTTP_X_JOIN_PERMISSION_TOKEN="secret-token",
+            )
+
+    def test_before_consent_the_change_applies_straight_away(self):
+        self.profile.parent_guardian_flag = False
+        self.profile.save()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertTrue(self.profile.parent_guardian_flag)
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertIsNone(response.json()["pending_guardian"])
+
+    def test_after_consent_the_consenting_guardian_stays_on_file(self):
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_email, "pat.parent@test.com")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.joinperm_granted_at, self.granted_at)
+        pending = response.json()["pending_guardian"]
+        self.assertEqual(pending["first_name"], "Robin")
+        self.assertEqual(pending["email"], "robin.carer@test.com")
+
+    def test_new_guardians_consent_replaces_the_old_guardian(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        response = self._post_consent("R_new")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_last_name, "Carer")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.joinperm_responseID, "R_new")
+        self.assertGreater(self.profile.joinperm_granted_at, self.granted_at)
+
+    def test_resubmitting_the_consenting_guardian_drops_the_pending_change(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        self.client.put(
+            self.url,
+            {"first_name": "Pat", "last_name": "Parent", "email": "PAT.parent@test.com"},
+            format="json",
+        )
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_pending_guardian)
+
+    def test_withdrawing_a_pending_change(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+
+    def test_student_cannot_use_their_own_email(self):
+        response = self.client.put(
+            self.url,
+            {**self.new_guardian, "email": "Guardian-Edit@test.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+
+    def test_all_fields_are_required(self):
+        response = self.client.put(
+            self.url, {"first_name": "Robin", "last_name": "", "email": ""}, format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_student_is_forbidden(self):
+        mentor = User.objects.create_user(
+            email="mentor-guardian-edit@test.com",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        self.client.force_authenticate(user=mentor)
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
