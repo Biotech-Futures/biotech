@@ -1,4 +1,5 @@
 from django.urls import path
+from .profile_options import StudentProfileOptionsView, GuardianInvitationView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -22,6 +23,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("users/me/profile-options/", StudentProfileOptionsView.as_view(), name="student-profile-options"),
+    path("users/me/guardian-invitation/", GuardianInvitationView.as_view(), name="guardian-invitation"),
     path("login/", PasswordLoginView.as_view(), name="password-login"),
     path("set-password/", SetPasswordView.as_view(), name="set-password"),
     path("users/me/", MeRetrieveView.as_view(), name="MeListHTMLView"),

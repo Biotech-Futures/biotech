@@ -38,7 +38,8 @@
     <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
         <div class="profile-avatar-wrap">
-          <img class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" />
+          <img v-if="avatarUrl" class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" @error="avatarUrl = ''" />
+          <div v-else class="profile-avatar-large profile-avatar-initials" :aria-label="user.name">{{ getInitials(user.name) }}</div>
           <label class="avatar-change" for="profile-avatar">Change photo</label>
           <input id="profile-avatar" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
         </div>
@@ -128,11 +129,15 @@
             <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
             <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
+            <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
+            <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
+            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
             <fieldset><legend>Guardian details</legend><label>First name<input v-model.trim="studentDraft.pg_firstname" required maxlength="255" /></label><label>Last name<input v-model.trim="studentDraft.pg_lastname" required maxlength="255" /></label><label>Email<input v-model.trim="studentDraft.pg_email" type="email" maxlength="254" /></label></fieldset>
             <p class="profile-note">Changing guardian details resets their permission confirmation.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
           </form>
           <template v-else>
+          <div class="profile-field"><span class="profile-field-label">Name:</span><span class="profile-field-value">{{ user.name }}</span></div>
           <div class="profile-field">
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.student.schoolName }}</span>
@@ -184,11 +189,14 @@
             <p class="profile-note">{{ teamName }}</p>
             <div class="team-table-wrap">
               <table class="team-table">
-                <thead><tr><th scope="col">Member</th><th scope="col">Role</th></tr></thead>
+                <thead><tr><th scope="col">First name</th><th scope="col">Last name</th><th scope="col">Year level</th><th scope="col">School</th><th scope="col">Supervisor</th></tr></thead>
                 <tbody>
                   <tr v-for="member in teamMembers" :key="member.id">
-                    <td><span class="member-initial">{{ getInitials(member.name) }}</span>{{ member.name }}</td>
-                    <td><span class="member-role">{{ capitalise(member.role) }}</span></td>
+                    <td>{{ member.first_name || unsetLabel }}</td>
+                    <td>{{ member.last_name || unsetLabel }}</td>
+                    <td>{{ member.year_level || unsetLabel }}</td>
+                    <td>{{ member.school || unsetLabel }}</td>
+                    <td>{{ member.supervisor || 'Not assigned' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -203,8 +211,12 @@
           <div class="profile-field"><span class="profile-field-label">Last Name:</span><span class="profile-field-value">{{ user.student.guardianLastName }}</span></div>
           <div class="profile-field"><span class="profile-field-label">Email:</span><span class="profile-field-value">{{ user.student.guardianEmail }}</span></div>
           <div class="profile-field"><span class="profile-field-label">Permission:</span><span class="profile-field-value permission-status" :class="{ received: user.student.permissionReceived }">{{ user.student.permissionStatus }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">Not recorded</span></div>
-          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.student.permissionReceived ? 'No further reminder required' : 'Contact support to confirm the next reminder' }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">{{ formatPermissionReceivedAt(auth.user.guardian_reminder?.last_sent_at) || 'Not recorded' }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.student.permissionReceived ? 'No further reminder required' : formatPermissionReceivedAt(auth.user.guardian_reminder?.next_due_at) || 'No automatic reminder scheduled' }}</span></div>
+          <template v-if="!user.student.permissionReceived">
+            <button class="btn btn-outline" type="button" :disabled="guardianSending || !auth.user.guardian_reminder?.can_send" @click="sendGuardianInvitation">{{ guardianSending ? 'Sending…' : 'Resend guardian invitation' }}</button>
+            <p v-if="auth.user.guardian_reminder?.unavailable_reason" class="profile-note">{{ auth.user.guardian_reminder.unavailable_reason }}</p>
+          </template>
           <p class="profile-note">Some registration details are managed by your supervisor. Contact your supervisor or <a :href="`mailto:${supportEmail}`">support</a> if a locked detail needs updating.</p>
         </div>
 
@@ -278,14 +290,20 @@ const studentDraft = ref({
   pg_firstname: '',
   pg_lastname: '',
   pg_email: '',
+  country_id: null,
+  state_id: null,
+  interest_ids: [],
 })
+const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
+const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+const guardianSending = ref(false)
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
 const teamMembers = ref([])
 const teamName = ref('')
 const teamLoading = ref(false)
 const teamError = ref('')
-const DEFAULT_PROFILE_AVATAR = '/avatars/student-placeholder.png'
+const DEFAULT_PROFILE_AVATAR = ''
 const avatarUrl = ref(DEFAULT_PROFILE_AVATAR)
 const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
@@ -336,7 +354,7 @@ const timeZoneOptions = computed(() => {
 })
 
 const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
-const hasLinkedSupervisor = computed(() => Boolean(user.value?.student?.supervisorEmailAddress))
+const hasLinkedSupervisor = computed(() => Boolean(auth.user?.supervisor_id || user.value?.student?.supervisorEmailAddress))
 const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !hasLinkedSupervisor.value)
 
 watch(
@@ -396,7 +414,15 @@ const showTemporaryStatus = (message) => {
   }, 3200)
 }
 
-const startStudentEdit = () => {
+const startStudentEdit = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-options/`, { credentials: 'include', headers: buildSessionHeaders() })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    profileOptions.value = await response.json()
+  } catch (loadError) {
+    error.value = loadError instanceof Error ? loadError.message : 'Profile options could not be loaded.'
+    return
+  }
   const source = auth.user || {}
   studentDraft.value = {
     first_name: source.first_name || '',
@@ -406,6 +432,9 @@ const startStudentEdit = () => {
     pg_firstname: source.pg_firstname || '',
     pg_lastname: source.pg_lastname || '',
     pg_email: source.pg_email || '',
+    country_id: source.country?.id || null,
+    state_id: source.state?.id || null,
+    interest_ids: [...profileOptions.value.selected_interest_ids],
   }
   error.value = ''
   studentEditing.value = true
@@ -415,6 +444,25 @@ const cancelStudentEdit = () => {
   if (studentSaving.value) return
   studentEditing.value = false
   error.value = ''
+}
+
+const sendGuardianInvitation = async () => {
+  guardianSending.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) throw new Error('Please refresh and try again.')
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/guardian-invitation/`, {
+      method: 'POST', credentials: 'include', headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify({}),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    const refreshed = await fetch(`${API_BASE_URL}/api/v1/users/me/`, { credentials: 'include', headers: buildSessionHeaders() })
+    if (!refreshed.ok) throw new Error('Invitation sent, but your profile could not be refreshed. Please reload the page.')
+    auth.loginWithUser(await refreshed.json())
+    showTemporaryStatus('Guardian invitation sent.')
+  } catch (sendError) {
+    error.value = sendError instanceof Error ? sendError.message : 'The invitation could not be sent.'
+  } finally { guardianSending.value = false }
 }
 
 const saveStudentDetails = async () => {
@@ -435,6 +483,7 @@ const saveStudentDetails = async () => {
     auth.loginWithUser(await response.json())
     studentEditing.value = false
     showTemporaryStatus('Your details have been updated.')
+    await loadTeamMembers()
   } catch (saveError) {
     error.value = saveError instanceof Error ? saveError.message : 'Your details could not be updated.'
   } finally {
@@ -493,8 +542,8 @@ const loadTeamMembers = async () => {
     // has not yet been allocated. Keep the table focused on student teammates
     // even if development data already has a mentor attached to the group.
     teamMembers.value = (await response.json())
-      .filter((member) => !['mentor', 'teacher'].includes(String(member.membership_role || '').trim().toLowerCase()))
-      .map((member) => ({ id: member.id, name: member.user_name || 'Team member', role: member.membership_role || 'member' }))
+      .filter((member) => String(member.membership_role || '').trim().toLowerCase() === 'student')
+      .map((member) => ({ id: member.id, ...member.student_details }))
   } catch (loadError) {
     teamError.value = loadError instanceof Error ? loadError.message : 'Your team members could not be loaded.'
   } finally { teamLoading.value = false }
@@ -584,7 +633,7 @@ const user = computed(() => {
       permissionReceived,
       permissionStatus: permissionReceived
         ? `Received${permissionReceivedAt ? ` on ${permissionReceivedAt}` : ''}`
-        : 'Not received — contact support to resend the guardian invitation.'
+        : 'Not received'
     },
     mentor: {
       hasDetails: hasMentorDetails,
@@ -817,6 +866,9 @@ onMounted(() => {
 }
 
 .profile-avatar-wrap { position: relative; }
+.profile-avatar-initials { display:flex; align-items:center; justify-content:center; border-radius:50%; background:var(--white); color:var(--dark-green); font-size:2rem; font-weight:700; }
+.profile-section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
+.profile-section-heading .profile-section-title { margin:0; }
 .profile-avatar-large { width: 104px; height: 104px; border: 4px solid rgba(255,255,255,.82); object-fit: cover; }
 .avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
 .permission-status { font-weight: 600; color: #9c401a; }
@@ -833,6 +885,8 @@ onMounted(() => {
 .student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
+.student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }
+.student-edit-form .interest-options input { width:auto; }
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }

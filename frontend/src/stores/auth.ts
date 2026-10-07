@@ -32,6 +32,13 @@ interface User {
   joinperm_granted_at?: string | null
   interests?: string[]
   supervisor_name?: string | null
+  supervisor_id?: number | null
+  guardian_reminder?: {
+    last_sent_at: string | null
+    next_due_at: string | null
+    can_send: boolean
+    unavailable_reason: string
+  } | null
   supervisor_email?: string | null
   ment_bg?: string | null
   ment_inst?: string | null

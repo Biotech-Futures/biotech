@@ -14,6 +14,8 @@ class StudentProfile(models.Model):
     has_join_permission = models.BooleanField(default=False)
     joinperm_responseID = models.CharField(max_length=255, null=True)
     joinperm_granted_at = models.DateTimeField(blank=True, null=True)
+    guardian_reminder_sent_at = models.DateTimeField(blank=True, null=True)
+    guardian_reminder_due_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'student_profile'

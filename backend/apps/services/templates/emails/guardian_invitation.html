@@ -1,0 +1,9 @@
+{% extends "emails/base.html" %}
+{% block title %}Guardian permission{% endblock %}
+{% block content %}
+<p>Hello {{ First_Name }},</p>
+<p>{{ STUDENT_NAME }} needs guardian permission to participate in BIOTech Futures.</p>
+<p>Please review the permission form and enter the student's email address, {{ STUDENT_EMAIL }}, where requested.</p>
+<p><a href="{{ CONSENT_URL }}">Review guardian permission form</a></p>
+<p>If you do not recognise this request, please contact {{ CONTACT_EMAIL }}.</p>
+{% endblock %}

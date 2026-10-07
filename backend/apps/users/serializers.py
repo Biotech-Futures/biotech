@@ -5,7 +5,9 @@ from .models import (
     MentorProfile,
     SupervisorProfile,
     UserInterest,
+    AreasOfInterest,
 )
+from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
 from apps.common.storage import get_profile_image_storage
@@ -60,6 +62,9 @@ class StudentSelfProfileUpdateSerializer(serializers.Serializer):
     pg_firstname = serializers.CharField(max_length=255, required=False)
     pg_lastname = serializers.CharField(max_length=255, required=False)
     pg_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)
+    state_id = serializers.PrimaryKeyRelatedField(queryset=CountryStates.objects.all(), required=False, allow_null=True)
+    interest_ids = serializers.PrimaryKeyRelatedField(queryset=AreasOfInterest.objects.all(), many=True, required=False)
 
 class UserSerializer(serializers.ModelSerializer):
     current_role_id = serializers.SerializerMethodField()
@@ -91,6 +96,8 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_school_name = serializers.SerializerMethodField()
     supervised_students = serializers.SerializerMethodField()
     profile_image_url = serializers.SerializerMethodField()
+    guardian_reminder = serializers.SerializerMethodField()
+    supervisor_id = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -131,6 +138,8 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_school_name",
             "supervised_students",
             "profile_image_url",
+            "guardian_reminder",
+            "supervisor_id",
             "must_change_password",
             "timezone",
         ]
@@ -159,6 +168,15 @@ class UserSerializer(serializers.ModelSerializer):
         if not obj.country_id:
             return None
         return {"id": obj.country.id, "countryName": obj.country.country_name}
+
+    def get_supervisor_id(self, obj):
+        profile = self._student_profile(obj)
+        return profile.supervisor_id if profile else None
+
+    def get_guardian_reminder(self, obj):
+        from .guardian_reminders import reminder_info
+        profile = self._student_profile(obj)
+        return reminder_info(profile) if profile else None
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_state(self, obj):

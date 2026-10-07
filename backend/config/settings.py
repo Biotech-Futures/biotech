@@ -647,6 +647,11 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
+# Approved external form that posts back through the join-permission webhook.
+GUARDIAN_CONSENT_URL = config("GUARDIAN_CONSENT_URL", default="")
+# Set above zero only when send_guardian_reminders is scheduled regularly.
+GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=0, cast=int)
+
 # --- Grading platform --------------------------------------------------------
 # GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
 # link previews / unread digests / auth emails: bulk-zip jobs normally run on

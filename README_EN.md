@@ -18,7 +18,7 @@ Deployment is Azure: the backend to App Service, both SPAs to Static Web Apps (s
 ### Database
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d   # Postgres 16 on localhost:5432
+docker compose -f docker-compose.dev.yml up -d   # Postgres 16 on localhost:5433 (POSTGRES_HOST_PORT overrides)
 ```
 
 ### Backend
@@ -35,6 +35,28 @@ python manage.py runserver     # http://127.0.0.1:8000
 Local settings live in `config/settings_local.py`; production configuration is environment-variable driven (see `config/settings.py` — Azure storage, SMTP, Redis, frontend base URLs are all env-gated and fail loud when missing outside DEBUG).
 
 API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
+
+### Student profile and guardian invitations
+
+Students without a linked supervisor can edit their name, school, year, country,
+region, interests and guardian details from their profile. An actual guardian
+change clears the previous permission, consent timestamp and reminder history.
+
+Set `GUARDIAN_CONSENT_URL` in `backend/.env` to the approved HTTPS guardian form
+URL. The existing form must continue identifying the student by email and posting
+the consent result to the authenticated `updjoinperms` webhook. Confirm that
+contract with the form owner before enabling it in a deployed environment.
+The invitation uses the shared System Emails settings/template and the guardian
+email saved on the student's profile; resend is limited to once per 24 hours.
+With `config.settings_local`, outgoing emails are saved under
+`backend/sent_emails/`, not delivered to real inboxes.
+
+Automatic reminders are disabled by default. After arranging a regular scheduler
+for `python manage.py send_guardian_reminders`, set
+`GUARDIAN_REMINDER_INTERVAL_DAYS` (for example, `7`). Successfully sent invitations
+then record a next reminder due date. The command only processes due reminders
+for active students who still need permission; it doesn't send an initial email
+to every existing student. No scheduler is created by these code changes.
 
 ### Frontend
 

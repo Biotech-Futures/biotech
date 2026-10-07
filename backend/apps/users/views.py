@@ -281,6 +281,7 @@ SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
     "first_name", "last_name", "school_name", "year_lvl",
     "pg_firstname", "pg_lastname", "pg_email",
+    "country_id", "state_id", "interest_ids",
 })
 
 SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
@@ -300,8 +301,8 @@ SELF_PATCH_REJECTED_MESSAGE = (
 class MeRetrieveView(generics.RetrieveAPIView):
     """Authenticated user's self-profile endpoint.
 
-    PATCH is intentionally restricted to ``SELF_PATCHABLE_FIELDS`` (currently
-    just ``timezone``). Any field in ``SELF_PATCH_REJECTED_FIELDS`` aborts the
+    PATCH allows timezone and validated registration fields for unmanaged
+    students. Other fields in ``SELF_PATCH_REJECTED_FIELDS`` abort the
     entire request with HTTP 400 and a field-keyed error message — see the
     module-level comment above for the security rationale. The legitimate
     admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
@@ -315,11 +316,13 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user
 
+    @transaction.atomic
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data = request.data
 
-        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS)
+        student_geography = {"country_id", "state_id"} if StudentProfile.objects.filter(user=user).exists() else set()
+        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS and field not in student_geography)
         if rejected:
             # One warning per blocked attempt so credential-stuffed accounts
             # and compromised clients show up as 4xx spikes in log metrics
@@ -351,6 +354,22 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     )
 
                 cleaned = student_serializer.validated_data
+                country = cleaned.get("country_id", user.country)
+                state = cleaned.get("state_id", user.state)
+                if "country_id" in cleaned and "state_id" not in cleaned and state and state.country_id != getattr(country, "pk", None):
+                    state = None
+                if ("country_id" in cleaned or "state_id" in cleaned) and state and state.country_id != getattr(country, "pk", None):
+                    raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                if "country_id" in cleaned or "state_id" in cleaned:
+                    user.country, user.state = country, state
+                    user.save(update_fields=["country", "state"])
+                if "interest_ids" in cleaned:
+                    selected = {interest.pk for interest in cleaned["interest_ids"]}
+                    UserInterest.objects.filter(user=user).exclude(interest_id__in=selected).delete()
+                    for interest_id in selected:
+                        UserInterest.objects.get_or_create(user=user, interest_id=interest_id)
+                if "pg_email" in cleaned:
+                    cleaned["pg_email"] = cleaned["pg_email"] or None
                 user_fields = {
                     field: cleaned[field]
                     for field in ("first_name", "last_name")
@@ -370,7 +389,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 }
                 guardian_fields = {"pg_firstname", "pg_lastname", "pg_email"}
                 guardian_changed = any(
-                    field in cleaned and cleaned[field] != getattr(profile, profile_field_map[field])
+                    field in cleaned and (cleaned[field] or "") != (getattr(profile, profile_field_map[field]) or "")
                     for field in guardian_fields
                 )
                 profile_update_fields = []
@@ -383,7 +402,10 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 if guardian_changed:
                     profile.has_join_permission = False
                     profile.joinperm_responseID = None
-                    profile_update_fields.extend(["has_join_permission", "joinperm_responseID"])
+                    profile.joinperm_granted_at = None
+                    profile.guardian_reminder_sent_at = None
+                    profile.guardian_reminder_due_at = None
+                    profile_update_fields.extend(["has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
                 if profile_update_fields:
                     profile.save(update_fields=list(set(profile_update_fields)))
 
@@ -791,6 +813,7 @@ class ReceiveJoinPermissionView(APIView):
         sp = get_object_or_404(StudentProfile, user=user)
 
         sp.has_join_permission = True
+        sp.guardian_reminder_due_at = None
         sp.joinperm_responseID = databody["ResponseID"]
         if sp.joinperm_granted_at is None:
             sp.joinperm_granted_at = timezone.now()

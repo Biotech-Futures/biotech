@@ -141,6 +141,12 @@
             </li>
 
             <!-- In-app Admin management (Users, Groups, Tasks) -->
+            <li class="sidebar-item" v-if="auth.isStudent">
+              <a href="mailto:support@biotechfutures.org" class="sidebar-link">
+                <i class="fas fa-envelope sidebar-icon" aria-hidden="true"></i>
+                <span>Contact Support</span>
+              </a>
+            </li>
             <li class="sidebar-item" v-if="auth.isAdmin">
               <div
                 class="sidebar-link sidebar-link--admin"
@@ -413,8 +419,7 @@ const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
-const DEFAULT_PROFILE_AVATAR = '/avatars/student-placeholder.png'
-const profileAvatarUrl = computed(() => auth.user?.profile_image_url || DEFAULT_PROFILE_AVATAR)
+const profileAvatarUrl = computed(() => auth.user?.profile_image_url || '')
 const isSidebarCollapsed = ref(false)
 
 // Marking pages start with the sidebar collapsed (meta.hideSidebar on the
