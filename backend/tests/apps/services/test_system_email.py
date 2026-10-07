@@ -20,6 +20,7 @@ from apps.services.system_email import (
     is_email_enabled,
     render_system_email,
     send_system_email,
+    sender_for,
 )
 
 RESET_CONTEXT = {
@@ -31,6 +32,42 @@ RESET_CONTEXT = {
 
 def disable_globally():
     SystemEmailSettings.objects.create(emails_enabled=False)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_CONNECT_HOST="smtp.connect.test",
+    EMAIL_CONNECT_HOST_USER="global@biotechfutures.org",
+)
+class SenderTests(TestCase):
+    """Each email goes from the mailbox picked for it on System Emails,
+    signed in as that mailbox."""
+
+    def test_each_type_starts_from_its_default(self):
+        self.assertEqual(sender_for("password_reset").key, "info")
+        self.assertEqual(sender_for("password_reset").address, "info@biotechfutures.org")
+        # The chat digest has its own mailbox.
+        self.assertEqual(sender_for("unread_messages").key, "connect")
+        self.assertEqual(sender_for("unread_messages").connection["username"], "global@biotechfutures.org")
+        # A key System Emails doesn't know goes from info@.
+        self.assertEqual(sender_for("not_an_email").key, "info")
+
+    def test_the_one_picked_is_used_and_a_stale_choice_falls_back(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        self.assertEqual(sender_for("password_reset").key, "connect")
+        # A sender since taken out of settings: back to the default.
+        SystemEmailTemplate.objects.filter(key="password_reset").update(sender="gone")
+        self.assertEqual(sender_for("password_reset").key, "info")
+
+    def test_it_sends_from_and_signs_in_as_the_one_picked(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        from django.core.mail import get_connection as real_get_connection
+
+        with mock.patch("apps.services.system_email.get_connection", wraps=real_get_connection) as connect:
+            self.assertEqual(send_system_email("password_reset", "user@example.com", RESET_CONTEXT), SENT)
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+        self.assertEqual(connect.call_args.kwargs["username"], "global@biotechfutures.org")
+        self.assertEqual(connect.call_args.kwargs["host"], "smtp.connect.test")
 
 
 class ToggleTests(TestCase):

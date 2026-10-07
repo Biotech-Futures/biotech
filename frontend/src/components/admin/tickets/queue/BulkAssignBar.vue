@@ -4,6 +4,7 @@
        reader, and this bar has one label for both. It also sits a few inches
        from "Clear filters", which is a different thing to clear. -->
   <BulkActionsBar
+    class="bulk-assign"
     :count="count"
     noun="ticket"
     clear-label="Clear selection"
@@ -70,6 +71,7 @@
 
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import { UNASSIGNED, type AssigneeOption } from '@/utils/ticketAgentSchema'
@@ -120,14 +122,54 @@ function assign() {
 </script>
 
 <style scoped>
+/* The first redesign round (October 2026) keeps the peach bar and frames it
+   in brand green all round, with the same 40px control as the filters.
+   Written here over BulkActionsBar.vue's rules, not in that file, which is
+   Team 1's: the bar is this component's root, so it carries this
+   component's scope id, and the extra class outranks their selector.
+
+   The select's edge is a shade darker than the filters' #84938f, which is
+   2.80:1 on this peach wash, under the 3:1 a control's boundary needs.
+   Measured: #7a8884 3.23:1 on the wash and 3.70:1 on the select's own white;
+   dark #70827d 3.90:1 on the dark wash, 4.15:1 on the dark select. */
+.bulk-actions-bar.bulk-assign {
+  --bulk-edge: #7a8884;
+
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 1rem;
+  margin-bottom: -0.125rem;
+  border: 1px solid var(--dark-green);
+}
+
+:root[data-theme='dark'] .bulk-actions-bar.bulk-assign {
+  --bulk-edge: #70827d;
+}
+
+.bulk-assign :deep(.bulk-actions-bar__summary) {
+  gap: 0.5rem;
+}
+
+.bulk-assign :deep(.bulk-actions-bar__count),
+.bulk-assign :deep(.bulk-actions-bar__clear) {
+  font-size: 0.9rem;
+}
+
+.bulk-assign :deep(.bulk-actions-bar__clear .fa-times) {
+  font-size: 0.7rem;
+}
+
 .bulk-assign__select {
   width: 200px;
   max-width: 100%;
-  height: 2.1rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  height: 2.5rem;
+  padding: 0 2.25rem 0 0.75rem;
+  border: 1px solid var(--bulk-edge);
+  border-radius: 8px;
   background: var(--white);
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  appearance: none;
   color: var(--charcoal);
   font: inherit;
   font-size: 0.875rem;
@@ -139,6 +181,14 @@ function assign() {
 .bulk-assign__go:hover,
 .bulk-assign__go:disabled:hover {
   color: #fff;
+}
+
+.bulk-assign__go {
+  min-height: 2rem;
+  margin-left: 0.5rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
 /* On the bar's --light-green wash: #a71d2a is 6.43:1 there in light mode;

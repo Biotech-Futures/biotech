@@ -541,6 +541,40 @@ class SystemEmailAdminApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("nope", response.json()["msg"])
 
+    def test_each_email_shows_its_sender_and_the_mailboxes_it_could_go_from(self):
+        items = {item["key"]: item for item in self.client.get("/api/v1/admin/email-template/").json()["data"]["items"]}
+        self.assertEqual(items["login_code"]["sender"], "info")
+        self.assertEqual(items["unread_messages"]["sender"], "connect")
+        self.assertEqual(items["login_code"]["senders"], [
+            {"key": "info", "address": "info@biotechfutures.org"},
+            {"key": "connect", "address": "connect@biotechfutures.org"},
+        ])
+
+    def test_patch_picks_a_sender_kept_through_restore_default(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "connect"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+        self.assertEqual(SystemEmailTemplate.objects.get(key="login_code").sender, "connect")
+        # Restore default puts the wording back, not the sender.
+        response = self.client.post("/api/v1/admin/email-template/login_code/restore-default/")
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+
+    def test_patch_refuses_a_sender_not_listed(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "someone@else.com"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("mailboxes listed", response.json()["msg"])
+
+    @override_settings(EMAIL_BACKEND=LOCMEM)
+    def test_test_send_goes_from_the_sender_picked(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        response = self.client.post("/api/v1/admin/email-template/password_reset/test-send/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+
     def test_patch_locked_disable_returns_400(self):
         response = self.client.patch(
             "/api/v1/admin/email-template/login_code/",

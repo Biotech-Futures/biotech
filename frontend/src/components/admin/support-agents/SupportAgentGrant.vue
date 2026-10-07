@@ -41,6 +41,7 @@
         <button
           type="button"
           class="btn btn-outline btn-sm support-grant__button"
+          :class="{ 'support-grant__button--on': isOnRoster(person) }"
           :disabled="isOnRoster(person) || granting"
           @click="grant(person, $event.currentTarget as HTMLButtonElement)"
         >
@@ -67,6 +68,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import { fetchAdminUsers, type AdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
@@ -212,32 +214,62 @@ async function grant(person: AdminUser, pressed?: HTMLButtonElement) {
 
 <style scoped>
 /* Colours come from the page (SupportAgentsPage.vue sets --roster-* for both
-   themes and its spec measures them); this box sits on --white. */
+   themes and its spec measures them); this box sits on --white. The first
+   redesign round (October 2026) gives the search a visible edge, the
+   results a floating card with a rule between people, Grant a green edge and
+   Already on plain grey words. */
 .support-grant {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
+/* Focus shows on the edge itself, green with a soft wash round it, the way
+   the student form's fields do. The browser's cross is swapped for the thin
+   one from ticketControls.css. */
 .support-grant__search {
   width: 100%;
-  max-width: 24rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border-light);
+  max-width: 27.5rem;
+  height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--roster-edge);
   border-radius: 8px;
   background-color: var(--white);
   color: var(--charcoal);
   font: inherit;
+  font-size: 0.95rem;
+}
+
+.support-grant__search::placeholder {
+  color: var(--roster-placeholder);
+  opacity: 1;
+}
+
+.support-grant__search:focus-visible {
+  outline: none;
+  border-color: var(--roster-focus);
+  box-shadow: 0 0 0 3px var(--light-green);
+}
+
+.support-grant__search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.35rem;
+  background: var(--ticket-clear-x) no-repeat center;
+  cursor: pointer;
 }
 
 .support-grant__results {
-  max-width: 24rem;
+  max-width: 27.5rem;
   margin: 0;
-  padding: 0.5rem;
+  padding: 0.375rem;
   list-style: none;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border: 1px solid var(--roster-frame);
+  border-radius: 12px;
   background-color: var(--white);
+  box-shadow: var(--roster-shadow);
 }
 
 .support-grant__status {
@@ -251,23 +283,28 @@ async function grant(person: AdminUser, pressed?: HTMLButtonElement) {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.25rem;
-  font-size: 0.875rem;
+  min-height: 2.75rem;
+  padding: 0 0.45rem 0 0.7rem;
+  font-size: 0.9rem;
   color: var(--charcoal);
+}
+
+.support-grant__candidate + .support-grant__candidate {
+  border-top: 1px solid var(--roster-rule);
 }
 
 .support-grant__who {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 0.5rem;
+  gap: 0 0.625rem;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .support-grant__email {
   color: var(--roster-muted);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
 }
 
 .support-grant__mark {
@@ -278,6 +315,24 @@ async function grant(person: AdminUser, pressed?: HTMLButtonElement) {
 
 .support-grant__button {
   flex-shrink: 0;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-color: var(--roster-accent);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* Someone already listed: the same disabled button, read as words. Solid,
+   not faded the way a disabled button is, since it is a fact rather than a
+   control that cannot be used right now. */
+.support-grant__button--on,
+.support-grant__button--on:disabled,
+.support-grant__button--on:disabled:hover {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--roster-muted);
+  opacity: 1;
 }
 
 .support-grant__error {

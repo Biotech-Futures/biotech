@@ -92,36 +92,62 @@ withDefaults(
 
 <style scoped>
 /* Muted text sits on this card (--white) and, under the pointer, on the
-   global `tbody tr:hover` wash (--light-green). #616970 is 5.58:1 and 4.88:1
-   there; --text-muted would be 4.69:1 and 4.10:1, under AA on the hover.
+   global `tbody tr:hover` wash (--light-green). The first redesign round's
+   (October 2026) #5a6268 is 6.21:1 and 5.43:1 there; --text-muted would be
+   4.69:1 and 4.10:1, under AA on the hover. Since that round the table is
+   framed like the queue's: a pale green head in small capitals (#24524a on
+   #dff1e8, 7.51:1), a softer edge and shadow, and shorter rows.
 
    The link cannot keep --dark-green in the dark theme, which does not
    redefine it: 2.79:1 on the dark card. --mint-green is 6.13:1 on the card
    and 5.30:1 on the hover wash (translucent there, so measured over the card).
-   Dark muted text is the theme's own, 5.72:1 and 4.95:1. */
+   Dark muted text is the theme's own, 5.72:1 and 4.95:1, and the dark head
+   keeps the theme's green wash and charcoal, as the designer drew no dark
+   audit page. */
 .audit-table {
-  --audit-muted: #616970;
+  --audit-muted: #5a6268;
   --audit-link: var(--dark-green);
+  --audit-head: #dff1e8;
+  --audit-head-ink: #24524a;
+  --audit-rule: #e6eae8;
 
   overflow-x: auto;
   background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border: 1px solid #e3e7e5;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
 }
 
 :root[data-theme='dark'] .audit-table {
   --audit-muted: var(--text-muted);
   --audit-link: var(--mint-green);
+  --audit-head: var(--light-green);
+  --audit-head-ink: var(--charcoal);
+  --audit-rule: var(--border-light);
+
+  border-color: var(--border-light);
+  box-shadow: none;
 }
 
 .audit-table__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  font-size: 0.85rem;
 }
 
+.audit-table__table thead {
+  background: var(--audit-head);
+}
+
+/* 40px with its rule, as the design draws it. */
 .audit-table__col {
-  padding: 0.85rem 1rem;
+  padding: 0.625rem 1.125rem;
+  border-bottom: 1px solid var(--audit-rule);
+  color: var(--audit-head-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -139,8 +165,9 @@ withDefaults(
 }
 
 .audit-table__table td {
-  padding: 0.75rem 1rem;
-  vertical-align: top;
+  padding: 0.625rem 1.125rem;
+  border-bottom: 1px solid var(--audit-rule);
+  vertical-align: middle;
 }
 
 .audit-table__table tbody tr:last-child td {
@@ -149,7 +176,6 @@ withDefaults(
 
 .audit-table__when {
   color: var(--audit-muted);
-  font-size: 0.8rem;
   white-space: nowrap;
 }
 

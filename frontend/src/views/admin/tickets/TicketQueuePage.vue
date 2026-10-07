@@ -3,11 +3,34 @@
     <!-- An h2: the page's one h1 is the section shell's "Support queue"
          (TicketsSection.vue), and this tab sits under it. -->
     <header class="ticket-queue__header">
-      <h2 class="ticket-queue__title">Ticket queue</h2>
-      <p class="ticket-queue__subtitle">
-        Enquiries from across the platform, most recently active first.
-      </p>
+      <div>
+        <h2 class="ticket-queue__title">Ticket queue</h2>
+        <p class="ticket-queue__subtitle">
+          Enquiries from across the platform, most recently active first.
+        </p>
+      </div>
+      <!-- Client item C-09 (Will, 2026-09-19): "from the admin perspective,
+           some export function. If we wanted just to export that table."
+           Every ticket the filters below match, not only the page on screen;
+           the page and the walk stay out of it (useTicketQueue exportQueue).
+           In the title row since the first redesign round (October 2026).
+           aria-disabled while it runs, not disabled: disabling the button
+           that was just pressed drops keyboard focus to the top of the
+           document. exportQueue ignores a press while one is running. -->
+      <button
+        type="button"
+        class="btn btn-outline btn-sm ticket-queue__export"
+        :aria-disabled="q.exporting.value ? 'true' : undefined"
+        @click="q.exportQueue"
+      >
+        <TicketIcon name="sheet" />
+        <span>{{ q.exporting.value ? 'Exporting…' : 'Export to Excel' }}</span>
+      </button>
     </header>
+
+    <p v-if="q.exportError.value" class="ticket-queue__alert" role="alert">
+      {{ q.exportError.value }}
+    </p>
 
     <CounterCards
       :summary="q.summary.value"
@@ -45,27 +68,7 @@
         :assignees="q.assignees.value"
         @change="q.applyFilters"
       />
-      <!-- Client item C-09 (Will, 2026-09-19): "from the admin perspective,
-           some export function. If we wanted just to export that table."
-           Every ticket the filters above match, not only the page on screen;
-           the page and the walk stay out of it (useTicketQueue exportQueue).
-           aria-disabled while it runs, not disabled: disabling the button
-           that was just pressed drops keyboard focus to the top of the
-           document. exportQueue ignores a press while one is running. -->
-      <button
-        type="button"
-        class="btn btn-outline btn-sm ticket-queue__export"
-        :aria-disabled="q.exporting.value ? 'true' : undefined"
-        @click="q.exportQueue"
-      >
-        <i class="fas fa-file-excel" aria-hidden="true"></i>
-        <span>{{ q.exporting.value ? 'Exporting…' : 'Export to Excel' }}</span>
-      </button>
     </div>
-
-    <p v-if="q.exportError.value" class="ticket-queue__alert" role="alert">
-      {{ q.exportError.value }}
-    </p>
 
     <!-- The two option lists fail quietly on their own: an empty list looks
          exactly like a platform with nobody on it. The assignee list also
@@ -156,6 +159,7 @@ import CounterCards from '@/components/admin/tickets/queue/CounterCards.vue'
 import FilterBar from '@/components/admin/tickets/queue/FilterBar.vue'
 import QueuePager from '@/components/admin/tickets/queue/QueuePager.vue'
 import QueueTable from '@/components/admin/tickets/queue/QueueTable.vue'
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import { ticketIdFromQuery } from '@/components/admin/tickets/queue/queueRules'
 import { describeFailure, useTicketQueue } from '@/composables/admin/useTicketQueue'
 import { useAuthStore } from '@/stores/auth'
@@ -303,7 +307,7 @@ const partialFailureSentence = computed(() => {
 
 <style scoped>
 .ticket-queue {
-  --ticket-queue-muted: #616970;
+  --ticket-queue-muted: #5a6268;
   --ticket-queue-danger: #a71d2a;
 
   display: flex;
@@ -312,12 +316,16 @@ const partialFailureSentence = computed(() => {
 }
 
 /* The ground here is .content-area's --bg-light. --text-muted and --danger
-   are 4.45:1 and 4.30:1 on it, both under AA; #616970 is 5.29:1 and #a71d2a
-   6.98:1 (TicketDetailPage.vue measured the same pair). Dark gives both back
-   to the theme: 6.19:1 and 6.58:1 on the dark ground. */
+   are 4.45:1 and 4.30:1 on it, both under AA; the redesign's #5a6268 is
+   5.89:1 and #a71d2a 6.98:1. Dark gives both back to the theme, as the
+   designer's dark queue keeps its colours: 6.19:1 and 6.58:1 on the dark
+   ground. color-scheme has the browser draw the row checkboxes dark too,
+   the way his dark queue shows them, instead of white squares. */
 :root[data-theme='dark'] .ticket-queue {
   --ticket-queue-muted: var(--text-muted);
   --ticket-queue-danger: var(--danger);
+
+  color-scheme: dark;
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not
@@ -331,30 +339,56 @@ const partialFailureSentence = computed(() => {
   outline-color: var(--mint-green);
 }
 
+/* The title on the left, the export on the right, level with the bottom of
+   the subtitle. Wraps under it when the row is too narrow for both. */
+.ticket-queue__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
 .ticket-queue__title {
   margin: 0 0 0.25rem;
-  font-size: 1.75rem;
+  font-size: 1.3rem;
+  line-height: 1.25;
 }
 
 .ticket-queue__subtitle {
   margin: 0;
   color: var(--ticket-queue-muted);
+  font-size: 0.9rem;
   font-weight: 400;
 }
 
+/* The design leaves a little less room under the filters than between the
+   other blocks. */
 .ticket-queue__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  margin-bottom: -0.125rem;
+}
+
+/* The redesign's secondary button: white, a brand green edge, bold. Written
+   over the global .btn-outline here rather than changed there, since every
+   other page uses it. Green on white is 6.03:1. */
+.ticket-queue__export {
+  min-height: 2.5rem;
+  padding: 0 1.15rem;
+  gap: 0.7rem;
+  border: 1px solid var(--dark-green);
+  border-radius: 8px;
+  background-color: var(--white);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 /* .btn-outline is green text on the page ground (5.72:1). The theme does not
    redefine --dark-green, which is 3.02:1 on the dark ground, so dark takes
-   the mint the theme leaves alone (6.63:1). */
+   the mint the theme leaves alone (6.13:1 on the button's own ground), for
+   the edge as well as the words. */
 :root[data-theme='dark'] .ticket-queue__export,
 :root[data-theme='dark'] .ticket-queue__export:hover {
+  border-color: var(--mint-green);
   color: var(--mint-green);
 }
 
@@ -364,8 +398,8 @@ const partialFailureSentence = computed(() => {
 .ticket-queue__export[aria-disabled='true']:hover {
   opacity: 0.55;
   cursor: not-allowed;
-  background-color: transparent;
-  border-color: var(--border-light);
+  background-color: var(--white);
+  border-color: var(--dark-green);
   transform: none;
   box-shadow: none;
 }

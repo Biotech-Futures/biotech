@@ -25,7 +25,7 @@ from typing import NamedTuple, Optional
 
 import nh3
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.mail.message import SafeMIMEMultipart
 from django.db import DatabaseError
 from django.template.loader import render_to_string
@@ -33,7 +33,7 @@ from django.utils import dateformat
 from django.utils.html import strip_tags
 
 from .email_branding import attach_inline_logo, brand_context
-from .email_registry import MERGE_TAG_RE, get_email_type
+from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
 
@@ -44,6 +44,71 @@ SKIPPED = "skipped"
 FAILED = "failed"
 
 WRAPPER_TEMPLATE = "emails/system_wrapper.html"
+
+
+class Sender(NamedTuple):
+    """A mailbox the site can send from (settings.EMAIL_SENDERS)."""
+
+    key: str
+    # "info@biotechfutures.org": shown on System Emails, and where mail that
+    # can't be delivered comes back to.
+    address: str
+    # The From header, e.g. "BIOTech Futures <info@biotechfutures.org>".
+    from_email: str
+    # get_connection arguments that sign in as it; empty for the default account.
+    connection: dict
+
+
+def _login(prefix: Optional[str]) -> dict:
+    """get_connection arguments for the login settings named ``prefix``, e.g.
+    EMAIL_CONNECT_HOST_USER; none for the default account."""
+    if not prefix:
+        return {}
+    return {
+        "host": getattr(settings, f"{prefix}HOST"),
+        "port": getattr(settings, f"{prefix}PORT"),
+        "username": getattr(settings, f"{prefix}HOST_USER"),
+        "password": getattr(settings, f"{prefix}HOST_PASSWORD"),
+        "use_ssl": getattr(settings, f"{prefix}USE_SSL"),
+    }
+
+
+def senders() -> list[Sender]:
+    """Every mailbox the site can send from, as System Emails offers them,
+    read from their settings when asked (see settings.EMAIL_SENDERS)."""
+    return [
+        Sender(
+            key,
+            getattr(settings, sender["address"]),
+            getattr(settings, sender["from_email"]),
+            _login(sender.get("login")),
+        )
+        for key, sender in settings.EMAIL_SENDERS.items()
+    ]
+
+
+def _sender(key: str) -> Optional[Sender]:
+    return next((sender for sender in senders() if sender.key == key), None)
+
+
+def sender_for(key: str) -> Sender:
+    """The mailbox email ``key`` goes from: the one picked on System Emails,
+    else its type's default (info@, or connect@ for the chat digest). A key
+    System Emails doesn't know goes from the first sender, info@."""
+    if not is_known_email_type(key):
+        return senders()[0]
+    row = _load_override(key)
+    return (
+        (_sender(row.sender) if row is not None and row.sender else None)
+        or _sender(get_email_type(key).default_sender)
+        or senders()[0]
+    )
+
+
+def sender_connection(sender: Sender, **kwargs):
+    """A mail connection signed in as ``sender``'s mailbox: Hostinger only
+    sends as the signed-in mailbox or its aliases."""
+    return get_connection(**{**sender.connection, **kwargs})
 
 
 class RenderedEmail(NamedTuple):
@@ -347,6 +412,10 @@ def send_system_email(
 
     # Rendered here, not in the pool: the worker thread must do no ORM work.
     rendered = render_system_email(key, context, default_text=default_text)
+    if from_email is None and connection is None:
+        # From the mailbox picked for it on System Emails, signed in as it.
+        sender = sender_for(key)
+        from_email, connection = sender.from_email, sender_connection(sender)
     message = build_message(rendered, to, from_email=from_email, connection=connection)
 
     if background:

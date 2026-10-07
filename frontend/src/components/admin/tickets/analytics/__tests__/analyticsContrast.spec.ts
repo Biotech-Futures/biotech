@@ -22,9 +22,12 @@ import TILE from '../StatTile.vue?raw'
  *   - text against 4.5:1;
  *   - the bars and the focus ring, which are not text, against 3:1.
  *
- * Grounds come from main.css (the card is --white, the page is --bg-light,
- * both redefined for dark). The ratios are computed here, the thresholds are
- * written out, and nothing expected is read back from the component.
+ * The page's ground comes from main.css (--bg-light, redefined for dark).
+ * Since the first redesign round (October 2026) a card has a ground of its
+ * own, the page's --analytics-card, and so does a tile, StatTile's
+ * --stat-ground; both are read from the components. The ratios are computed
+ * here, the thresholds are written out, and nothing expected is read back
+ * from the component.
  */
 
 const MAIN_CSS = readFileSync(
@@ -92,7 +95,8 @@ function contrast(a: string, b: string): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
 }
 
-const card = (theme: Theme) => resolve('var(--white)', theme)
+const card = (theme: Theme) => colour(PAGE, '.ticket-analytics', '--analytics-card', theme)
+const tile = (theme: Theme) => colour(TILE, '.stat-tile', '--stat-ground', theme)
 const page = (theme: Theme) => resolve('var(--bg-light)', theme)
 
 describe('ticket analytics colours', () => {
@@ -109,9 +113,9 @@ describe('ticket analytics colours', () => {
       expect(contrast(empty, card(theme))).toBeGreaterThanOrEqual(AA_TEXT)
     })
 
-    it(`${theme}: a tile's label and hint are readable on the card`, () => {
+    it(`${theme}: a tile's label and hint are readable on the tile`, () => {
       const muted = colour(TILE, '.stat-tile', '--stat-muted', theme)
-      expect(contrast(muted, card(theme))).toBeGreaterThanOrEqual(AA_TEXT)
+      expect(contrast(muted, tile(theme))).toBeGreaterThanOrEqual(AA_TEXT)
     })
 
     it(`${theme}: the subtitle, the window echo and the errors are readable where they sit`, () => {

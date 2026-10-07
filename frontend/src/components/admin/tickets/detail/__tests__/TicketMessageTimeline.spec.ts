@@ -84,9 +84,10 @@ describe('the conversation', () => {
     expect(reply.find('.agent-timeline__wall').exists()).toBe(false)
     expect(note.classes()).toContain('agent-timeline__row--note')
     const wall = note.get('.agent-timeline__wall')
-    expect(wall.text()).toBe('🔒 Internal note')
-    // The lock is decoration; a screen reader hears "Internal note".
-    expect(wall.get('[aria-hidden="true"]').text()).toBe('🔒')
+    expect(wall.text()).toBe('Internal note')
+    // The lock is decoration, drawn as an outline since the first redesign
+    // round; a screen reader hears "Internal note".
+    expect(wall.get('svg').attributes('aria-hidden')).toBe('true')
   })
 
   it('shows a message as the text it is, never as markup', async () => {

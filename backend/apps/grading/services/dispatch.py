@@ -43,7 +43,7 @@ from ..models import (
 )
 from .content import feedback_map, submission_entries
 from .xlsx import build_saq_xlsx
-from .zip import _COMPONENT_LABELS, build_saq_pdf_zip, build_submissions_zip
+from .zip import _COMPONENT_LABELS, build_submissions_zip
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,10 @@ def _run_job(job_id: int) -> None:
         if kind == "component_zip":
             # Flat — one component per bundle, so group file names can't
             # collide and folders would just be an extra layer.
-            payload = build_submissions_zip(entries, group_folder=False)
+            # SAQ's txt download: its answers as text files. Its pdf
+            # download is component_pdf.
+            payload = build_submissions_zip(entries, group_folder=False, saq_text=True)
             label = _COMPONENT_LABELS.get(component.code, component.code)
-            # SAQ's answers come as text files, beside its PDF download.
             suffix = "_TXT" if component.code == "SAQ" else ""
             filename = f"{current_cohort()}_BTF_{label}{suffix}.zip"
         elif kind == "component_xlsx":
@@ -133,8 +134,9 @@ def _run_job(job_id: int) -> None:
             )
             filename = f"{current_cohort()}_BTF_SAQs.xlsx"
         elif kind == "component_pdf":
-            # SAQ only: each group's answers as its own PDF, zipped.
-            payload = build_saq_pdf_zip(entries)
+            # SAQ only: each group's answers as its own PDF, zipped, as the
+            # component zip has them.
+            payload = build_submissions_zip(entries, group_folder=False)
             filename = f"{current_cohort()}_BTF_SAQs_PDF.zip"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.

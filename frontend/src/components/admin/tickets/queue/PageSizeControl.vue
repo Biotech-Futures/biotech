@@ -51,6 +51,7 @@
 
 <script setup lang="ts">
 import { nextTick, ref, useTemplateRef, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import {
   MAX_PAGE_SIZE,
@@ -135,10 +136,22 @@ async function backToPresets() {
 </script>
 
 <style scoped>
+/* The first redesign round (October 2026): the same 36px control as the
+   pager beside it, and Presets set like a link. Measured (WCAG AA):
+     light  edge #84938f on white 3.21:1   Presets #017151 on the page 5.72:1
+     dark   edge #70827d on the #161f1d box 4.15:1   Presets mint 6.63:1 */
 .page-size {
+  --page-size-edge: #84938f;
+  --page-size-link: var(--dark-green);
+
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+}
+
+:root[data-theme='dark'] .page-size {
+  --page-size-edge: #70827d;
+  --page-size-link: var(--mint-green);
 }
 
 .page-size__label {
@@ -147,35 +160,42 @@ async function backToPresets() {
 
 .page-size__select,
 .page-size__box {
-  height: 2rem;
-  padding: 0.2rem 0.45rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  height: 2.25rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--page-size-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
   font-size: 0.875rem;
 }
 
+.page-size__select {
+  appearance: none;
+  padding-right: 2rem;
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
 .page-size__box {
-  width: 5rem;
+  width: 4.75rem;
 }
 
 .page-size__presets {
-  padding: 0.25rem 0.5rem;
+  padding: 0;
   border: none;
-  border-radius: 6px;
   background: transparent;
-  color: var(--charcoal);
+  color: var(--page-size-link);
   font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 700;
   cursor: pointer;
+  text-underline-offset: 2px;
 }
 
 .page-size__presets:hover:not([aria-disabled='true']) {
-  background: var(--accent-green-soft);
-  color: var(--charcoal);
+  text-decoration: underline;
 }
 
 .page-size__presets[aria-disabled='true'],

@@ -52,6 +52,24 @@
       other styling, such as coloured or smaller text, becomes plain.
     </p>
 
+    <!-- The mailbox it goes from: only those the server can sign in to, since
+         Hostinger rejects a From that isn't the signed-in mailbox or one of
+         its aliases. Saved at once, like the on/off switch. -->
+    <div class="editor__field">
+      <label class="editor__label" :for="`${emailTemplate.key}-sender`">Send from</label>
+      <select
+        :id="`${emailTemplate.key}-sender`"
+        class="editor__title email-editor__sender"
+        :value="emailTemplate.sender"
+        :disabled="busy"
+        @change="emit('change-sender', ($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="sender in emailTemplate.senders" :key="sender.key" :value="sender.key">
+          {{ sender.address }}
+        </option>
+      </select>
+    </div>
+
     <!-- Tags go into whichever of Subject or Body was used last. -->
     <div class="editor__field">
       <span class="editor__label">Placeholders</span>
@@ -73,7 +91,7 @@
         class="editor__title"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"
-        :disabled="busy"
+        :disabled="saving || restoring"
         maxlength="255"
         @focus="activeField = 'subject'"
         @input="emit('update:subject', ($event.target as HTMLInputElement).value)"
@@ -82,6 +100,9 @@
 
     <div class="editor__field">
       <label class="editor__label">Body</label>
+      <!-- Like Subject, read-only only while its wording is being written: a
+           read-only editor drops its toolbar, which flashed on quick saves like
+           Send from. -->
       <div class="email-editor__body" @focusin="activeField = 'body'">
         <RichEditor
           ref="bodyEditor"
@@ -89,7 +110,7 @@
           email-mode
           compact
           :link-placeholders="linkPlaceholders"
-          :read-only="busy"
+          :read-only="saving || restoring"
           @update:model-value="emit('update:body', $event)"
           @focus="activeField = 'body'"
         />
@@ -185,6 +206,7 @@ const emit = defineEmits<{
   (e: 'update:subject', value: string): void
   (e: 'update:body', value: string): void
   (e: 'toggle-enabled', enabled: boolean): void
+  (e: 'change-sender', sender: string): void
   (e: 'save'): void
   (e: 'restore'): void
   (e: 'test-send'): void
@@ -314,11 +336,19 @@ const insertIntoSubject = (token: string) => {
   min-width: 3.5rem;
 }
 
+/* As wide as its addresses, not the whole column. */
+.email-editor__sender {
+  width: auto;
+  min-width: 16rem;
+  background: var(--surface-elevated, #fff);
+}
+
 .email-editor__last-edited {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  margin: 0.25rem 0 0;
+  /* The same space as below it, the editor's 1rem gap. */
+  margin: 1rem 0 0;
   font-size: 0.75rem;
   color: #6b7280;
 }

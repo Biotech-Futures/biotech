@@ -239,31 +239,44 @@
             <tr>
               <th>Group</th>
               <th>Submitted</th>
+              <th>Type</th>
               <th class="finalist-presentation__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!slidesTeams.length">
-              <td colspan="3" class="finalist-presentation__empty">No finalist teams yet.</td>
+              <td colspan="4" class="finalist-presentation__empty">No finalist teams yet.</td>
             </tr>
             <tr v-for="team in slidesTeams" :key="team.group_id">
               <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
               <template v-if="team.submitted">
                 <td>{{ formatSubmitted(team.submitted_at) }}</td>
+                <td>{{ fileType(team.file_name) }}</td>
                 <td class="finalist-presentation__cell--right">
-                  <!-- Opens the slides in a new tab; the name is on hover. -->
-                  <a
-                    :href="presentationSlidesUrl(team.group_id)"
-                    target="_blank"
-                    rel="noopener"
-                    class="btn btn-outline btn-sm"
-                    :title="team.file_name"
-                  >
-                    Open
-                  </a>
+                  <span class="finalist-presentation__row-actions">
+                    <!-- A PDF opens in a new tab; PowerPoint can't show in the
+                         browser, so it only downloads. The name is on hover. -->
+                    <a
+                      v-if="fileType(team.file_name) === 'PDF'"
+                      :href="presentationSlidesUrl(team.group_id)"
+                      target="_blank"
+                      rel="noopener"
+                      class="btn btn-outline btn-sm"
+                      :title="team.file_name"
+                    >
+                      Open
+                    </a>
+                    <a
+                      :href="presentationSlidesDownloadUrl(team.group_id)"
+                      class="btn btn-outline btn-sm"
+                      :title="team.file_name"
+                    >
+                      Download
+                    </a>
+                  </span>
                 </td>
               </template>
-              <td v-else colspan="2" class="finalist-presentation__muted">Not submitted yet</td>
+              <td v-else colspan="3" class="finalist-presentation__muted">Not submitted yet</td>
             </tr>
           </tbody>
         </table>
@@ -281,6 +294,7 @@ import {
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
+  presentationSlidesDownloadUrl,
   presentationSlidesUrl,
   setPresentationTimesShown,
   updatePresentationSlot,
@@ -426,6 +440,9 @@ const formatSubmitted = (iso: string | null) => {
   const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
   return `${date} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
 }
+
+// "PDF", "PPTX" or "PPT", from the file's name.
+const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')
 
 // Every change answers with the whole list, which replaces the one shown.
 const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> => {

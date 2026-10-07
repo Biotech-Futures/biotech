@@ -58,6 +58,8 @@ const ANNOUNCEMENT = {
     { name: 'brand_name', description: 'Brand name', sample: 'BIOTech Futures', html: false }
   ],
   edited: false,
+  edited_by: null as string | null,
+  edited_at: null as string | null,
   recipients: 2,
   noun: 'finalist group',
   blocked: '',
@@ -508,6 +510,29 @@ describe('the announcement', () => {
     expect((editor().find('input').element as HTMLInputElement).value).toBe(
       '{{ brand_name }}Congratulations – You’re a {{ brand_name }} Finalist!'
     )
+  })
+
+  it('says who last edited it and when, under the heading, once edited', async () => {
+    announcementMock.mockResolvedValue({
+      ...ANNOUNCEMENT, edited: true, edited_by: 'Ada Admin', edited_at: '2026-10-05T04:42:00Z'
+    })
+    const wrapper = mount(NotifyFinalistsPage, {
+      global: { stubs: { teleport: true, RichEditor: RichEditorStub } }
+    })
+    await flushPromises()
+    await buttonNamed(wrapper, /^Edit Announcement$/).trigger('click')
+    const line = wrapper.find('[aria-label="Edit announcement"] .outcome-announcement__last-edited')
+    expect(line.text()).toMatch(/^Last edited by Ada Admin · .*2026/)
+    expect(line.element.previousElementSibling?.textContent).toContain('Edit Announcement')
+  })
+
+  it("shows no last edited line while it is the email's own wording", async () => {
+    const wrapper = mount(NotifyFinalistsPage, {
+      global: { stubs: { teleport: true, RichEditor: RichEditorStub } }
+    })
+    await flushPromises()
+    await buttonNamed(wrapper, /^Edit Announcement$/).trigger('click')
+    expect(wrapper.find('.outcome-announcement__last-edited').exists()).toBe(false)
   })
 
   it('has Save changes and Restore default as on System Emails', async () => {

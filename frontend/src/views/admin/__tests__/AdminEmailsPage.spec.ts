@@ -48,6 +48,11 @@ const buildTemplate = (overrides: Partial<SystemEmailTemplate> = {}): SystemEmai
   body: '',
   updatedBy: null,
   updatedAt: null,
+  sender: 'info',
+  senders: [
+    { key: 'info', address: 'info@biotechfutures.org' },
+    { key: 'connect', address: 'connect@biotechfutures.org' }
+  ],
   mergeTags: [
     { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
   ],
@@ -152,7 +157,43 @@ describe('AdminEmailsPage', () => {
     })
   })
 
-  const dialogTitled = (wrapper: Awaited<ReturnType<typeof mountPage>>, title: string) =>
+  it('picks the mailbox it goes from, saved at once', async () => {
+    const wrapper = await mountPage()
+    vi.mocked(updateSystemEmailTemplate).mockResolvedValue(buildTemplate({ sender: 'connect' }))
+
+    const select = wrapper.find<HTMLSelectElement>('#password_reset-sender')
+    // Only the mailboxes the server can sign in to.
+    expect(select.findAll('option').map((option) => option.text())).toEqual([
+      'info@biotechfutures.org',
+      'connect@biotechfutures.org'
+    ])
+    expect(select.element.value).toBe('info')
+    await select.setValue('connect')
+    await flushPromises()
+
+    expect(updateSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { sender: 'connect' })
+    expect(wrapper.find<HTMLSelectElement>('#password_reset-sender').element.value).toBe('connect')
+  })
+
+  it('keeps Subject and Body editable while Send from saves', async () => {
+    const wrapper = await mountPage()
+    let finish: (template: SystemEmailTemplate) => void = () => {}
+    vi.mocked(updateSystemEmailTemplate).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+
+    await wrapper.find('#password_reset-sender').setValue('connect')
+    // Disabling them flashed the Subject box and dropped the Body's toolbar.
+    expect(wrapper.find<HTMLInputElement>('#template-subject').element.disabled).toBe(false)
+    expect(wrapper.findComponent({ name: 'RichEditor' }).props('readOnly')).toBe(false)
+
+    finish(buildTemplate({ sender: 'connect' }))
+    await flushPromises()
+  })
+
+  const dialogTitled =(wrapper: Awaited<ReturnType<typeof mountPage>>, title: string) =>
     wrapper.findAllComponents(ConfirmDialog).find((dialog) => dialog.props('title') === title)!
 
   it('asks before pausing all emails, and pauses only once confirmed', async () => {

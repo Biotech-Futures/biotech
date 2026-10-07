@@ -343,8 +343,8 @@ class FinalistSlidesOpenTests(_GradingFixture):
             submitted_at=timezone.now(),
         )
 
-    def _open(self, group_id):
-        response = self.client.get(reverse("management:presentation-slides-file", args=[group_id]))
+    def _open(self, group_id, query=""):
+        response = self.client.get(reverse("management:presentation-slides-file", args=[group_id]) + query)
         # Lets go of the file, so the temporary folder can be removed.
         self.addCleanup(response.close)
         return response
@@ -354,6 +354,9 @@ class FinalistSlidesOpenTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(b"".join(r.streaming_content), b"%PDF-1.4 slides")
         self.assertTrue(r["Content-Disposition"].startswith("inline"))
+
+    def test_download_saves_even_a_pdf(self):
+        self.assertTrue(self._open(self.team.id, "?download=1")["Content-Disposition"].startswith("attachment"))
 
     def test_other_files_download(self):
         self.deck.file = {**self.deck.file, "mime": "application/vnd.ms-powerpoint"}

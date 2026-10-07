@@ -110,7 +110,7 @@ const CARDS: {
 .queue-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 @media (min-width: 1024px) {
@@ -121,23 +121,27 @@ const CARDS: {
 
 /* Muted text and the Overdue number take literal colours in light mode:
    --text-muted is 4.45:1 and --danger 4.30:1 on light grounds, both under AA
-   (TicketDetailPage.vue measured the same pair). On the card's --white,
-   #616970 is 5.58:1 and #a71d2a 7.36:1. Dark hands both back to the theme:
+   (TicketDetailPage.vue measured the same pair). On the card's --white, the
+   first redesign round's #5a6268 is 6.21:1 and #a71d2a 7.36:1. Dark hands
+   both back to the theme, as the designer's dark queue keeps its colours:
    --text-muted 5.72:1 and --danger 6.08:1 on the dark card. */
 .queue-card {
-  --queue-card-muted: #616970;
+  --queue-card-muted: #5a6268;
   --queue-card-alert: #a71d2a;
 
-  padding: 1rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  padding: 1rem 1.125rem;
+  border: 1px solid #e3e7e5;
+  border-radius: 12px;
   background: var(--white);
-  box-shadow: 0 1px 2px var(--shadow);
+  box-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
 }
 
 :root[data-theme='dark'] .queue-card {
   --queue-card-muted: var(--text-muted);
   --queue-card-alert: var(--danger);
+
+  border-color: var(--border-light);
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .queue-card--link {
@@ -149,16 +153,22 @@ const CARDS: {
   border-color: var(--dark-green);
 }
 
+/* One line height for the button and the paragraph alike, and the button a
+   block of its own: an inline button sat on the card's text baseline and
+   came out 5px lower than the Overdue label beside it. */
 .queue-card__label {
   margin: 0;
   color: var(--queue-card-muted);
   font-size: 0.75rem;
   font-weight: 600;
+  line-height: 1.4;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .queue-card__label--button {
+  display: block;
+  width: fit-content;
   padding: 0;
   border: none;
   background: transparent;
@@ -176,11 +186,11 @@ const CARDS: {
 }
 
 .queue-card__value {
-  margin: 0.25rem 0 0;
+  margin: 0.15rem 0 0;
   color: var(--charcoal);
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
 }
 
 .queue-card__value--alert {
@@ -190,7 +200,7 @@ const CARDS: {
 .queue-card__hint {
   margin: 0.25rem 0 0;
   color: var(--queue-card-muted);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 400;
   line-height: 1.4;
 }

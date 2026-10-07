@@ -155,6 +155,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import type { TicketPatch } from '@/utils/ticketAgentAPI'
 import {
@@ -385,59 +386,81 @@ async function choose(field: Field, picked: string, select: HTMLSelectElement) {
 </script>
 
 <style scoped>
+/* One row across the panel, in the first redesign round's (October 2026)
+   proportions: Status 132, Priority 104, Category 220, Assignee 132, which is
+   the 624px a full-width panel has once the gaps are out. A narrower panel
+   shrinks them in the same proportions and wraps when that gets too tight.
+
+   Measured on the panel's ground (WCAG AA: 4.5:1 for text, 3:1 for a
+   control's edge):
+     light  labels #5a6268 on #ffffff 6.21:1   edge #84938f 3.21:1
+     dark   labels #a3b3ae on #1d2826 6.95:1   edge #70827d on the #161f1d field 4.15:1 */
 .triage {
+  --triage-muted: #5a6268;
+  --triage-edge: #84938f;
+
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.6rem 0.75rem;
 }
 
+:root[data-theme='dark'] .triage {
+  --triage-muted: #a3b3ae;
+  --triage-edge: #70827d;
+}
+
 .triage__field {
   display: flex;
+  flex: 132 1 0;
   flex-direction: column;
   gap: 0.2rem;
-  min-width: 9rem;
+  min-width: 6.5rem;
 }
 
-.triage__field--wide {
-  min-width: 12rem;
+.triage__field:nth-child(2) {
+  flex-grow: 104;
 }
 
-/* #616970 is 5.58:1 on the panel's #ffffff; dark hands it back to
-   --text-muted, 5.72:1 on #161f1d. */
+.triage__field--wide:nth-child(3) {
+  flex-grow: 220;
+}
+
 .triage__label {
-  --triage-muted: #616970;
-
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--triage-muted);
 }
 
-:root[data-theme='dark'] .triage__label {
-  --triage-muted: var(--text-muted);
-}
-
+/* The thin chevron from ticketControls.css in place of the browser's. */
 .triage__select {
-  height: 2.1rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  width: 100%;
+  height: 2.5rem;
+  padding: 0.25rem 2.25rem 0.25rem 0.875rem;
+  border: 1px solid var(--triage-edge);
+  border-radius: 8px;
   background: var(--white);
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  appearance: none;
   color: var(--charcoal);
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
 }
 
+/* Hung just under the row rather than given a row of its own: the design
+   leaves no blank line for it, and the panel's gap above the tabs has room
+   for one line of it. It is in the page, empty, before anything is said, as
+   a status region has to be to be read out. */
 .triage__saving {
-  --triage-muted: #616970;
-
-  min-height: 1.2rem;
+  position: absolute;
+  top: calc(100% + 0.15rem);
+  left: 0;
   margin: 0;
   font-size: 0.8rem;
   color: var(--triage-muted);
-}
-
-:root[data-theme='dark'] .triage__saving {
-  --triage-muted: var(--text-muted);
 }
 </style>

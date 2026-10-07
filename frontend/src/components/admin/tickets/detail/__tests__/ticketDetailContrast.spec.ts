@@ -58,6 +58,17 @@ function locals(file: string, selector: string, theme: Theme): Record<string, st
   return theme === 'light' ? light : { ...light, ...block(css, `:root[data-theme='dark'] ${selector}`) }
 }
 
+// The panel's own ground in a theme. Everything outside a bubble, a box or
+// a field sits on it: --white in light, the card colour (#1d2826) in dark
+// since the first redesign round (October 2026), which is not --white there.
+function panelGround(theme: Theme): string {
+  return resolveColour('var(--panel-ground)', locals('TicketDetailPanel.vue', '.ticket-panel', theme), theme)
+}
+
+function groundOf(name: string, scope: Record<string, string>, theme: Theme): string {
+  return name === '<panel>' ? panelGround(theme) : resolveColour(`var(${name})`, scope, theme)
+}
+
 function resolveColour(value: string, scope: Record<string, string>, theme: Theme): string {
   const trimmed = value.trim()
   if (trimmed.startsWith('#')) return trimmed
@@ -84,33 +95,48 @@ function ratio(a: string, b: string): number {
 const AA_TEXT = 4.5
 const AA_NON_TEXT = 3
 
-// Text and its grounds, per component. Every ground is the panel's own
-// --white, or the note's amber, which is the only other colour anything sits
-// on inside the panel.
+// Text and its grounds, per component. '<panel>' is the panel's own ground
+// (panelGround above); every other ground is a colour the component paints
+// itself: a bubble, the reply box, the note's amber, a field, a label.
 const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }[] = [
   {
     file: 'TicketMessageTimeline.vue',
     selector: '.agent-timeline',
-    ink: ['--timeline-muted', '--timeline-danger', '--timeline-file'],
-    grounds: ['--white', '--note-ground']
+    ink: ['--timeline-muted', '--timeline-danger'],
+    grounds: ['<panel>', '--note-ground']
   },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-file'], grounds: ['--white'] },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--charcoal'], grounds: ['--timeline-theirs'] },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-ours-ink'], grounds: ['--timeline-ours'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-ink'], grounds: ['--note-ground'] },
-  { file: 'TicketReplyComposer.vue', selector: '.reply-box', ink: ['--reply-muted', '--reply-danger'], grounds: ['--white'] },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-on-label'], grounds: ['--note-label'] },
+  {
+    file: 'TicketReplyComposer.vue',
+    selector: '.reply-box',
+    ink: ['--reply-muted', '--reply-danger', '--reply-file'],
+    grounds: ['--reply-ground']
+  },
+  { file: 'TicketReplyComposer.vue', selector: '.reply-box', ink: ['--reply-placeholder'], grounds: ['--white'] },
   { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-ink'], grounds: ['--note-ground'] },
-  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-on-ink'], grounds: ['--note-ink'] },
-  { file: 'TicketTriageControls.vue', selector: '.triage__label', ink: ['--triage-muted'], grounds: ['--white'] },
-  { file: 'TicketTriageControls.vue', selector: '.triage__saving', ink: ['--triage-muted'], grounds: ['--white'] },
-  { file: 'TicketFacts.vue', selector: '.ticket-facts', ink: ['--facts-muted'], grounds: ['--white'] },
-  { file: 'TicketHistoryList.vue', selector: '.ticket-history', ink: ['--history-muted', '--history-danger'], grounds: ['--white'] },
-  { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', ink: ['--panel-muted', '--panel-danger'], grounds: ['--white'] }
+  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-on-button'], grounds: ['--note-button'] },
+  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-placeholder'], grounds: ['--white'] },
+  { file: 'TicketTriageControls.vue', selector: '.triage', ink: ['--triage-muted'], grounds: ['<panel>'] },
+  { file: 'TicketFacts.vue', selector: '.ticket-facts', ink: ['--facts-muted'], grounds: ['<panel>'] },
+  { file: 'TicketHistoryList.vue', selector: '.ticket-history', ink: ['--history-muted', '--history-danger'], grounds: ['<panel>'] },
+  { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', ink: ['--panel-muted', '--panel-danger'], grounds: ['<panel>'] }
 ]
 
 // Lines that carry meaning without being text: the note's dashed wall, the
-// active tab's rule and the focus ring.
+// active tab's rule and focus ring, and the edges that say where a control
+// is (3:1 against what is around them).
 const NON_TEXT: { file: string; selector: string; line: string; ground: string }[] = [
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', line: '--note-border', ground: '--note-ground' },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', line: '--timeline-edge', ground: '<panel>' },
   { file: 'TicketNoteComposer.vue', selector: '.note-box', line: '--note-border', ground: '--note-ground' },
-  { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', line: '--panel-accent', ground: '--white' }
+  { file: 'TicketReplyComposer.vue', selector: '.reply-box', line: '--reply-edge', ground: '--reply-ground' },
+  { file: 'TicketTriageControls.vue', selector: '.triage', line: '--triage-edge', ground: '<panel>' },
+  { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', line: '--panel-accent', ground: '<panel>' },
+  { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', line: '--panel-edge', ground: '<panel>' }
 ]
 
 describe('the detail panel clears AA in both themes', () => {
@@ -120,10 +146,7 @@ describe('the detail panel clears AA in both themes', () => {
         for (const ground of grounds) {
           it(`${theme}: ${file} ${selector} ${name} on ${ground}`, () => {
             const scope = locals(file, selector, theme)
-            const measured = ratio(
-              resolveColour(`var(${name})`, scope, theme),
-              resolveColour(`var(${ground})`, scope, theme)
-            )
+            const measured = ratio(resolveColour(`var(${name})`, scope, theme), groundOf(ground, scope, theme))
             expect(measured).toBeGreaterThanOrEqual(AA_TEXT)
           })
         }
@@ -133,10 +156,7 @@ describe('the detail panel clears AA in both themes', () => {
     for (const { file, selector, line, ground } of NON_TEXT) {
       it(`${theme}: ${file} ${line} on ${ground} (non-text)`, () => {
         const scope = locals(file, selector, theme)
-        const measured = ratio(
-          resolveColour(`var(${line})`, scope, theme),
-          resolveColour(`var(${ground})`, scope, theme)
-        )
+        const measured = ratio(resolveColour(`var(${line})`, scope, theme), groundOf(ground, scope, theme))
         expect(measured).toBeGreaterThanOrEqual(AA_NON_TEXT)
       })
     }
@@ -144,7 +164,8 @@ describe('the detail panel clears AA in both themes', () => {
 
   it("the reused priority badge still clears AA on the panel's ground", () => {
     // TicketPriorityBadge paints no background, and its own measurements are
-    // against the page's --bg-light. Inside this panel it sits on --white.
+    // against the page's --bg-light. Inside this panel it sits on the panel's
+    // own ground.
     const css = /<style scoped>([\s\S]*?)<\/style>/.exec(
       read('../../../../support/TicketPriorityBadge.vue')
     )![1]
@@ -161,7 +182,7 @@ describe('the detail panel clears AA in both themes', () => {
               ...block(css, ':root[data-theme="dark"] .priority-badge'),
               ...block(css, ':root[data-theme="dark"] .priority-badge--high')
             }
-      const ground = resolveColour('var(--white)', {}, theme)
+      const ground = panelGround(theme)
       for (const ink of ['--ticket-muted', '--badge-danger']) {
         if (ratio(resolveColour(`var(${ink})`, scope, theme), ground) < AA_TEXT) below.push(`${theme} ${ink}`)
       }

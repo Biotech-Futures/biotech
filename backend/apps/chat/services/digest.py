@@ -22,7 +22,6 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import get_connection
 from django.db import connection as db_connection
 from django.db.models import Count, Max, Q
 from django.template.loader import render_to_string
@@ -32,7 +31,13 @@ from django.utils.html import format_html, format_html_join
 from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
-from apps.services.system_email import build_message, is_email_enabled, render_system_email
+from apps.services.system_email import (
+    build_message,
+    is_email_enabled,
+    render_system_email,
+    sender_connection,
+    sender_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -225,14 +230,14 @@ def _group_list_html(per_group) -> str:
     return format_html("<ul>{}</ul>", items)
 
 
-def _render_and_send(connection, candidate, summary):
+def _render_and_send(connection, candidate, summary, sender):
     total, per_group, _new_hwm = summary
     plural = "" if total == 1 else "s"
     ctx = {
         **brand_context(),
         # Digest sends from connect@, so the "add to address book" copy must show
         # connect@, not the default info@ that brand_context() supplies.
-        "SENDER_EMAIL": settings.CONNECT_FROM_ADDRESS,
+        "SENDER_EMAIL": sender.address,
         "First_Name": candidate["first_name"],
         "TOTAL_UNREAD": total,
         "GROUP_COUNT": len(per_group),
@@ -245,11 +250,11 @@ def _render_and_send(connection, candidate, summary):
     text_body = render_to_string("emails/unread_messages.txt", ctx)
     rendered = render_system_email("unread_messages", ctx, default_text=text_body)
 
-    # Still from connect@ over the connect@ connection, not the default account.
+    # From the mailbox picked for it (connect@ by default), over its connection.
     msg = build_message(
         rendered,
         candidate["email"],
-        from_email=settings.CONNECT_DEFAULT_FROM_EMAIL,
+        from_email=sender.from_email,
         connection=connection,
     )
     msg.send(fail_silently=False)
@@ -301,14 +306,10 @@ def send_unread_message_digests(*, dry_run=False):
         return 0, 0, 0
 
     try:
-        connection = get_connection(
-            host=settings.EMAIL_CONNECT_HOST,
-            port=settings.EMAIL_CONNECT_PORT,
-            username=settings.EMAIL_CONNECT_HOST_USER,
-            password=settings.EMAIL_CONNECT_HOST_PASSWORD,
-            use_ssl=settings.EMAIL_CONNECT_USE_SSL,
-            fail_silently=False,
-        )
+        # From the mailbox picked on System Emails (connect@ by default),
+        # signed in as it.
+        sender = sender_for("unread_messages")
+        connection = sender_connection(sender, fail_silently=False)
         connection.open()
     except Exception:
         logger.exception("unread_digest.connection_failed")
@@ -325,7 +326,7 @@ def send_unread_message_digests(*, dry_run=False):
             if not _claim_user(candidate["user_id"], new_hwm, cutoff, now):
                 continue
             try:
-                _render_and_send(connection, candidate, summary)
+                _render_and_send(connection, candidate, summary, sender)
             except Exception as exc:
                 failed += 1
                 logger.warning(

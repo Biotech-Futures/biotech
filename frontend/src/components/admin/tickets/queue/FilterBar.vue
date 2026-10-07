@@ -95,6 +95,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import {
   TICKET_CATEGORY_OPTIONS,
@@ -158,19 +159,38 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
 </script>
 
 <style scoped>
+/* The first redesign round (October 2026) puts all six on one row at a
+   1440px screen: the search takes a share and a half, each list one share,
+   and Clear filters sits at the far end when there is something to clear.
+   The search keeps a floor wide enough for its whole placeholder, which the
+   designer's narrower box cut off at "or reque".
+
+   Edges, measured against the 3:1 a control's boundary needs:
+     light  #84938f on the white field 3.21:1, on the #f8f9fa page 3.04:1
+     dark   #70827d on the #161f1d field 4.15:1, on the #0f1715 page 4.49:1
+   The designer kept the dark queue's colours, but its edge, --border-light,
+   is 1.39:1 there; #70827d is the edge his other dark screens use. */
 .queue-filters {
+  --queue-filter-edge: #84938f;
+  --queue-filter-placeholder: #6c757d;
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem;
+}
+
+:root[data-theme='dark'] .queue-filters {
+  --queue-filter-edge: #70827d;
+  --queue-filter-placeholder: var(--text-muted);
 }
 
 .queue-filters__search,
 .queue-filters__select {
-  height: 2.25rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  height: 2.5rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--queue-filter-edge);
+  border-radius: 8px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
@@ -178,41 +198,43 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
 }
 
 .queue-filters__search {
-  width: 18rem;
+  flex: 1.5 1 0;
+  min-width: 16.5rem;
   max-width: 100%;
 }
 
-.queue-filters__select--status {
-  width: 150px;
+.queue-filters__search::placeholder {
+  color: var(--queue-filter-placeholder);
+  opacity: 1;
 }
 
-.queue-filters__select--priority {
-  width: 140px;
-}
-
-.queue-filters__select--category {
-  width: 190px;
-}
-
-.queue-filters__select--region {
-  width: 160px;
-}
-
-.queue-filters__select--assignee {
-  width: 170px;
+/* The browser's arrow gives way to the thin chevron from ticketControls.css,
+   with room kept clear of it on the right. */
+.queue-filters__select {
+  flex: 1 1 0;
+  min-width: 0;
+  appearance: none;
+  padding-right: 2.25rem;
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  text-overflow: ellipsis;
 }
 
 /* A text button, green on the page ground (5.72:1 on --bg-light). The theme
    does not redefine --dark-green, which is 3.02:1 on the dark ground, so dark
-   takes the mint that the theme leaves alone (6.63:1 there). */
+   takes the mint that the theme leaves alone (6.63:1 there). The negative
+   margin puts the words, not the hover pill, flush with the table's edge. */
 .queue-filters__clear {
+  margin-left: auto;
+  margin-right: -0.6rem;
   padding: 0.35rem 0.6rem;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--dark-green);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -230,6 +252,7 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
 @media (max-width: 640px) {
   .queue-filters__search,
   .queue-filters__select {
+    flex: 1 1 100%;
     width: 100%;
   }
 }

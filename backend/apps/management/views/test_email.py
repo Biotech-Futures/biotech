@@ -12,6 +12,8 @@ from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
 
+from apps.services.system_email import sender_for
+
 from ..services import test_email
 
 logger = logging.getLogger(__name__)
@@ -60,4 +62,5 @@ class TestEmailView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         # Undeliverable mail comes back to the address it's sent from.
-        return Response({"sent_to": to, "sent_from": settings.EMAIL_FROM_ADDRESS})
+        sent_from = sender_for(test_email.KINDS[kind].email).address
+        return Response({"sent_to": to, "sent_from": sent_from})

@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import '@/components/support/ticketControls.css'
 
 import AuditPager from '@/components/admin/tickets/audit/AuditPager.vue'
 import TicketAuditTable from '@/components/admin/tickets/audit/TicketAuditTable.vue'
@@ -243,12 +244,15 @@ onMounted(async () => {
 /* Muted text and the error line both take a literal colour rather than
    --text-muted and --danger. The ground here is the section's .content-area,
    --bg-light, where those two tokens are 4.45:1 and 4.30:1, both under AA.
-   #616970 is 5.29:1 and #a71d2a 6.98:1, the values TicketDetailPage.vue uses
-   for the same reason. Dark hands both back to the theme: 6.19:1 and
-   6.58:1 on the dark ground. */
+   The first redesign round's (October 2026) #5a6268 is 5.89:1 and #a71d2a
+   6.98:1, the values TicketDetailPage.vue uses for the same reason. Dark
+   hands both back to the theme: 6.19:1 and 6.58:1 on the dark ground. The
+   filters' edge is #84938f, 3.21:1 on their white; in dark #70827d, 4.15:1
+   on the #161f1d field, where --border-light was 1.16:1. */
 .ticket-audit {
-  --audit-muted: #616970;
+  --audit-muted: #5a6268;
   --audit-danger: #a71d2a;
+  --audit-edge: #84938f;
 
   display: flex;
   flex-direction: column;
@@ -258,34 +262,43 @@ onMounted(async () => {
 :root[data-theme='dark'] .ticket-audit {
   --audit-muted: var(--text-muted);
   --audit-danger: var(--danger);
+  --audit-edge: #70827d;
 }
 
 .ticket-audit__title {
   margin: 0 0 0.25rem;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
+  line-height: 1.25;
 }
 
 .ticket-audit__subtitle {
   margin: 0;
   color: var(--audit-muted);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
 }
 
 .ticket-audit__filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem;
+  /* 14px to the table rather than the page's 16, as on the queue. */
+  margin-bottom: -0.125rem;
 }
 
+/* The thin chevron from ticketControls.css in place of the browser's. */
 .ticket-audit__filter {
-  width: 190px;
+  width: 200px;
   max-width: 100%;
-  height: 2.25rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  height: 2.5rem;
+  padding: 0.25rem 2.25rem 0.25rem 0.75rem;
+  border: 1px solid var(--audit-edge);
+  border-radius: 8px;
   background: var(--white);
+  background-image: var(--ticket-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  appearance: none;
   color: var(--charcoal);
   font: inherit;
   font-size: 0.9rem;

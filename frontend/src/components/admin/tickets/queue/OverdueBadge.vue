@@ -10,7 +10,8 @@
 </script>
 
 <style scoped>
-/* Shaped like TicketStatusBadge next to it, in the priority badge's red.
+/* Shaped like TicketStatusBadge next to it (the same 24px pill), in the
+   priority badge's red.
    Opaque pairs for the same reason that badge gives: a translucent ground
    hands the contrast to whatever paints underneath. Measured:
      light  #a71d2a on #fde8e8  6.27:1
@@ -25,7 +26,7 @@
   color: #a71d2a;
   font-size: 0.78rem;
   font-weight: 600;
-  line-height: 1.6;
+  line-height: 1.2rem;
   white-space: nowrap;
 }
 

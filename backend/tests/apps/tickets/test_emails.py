@@ -1453,15 +1453,17 @@ class TheAddressUnderTheButtonIsALinkTests(TicketEmailsThroughTheApiTestCase):
 class PendingUserStandsOutTests(TicketEmailsThroughTheApiTestCase):
     """C-04. "Pending user" is the one status that needs the requester to act.
 
-    Style only: the words stay the label, and every other status renders as
-    before. The colours are written out here rather than read from the
-    template, so changing them means changing this too.
+    Style only: the words stay the label. The colours are the first redesign
+    round's (October 2026), and are written out here rather than read from
+    the template, so changing them means changing this too. Resolved has a
+    pill of its own since that round (ResolvedReadsAsDoneTests below); no
+    status but pending user may carry the amber.
     """
 
     PILL_RULES = (
         "display:inline-block",
-        "background:#fff4d6",
-        "border:1pxsolid#e0b252",
+        "background:#ffe9a8",
+        "border:1pxsolid#c99a2e",
         "border-radius:999px",
         "color:#7a4b00",
         "font-weight:700",
@@ -1500,6 +1502,103 @@ class PendingUserStandsOutTests(TicketEmailsThroughTheApiTestCase):
         for label, status, message in others:
             html = message.alternatives[0][0].lower()
             with self.subTest(email=label, status=status):
-                self.assertNotIn("#fff4d6", html)
+                self.assertNotIn("#ffe9a8", html)
                 self.assertNotIn("#7a4b00", html)
-                self.assertNotIn("#e0b252", html)
+                self.assertNotIn("#c99a2e", html)
+                # Nor the amber box the pill sits in.
+                self.assertNotIn("#fffaeb", html)
+
+    def test_the_pending_email_sits_its_pill_in_an_amber_box(self):
+        pending = [
+            message
+            for _, status, message in self.emails_through_the_api()
+            if status == "pending_user"
+        ]
+        html = pending[0].alternatives[0][0].lower()
+        self.assertIn("background:#fffaeb", html)
+        self.assertIn("border:1px solid #ebd9a8", html)
+
+
+class ResolvedReadsAsDoneTests(TicketEmailsThroughTheApiTestCase):
+    """The first redesign round (October 2026): an email about a resolved
+    enquiry draws Resolved as a green pill with a tick, in a green box, so it
+    reads as done at a glance. Style only, like the pending pill: the label is
+    the portal's word, and the tick is hidden from screen readers so they hear
+    the word alone. Open and in progress carry neither the green nor the
+    amber.
+    """
+
+    PILL_RULES = (
+        "display:inline-block",
+        "background:#c6e9d3",
+        "border:1pxsolid#6fb58e",
+        "border-radius:999px",
+        "color:#1c5a3c",
+        "font-weight:700",
+    )
+
+    def test_a_resolved_email_shows_the_status_as_a_green_pill_with_a_hidden_tick(self):
+        resolved = [
+            (label, message)
+            for label, status, message in self.emails_through_the_api()
+            if status == "resolved"
+        ]
+        self.assertTrue(resolved, "no email went out while resolved")
+        for label, message in resolved:
+            html = message.alternatives[0][0]
+            places = enclosing_tags(html, "Resolved")
+            with self.subTest(email=label):
+                self.assertTrue(places, f"{label} no longer prints the status")
+            for stack in places:
+                tag, attrs = stack[-1]
+                with self.subTest(email=label):
+                    self.assertEqual(tag, "span")
+                    for rule in self.PILL_RULES:
+                        self.assertIn(rule, style_of(attrs))
+            with self.subTest(email=label, part="tick"):
+                self.assertRegex(html, r'<span aria-hidden="true">&#10003;&nbsp;</span>Resolved')
+                self.assertIn("background:#E6F5EC", html)
+
+    def test_open_and_in_progress_keep_the_plain_grey_box(self):
+        others = [
+            (label, status, message)
+            for label, status, message in self.emails_through_the_api()
+            if status not in ("pending_user", "resolved")
+        ]
+        self.assertTrue({"open"} <= {status for _, status, _ in others})
+        for label, status, message in others:
+            html = message.alternatives[0][0].lower()
+            with self.subTest(email=label, status=status):
+                self.assertIn("background:#f4f7f5", html)
+                self.assertNotIn("#c6e9d3", html)
+                self.assertNotIn("#e6f5ec", html)
+                self.assertNotIn("&#10003;", html)
+
+
+class TicketEmailFooterNoteTests(TicketEmailsThroughTheApiTestCase):
+    """DEC-048. The footer's address-book line is written out in the ticket
+    emails, in the redesign's darker grey, because base.html is every team's
+    layout. Its words and links stay what base.html gives, and only these
+    three emails change: the login email keeps the shared grey line.
+    """
+
+    def test_the_ticket_footer_line_is_the_darker_grey_and_says_the_same(self):
+        for label, _, message in self.emails_through_the_api():
+            html = message.alternatives[0][0]
+            with self.subTest(email=label):
+                self.assertIn('<span style="color:#5c6860;">Add <a href="mailto:', html)
+                self.assertIn(
+                    "to your address book to keep receiving updates about your enquiries.",
+                    visible_text(html),
+                )
+                self.assertIn('href="https://www.biotechfutures.org/"', html)
+
+    def test_the_rest_of_the_platform_keeps_the_shared_footer(self):
+        response = self.client.post(
+            "/services/send-login-code/",
+            data=json.dumps({"email": "mia@example.com"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        html = mail.outbox[-1].alternatives[0][0]
+        self.assertNotIn("#5c6860", html)

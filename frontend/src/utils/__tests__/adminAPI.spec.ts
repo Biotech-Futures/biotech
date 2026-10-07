@@ -854,6 +854,11 @@ describe('system email API', () => {
     body: '',
     updatedBy: null,
     updatedAt: null,
+    sender: 'info',
+    senders: [
+      { key: 'info', address: 'info@biotechfutures.org' },
+      { key: 'connect', address: 'connect@biotechfutures.org' }
+    ],
     mergeTags: [
       { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
     ]

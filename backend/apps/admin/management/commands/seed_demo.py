@@ -78,7 +78,12 @@ PEOPLE = [
     # Support-capable and deliberately NOT an admin. The whole Support role
     # exists because the client asked for someone who works the queue without
     # being an administrator, and this is the only account that proves it.
-    ("support",     "support@example.com",    "Sana",    "Reid",     "mentor",     "Australia"),
+    # Its role is "support", the way the People page creates an agent: the
+    # portal only treats an account as a pure agent (queue and nothing else)
+    # when the role says so. It used to be "mentor", which the React admin
+    # site did not mind but which the portal reads as a mentor who can also
+    # work the queue, with every member page in the sidebar.
+    ("support",     "support@example.com",    "Sana",    "Reid",     "support",    "Australia"),
 ]
 
 # The three Support Centre topic cards, worded exactly as SupportCentrePage.vue
@@ -280,6 +285,12 @@ class Command(BaseCommand):
             user.activate()
 
             role_row, _ = Roles.objects.get_or_create(role_name=role)
+            # A rerun on a database seeded when this account held another role
+            # would otherwise leave two current rows. Close the old one the way
+            # a role change does, so the account holds exactly one role.
+            RoleAssignmentHistory.objects.filter(user=user, valid_to=None).exclude(
+                role=role_row
+            ).update(valid_to=now)
             # valid_to NULL is what "currently holds this role" means, and the
             # ticket module snapshots the requester's role through it. Without
             # this the dashboard's User type breakdown is entirely Unknown.

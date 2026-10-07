@@ -41,6 +41,9 @@ class EmailType:
     # Locked types can be edited but never switched off, including by the
     # global toggle, so nobody can lock every user out of the platform.
     locked: bool = False
+    # Which of settings.EMAIL_SENDERS it goes from until System Emails picks
+    # another.
+    default_sender: str = "info"
 
     def tag(self, name: str) -> Optional[MergeTag]:
         for merge_tag in self.merge_tags:
@@ -113,6 +116,8 @@ EMAIL_TYPES = (
         description="Scheduled summary of unread group chat messages.",
         default_subject="You have {{ unread_summary }} on {{ brand_connect }}",
         default_template="emails/unread_messages.html",
+        # Its own mailbox, under its own sending limit.
+        default_sender="connect",
         merge_tags=(
             _FIRST_NAME,
             MergeTag("unread_summary", "Unread count with wording, e.g. \"3 unread messages\"", "3 unread messages", "UNREAD_SUMMARY"),
