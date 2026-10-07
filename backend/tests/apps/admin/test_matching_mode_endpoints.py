@@ -73,16 +73,15 @@ class StudentMatchEndpointModeTests(TestCase):
         australia = Countries.objects.create(country_name="Australia")
         canada = Countries.objects.create(country_name="Canada")
 
-        # One Australian group so a strict run can refuse the Canadian but a
-        # balanced run still has somewhere to put them.
-        self.group = Groups.objects.create(group_name="NSW Bio")
-        member = _create_student(
+        # Since MA3 the matcher only ever forms new groups, so the country gate
+        # has to show up in formation rather than in a join. One student per
+        # country means neither has a same-country peer to pair with, which
+        # leaves them both to the cross-country pass: balanced pairs them up,
+        # strict refuses and leaves both unmatched.
+        self.local = _create_student(
             australia, "Australia/Sydney", first_name="Member", interests=("Genomics",)
         )
-        GroupMembership.objects.create(
-            group=self.group, user=member, membership_role="student"
-        )
-        # Shares the group's interest: the join path enforces mandatory
+        # Shares the local student's interest: formation enforces mandatory
         # interest matching, which would otherwise keep this student out in
         # every mode and hide the country gate the strict assertion checks.
         self.candidate = _create_student(
