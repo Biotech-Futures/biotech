@@ -173,13 +173,13 @@ const emit = defineEmits<{
 }>()
 
 const FIELD_OPTIONS = [
-  { value: 'program', label: 'Program' },
   { value: 'country', label: 'Country' },
   { value: 'state', label: 'State' },
   { value: 'school', label: 'School / Institution' },
   { value: 'yearLevel', label: 'Year Level' },
   { value: 'interests', label: 'Interests' },
   { value: 'role', label: 'Role' },
+  { value: 'group', label: 'Group' },
 ]
 
 const OPERATOR_OPTIONS = [
@@ -209,7 +209,7 @@ onMounted(async () => {
 const addRow = () => {
   const current = [...props.modelValue]
   current.push({
-    field: 'program',
+    field: 'country',
     operator: 'equals',
     value: '',
     logic: current.length > 0 ? 'AND' : undefined,
