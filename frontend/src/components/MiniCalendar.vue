@@ -827,4 +827,136 @@ onBeforeUnmount(() => {
     margin-top: 0.5rem;
   }
 }
+
+/* =========================================================
+   Mini Calendar — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark'] .mini-calendar-shell) {
+  --calendar-text-strong: #e8eeee;
+  --calendar-text-main: #d5ddda;
+  --calendar-text-soft: #8f9d99;
+}
+
+/* Main calendar */
+:global(html[data-theme='dark'] .mini-calendar) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+/* Month title + subtitle */
+:global(html[data-theme='dark'] .mini-calendar-title) {
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .mini-calendar-subtitle) {
+  color: #8f9d99 !important;
+}
+
+/* Previous / next arrows */
+:global(html[data-theme='dark'] .calendar-nav-button) {
+  background: #22302c !important;
+  color: #d5ddda !important;
+  border-color: #34413d !important;
+}
+
+:global(html[data-theme='dark'] .calendar-nav-button:hover:not(:disabled)) {
+  background: #2a3a35 !important;
+}
+
+/* Current button */
+:global(html[data-theme='dark'] .calendar-current-button) {
+  background: #22302c !important;
+  color: #d5ddda !important;
+  border-color: #34413d !important;
+}
+
+/* Prev / Current / Next text */
+:global(html[data-theme='dark'] .range-hint) {
+  color: #8f9d99 !important;
+}
+
+/* Weekday labels */
+:global(html[data-theme='dark'] .mini-calendar-weekdays) {
+  color: #aeb9b6 !important;
+}
+
+/* ALL calendar date boxes */
+:global(html[data-theme='dark'] .mini-calendar-cell) {
+  background: #22302c !important;
+  color: #d5ddda !important;
+  border-color: #34413d !important;
+}
+
+/* Clickable dates */
+:global(html[data-theme='dark'] .mini-calendar-cell.is-clickable) {
+  background: #22302c !important;
+  color: #d5ddda !important;
+}
+
+/* Hover */
+:global(html[data-theme='dark'] .mini-calendar-cell:not(.is-empty):hover) {
+  background: #2a3a35 !important;
+  border-color: #4a5c57 !important;
+}
+
+/* Today */
+:global(html[data-theme='dark'] .mini-calendar-cell.is-today .cell-num) {
+  background: rgba(95, 159, 181, 0.18) !important;
+  outline-color: #5f9fb5 !important;
+  color: #9bc9d8 !important;
+}
+
+/* Legend */
+:global(html[data-theme='dark'] .mini-calendar-legend) {
+  color: #aeb9b6 !important;
+}
+
+/* Popup */
+:global(html[data-theme='dark'] .calendar-overlay) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}
+
+:global(html[data-theme='dark'] .calendar-overlay-header) {
+  border-color: #34413d !important;
+}
+
+:global(html[data-theme='dark'] .calendar-overlay-title) {
+  color: #e8eeee !important;
+}
+
+/* Popup event cards */
+:global(html[data-theme='dark'] .overlay-card) {
+  background: #22302c !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .overlay-card-title) {
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .overlay-card-type) {
+  color: #8f9d99 !important;
+}
+
+/* Empty popup */
+:global(html[data-theme='dark'] .overlay-empty-state) {
+  background: #22302c !important;
+  color: #aeb9b6 !important;
+}
+
+/* Close button */
+:global(html[data-theme='dark'] .calendar-close-button) {
+  color: #d5ddda !important;
+}
+
+:global(html[data-theme='dark'] .calendar-close-button:hover) {
+  background: #2a3a35 !important;
+}
+
 </style>

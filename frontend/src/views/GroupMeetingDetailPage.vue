@@ -1,8 +1,10 @@
 <template>
   <div class="meeting-detail-page">
-    <button class="back-button" @click="goBack">
-      ← Back to Meetings
-    </button>
+    <div class="back-actions">
+      <button class="back-button" @click="goBack">
+        ← Back to Meetings
+      </button>
+    </div>
 
     <div v-if="loading" class="status-message">
       Loading meeting...
@@ -82,14 +84,6 @@
             >
               Join Meeting
             </a>
-          </section>
-
-          <section
-            v-if="meeting.agenda"
-            class="detail-section goals-panel"
-          >
-            <h2>Goals</h2>
-            <p>{{ meeting.agenda }}</p>
           </section>
 
         </div>
@@ -181,15 +175,6 @@
           Description
           <textarea
             v-model="editDescription"
-            class="note-textarea"
-            rows="4"
-          />
-        </label>
-
-        <label>
-          Agenda
-          <textarea
-            v-model="editAgenda"
             class="note-textarea"
             rows="4"
           />
@@ -294,7 +279,6 @@ const meetingMessage = ref('')
 
 const editTitle = ref('')
 const editDescription = ref('')
-const editAgenda = ref('')
 const editStart = ref('')
 const editEnd = ref('')
 const editTimezone = ref('')
@@ -302,6 +286,14 @@ const editJoinLink = ref('')
 const cancellingMeeting = ref(false)
 
 const meetingId = Number(route.params.meetingId)
+
+const formErrors = ref({
+  title: '',
+  start: '',
+  end: '',
+  timezone: '',
+  joinLink: '',
+})
 
 const noteSocket = ref<WebSocket | null>(null)
 const otherUserEditing = ref(false)
@@ -445,7 +437,6 @@ const startEditing = () => {
 
   editTitle.value = meeting.value.title
   editDescription.value = meeting.value.description || ''
-  editAgenda.value = meeting.value.agenda || ''
   editStart.value = toLocalDateTimeInput(meeting.value.start_datetime)
   editEnd.value = toLocalDateTimeInput(meeting.value.ends_datetime)
   editTimezone.value = meeting.value.timezone_name || 'UTC'
@@ -472,7 +463,6 @@ const saveMeeting = async () => {
     const updated = await updateMeeting(meetingId, {
       title: editTitle.value,
       description: editDescription.value,
-      agenda: editAgenda.value,
       start_datetime: new Date(editStart.value).toISOString(),
       ends_datetime: new Date(editEnd.value).toISOString(),
       timezone_name: editTimezone.value,
@@ -523,6 +513,15 @@ const handleCancelMeeting = async () => {
 const goBack = () => {
   router.push({
     name: 'group-meetings',
+    params: {
+      id: route.params.id,
+    },
+  })
+}
+
+const goBackToChat = () => {
+  router.push({
+    name: 'group-detail',
     params: {
       id: route.params.id,
     },
@@ -600,6 +599,13 @@ onBeforeUnmount(() => {
   font-size: 15px;
   margin-bottom: 24px;
   padding: 0;
+}
+
+.back-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .meeting-card {

@@ -19,6 +19,7 @@
       </div>
 
       <button
+        v-if="auth.isMentor"
         class="primary-button"
         @click="showCreateForm = !showCreateForm"
       >
@@ -26,52 +27,68 @@
       </button>
     </div>
 
-    <section v-if="showCreateForm" class="create-form">
+    <section
+      v-if="showCreateForm && auth.isMentor"
+      class="create-form"
+    >
     <h2>Schedule Meeting</h2>
 
-    <label>
-        Title
+      <label>
+        <span>Title <span class="required-mark">*</span></span>
         <input
-        v-model="newTitle"
-        type="text"
-        class="form-input"
+          v-model="newTitle"
+          type="text"
+          class="form-input"
+          :class="{ 'form-input--error': formErrors.title }"
+          placeholder="Enter meeting title"
+          @input="formErrors.title = ''"
         />
-    </label>
 
-    <label>
-        Description
+        <span v-if="formErrors.title" class="field-error">
+          {{ formErrors.title }}
+        </span>
+      </label>
+
+      <label>
+        <span>Description</span>
         <textarea
-        v-model="newDescription"
-        class="form-input"
-        rows="3"
+          v-model="newDescription"
+          class="form-input"
+          rows="3"
+          placeholder="Enter meeting description"
         ></textarea>
-    </label>
+      </label>
 
-    <label>
-        Agenda
-        <textarea
-        v-model="newAgenda"
-        class="form-input"
-        rows="3"
-        ></textarea>
-    </label>
-
-    <label>
-        Start
+      <label>
+        <span>Start <span class="required-mark">*</span></span>
         <input
-        v-model="newStart"
-        type="datetime-local"
-        class="form-input"
+          v-model="newStart"
+          type="datetime-local"
+          class="form-input"
+          :class="{ 'form-input--error': formErrors.start }"
+          @input="formErrors.start = ''"
         />
-    </label>
+        <span v-if="formErrors.start" class="field-error">
+          {{ formErrors.start }}
+        </span>
+      </label>
 
     <label>
-        End
-        <input
-        v-model="newEnd"
-        type="datetime-local"
+      <span>Duration <span class="required-mark">*</span></span>
+      <input
+        v-model="newDuration"
+        type="number"
+        min="5"
+        max="480"
+        step="5"
         class="form-input"
-        />
+        :class="{ 'form-input--error': formErrors.duration }"
+        placeholder="Enter duration in minutes"
+        @input="formErrors.duration = ''"
+      />
+      <span v-if="formErrors.duration" class="field-error">
+        {{ formErrors.duration }}
+      </span>
     </label>
 
     <label>
@@ -84,12 +101,20 @@
     </label>
 
     <label>
-        Join Link
-        <input
+      <span>Join Link <span class="required-mark">*</span></span>
+
+      <input
         v-model="newJoinLink"
         type="url"
         class="form-input"
-        />
+        :class="{ 'form-input--error': formErrors.joinLink }"
+        placeholder="https://..."
+        @input="formErrors.joinLink = ''"
+      />
+
+      <span v-if="formErrors.joinLink" class="field-error">
+        {{ formErrors.joinLink }}
+      </span>
     </label>
 
     <div class="create-actions">
@@ -167,14 +192,6 @@
           {{ meeting.description }}
         </p>
 
-        <div
-          v-if="meeting.agenda"
-          class="agenda"
-        >
-          <strong>Agenda</strong>
-          <p>{{ meeting.agenda }}</p>
-        </div>
-
         <div class="meeting-actions">
           <a
             v-if="meeting.join_link && selectedWhen === 'upcoming'"
@@ -183,6 +200,19 @@
             rel="noopener noreferrer"
             class="primary-button"
           >
+            <img
+              v-if="providerLogo(meeting.provider)"
+              :src="providerLogo(meeting.provider)!"
+              :alt="`${meeting.provider} logo`"
+              class="meeting-provider-icon"
+            />
+
+            <i
+              v-else
+              class="fas fa-video meeting-provider-icon--generic"
+              aria-hidden="true"
+            ></i>
+
             Join Meeting
           </a>
 
@@ -199,8 +229,13 @@
 </template>
 
 <script setup lang="ts">
+import zoomLogo from '@/assets/meeting-providers/zoom.webp'
+import googleMeetLogo from '@/assets/meeting-providers/google-meet.webp'
+import teamsLogo from '@/assets/meeting-providers/microsoft-teams.webp'
+
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 import {
   fetchMeetings,
@@ -211,6 +246,20 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
+
+const providerLogo = (provider: GroupMeeting['provider']) => {
+  switch (provider) {
+    case 'zoom':
+      return zoomLogo
+    case 'google_meet':
+      return googleMeetLogo
+    case 'microsoft_teams':
+      return teamsLogo
+    default:
+      return null
+  }
+}
 
 const props = withDefaults(
   defineProps<{
@@ -232,11 +281,18 @@ const createMessage = ref('')
 
 const newTitle = ref('')
 const newDescription = ref('')
-const newAgenda = ref('')
 const newStart = ref('')
-const newEnd = ref('')
+const newDuration = ref('')
 const newTimezone = ref('Australia/Sydney')
 const newJoinLink = ref('')
+
+const formErrors = ref({
+  title: '',
+  start: '',
+  duration: '',
+  timezone: '',
+  joinLink: '',
+})
 
 const getGroupId = (): number | undefined => {
   const rawId = route.params.id
@@ -296,6 +352,59 @@ const submitMeeting = async () => {
     return
   }
 
+  // Clear previous validation errors
+  formErrors.value = {
+    title: '',
+    start: '',
+    duration: '',
+    timezone: '',
+    joinLink: '',
+  }
+
+  // Required fields
+  if (!newTitle.value.trim()) {
+    formErrors.value.title = 'Title is required.'
+  }
+
+  if (!newStart.value) {
+    formErrors.value.start = 'Start time is required.'
+  }
+
+  if (!newDuration.value) {
+    formErrors.value.duration = 'Duration is required.'
+  } else {
+    const duration = Number(newDuration.value)
+
+    if (!Number.isInteger(duration) || duration < 5 || duration > 480) {
+      formErrors.value.duration =
+        'Duration must be between 5 and 480 minutes.'
+    }
+  }
+
+  if (!newTimezone.value.trim()) {
+    formErrors.value.timezone = 'Timezone is required.'
+  }
+
+  if (!newJoinLink.value.trim()) {
+    formErrors.value.joinLink = 'Join link is required.'
+  } else {
+    try {
+      const url = new URL(newJoinLink.value)
+
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        formErrors.value.joinLink = 'Enter a valid URL.'
+      }
+    } catch {
+      formErrors.value.joinLink = 'Enter a valid URL.'
+    }
+  }
+
+  const hasErrors = Object.values(formErrors.value).some(Boolean)
+
+  if (hasErrors) {
+    return
+  }
+
   creatingMeeting.value = true
   createMessage.value = ''
 
@@ -304,9 +413,8 @@ const submitMeeting = async () => {
       group: groupId,
       title: newTitle.value,
       description: newDescription.value,
-      agenda: newAgenda.value,
       start_datetime: new Date(newStart.value).toISOString(),
-      ends_datetime: new Date(newEnd.value).toISOString(),
+      duration_minutes: Number(newDuration.value),
       timezone_name: newTimezone.value,
       join_link: newJoinLink.value,
     })
@@ -315,9 +423,8 @@ const submitMeeting = async () => {
 
     newTitle.value = ''
     newDescription.value = ''
-    newAgenda.value = ''
     newStart.value = ''
-    newEnd.value = ''
+    newDuration.value = ''
     newJoinLink.value = ''
 
     selectedWhen.value = 'upcoming'
@@ -333,6 +440,22 @@ const submitMeeting = async () => {
         : 'Unable to schedule meeting.'
   } finally {
     creatingMeeting.value = false
+  }
+}
+
+const getMeetingProviderIcon = (provider: GroupMeeting['provider']) => {
+  switch (provider) {
+    case 'zoom':
+      return 'fas fa-video'
+
+    case 'google_meet':
+      return 'fab fa-google'
+
+    case 'microsoft_teams':
+      return 'fab fa-microsoft'
+
+    default:
+      return 'fas fa-video'
   }
 }
 
@@ -370,11 +493,27 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.meetings-page {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px;
+.required-mark {
+  color: #d32f2f;
+  font-weight: 700;
+}
+
+.form-input--error {
+  border: 1px solid #d32f2f !important;
+}
+
+.field-error {
+  display: block;
+  margin-top: 5px;
+  color: #d32f2f !important;
+}
+
+.field-error {
+  display: block;
+  margin-top: 5px;
+  color: #d32f2f !important;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .page-header {
@@ -472,15 +611,6 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-.agenda {
-  margin-top: 18px;
-}
-
-.agenda p {
-  margin: 6px 0 0;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
 
 .meeting-actions {
   display: flex;
@@ -623,8 +753,7 @@ onMounted(() => {
   font-size: 11px;
 }
 
-.meetings-page--embedded .description,
-.meetings-page--embedded .agenda {
+.meetings-page--embedded .description{
   margin-top: 10px;
   font-size: 13px;
 }
@@ -655,4 +784,194 @@ onMounted(() => {
   padding: 8px 10px;
   font-size: 13px;
 }
+
+.meeting-provider-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.meeting-provider-icon--generic {
+  font-size: 18px;
+}
+
+/* =========================================================
+   Meetings — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark']) .meetings-page {
+  color: #e8eeee;
+}
+
+/* Upcoming / Past */
+:global(html[data-theme='dark']) .tab-button {
+  color: #aeb9b6;
+  background: transparent;
+}
+
+:global(html[data-theme='dark']) .tab-button:hover {
+  background: #1c2925;
+}
+
+:global(html[data-theme='dark']) .tab-button.active {
+  background: #26332f;
+  color: #ffffff;
+}
+
+/* Meeting cards */
+/* =========================================================
+   Meetings — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark'] .meetings-page) {
+  color: #e8eeee;
+}
+
+:global(html[data-theme='dark'] .meeting-card) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .meeting-header h2) {
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .meeting-time) {
+  color: #aeb9b6 !important;
+}
+
+:global(html[data-theme='dark'] .description) {
+  color: #d4dcda !important;
+}
+
+/* You can manage */
+:global(html[data-theme='dark'] .manage-badge) {
+  background: #26332f !important;
+  color: #c8d5d1 !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Upcoming / Past */
+:global(html[data-theme='dark'] .tab-button) {
+  background: transparent !important;
+  color: #aeb9b6 !important;
+}
+
+:global(html[data-theme='dark'] .tab-button:hover) {
+  background: #22302c !important;
+}
+
+:global(html[data-theme='dark'] .tab-button.active) {
+  background: #26332f !important;
+  color: #ffffff !important;
+}
+
+/* Join Meeting */
+:global(html[data-theme='dark'] .primary-button) {
+  background: #26332f !important;
+  color: #ffffff !important;
+  border-color: #45534f !important;
+}
+
+/* View Details */
+:global(html[data-theme='dark'] .secondary-button) {
+  background: #18231f !important;
+  color: #e8eeee !important;
+  border-color: #53625e !important;
+}
+
+:global(html[data-theme='dark'] .secondary-button:hover) {
+  background: #26332f !important;
+  border-color: #697975 !important;
+}
+
+/* Schedule Meeting form */
+:global(html[data-theme='dark'] .create-form) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark'] .form-input) {
+  background: #111d1a !important;
+  color: #e8eeee !important;
+  border-color: #45534f !important;
+}
+
+:global(html[data-theme='dark'] .form-input::placeholder) {
+  color: #899692 !important;
+}
+
+/* Meeting title */
+:global(html[data-theme='dark']) .meeting-header h2 {
+  color: #e8eeee;
+}
+
+/* Date / time */
+:global(html[data-theme='dark']) .meeting-time {
+  color: #aeb9b6;
+}
+
+/* Description */
+:global(html[data-theme='dark']) .description {
+  color: #d4dcda;
+}
+
+/* "You can manage" badge */
+:global(html[data-theme='dark']) .manage-badge {
+  background: #26332f;
+  color: #c8d5d1;
+  border: 1px solid #3c4b47;
+}
+
+/* Join Meeting */
+:global(html[data-theme='dark']) .primary-button {
+  background: #26332f;
+  color: #ffffff;
+  border: 1px solid #45534f;
+}
+
+:global(html[data-theme='dark']) .primary-button:hover {
+  background: #31403b;
+}
+
+/* View Details */
+:global(html[data-theme='dark']) .secondary-button {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #53625e;
+}
+
+:global(html[data-theme='dark']) .secondary-button:hover {
+  background: #26332f;
+  border-color: #697975;
+}
+
+/* Schedule Meeting form */
+:global(html[data-theme='dark']) .create-form {
+  background: #18231f;
+  border-color: #34413d;
+  color: #e8eeee;
+}
+
+:global(html[data-theme='dark']) .form-input {
+  background: #111d1a;
+  color: #e8eeee;
+  border-color: #45534f;
+}
+
+:global(html[data-theme='dark']) .form-input::placeholder {
+  color: #899692;
+}
+
+/* Loading / no meetings */
+:global(html[data-theme='dark']) .state-message {
+  color: #aeb9b6;
+}
+
+:global(html[data-theme='dark']) .create-message {
+  color: #c8d0ce;
+}
+
 </style>

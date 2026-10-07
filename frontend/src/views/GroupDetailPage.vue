@@ -6060,7 +6060,7 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
+<style>
 /* Tasks / Meetings workspace switch */
 .workspace-switch {
   display: flex;
@@ -6144,7 +6144,8 @@ onBeforeUnmount(() => {
   padding: 0.12rem 0.45rem;
   border: 1px solid var(--border-light);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--gd-meta-background, rgba(255, 255, 255, 0.65));
+  color: var(--gd-meta-color, inherit);
 }
 .gd-onboarding-notice {
   display: flex;
@@ -8756,7 +8757,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  margin: 0;
+  margin: 0.5rem 0 0;
   padding: 0;
 }
 
@@ -9263,6 +9264,7 @@ onBeforeUnmount(() => {
   background: var(--air-force-blue);
   color: var(--white);
   border-color: var(--white);
+  margin-left: 12px;
 }
 
 @media (min-width: 1181px) {
@@ -9953,7 +9955,7 @@ onBeforeUnmount(() => {
 
 .reaction-pick-group {
   position: absolute;
-  bottom: 0.3rem;
+  bottom: 0.5rem;
   left: 0.6rem;
   display: inline-flex;
   align-items: center;
@@ -9975,7 +9977,7 @@ onBeforeUnmount(() => {
 /* Reserve room at the bottom of the bubble so the chip strip (positioned
    ``bottom: -0.85rem``) doesn't crash into the next message. */
 .message-content:has(.reaction-pick-group.has-reactions) {
-  padding-bottom: 1.5rem;
+  padding-bottom: 2rem;
 }
 
 .reaction-picker-toggle {
@@ -10372,4 +10374,444 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 }
+
+/* =========================================================
+   Group workspace — dark mode
+   ========================================================= */
+
+html[data-theme='dark'] .group-detail {
+  color: #e8eeee;
+
+  --gd-meta-background: #26332f;
+  --gd-meta-color: #c8d0ce;
+}
+
+html[data-theme='dark'] .group-hero-card,
+html[data-theme='dark'] .pane {
+  background: #111d1a;
+  border-color: #2b3835;
+}
+
+/* Task empty areas */
+html[data-theme='dark'] .task-empty-state {
+  background: #18231f;
+  border-color: #34413d;
+  color: #c8d0ce;
+}
+
+html[data-theme='dark'] .task-empty-state i {
+  color: #788783;
+}
+
+html[data-theme='dark'] .task-empty-cta {
+  background: transparent;
+  color: #b9d0ca;
+  border-color: #667773;
+}
+
+html[data-theme='dark'] .task-empty-cta:hover {
+  background: #22302c;
+  color: #ffffff;
+}
+
+/* Discussion area */
+html[data-theme='dark'] .chat-messages {
+  background: #18231f;
+}
+
+html[data-theme='dark'] .chat-empty-state {
+  color: #bfc9c6;
+}
+
+/* Tabs */
+html[data-theme='dark'] .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .tab-btn {
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .tab-btn.active {
+  color: #ffffff;
+}
+
+/* Tasks */
+html[data-theme='dark'] .task-list {
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-state-menu {
+  background: #18231f;
+  border-color: #34413d;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Group workspace — dark mode controls
+   ========================================================= */
+
+/* Tasks / Meetings tab bar */
+:global(html[data-theme='dark']) .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .tab-btn {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+:global(html[data-theme='dark']) .tab-btn.active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #20c9a6;
+}
+
+/* Task search input */
+:global(html[data-theme='dark']) .task-search,
+:global(html[data-theme='dark']) .task-search input {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .task-search input::placeholder {
+  color: #8e9b97;
+}
+
+/* Filter button */
+:global(html[data-theme='dark']) .filter-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* Sort dropdown */
+:global(html[data-theme='dark']) .sort-select,
+:global(html[data-theme='dark']) select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* New messages pill */
+:global(html[data-theme='dark']) .new-messages,
+:global(html[data-theme='dark']) .new-messages-indicator {
+  background: #203a35;
+  color: #cce8e1;
+  border-color: #35534c;
+}
+
+/* =========================================================
+   DARK MODE — remaining workspace controls
+   ========================================================= */
+
+/* Tasks / Meetings switch */
+html[data-theme='dark'] .workspace-switch {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .workspace-switch button {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .workspace-switch button.active,
+html[data-theme='dark'] .workspace-switch button.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+}
+
+/* Select button */
+html[data-theme='dark'] .task-mode-toggle {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-mode-toggle:hover {
+  background: #22302c;
+}
+
+html[data-theme='dark'] .task-mode-toggle.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #0b8f73;
+}
+
+
+/* Search tasks */
+html[data-theme='dark'] .task-search {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-search-input {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-search-input::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .task-search-icon {
+  color: #899793;
+}
+
+
+/* Filters button */
+html[data-theme='dark'] .task-toolbar-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-toolbar-btn:hover {
+  background: #22302c;
+}
+
+
+/* Sort: Due date */
+html[data-theme='dark'] .task-toolbar-sort select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+  color-scheme: dark;
+}
+
+
+/* Members button */
+html[data-theme='dark'] .group-members-btn {
+  background: #18231f;
+  color: #b9d0ca;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .group-members-btn:hover {
+  background: #22302c;
+}
+
+
+/* Number beside Members */
+html[data-theme='dark'] .group-members-btn span {
+  background: #263733;
+  color: #e8eeee;
+  border-color: #3b4d48;
+}
+
+
+/* New messages divider / pill */
+html[data-theme='dark'] .missed-message-divider,
+html[data-theme='dark'] .missed-message-divider span {
+  background: #203a35;
+  color: #cce8e1;
+  border-color: #35534c;
+}
+
+
+/* Dropdown options */
+html[data-theme='dark'] .task-toolbar-sort select option,
+html[data-theme='dark'] .task-filter-panel select option {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Embedded Meetings — dark mode
+   ========================================================= */
+
+/* Meeting cards */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-card) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+/* Meeting title */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-header h2) {
+  color: #e8eeee !important;
+}
+
+/* Meeting date/time */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-time) {
+  color: #aeb9b6 !important;
+}
+
+/* Meeting description */
+:global(html[data-theme='dark']) .group-detail :deep(.description) {
+  color: #d4dcda !important;
+}
+
+/* You can manage */
+:global(html[data-theme='dark']) .group-detail :deep(.manage-badge) {
+  background: #26332f !important;
+  color: #c8d5d1 !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Upcoming / Past */
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button) {
+  background: transparent !important;
+  color: #aeb9b6 !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button.active) {
+  background: #26332f !important;
+  color: #ffffff !important;
+}
+
+/* Join Meeting */
+:global(html[data-theme='dark']) .group-detail :deep(.primary-button) {
+  background: #26332f !important;
+  color: #ffffff !important;
+  border: 1px solid #45534f !important;
+}
+
+/* View Details */
+:global(html[data-theme='dark']) .group-detail :deep(.secondary-button) {
+  background: #18231f !important;
+  color: #e8eeee !important;
+  border-color: #53625e !important;
+}
+
+/* Schedule Meeting form */
+:global(html[data-theme='dark']) .group-detail :deep(.create-form) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.form-input) {
+  background: #111d1a !important;
+  color: #e8eeee !important;
+  border-color: #45534f !important;
+}
+
+/* =========================================================
+   Group workspace — dark mode finishing touches
+   ========================================================= */
+
+/* =========================================================
+   Dark mode scrollbars
+   ========================================================= */
+
+/* Meetings panel */
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* Tasks panel */
+:global(html[data-theme='dark'] .card-content) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* Discussion panel */
+:global(html[data-theme='dark'] .chat-messages) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* =========================================================
+   Group page scrollbar — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark'] .group-detail) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
+}
+
+:global(html[data-theme='dark'] .chat-messages) {
+  scrollbar-color: #53615d #18231f;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+  border: 2px solid #18231f;
+}
+
+/* Dark mode - 3 unread button */
+html[data-theme='dark'] .missed-message-jump-btn {
+  background: #26332f !important;
+  color: #c8d0ce !important;
+  border-color: #44524e !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22) !important;
+}
+
+html[data-theme='dark'] .missed-message-jump-btn:hover {
+  background: #2f403b !important;
+  color: #ffffff !important;
+  border-color: #536762 !important;
+}
+
 </style>

@@ -37,6 +37,7 @@ export interface GroupMeeting {
   ends_datetime: string
   timezone_name: string
   join_link: string
+  provider: 'zoom' | 'google_meet' | 'microsoft_teams' | 'other'
   cancelled_at?: string | null
 
   note?: MeetingNote | null
@@ -68,7 +69,7 @@ export interface CreateMeetingPayload {
   description?: string
   agenda?: string
   start_datetime: string
-  ends_datetime: string
+  duration_minutes: number
   timezone_name?: string
   join_link: string
 }

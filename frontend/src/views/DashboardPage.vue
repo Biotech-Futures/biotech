@@ -3790,4 +3790,61 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   Dashboard — dark mode fixes
+   ========================================================= */
+
+html[data-theme='dark'] .dashboard-page-shell {
+  --surface-base: #111d1a !important;
+  --surface-elevated: #18231f !important;
+  --surface-soft: #22302c !important;
+  --border-default: #34413d !important;
+  --border-strong: #45534f !important;
+
+  --text-primary: #e8eeee !important;
+  --text-secondary: #aeb9b6 !important;
+  --text-muted: #84938f !important;
+
+  background: #0d1714 !important;
+  color: #e8eeee !important;
+}
+
+/* 4 top icon boxes */
+html[data-theme='dark'] .dashboard-page-shell .summary-icon-wrap {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #b8c7c3 !important;
+}
+
+/* Open calendar / View all / Open session buttons */
+html[data-theme='dark'] .dashboard-page-shell .surface-link,
+html[data-theme='dark'] .dashboard-page-shell .primary-chip {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #d8e1df !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .surface-link:hover,
+html[data-theme='dark'] .dashboard-page-shell .primary-chip:hover {
+  background: #2a3a35 !important;
+  border-color: #53615d !important;
+  color: #ffffff !important;
+}
+
+/* Event date box */
+html[data-theme='dark'] .dashboard-page-shell .event-date-badge {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #d8e1df !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .event-date-day {
+  color: #e8eeee !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .event-date-rest {
+  color: #9eaca8 !important;
+}
+
 </style>

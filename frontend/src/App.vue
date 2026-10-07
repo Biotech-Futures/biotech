@@ -588,13 +588,14 @@ onBeforeUnmount(() => {
 :global(body),
 :global(#app) {
   width: 100%;
+  height: 100%;
   max-width: none;
   margin: 0;
   padding: 0;
 }
 
 :global(body) {
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--bg-light);
 }
 
@@ -637,8 +638,9 @@ select {
 .app-container {
   width: 100%;
   max-width: none;
-  min-height: 100vh;
+  height: 100vh;
   margin: 0;
+  overflow: hidden;
   background-color: var(--bg-light);
 }
 
@@ -822,19 +824,21 @@ select {
   max-width: 1680px;
   margin: 0 auto;
   width: 100%;
+  height: calc(100vh - 64px);
+  overflow: hidden;
   background-color: var(--white);
 }
 
 .sidebar {
   --sidebar-toggle-offset: 250px;
 
-  position: relative;
   display: flex;
   flex-direction: column;
   width: 250px;
   min-width: 250px;
   flex-shrink: 0;
-  min-height: calc(100vh - 64px);
+  height: 100%;
+  overflow: hidden;
   padding: 1.5rem 0;
   background-color: var(--white);
   border-right: 1px solid var(--border-light);
@@ -1063,7 +1067,32 @@ select {
 .main-content {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
   padding: 1rem;
+}
+
+:global(html[data-theme='dark'] .main-content) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar) {
+  width: 10px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
 }
 
 .main-content--events {
@@ -1276,21 +1305,32 @@ select {
   }
 
   .main-layout {
-    flex-direction: column;
-    min-height: auto;
+    display: flex;
+    flex: 1;
+    max-width: 1680px;
+    margin: 0 auto;
+    width: 100%;
+    height: calc(100vh - 64px);
+    overflow: hidden;
+    background-color: var(--white);
   }
 
   .sidebar {
-    position: static;
-    top: auto;
-    left: auto;
-    height: auto;
-    width: 100%;
-    min-width: 100%;
-    overflow-y: visible;
-    padding: 0.75rem;
-    z-index: auto;
-    margin-bottom: -300px;
+    --sidebar-toggle-offset: 250px;
+
+    display: flex;
+    flex-direction: column;
+    width: 250px;
+    min-width: 250px;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+    padding: 1.5rem 0;
+    background-color: var(--white);
+    border-right: 1px solid var(--border-light);
+    transition:
+      width 0.2s ease,
+      min-width 0.2s ease;
   }
 
   .sidebar.is-collapsed {
@@ -1336,9 +1376,11 @@ select {
   }
 
   .main-content {
-    width: 100%;
-    margin-left: 0;
-    padding: 0.85rem;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    overflow-y: auto;
+    padding: 1rem;
   }
 
   .main-content--events {
@@ -1353,4 +1395,27 @@ select {
     max-width: none;
   }
 }
+
+/* =========================================================
+   Dark mode — header search bar
+   ========================================================= */
+
+html[data-theme='dark'] .search-bar {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme='dark'] .search-bar::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .search-bar:focus {
+  background: #18231f;
+  color: #ffffff;
+  border-color: #4d625d;
+  box-shadow: 0 0 0 3px rgba(32, 201, 166, 0.15);
+}
+
 </style>
