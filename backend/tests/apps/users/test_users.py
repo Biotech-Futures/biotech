@@ -1023,7 +1023,7 @@ class RegistrationThenConsentTests(TestCase):
                 "SupervisorEmail": "sup@example.com",
                 "SupervisorFirstName": "Sam",
                 "SupervisorSurname": "Super",
-                "GuardianEmail": "parent@example.com",
+                "GuardianEmail": " Parent@Example.com ",
                 "GuardianName": "Pat",
                 "GuardianSurname": "Parent",
                 "SchoolName": "Test High",
@@ -1047,6 +1047,9 @@ class RegistrationThenConsentTests(TestCase):
             )
 
     def test_registration_records_the_guardian(self):
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_last_name, "Parent")
+        self.assertEqual(self.profile.pg_email, "parent@example.com")
         self.assertTrue(self.profile.parent_guardian_flag)
         self.assertFalse(self.profile.has_join_permission)
 

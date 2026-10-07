@@ -704,6 +704,7 @@ class UserRegisterView(APIView):
             user=user,
             pg_first_name=databody["GuardianName"],
             pg_last_name=databody["GuardianSurname"],
+            pg_email=(databody.get("GuardianEmail") or "").strip().lower() or None,
             # The form requires the guardian's name, so a guardian is on file.
             parent_guardian_flag=True,
             supervisor=supprof,
