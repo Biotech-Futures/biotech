@@ -865,11 +865,11 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 
-.profile-avatar-wrap { position: relative; }
+.profile-avatar-wrap { position: relative; display:flex; flex-direction:column; align-items:center; }
 .profile-avatar-initials { display:flex; align-items:center; justify-content:center; border-radius:50%; background:var(--white); color:var(--dark-green); font-size:2rem; font-weight:700; }
 .profile-section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
 .profile-section-heading .profile-section-title { margin:0; }
-.profile-avatar-large { width: 104px; height: 104px; border: 4px solid rgba(255,255,255,.82); object-fit: cover; }
+.profile-avatar-large { width: 104px; height: 104px; flex-shrink:0; border: 4px solid rgba(255,255,255,.82); object-fit: cover; object-position:center; }
 .avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
 .permission-status { font-weight: 600; color: #9c401a; }
 .permission-status.received { color: var(--dark-green); }
