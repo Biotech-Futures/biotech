@@ -124,6 +124,21 @@
             <span class="profile-field-label">Year Level:</span>
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
+          <div class="profile-field consent-field">
+            <span class="profile-field-label">Guardian Consent:</span>
+            <span class="profile-field-value">
+              <span
+                class="consent-status"
+                :class="user.student.consentReceived ? 'consent-status--received' : 'consent-status--pending'"
+                data-test="guardian-consent"
+              >
+                {{ user.student.consentReceived ? 'Received' : 'Not received yet' }}
+              </span>
+              <span v-if="!user.student.consentReceived" class="consent-hint">
+                Your parent or guardian needs to complete the consent form. Ask your supervisor if you're not sure how.
+              </span>
+            </span>
+          </div>
           <div class="profile-field">
             <span class="profile-field-label">Areas of Interest:</span>
             <span class="profile-field-value">
@@ -374,6 +389,8 @@ const user = computed(() => {
       hasDetails: hasStudentDetails,
       schoolName: valueOrFallback(source?.school_name, unsetLabel),
       yearLevel: valueOrFallback(source?.year_lvl, unsetLabel),
+      // null when there's no student profile behind the account; treat as not received.
+      consentReceived: source?.join_perm === true,
       interests,
       supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
@@ -600,6 +617,37 @@ onMounted(() => {
   color: var(--dark-green);
   font-size: 0.9rem;
   line-height: 1.2;
+}
+
+.consent-field {
+  align-items: flex-start;
+}
+
+.consent-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.consent-status--received {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+.consent-status--pending {
+  border: 1px solid var(--warning);
+  color: var(--charcoal);
+}
+
+.consent-hint {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .profile-link {
