@@ -698,18 +698,14 @@ class UserRegisterView(APIView):
         sup_role = get_role_by_name(ROLE_SUPERVISOR)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
-        if databody["SupervisorEmail"] == databody["GuardianEmail"]:
-            pgflag = True
-        else:
-            pgflag = False
-
         supprof, supprof_created = SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])
 
         sp = StudentProfile.objects.create(
             user=user,
             pg_first_name=databody["GuardianName"],
             pg_last_name=databody["GuardianSurname"],
-            parent_guardian_flag=pgflag,
+            # The form requires the guardian's name, so a guardian is on file.
+            parent_guardian_flag=True,
             supervisor=supprof,
             school_name=databody["SchoolName"],
             year_lvl=databody["YearLevel"]
@@ -785,6 +781,11 @@ class ReceiveJoinPermissionView(APIView):
             sp.parent_guardian_flag = True
             sp.clear_pending_guardian()
             sp.joinperm_granted_at = timezone.now()
+        # Consent comes from a guardian, so one is on file. Students who
+        # registered before the flag was set at registration still have it
+        # off, and the permission_requires_parent_guardian constraint would
+        # reject the save.
+        sp.parent_guardian_flag = True
         sp.has_join_permission = True
         sp.joinperm_responseID = databody["ResponseID"]
         if sp.joinperm_granted_at is None:

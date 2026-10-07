@@ -998,3 +998,74 @@ class MeGuardianUpdateTests(TestCase):
         response = self.client.put(self.url, self.new_guardian, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class RegistrationThenConsentTests(TestCase):
+    """A self-registered student must be able to receive consent through the
+    webhook. Registration used to leave ``parent_guardian_flag`` False unless
+    the guardian's email matched the supervisor's, so the consent save hit the
+    ``permission_requires_parent_guardian`` constraint and the webhook 500'd."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        self.client = APIClient()
+        for name in [ROLE_STUDENT, ROLE_SUPERVISOR]:
+            Roles.objects.get_or_create(role_name=name)
+        payload = {
+            "body": {
+                "Title": "kid@example.com",
+                "FirstName": "Kid",
+                "Surname": "Student",
+                "Country": "Australia",
+                "Region": "NSW",
+                "SupervisorEmail": "sup@example.com",
+                "SupervisorFirstName": "Sam",
+                "SupervisorSurname": "Super",
+                "GuardianEmail": "parent@example.com",
+                "GuardianName": "Pat",
+                "GuardianSurname": "Parent",
+                "SchoolName": "Test High",
+                "YearLevel": "10",
+                "Areaofinterest": "Biotechnology",
+            }
+        }
+        response = self.client.post(reverse("registration"), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        from apps.users.models import StudentProfile
+        self.profile = StudentProfile.objects.get(user__email="kid@example.com")
+
+    def _post_consent(self):
+        with self.settings(JOIN_PERMISSION_WEBHOOK_TOKEN="secret-token"):
+            return self.client.post(
+                reverse("join_perm"),
+                {"body": {"Email": "kid@example.com", "ResponseID": "R_reg"}},
+                format="json",
+                HTTP_X_JOIN_PERMISSION_TOKEN="secret-token",
+            )
+
+    def test_registration_records_the_guardian(self):
+        self.assertTrue(self.profile.parent_guardian_flag)
+        self.assertFalse(self.profile.has_join_permission)
+
+    def test_consent_is_recorded_for_a_registered_student(self):
+        response = self._post_consent()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.joinperm_responseID, "R_reg")
+
+    def test_consent_is_recorded_for_a_student_registered_before_the_fix(self):
+        # Rows already stored with the flag off must not crash the webhook.
+        self.profile.parent_guardian_flag = False
+        self.profile.save()
+
+        response = self._post_consent()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.profile.parent_guardian_flag)
