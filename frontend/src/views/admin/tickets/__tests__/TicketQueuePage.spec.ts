@@ -172,12 +172,6 @@ function button(name: string | RegExp): DOMWrapper<HTMLButtonElement> {
   return found[0]!
 }
 
-function hasButton(name: string) {
-  return w()
-    .findAll('button')
-    .some((b) => (b.attributes('aria-label') ?? b.text().trim()) === name)
-}
-
 async function click(name: string | RegExp) {
   await button(name).trigger('click')
   await flushPromises()
@@ -353,13 +347,25 @@ describe('the counter cards', () => {
     expect(lastAsk()).toMatchObject({ page: 1, filters: { assignee: '__unassigned__' } })
   })
 
-  it('leaves Overdue as a number, because no filter reproduces it', async () => {
-    // The queue endpoint has no overdue parameter: it is worked out per row
-    // as the page is served. A card that navigated to a filter the server
-    // ignores would list the whole queue and claim it was the overdue part.
+  it('takes the agent to the tickets the Overdue card counts', async () => {
+    // Sent as the status sentinel the server reads with the card's own rule
+    // (services/queue.py OVERDUE), so the card and its list cannot disagree.
     await mountPage()
 
-    expect(hasButton('Overdue')).toBe(false)
+    await click('Overdue')
+
+    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: '__overdue__' } })
+  })
+
+  it('shows the Overdue filter in the status dropdown once the card is clicked', async () => {
+    // Otherwise the table narrows with nothing on screen saying why, and
+    // nothing to change back.
+    await mountPage()
+
+    await click('Overdue')
+
+    const status = w().get('select[aria-label="Filter by status"]').element as HTMLSelectElement
+    expect(status.selectedOptions[0]!.textContent!.trim()).toBe('Overdue')
   })
 
   it('keeps the filters already on screen when a card is clicked', async () => {

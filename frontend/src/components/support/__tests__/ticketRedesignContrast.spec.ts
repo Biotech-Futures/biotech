@@ -180,6 +180,8 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
       ['--attach-muted', '--surface-elevated', TEXT],
       ['--attach-muted', '--bg-light', TEXT],
       ['--attach-hover', '--surface-elevated', TEXT],
+      // Replace, on the file row.
+      ['--attach-hover', '--bg-light', TEXT],
       ['--attach-danger', '--attach-danger-ground', TEXT],
       ['--attach-danger', '--bg-light', NON_TEXT],
       ['--attach-edge', '--surface-elevated', NON_TEXT],
@@ -396,4 +398,34 @@ describe('the icons drawn into ticket controls', () => {
       })
     }
   }
+})
+
+// The ring the browser draws round whatever has keyboard focus. main.css sets
+// it to --dark-green, which the dark theme does not redefine, so on the
+// student pages it was 2.52:1 on the dark card. Each page now sets its own
+// for dark; it is drawn just outside the control, on the page, the card or a
+// field's ground.
+describe('the focus ring on the student ticket pages', () => {
+  const PAGES = [
+    ['views/SupportCentrePage.vue', '.support'],
+    ['views/TicketDetailPage.vue', '.ticket']
+  ] as const
+
+  for (const [file, root] of PAGES) {
+    it(`dark: ${file} gives every control a ring that clears 3:1`, () => {
+      const block = rule(stylesheet(file), `:root[data-theme='dark'] ${root} :deep(:focus-visible)`)
+      const ring = parse(block?.['outline-color'] ?? '').rgb
+      for (const ground of ['--bg-light', '--surface-elevated', '--white']) {
+        expect(contrast(ring, colour(ground, {}, 'dark'))).toBeGreaterThanOrEqual(NON_TEXT)
+      }
+    })
+  }
+
+  it('dark: the global ring does fail on the card, so the pages need their own', () => {
+    // If the theme ever redefines --dark-green this goes red, and the two
+    // overrides can go.
+    const outline = rule(MAIN, ':focus-visible')?.outline ?? ''
+    const global = colour(outline.split(/\s+/).at(-1)!.replace(/^var\((--[\w-]+)\)$/, '$1'), {}, 'dark')
+    expect(contrast(global, colour('--surface-elevated', {}, 'dark'))).toBeLessThan(NON_TEXT)
+  })
 })

@@ -384,6 +384,12 @@ export const UNASSIGNED = '__unassigned__'
 // everywhere else on the platform.
 export const UNKNOWN_REGION = '__unknown__'
 
+// "Past its deadline", sent as the status filter: the queue shows it as the
+// badge beside the status, and the Overdue card filters to it. A filter
+// value only; no ticket is ever saved with it. Must match services/queue.py
+// OVERDUE.
+export const OVERDUE = '__overdue__'
+
 // The five filter dimensions plus search, all optional. An empty string means
 // "no filter", matching how the backend reads them.
 export const ticketFiltersSchema = z.object({

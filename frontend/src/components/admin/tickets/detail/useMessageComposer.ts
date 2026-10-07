@@ -28,10 +28,40 @@ export function useMessageComposer(deliver: (body: string, files: File[]) => Pro
 
   const textarea = ref<HTMLTextAreaElement | null>(null)
   const fileInput = ref<HTMLInputElement | null>(null)
+  const replaceInput = ref<HTMLInputElement | null>(null)
   const sendButton = ref<HTMLButtonElement | null>(null)
+  // Which file the replacement picker is choosing for: one input serves every
+  // file, so the row is remembered between the click and the change.
+  const replacing = ref<number | null>(null)
 
+  // Each pick adds to the list, the way the student's picker does, and the
+  // input is emptied straight away. The list is what gets sent, and is what
+  // the box shows; an input still holding a pick would name files the list
+  // has since dropped.
   function onFiles(event: Event) {
-    files.value = Array.from((event.target as HTMLInputElement).files ?? [])
+    const input = event.target as HTMLInputElement
+    files.value = [...files.value, ...Array.from(input.files ?? [])]
+    input.value = ''
+  }
+
+  function removeFile(index: number) {
+    files.value = files.value.filter((_, at) => at !== index)
+  }
+
+  function startReplace(index: number) {
+    replacing.value = index
+    replaceInput.value?.click()
+  }
+
+  // One file for one row; the others stay where they were.
+  function onReplace(event: Event) {
+    const input = event.target as HTMLInputElement
+    const index = replacing.value
+    replacing.value = null
+    const [picked] = Array.from(input.files ?? [])
+    input.value = ''
+    if (index === null || !picked || index >= files.value.length) return
+    files.value = files.value.map((file, at) => (at === index ? picked : file))
   }
 
   // Cleared only once the server has it. Clearing on click threw away a long
@@ -71,5 +101,19 @@ export function useMessageComposer(deliver: (body: string, files: File[]) => Pro
     return sent
   }
 
-  return { body, files, isSending, error, textarea, fileInput, sendButton, onFiles, submit }
+  return {
+    body,
+    files,
+    isSending,
+    error,
+    textarea,
+    fileInput,
+    replaceInput,
+    sendButton,
+    onFiles,
+    removeFile,
+    startReplace,
+    onReplace,
+    submit
+  }
 }

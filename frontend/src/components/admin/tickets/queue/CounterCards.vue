@@ -48,7 +48,7 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
 
-import { UNASSIGNED, type TicketFilters, type TicketSummary } from '@/utils/ticketAgentSchema'
+import { OVERDUE, UNASSIGNED, type TicketFilters, type TicketSummary } from '@/utils/ticketAgentSchema'
 
 const props = defineProps<{
   summary: TicketSummary | null
@@ -56,9 +56,9 @@ const props = defineProps<{
   failed: boolean
 }>()
 
-/** Cards a single filter reproduces exactly lead there. Overdue is the one
- *  that does not: it is worked out from the SLA clock as the queue is read,
- *  and the queue endpoint has no parameter for it. */
+/** Each card leads to the tickets it counts. Overdue has no column of its
+ *  own (it is worked out from the clock), so it travels as a status value
+ *  the server reads with the card's own rule (OVERDUE). */
 const emit = defineEmits<{ show: [filter: TicketFilters] }>()
 
 const idBase = useId()
@@ -101,7 +101,8 @@ const CARDS: {
     // Not "no first reply": that is the rule the client replaced on
     // 2026-09-04. The clock restarts every time the requester writes back, so
     // a ticket support has already answered lands here again once it sits.
-    hint: 'Waiting on support for longer than its priority allows'
+    hint: 'Waiting on support for longer than its priority allows',
+    filter: { status: OVERDUE }
   }
 ]
 </script>

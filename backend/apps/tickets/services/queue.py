@@ -123,6 +123,13 @@ UNKNOWN_REGION = "__unknown__"
 # rather than pushed into a serializer.
 UNASSIGNED = "__unassigned__"
 
+# And for "past its deadline", read in the status filter because that is
+# where the queue shows it: the Overdue badge sits beside the status. Like the
+# two above it gave a card a number nobody could click through to, and no
+# real status could stand in for it, since overdue is a condition on the
+# clock rather than a column.
+OVERDUE = "__overdue__"
+
 
 def database_id(raw, name):
     """A query-string value read as a row id, or a 400.
@@ -155,10 +162,19 @@ def database_id(raw, name):
 
 
 def apply_filters(queryset, *, region=None, status=None, category=None,
-                  assignee=None, priority=None, search=None):
+                  assignee=None, priority=None, search=None, now=None):
+    """``now`` is the instant the Overdue bucket is measured at. The queue
+    passes its snapshot instant, where every other membership rule is decided
+    too (services/paging.py), so one walk reads one set: a ticket that
+    crosses its deadline mid-walk does not join partway through, and the
+    total under the table does not change between pages."""
     if region:
         queryset = queryset.filter(region="" if region == UNKNOWN_REGION else region)
-    if status:
+    if status == OVERDUE:
+        # The card's own condition, so the card and the list it opens
+        # cannot disagree.
+        queryset = queryset.filter(overdue_condition(now))
+    elif status:
         queryset = queryset.filter(status=status)
     if category:
         queryset = queryset.filter(category=category)

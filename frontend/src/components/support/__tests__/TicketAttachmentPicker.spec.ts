@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import TicketAttachmentPicker from '../TicketAttachmentPicker.vue'
 
 function file(name: string, size = 1024) {
@@ -109,6 +109,87 @@ describe('the drop zone', () => {
     expect((emitted![0][0] as File[]).map((f) => f.name)).toEqual([
       'notes.docx',
       'shot.png',
+    ])
+  })
+})
+
+/**
+ * A wrong file could only be removed, never swapped for the right one, and on
+ * the support side not even removed (2026-10-07 testing, item 8). Replacing
+ * works row by row and goes through the same checks as a new file.
+ */
+describe('replacing a picked file', () => {
+  const picked = () => [file('first.pdf'), file('wrong.pdf'), file('third.pdf')]
+
+  async function replace(wrapper: ReturnType<typeof mount>, name: string, replacement: File) {
+    await wrapper.get(`button[aria-label="Replace ${name}"]`).trigger('click')
+    const input = wrapper.findAll('input[type="file"]')[1]!
+    Object.defineProperty(input.element, 'files', { value: [replacement], configurable: true })
+    await input.trigger('change')
+  }
+
+  const names = (wrapper: ReturnType<typeof mount>) =>
+    (wrapper.emitted('update:modelValue')?.at(-1)?.[0] as File[] | undefined)?.map((f) => f.name)
+
+  it('opens a picker for one file when Replace is pressed', async () => {
+    const opened: HTMLInputElement[] = []
+    const click = vi
+      .spyOn(HTMLInputElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLInputElement) {
+        opened.push(this)
+      })
+    try {
+      const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: picked() } })
+
+      await wrapper.get('button[aria-label="Replace wrong.pdf"]').trigger('click')
+
+      expect(opened).toHaveLength(1)
+      expect(opened[0]!.multiple).toBe(false)
+      expect(opened[0]).toBe(wrapper.findAll('input[type="file"]')[1]!.element)
+    } finally {
+      click.mockRestore()
+    }
+  })
+
+  it('puts the new file in the old one’s place and leaves the others alone', async () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: picked() } })
+
+    await replace(wrapper, 'wrong.pdf', file('right.pdf'))
+
+    expect(names(wrapper)).toEqual(['first.pdf', 'right.pdf', 'third.pdf'])
+  })
+
+  it('refuses a replacement of the wrong type and keeps the original', async () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: picked() } })
+
+    await replace(wrapper, 'wrong.pdf', file('setup.exe'))
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.text()).toContain('setup.exe is not a PDF, PNG, JPG or DOCX.')
+  })
+
+  it('refuses an oversized replacement and keeps the original', async () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: picked() } })
+
+    await replace(wrapper, 'wrong.pdf', file('huge.pdf', 11 * 1024 * 1024))
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.text()).toContain('huge.pdf is larger than 10 MB.')
+  })
+
+  it('keeps its own picker out of the tab order, behind the named buttons', () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: picked() } })
+    const input = wrapper.findAll('input[type="file"]')[1]!
+
+    expect(input.attributes('tabindex')).toBe('-1')
+    expect(input.attributes('aria-hidden')).toBe('true')
+    expect(wrapper.findAll('button').map((b) => b.attributes('aria-label'))).toEqual([
+      'Replace first.pdf',
+      'Remove first.pdf',
+      'Replace wrong.pdf',
+      'Remove wrong.pdf',
+      'Replace third.pdf',
+      'Remove third.pdf'
     ])
   })
 })

@@ -152,6 +152,14 @@ describe('FilterBar dropdowns', () => {
     ])
   })
 
+  it('carries Overdue as a status sentinel the server reads with the card rule', async () => {
+    show({ priority: 'high' })
+
+    await wrapper!.get('select[aria-label="Filter by status"]').setValue('__overdue__')
+
+    expect(changes()).toEqual([{ priority: 'high', status: '__overdue__' }])
+  })
+
   it('carries the Unknown region bucket as a sentinel, not an empty value', async () => {
     // An empty query parameter reads as "no filter" everywhere else on the
     // platform, so the bucket needs a value of its own.
@@ -185,7 +193,7 @@ describe('FilterBar dropdowns', () => {
     expect(changes()).toEqual([{ status: '' }])
   })
 
-  it('offers the four statuses and three priorities in triage words', () => {
+  it('offers the four statuses, Overdue and three priorities in triage words', () => {
     show()
 
     expect(options('Filter by status')).toEqual([
@@ -193,7 +201,10 @@ describe('FilterBar dropdowns', () => {
       ['open', 'Open'],
       ['in_progress', 'In progress'],
       ['pending_user', 'Pending user'],
-      ['resolved', 'Resolved']
+      ['resolved', 'Resolved'],
+      // Last, and as a sentinel: it is the badge beside the status, not a
+      // status a ticket can be set to.
+      ['__overdue__', 'Overdue']
     ])
     expect(options('Filter by priority')).toEqual([
       ['', 'Any priority'],

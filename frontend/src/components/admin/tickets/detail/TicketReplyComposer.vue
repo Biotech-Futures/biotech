@@ -41,25 +41,59 @@
         :disabled="isSending"
         @change="onFiles"
       />
-      <!-- What is picked, drawn the redesign's way: a pill per file, or the
-           browser's own words when there is none. The input still says the
-           same to a screen reader, so this copy is hidden from it. -->
-      <ul v-if="files.length" class="reply-box__chosen" aria-hidden="true">
+      <!-- What will be sent, a pill per file, each with its own Replace and
+           Remove. The input is emptied after every pick, so this list is the
+           only record of the files and a screen reader reads it here. -->
+      <ul v-if="files.length" class="reply-box__chosen" aria-label="Files attached to this reply">
         <li v-for="(file, index) in files" :key="`${file.name}-${index}`" class="reply-box__chip">
           <TicketIcon name="file" :size="13" />
-          <span>{{ file.name }}</span>
+          <span class="reply-box__chip-name">{{ file.name }}</span>
+          <button
+            type="button"
+            class="reply-box__chip-replace"
+            :aria-label="`Replace ${file.name}`"
+            :disabled="isSending"
+            @click="startReplace(index)"
+          >
+            Replace
+          </button>
+          <button
+            type="button"
+            class="reply-box__chip-remove"
+            :aria-label="`Remove ${file.name}`"
+            :disabled="isSending"
+            @click="removeFile(index)"
+          >
+            <TicketIcon name="x" :size="12" />
+          </button>
         </li>
       </ul>
       <span v-else class="reply-box__none" aria-hidden="true">No file chosen</span>
-      <span class="reply-box__counter">{{ body.length }}/{{ MAX_BODY_LENGTH }}</span>
-      <button
-        ref="sendButton"
-        type="submit"
-        class="reply-box__send"
-        :disabled="isSending || !body.trim()"
-      >
-        {{ isSending ? 'Sending…' : 'Send reply' }}
-      </button>
+      <!-- Behind every Replace button, for one file. Out of the tab order and
+           hidden from screen readers: the button that opens it names the file
+           it replaces. -->
+      <input
+        ref="replaceInput"
+        type="file"
+        class="reply-box__replace"
+        tabindex="-1"
+        aria-hidden="true"
+        :accept="ACCEPTED_FILES"
+        @change="onReplace"
+      />
+      <!-- One group, so that when the files push the row onto a second line
+           the counter and the button go together and stay on the right. -->
+      <div class="reply-box__actions">
+        <span class="reply-box__counter">{{ body.length }}/{{ MAX_BODY_LENGTH }}</span>
+        <button
+          ref="sendButton"
+          type="submit"
+          class="reply-box__send"
+          :disabled="isSending || !body.trim()"
+        >
+          {{ isSending ? 'Sending…' : 'Send reply' }}
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="reply-box__error" role="alert">{{ error }}</p>
@@ -88,8 +122,21 @@ const props = defineProps<{
 // saying the opposite of what the agent meant.
 const moveToPending = ref(false)
 
-const { body, files, isSending, error, textarea, fileInput, sendButton, onFiles, submit } =
-  useMessageComposer((text, files) => props.send(text, files, moveToPending.value))
+const {
+  body,
+  files,
+  isSending,
+  error,
+  textarea,
+  fileInput,
+  replaceInput,
+  sendButton,
+  onFiles,
+  removeFile,
+  startReplace,
+  onReplace,
+  submit
+} = useMessageComposer((text, files) => props.send(text, files, moveToPending.value))
 
 const headingId = useId()
 const checkboxId = useId()
@@ -237,7 +284,7 @@ async function onSubmit() {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.2rem 0.7rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.7rem;
   border: 1px solid var(--reply-file);
   border-radius: 999px;
   color: var(--reply-file);
@@ -246,8 +293,58 @@ async function onSubmit() {
   overflow-wrap: anywhere;
 }
 
-.reply-box__counter {
+/* Both 24px high, the target size WCAG 2.2 asks for, in the pill's own
+   colour: #017151 on the #f8f9fa box is 5.72:1, dark #5ea99e on #161f1d
+   6.13:1. Replace is a word, underlined so it reads as an action rather than
+   part of the name; no picture says "replace" without one. */
+.reply-box__chip-replace,
+.reply-box__chip-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.5rem;
+  padding: 0 0.3rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reply-box__chip-replace {
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+.reply-box__chip-remove {
+  min-width: 1.5rem;
+  padding: 0;
+}
+
+.reply-box__chip-replace:disabled,
+.reply-box__chip-remove:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reply-box__replace {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reply-box__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-left: auto;
+}
+
+.reply-box__counter {
   font-size: 0.78rem;
   color: var(--reply-muted);
 }

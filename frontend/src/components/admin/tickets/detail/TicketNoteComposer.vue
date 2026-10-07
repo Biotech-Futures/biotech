@@ -30,24 +30,55 @@
         :disabled="isSending"
         @change="onFiles"
       />
-      <!-- The same picked-files line as the reply box, in this box's amber.
-           Hidden from a screen reader, which hears the input itself. -->
-      <ul v-if="files.length" class="note-box__chosen" aria-hidden="true">
+      <!-- The same list as the reply box, in this box's amber, with the same
+           Replace and Remove on every file. -->
+      <ul v-if="files.length" class="note-box__chosen" aria-label="Files attached to this internal note">
         <li v-for="(file, index) in files" :key="`${file.name}-${index}`" class="note-box__chip">
           <TicketIcon name="file" :size="13" />
-          <span>{{ file.name }}</span>
+          <span class="note-box__chip-name">{{ file.name }}</span>
+          <button
+            type="button"
+            class="note-box__chip-replace"
+            :aria-label="`Replace ${file.name}`"
+            :disabled="isSending"
+            @click="startReplace(index)"
+          >
+            Replace
+          </button>
+          <button
+            type="button"
+            class="note-box__chip-remove"
+            :aria-label="`Remove ${file.name}`"
+            :disabled="isSending"
+            @click="removeFile(index)"
+          >
+            <TicketIcon name="x" :size="12" />
+          </button>
         </li>
       </ul>
       <span v-else class="note-box__none" aria-hidden="true">No file chosen</span>
-      <span class="note-box__counter">{{ body.length }}/{{ MAX_BODY_LENGTH }}</span>
-      <button
-        ref="sendButton"
-        type="submit"
-        class="note-box__send"
-        :disabled="isSending || !body.trim()"
-      >
-        {{ isSending ? 'Saving…' : 'Add internal note' }}
-      </button>
+      <input
+        ref="replaceInput"
+        type="file"
+        class="note-box__replace"
+        tabindex="-1"
+        aria-hidden="true"
+        :accept="ACCEPTED_FILES"
+        @change="onReplace"
+      />
+      <!-- One group, so that when the files push the row onto a second line
+           the counter and the button go together and stay on the right. -->
+      <div class="note-box__actions">
+        <span class="note-box__counter">{{ body.length }}/{{ MAX_BODY_LENGTH }}</span>
+        <button
+          ref="sendButton"
+          type="submit"
+          class="note-box__send"
+          :disabled="isSending || !body.trim()"
+        >
+          {{ isSending ? 'Saving…' : 'Add internal note' }}
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="note-box__error" role="alert">{{ error }}</p>
@@ -78,8 +109,21 @@ const props = defineProps<{
   send: (body: string, files: File[]) => Promise<unknown>
 }>()
 
-const { body, files, isSending, error, textarea, fileInput, sendButton, onFiles, submit } =
-  useMessageComposer((text, files) => props.send(text, files))
+const {
+  body,
+  files,
+  isSending,
+  error,
+  textarea,
+  fileInput,
+  replaceInput,
+  sendButton,
+  onFiles,
+  removeFile,
+  startReplace,
+  onReplace,
+  submit
+} = useMessageComposer((text, files) => props.send(text, files))
 
 const headingId = useId()
 </script>
@@ -206,7 +250,7 @@ const headingId = useId()
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.2rem 0.7rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.7rem;
   border: 1px solid var(--note-ink);
   border-radius: 999px;
   color: var(--note-ink);
@@ -215,8 +259,56 @@ const headingId = useId()
   overflow-wrap: anywhere;
 }
 
-.note-box__counter {
+/* As in TicketReplyComposer.vue, in the note's ink: #78350f on #fffbeb is
+   8.75:1, dark #fbbf24 on #2b2410 9.23:1. */
+.note-box__chip-replace,
+.note-box__chip-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.5rem;
+  padding: 0 0.3rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.note-box__chip-replace {
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+.note-box__chip-remove {
+  min-width: 1.5rem;
+  padding: 0;
+}
+
+.note-box__chip-replace:disabled,
+.note-box__chip-remove:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.note-box__replace {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.note-box__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-left: auto;
+}
+
+.note-box__counter {
   font-size: 0.78rem;
   color: var(--note-ink);
 }

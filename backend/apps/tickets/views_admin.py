@@ -315,7 +315,9 @@ def _queue_tickets(filters, as_of):
     # See services/paging.py for the measurement that established this.
     return as_at(
         apply_filters(
-            Ticket.objects.select_related("created_by", "assignee"), **filters
+            Ticket.objects.select_related("created_by", "assignee"),
+            now=as_of,
+            **filters,
         ),
         as_of,
         activity_field="support_updated_at",

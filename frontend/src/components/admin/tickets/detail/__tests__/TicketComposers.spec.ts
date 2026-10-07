@@ -82,7 +82,7 @@ describe('the two attachment pickers and the two message boxes', () => {
   it('gives the reply and the internal note different names', async () => {
     const { page } = await openPanel(ticketWith())
 
-    const names = page.findAll('input[type="file"], textarea').map((node) => accessibleName(node.element))
+    const names = page.findAll('input[type="file"]:not([aria-hidden="true"]), textarea').map((node) => accessibleName(node.element))
 
     // Four controls, four names, none of them blank. A blank name is what a
     // bare file input computes to.
@@ -96,7 +96,7 @@ describe('the two attachment pickers and the two message boxes', () => {
     // control has to be a deliberate edit here too.
     const { page } = await openPanel(ticketWith())
 
-    const names = page.findAll('input[type="file"], textarea').map((node) => accessibleName(node.element))
+    const names = page.findAll('input[type="file"]:not([aria-hidden="true"]), textarea').map((node) => accessibleName(node.element))
 
     expect(names).toEqual([
       'Reply to the requester',
@@ -117,7 +117,18 @@ describe('the two attachment pickers and the two message boxes', () => {
   it('takes the file types the server takes, and no more text than it keeps', async () => {
     const { page } = await openPanel(ticketWith())
 
-    for (const picker of page.findAll('input[type="file"]')) {
+    // The two pickers a person reaches, and behind each box the one its
+    // Replace buttons open: one file at a time, of the same types.
+    const pickers = page.findAll('input[type="file"]')
+    const visible = pickers.filter((picker) => picker.attributes('aria-hidden') !== 'true')
+    const replacing = pickers.filter((picker) => picker.attributes('aria-hidden') === 'true')
+    expect([visible.length, replacing.length]).toEqual([2, 2])
+    for (const picker of replacing) {
+      expect(picker.attributes('accept')).toBe('.pdf,.png,.jpg,.jpeg,.docx')
+      expect(picker.attributes('multiple')).toBeUndefined()
+      expect(picker.attributes('tabindex')).toBe('-1')
+    }
+    for (const picker of visible) {
       expect(picker.attributes('accept')).toBe('.pdf,.png,.jpg,.jpeg,.docx')
       expect(picker.attributes('multiple')).toBeDefined()
     }
@@ -267,9 +278,11 @@ describe('sending', () => {
     expect(panel.page.get(REPLY).attributes('readonly')).toBeUndefined()
   })
 
-  it('empties the file picker after a send, not just the list behind it (T14/T27)', async () => {
-    // Clearing only the list left the old file name showing in the picker
-    // while the next message went out with no attachment.
+  it('never leaves a file sitting in the picker once it is on the list (T14/T27)', async () => {
+    // Clearing only the list used to leave the old file name showing in the
+    // picker while the next message went out with no attachment. The list is
+    // now the one record of what will be sent, so the input is emptied the
+    // moment it hands a file over, and again after a send.
     api.sendTicketMessage.mockResolvedValue(ticketWith())
     const panel = await openPanel(ticketWith())
     const picker = panel.page.get('.reply-box input[type="file"]').element as HTMLInputElement
@@ -282,11 +295,13 @@ describe('sending', () => {
       set: (next: string) => cleared.push(next)
     })
     picker.dispatchEvent(new Event('change'))
+    expect(cleared).toEqual([''])
 
     await sendFrom(panel, 'reply')
 
     expect(api.sendTicketMessage.mock.calls[0][1].files).toEqual([file])
-    expect(cleared).toEqual([''])
+    expect(cleared).toEqual(['', ''])
+    expect(panel.page.find('.reply-box__chip').exists()).toBe(false)
   })
 
   it('puts focus back in the box after a send, for the next message', async () => {
@@ -444,4 +459,96 @@ describe('drafts and tickets', () => {
 
     expect(value(panel, REPLY)).toBe('Still typing')
   })
+})
+
+/**
+ * A file picked by mistake could not be taken off a reply or a note at all:
+ * picking again replaced the whole selection, and nothing removed one file
+ * (2026-10-07 testing, item 8). Every file now has its own Replace and Remove,
+ * as on the student's side, and picks add up instead of replacing.
+ */
+describe('the files on a reply or a note', () => {
+  const pdf = (name: string) => new File(['%PDF'], name, { type: 'application/pdf' })
+
+  async function pick(panel: Panel, box: '.reply-box' | '.note-box', files: File[], which = 0) {
+    const input = panel.page.findAll(`${box} input[type="file"]`)[which]!.element as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: files })
+    input.dispatchEvent(new Event('change'))
+    await flushPromises()
+  }
+
+  // What the first send carried, by name.
+  const sentNames = () =>
+    (api.sendTicketMessage.mock.calls[0]?.[1].files ?? []).map((f: File) => f.name)
+
+  const chips = (panel: Panel, box: string) =>
+    panel.page.findAll(`${box} li`).map((li) => li.find('span').text())
+
+  async function press(panel: Panel, name: string) {
+    await panel.page.get(`button[aria-label="${name}"]`).trigger('click')
+  }
+
+  for (const box of ['.reply-box', '.note-box'] as const) {
+    it(`${box}: adds each pick to the list rather than replacing it`, async () => {
+      api.sendTicketMessage.mockResolvedValue(ticketWith())
+      const panel = await openPanel(ticketWith())
+
+      await pick(panel, box, [pdf('one.pdf')])
+      await pick(panel, box, [pdf('two.pdf'), pdf('three.pdf')])
+
+      expect(chips(panel, box)).toEqual(['one.pdf', 'two.pdf', 'three.pdf'])
+      await sendFrom(panel, box === '.reply-box' ? 'reply' : 'note')
+      expect(sentNames()).toEqual([
+        'one.pdf',
+        'two.pdf',
+        'three.pdf'
+      ])
+    })
+
+    it(`${box}: removes one file and sends the rest`, async () => {
+      api.sendTicketMessage.mockResolvedValue(ticketWith())
+      const panel = await openPanel(ticketWith())
+      await pick(panel, box, [pdf('keep.pdf'), pdf('mistake.pdf')])
+
+      await press(panel, 'Remove mistake.pdf')
+
+      expect(chips(panel, box)).toEqual(['keep.pdf'])
+      await sendFrom(panel, box === '.reply-box' ? 'reply' : 'note')
+      expect(sentNames()).toEqual([
+        'keep.pdf'
+      ])
+    })
+
+    it(`${box}: replaces one file in its place and keeps the others`, async () => {
+      api.sendTicketMessage.mockResolvedValue(ticketWith())
+      const panel = await openPanel(ticketWith())
+      await pick(panel, box, [pdf('first.pdf'), pdf('wrong.pdf'), pdf('last.pdf')])
+
+      await press(panel, 'Replace wrong.pdf')
+      await pick(panel, box, [pdf('right.pdf')], 1)
+
+      expect(chips(panel, box)).toEqual(['first.pdf', 'right.pdf', 'last.pdf'])
+      await sendFrom(panel, box === '.reply-box' ? 'reply' : 'note')
+      expect(sentNames()).toEqual([
+        'first.pdf',
+        'right.pdf',
+        'last.pdf'
+      ])
+    })
+
+    it(`${box}: holds the files still while a send is on its way`, async () => {
+      const answer = deferred<TicketDetail>()
+      api.sendTicketMessage.mockReturnValue(answer.promise)
+      const panel = await openPanel(ticketWith())
+      await pick(panel, box, [pdf('one.pdf')])
+      await panel.page.get(box === '.reply-box' ? REPLY : NOTE).setValue(TYPED)
+
+      await panel.page.get(box).trigger('submit')
+
+      expect(panel.page.get('button[aria-label="Replace one.pdf"]').attributes('disabled')).toBeDefined()
+      expect(panel.page.get('button[aria-label="Remove one.pdf"]').attributes('disabled')).toBeDefined()
+      answer.resolve(ticketWith())
+      await flushPromises()
+    })
+  }
 })

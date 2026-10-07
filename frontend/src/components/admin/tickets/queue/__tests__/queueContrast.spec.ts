@@ -524,10 +524,10 @@ describe('the focus ring on the queue page', () => {
         'Go to page 1'
       ])
     )
-    // Five filters and search, Export, three counter cards, the bulk bar's
+    // Five filters and search, Export, four counter cards, the bulk bar's
     // select and two buttons, three checkboxes, two Open buttons, the table
     // region, the size box and Presets, Previous, three pages and Next.
-    expect(focusables()).toHaveLength(26)
+    expect(focusables()).toHaveLength(27)
   })
 
   for (const theme of ['light', 'dark'] as const) {
