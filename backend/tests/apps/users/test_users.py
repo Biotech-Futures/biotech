@@ -783,3 +783,67 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+
+
+class MeGuardianDetailsTests(TestCase):
+    """/users/me/ carries the guardian details shown on the student profile."""
+
+    def setUp(self):
+        from apps.resources.models import RoleAssignmentHistory
+        from apps.users.models import StudentProfile
+
+        self.client = APIClient()
+        self.student = User.objects.create_user(
+            email="guardian-view@test.com",
+            first_name="Alex",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.student,
+            role=Roles.objects.create(role_name=ROLE_STUDENT),
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat.parent@test.com",
+            parent_guardian_flag=True,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.client.force_authenticate(user=self.student)
+        self.url = reverse("MeListHTMLView")
+
+    def test_returns_guardian_details_without_consent(self):
+        data = self.client.get(self.url).json()
+
+        self.assertEqual(data["pg_firstname"], "Pat")
+        self.assertEqual(data["pg_lastname"], "Parent")
+        self.assertEqual(data["pg_email"], "pat.parent@test.com")
+        self.assertFalse(data["join_perm"])
+        self.assertIsNone(data["join_perm_granted_at"])
+
+    def test_returns_when_consent_was_granted(self):
+        granted_at = timezone.now() - timedelta(days=3)
+        self.profile.has_join_permission = True
+        self.profile.joinperm_granted_at = granted_at
+        self.profile.save()
+
+        data = self.client.get(self.url).json()
+
+        self.assertTrue(data["join_perm"])
+        self.assertEqual(data["join_perm_granted_at"], granted_at.isoformat())
+
+    def test_guardian_fields_are_null_for_non_students(self):
+        mentor = User.objects.create_user(
+            email="mentor-guardian@test.com",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        self.client.force_authenticate(user=mentor)
+
+        data = self.client.get(self.url).json()
+
+        self.assertIsNone(data["pg_email"])
+        self.assertIsNone(data["join_perm_granted_at"])

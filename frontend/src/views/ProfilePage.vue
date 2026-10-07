@@ -124,21 +124,6 @@
             <span class="profile-field-label">Year Level:</span>
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
-          <div class="profile-field consent-field">
-            <span class="profile-field-label">Guardian Consent:</span>
-            <span class="profile-field-value">
-              <span
-                class="consent-status"
-                :class="user.student.consentReceived ? 'consent-status--received' : 'consent-status--pending'"
-                data-test="guardian-consent"
-              >
-                {{ user.student.consentReceived ? 'Received' : 'Not received yet' }}
-              </span>
-              <span v-if="!user.student.consentReceived" class="consent-hint">
-                Your parent or guardian needs to complete the consent form. Ask your supervisor if you're not sure how.
-              </span>
-            </span>
-          </div>
           <div class="profile-field">
             <span class="profile-field-label">Areas of Interest:</span>
             <span class="profile-field-value">
@@ -169,6 +154,45 @@
                 {{ user.student.supervisorEmailAddress }}
               </a>
               <span v-else>{{ user.student.supervisorEmail }}</span>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
+          <h3 class="profile-section-title">Guardian Details</h3>
+          <div class="profile-field">
+            <span class="profile-field-label">Name:</span>
+            <span class="profile-field-value" data-test="guardian-name">{{ user.guardian.name }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Email:</span>
+            <span class="profile-field-value" data-test="guardian-email">
+              <a
+                v-if="user.guardian.emailAddress"
+                class="profile-link"
+                :href="`mailto:${user.guardian.emailAddress}`"
+              >
+                {{ user.guardian.emailAddress }}
+              </a>
+              <span v-else>{{ unsetLabel }}</span>
+            </span>
+          </div>
+          <div class="profile-field consent-field">
+            <span class="profile-field-label">Consent:</span>
+            <span class="profile-field-value">
+              <span
+                class="consent-status"
+                :class="user.guardian.consentReceived ? 'consent-status--received' : 'consent-status--pending'"
+                data-test="guardian-consent"
+              >
+                {{ user.guardian.consentReceived ? 'Received' : 'Not received yet' }}
+              </span>
+              <span v-if="user.guardian.consentReceivedOn" class="consent-hint" data-test="guardian-consent-date">
+                Received on {{ user.guardian.consentReceivedOn }}
+              </span>
+              <span v-if="!user.guardian.consentReceived" class="consent-hint">
+                Your parent or guardian needs to complete the consent form. Ask your supervisor if you're not sure how.
+              </span>
             </span>
           </div>
         </div>
@@ -223,7 +247,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
+import { formatLongDateAU, formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -374,6 +398,11 @@ const user = computed(() => {
     })
     : []
   const hasStudentDetails = roleKey === 'student'
+  const consentReceived = source?.join_perm === true
+  // Admin-created students without a guardian on file get their own name copied
+  // into the guardian fields (the columns can't be blank), so that isn't a real guardian.
+  const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
+  const isPlaceholderGuardian = guardianName.toLowerCase() === `${source?.first_name || ''} ${source?.last_name || ''}`.trim().toLowerCase()
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
@@ -389,12 +418,20 @@ const user = computed(() => {
       hasDetails: hasStudentDetails,
       schoolName: valueOrFallback(source?.school_name, unsetLabel),
       yearLevel: valueOrFallback(source?.year_lvl, unsetLabel),
-      // null when there's no student profile behind the account; treat as not received.
-      consentReceived: source?.join_perm === true,
       interests,
       supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
       supervisorEmailAddress
+    },
+    guardian: {
+      hasDetails: hasStudentDetails,
+      name: (!isPlaceholderGuardian && guardianName) || unsetLabel,
+      emailAddress: String(source?.pg_email || '').trim(),
+      // null when there's no student profile behind the account; treat as not received.
+      consentReceived,
+      consentReceivedOn: consentReceived && source?.join_perm_granted_at
+        ? formatLongDateAU(source.join_perm_granted_at)
+        : ''
     },
     mentor: {
       hasDetails: hasMentorDetails,

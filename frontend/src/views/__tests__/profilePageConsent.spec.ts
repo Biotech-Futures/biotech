@@ -56,4 +56,48 @@ describe('ProfilePage guardian consent', () => {
 
     expect(wrapper.find('[data-test="guardian-consent"]').exists()).toBe(false)
   })
+
+  it('shows the guardian name and email', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Pat',
+      pg_lastname: 'Fischer',
+      pg_email: 'pat@example.com',
+      join_perm: false,
+    })
+
+    expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Pat Fischer')
+    expect(wrapper.find('[data-test="guardian-email"] a').attributes('href')).toBe('mailto:pat@example.com')
+  })
+
+  it('shows when consent was received', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      join_perm: true,
+      join_perm_granted_at: '2026-09-14T03:00:00Z',
+    })
+
+    expect(wrapper.find('[data-test="guardian-consent-date"]').text()).toBe('Received on 14 September 2026')
+  })
+
+  it('treats the student\'s own name as no guardian on file', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Oscar',
+      pg_lastname: 'Fischer',
+      pg_email: null,
+      join_perm: false,
+    })
+
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Not set')
+    expect(wrapper.find('[data-test="guardian-email"]').text()).toBe('Not set')
+    expect(wrapper.find('[data-test="guardian-consent-date"]').exists()).toBe(false)
+  })
+
+  it('hides guardian details from other roles', async () => {
+    const wrapper = await mountAs({ ...baseUser, current_role_name: 'Mentor' })
+
+    expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(false)
+  })
 })
