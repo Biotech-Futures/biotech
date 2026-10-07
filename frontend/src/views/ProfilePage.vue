@@ -339,6 +339,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { isPlaceholderGuardian } from '@/utils/guardian'
 import { formatLongDateAU, formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -491,10 +492,8 @@ const user = computed(() => {
     : []
   const hasStudentDetails = roleKey === 'student'
   const consentReceived = source?.join_perm === true
-  // Admin-created students without a guardian on file get their own name copied
-  // into the guardian fields (the columns can't be blank), so that isn't a real guardian.
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
-  const isPlaceholderGuardian = guardianName.toLowerCase() === `${source?.first_name || ''} ${source?.last_name || ''}`.trim().toLowerCase()
+  const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
@@ -517,8 +516,8 @@ const user = computed(() => {
     },
     guardian: {
       hasDetails: hasStudentDetails,
-      name: (!isPlaceholderGuardian && guardianName) || unsetLabel,
-      consentingName: (!isPlaceholderGuardian && guardianName) || 'Your current guardian',
+      name: (!placeholderGuardian && guardianName) || unsetLabel,
+      consentingName: (!placeholderGuardian && guardianName) || 'Your current guardian',
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
@@ -534,8 +533,8 @@ const user = computed(() => {
         }
         : null,
       // Form defaults: blank when the guardian fields only hold the placeholder.
-      firstName: isPlaceholderGuardian ? '' : String(source?.pg_firstname || ''),
-      lastName: isPlaceholderGuardian ? '' : String(source?.pg_lastname || '')
+      firstName: placeholderGuardian ? '' : String(source?.pg_firstname || ''),
+      lastName: placeholderGuardian ? '' : String(source?.pg_lastname || '')
     },
     mentor: {
       hasDetails: hasMentorDetails,

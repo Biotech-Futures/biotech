@@ -20,6 +20,8 @@ from apps.groups.models import (
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.audit.services import log_audit_event
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 
 
 # ============================================================================
@@ -192,23 +194,39 @@ def upsert_student_profile(
     """
     Create or update student profile.
 
-    Guardian names default to the student's own name when not supplied (keeps
-    the single-create behaviour). supervisor_email=_UNSET leaves the link
+    Guardian fields left as None keep what is on file; on a new profile the
+    names default to the student's own (the columns can't be blank). Supplying
+    any guardian field clears a pending guardian change. supervisor_email=_UNSET leaves the link
     untouched; a value looks up — or, with a supervisor name, get_or_creates —
     the supervisor and also records the StudentSupervisor join. joinperm_response_id
     =_UNSET keeps the current consent state; a value (or blank) sets
-    joinperm_responseID + has_join_permission.
+    joinperm_responseID + has_join_permission. Recording a new response id while
+    a guardian change is pending promotes the pending guardian, as the
+    join-permission webhook does.
     """
+    existing_profile = StudentProfile.objects.filter(user_id=user_id).first()
+
+    # A guardian's name is only defaulted to the student's own (the columns
+    # can't be blank) when creating a profile. Edits keep whoever is on file.
     profile_data = {
-        "pg_first_name": (guardian_first_name or first_name),
-        "pg_last_name": (guardian_last_name or last_name),
+        "pg_first_name": (
+            guardian_first_name
+            or (existing_profile.pg_first_name if existing_profile else first_name)
+        ),
+        "pg_last_name": (
+            guardian_last_name
+            or (existing_profile.pg_last_name if existing_profile else last_name)
+        ),
         "parent_guardian_flag": True,
         "school_name": (school_name or "").strip(),
         "year_lvl": str(year_level or ""),
     }
     if guardian_email is not None:
         profile_data["pg_email"] = (guardian_email or "").strip() or None
-    if any(v is not None for v in (guardian_first_name, guardian_last_name, guardian_email)):
+    guardian_supplied = any(
+        v is not None for v in (guardian_first_name, guardian_last_name, guardian_email)
+    )
+    if guardian_supplied:
         # An admin setting the guardian outright supersedes any change the
         # student has pending.
         profile_data.update(
@@ -218,7 +236,6 @@ def upsert_student_profile(
             pending_pg_requested_at=None,
         )
 
-    existing_profile = StudentProfile.objects.filter(user_id=user_id).first()
     existing_granted_at = (
         existing_profile.joinperm_granted_at
         if existing_profile and existing_profile.has_join_permission
@@ -229,6 +246,26 @@ def upsert_student_profile(
         response_id = (joinperm_response_id or "").strip() or None
         profile_data["joinperm_responseID"] = response_id
         profile_data["has_join_permission"] = response_id is not None
+        if (
+            response_id is not None
+            and not guardian_supplied
+            and existing_profile is not None
+            and existing_profile.has_join_permission
+            and existing_profile.has_pending_guardian
+            and response_id != existing_profile.joinperm_responseID
+        ):
+            # New consent while a guardian change is pending comes from the new
+            # guardian — same rule as the join-permission webhook.
+            profile_data.update(
+                pg_first_name=existing_profile.pending_pg_first_name,
+                pg_last_name=existing_profile.pending_pg_last_name,
+                pg_email=existing_profile.pending_pg_email,
+                pending_pg_first_name="",
+                pending_pg_last_name="",
+                pending_pg_email=None,
+                pending_pg_requested_at=None,
+            )
+            existing_granted_at = None
     else:
         # _UNSET means "don't touch consent": keep whatever is on record (a
         # brand-new profile has none). Consent is granted only by the external
@@ -358,6 +395,45 @@ def _user_state_dict(user: User) -> Optional[Dict[str, Any]]:
     }
 
 
+def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
+    """Guardian, consent and pending-guardian fields for the admin user payload."""
+    sp = student_profile
+    pending = None
+    if sp and sp.has_pending_guardian:
+        pending = {
+            "firstName": sp.pending_pg_first_name,
+            "lastName": sp.pending_pg_last_name,
+            "email": sp.pending_pg_email,
+            "requestedAt": sp.pending_pg_requested_at.isoformat(),
+        }
+    return {
+        "guardianFirstName": sp.pg_first_name if sp else None,
+        "guardianLastName": sp.pg_last_name if sp else None,
+        "guardianEmail": sp.pg_email if sp else None,
+        "joinPermissionReceived": sp.has_join_permission if sp else False,
+        "joinpermResponseId": (sp.joinperm_responseID or None) if sp else None,
+        "joinPermissionGrantedAt": (
+            sp.joinperm_granted_at.isoformat() if sp and sp.joinperm_granted_at else None
+        ),
+        "pendingGuardian": pending,
+    }
+
+
+GUARDIAN_AUDIT_KEYS = (
+    "guardianFirstName",
+    "guardianLastName",
+    "guardianEmail",
+    "joinPermissionReceived",
+    "joinpermResponseId",
+    "pendingGuardian",
+)
+
+
+def _guardian_audit_state(user_id: int) -> Dict[str, Any]:
+    guardian = _guardian_dict(StudentProfile.objects.filter(user_id=user_id).first())
+    return {key: guardian[key] for key in GUARDIAN_AUDIT_KEYS}
+
+
 def build_user_dict(user: User, role_str: Optional[str] = None,
                    state: Optional[Dict[str, Any]] = None,
                    group_name: Optional[str] = None,
@@ -418,7 +494,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "mentorReason": mentor_profile.mentor_reason if mentor_profile else None,
         "mentorMaxGroupCount": mentor_profile.max_group_count if mentor_profile else None,
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
-        "joinPermissionReceived": student_profile.has_join_permission if student_profile else False,
+        **_guardian_dict(student_profile),
         "interests": interests,
         "isAdmin": is_admin,
         "isActive": user.is_active,
@@ -728,7 +804,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "mentorReason": mp.mentor_reason if mp else None,
             "mentorMaxGroupCount": mp.max_group_count if mp else None,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
-            "joinPermissionReceived": sp.has_join_permission if sp else False,
+            **_guardian_dict(sp),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
             "isActive": user.is_active,
@@ -1278,6 +1354,19 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "School is required for student users", "data": None}
         if not next_year:
             return {"msg": "Year level is required for student users", "data": None}
+
+        for key, label in (("guardianFirstName", "first name"), ("guardianLastName", "last name")):
+            if key in input_data and not str(input_data[key] or "").strip():
+                return {"msg": f"Guardian {label} cannot be blank", "data": None}
+        if "guardianEmail" in input_data:
+            guardian_email = str(input_data["guardianEmail"] or "").strip().lower()
+            if guardian_email:
+                try:
+                    validate_email(guardian_email)
+                except DjangoValidationError:
+                    return {"msg": "Guardian email is not a valid email address", "data": None}
+                if guardian_email == user.email.strip().lower():
+                    return {"msg": "Guardian email cannot be the student's own email", "data": None}
     
     if next_role in ["student", "mentor"] and not next_interests:
         return {
@@ -1311,6 +1400,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
 
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id) if role_changed else None
+    before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
 
     # Handle geography update. Country is the required half for non-admins; state
     # is sub-national and may always be cleared (most non-AU users have none).
@@ -1383,9 +1473,25 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     user_id,
                     input_data.get("firstName", user.first_name),
                     input_data.get("lastName", user.last_name),
-                    input_data.get("schoolName"),
-                    input_data.get("yearLevel"),
+                    # Validated above, falling back to what is on file, so a
+                    # partial update doesn't blank the school or year.
+                    next_school,
+                    next_year,
                     supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
+                    guardian_first_name=(
+                        str(input_data["guardianFirstName"]).strip()
+                        if "guardianFirstName" in input_data else None
+                    ),
+                    guardian_last_name=(
+                        str(input_data["guardianLastName"]).strip()
+                        if "guardianLastName" in input_data else None
+                    ),
+                    # "" clears the email; absent leaves it alone.
+                    guardian_email=(
+                        str(input_data["guardianEmail"] or "").strip().lower()
+                        if "guardianEmail" in input_data else None
+                    ),
+                    joinperm_response_id=input_data.get("joinpermResponseId", _UNSET),
                     state_id=user.state_id,
                     country_id=user.country_id,
                 )
@@ -1440,6 +1546,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             before_state=before_user,
             after_state=updated_user,
         )
+    if before_guardian is not None:
+        after_guardian = _guardian_audit_state(user_id)
+        if after_guardian != before_guardian:
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_update",
+                before_state=before_guardian,
+                after_state=after_guardian,
+            )
     return {"msg": "User updated successfully", "data": updated_user}
 
 

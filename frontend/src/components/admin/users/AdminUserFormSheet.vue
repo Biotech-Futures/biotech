@@ -95,6 +95,56 @@
         </div>
       </template>
 
+      <template v-if="form.role === 'student'">
+        <div class="admin-users-form__section">Guardian &amp; consent</div>
+        <p v-if="pendingGuardian" class="admin-users-form__note" data-test="form-pending-guardian">
+          The student asked to change their guardian to
+          <strong>{{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }}</strong>
+          ({{ pendingGuardian.email || 'no email' }}). Recording a new consent response makes them the
+          guardian; changing the guardian below discards the request.
+        </p>
+        <div class="admin-users-form__grid">
+          <div class="form-field">
+            <label class="form-label" for="f-gfirst">Guardian first name</label>
+            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="f-glast">Guardian last name</label>
+            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
+          </div>
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-gemail">Guardian email</label>
+            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
+          </div>
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-consent">Consent form response ID</label>
+            <input
+              id="f-consent"
+              v-model.trim="form.joinpermResponseId"
+              class="form-input"
+              placeholder="e.g. R_1a2b3c4d5e6f7g8"
+            />
+            <p class="admin-users-form__hint">{{ consentHint }}</p>
+          </div>
+          <div v-if="consentUnverified" class="form-field form-field--full">
+            <p class="admin-users-form__note">
+              This student is marked as consented, but no consent form response is on record.
+              Enter the response ID above if you have it.
+            </p>
+            <label class="form-label">
+              <input
+                id="f-revoke"
+                v-model="form.revokeUnverifiedConsent"
+                type="checkbox"
+                class="form-checkbox"
+                :disabled="Boolean(form.joinpermResponseId)"
+              />
+              Revoke consent until a response is received
+            </label>
+          </div>
+        </div>
+      </template>
+
       <template v-if="form.role === 'supervisor'">
         <div class="admin-users-form__section">Supervisor details</div>
         <div class="admin-users-form__grid">
@@ -189,6 +239,7 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { isPlaceholderGuardian } from '@/utils/guardian'
 import { roleLabel, userName } from '@/utils/userFormat'
 import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
 
@@ -208,8 +259,15 @@ interface UserForm {
   mentorInstitution: string
   mentorReason: string
   mentorMaxGroupCount?: number
+  guardianFirstName: string
+  guardianLastName: string
+  guardianEmail: string
+  joinpermResponseId: string
+  revokeUnverifiedConsent: boolean
   active: boolean
 }
+
+type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail' | 'joinpermResponseId'>
 
 const props = defineProps<{
   modelValue: boolean
@@ -254,13 +312,38 @@ const defaultForm = (): UserForm => ({
   mentorInstitution: '',
   mentorReason: '',
   mentorMaxGroupCount: 2,
+  guardianFirstName: '',
+  guardianLastName: '',
+  guardianEmail: '',
+  joinpermResponseId: '',
+  revokeUnverifiedConsent: false,
   active: true
+})
+
+const blankGuardian = (): GuardianFields => ({
+  guardianFirstName: '',
+  guardianLastName: '',
+  guardianEmail: '',
+  joinpermResponseId: ''
 })
 
 const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// What the guardian fields held when the form opened; only changes are sent,
+// so saving a student's year level can't discard a pending guardian change
+// or revoke consent.
+const originalGuardian = ref<GuardianFields>(blankGuardian())
+
+const pendingGuardian = computed(() => (form.role === 'student' ? props.user?.pendingGuardian ?? null : null))
+const consentUnverified = computed(() =>
+  Boolean(props.user?.role === 'student' && props.user.joinPermissionReceived && !props.user.joinpermResponseId)
+)
+const consentHint = computed(() => {
+  if (originalGuardian.value.joinpermResponseId) return 'Consent is recorded. Clearing this ID revokes it.'
+  return 'Enter the response ID from the consent form to record consent.'
+})
 
 const formStates = computed(() => {
   if (!form.countryId) return []
@@ -286,9 +369,20 @@ const initForm = (editingUser: AdminUser | null) => {
   if (!editingUser) {
     Object.assign(form, defaultForm())
     editingOriginalActive.value = false
+    originalGuardian.value = blankGuardian()
     return
   }
   editingOriginalActive.value = Boolean(editingUser.isActive)
+  const isStudent = editingUser.role === 'student'
+  const placeholder = isPlaceholderGuardian(
+    editingUser.guardianFirstName, editingUser.guardianLastName, editingUser.firstName, editingUser.lastName
+  )
+  originalGuardian.value = {
+    guardianFirstName: isStudent && !placeholder ? editingUser.guardianFirstName || '' : '',
+    guardianLastName: isStudent && !placeholder ? editingUser.guardianLastName || '' : '',
+    guardianEmail: isStudent ? editingUser.guardianEmail || '' : '',
+    joinpermResponseId: isStudent ? editingUser.joinpermResponseId || '' : ''
+  }
   Object.assign(form, {
     firstName: editingUser.firstName || '',
     lastName: editingUser.lastName || '',
@@ -305,6 +399,8 @@ const initForm = (editingUser: AdminUser | null) => {
     mentorInstitution: editingUser.role === 'mentor' ? (editingUser.mentorInstitution || '') : '',
     mentorReason: editingUser.role === 'mentor' ? (editingUser.mentorReason || '') : '',
     mentorMaxGroupCount: editingUser.role === 'mentor' ? (editingUser.mentorMaxGroupCount ?? 2) : 2,
+    ...originalGuardian.value,
+    revokeUnverifiedConsent: false,
     active: editingUser.isActive
   })
 }
@@ -353,6 +449,18 @@ const validateForm = (): boolean => {
       formError.value = 'Year level must be between 9 and 12.'
       return false
     }
+    if (guardianNamesChanged() && (!form.guardianFirstName || !form.guardianLastName)) {
+      formError.value = "Enter the guardian's first and last name."
+      return false
+    }
+    if (form.guardianEmail && !isValidEmail(form.guardianEmail)) {
+      formError.value = 'Guardian email is not a valid email address.'
+      return false
+    }
+    if (form.guardianEmail && form.guardianEmail.toLowerCase() === form.email.trim().toLowerCase()) {
+      formError.value = "Guardian email can't be the student's own email."
+      return false
+    }
   }
   if (role === 'mentor') {
     if (!form.mentorInstitution.trim()) {
@@ -373,6 +481,27 @@ const validateForm = (): boolean => {
     return false
   }
   return true
+}
+
+const guardianNamesChanged = () =>
+  form.guardianFirstName !== originalGuardian.value.guardianFirstName ||
+  form.guardianLastName !== originalGuardian.value.guardianLastName
+
+const guardianPayload = (): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {}
+  if (guardianNamesChanged()) {
+    payload.guardianFirstName = form.guardianFirstName
+    payload.guardianLastName = form.guardianLastName
+  }
+  if (form.guardianEmail !== originalGuardian.value.guardianEmail) {
+    payload.guardianEmail = form.guardianEmail
+  }
+  if (form.joinpermResponseId !== originalGuardian.value.joinpermResponseId) {
+    payload.joinpermResponseId = form.joinpermResponseId
+  } else if (consentUnverified.value && form.revokeUnverifiedConsent) {
+    payload.joinpermResponseId = ''
+  }
+  return payload
 }
 
 const submitForm = async () => {
@@ -404,6 +533,7 @@ const submitForm = async () => {
         payload.yearLevel = form.yearLevel
         payload.interests = form.interests
         payload.supervisorEmail = form.supervisorEmail || undefined
+        Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
@@ -437,6 +567,7 @@ const submitForm = async () => {
         payload.yearLevel = form.yearLevel
         payload.supervisorEmail = form.supervisorEmail || undefined
         payload.interests = form.interests
+        Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
@@ -500,6 +631,22 @@ const submitForm = async () => {
 .admin-users-form__interest input {
   margin-top: 0.2rem;
   accent-color: var(--dark-green);
+}
+
+.admin-users-form__note {
+  margin: 0 0 0.6rem;
+  padding: 0.6rem 0.8rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background-color: var(--bg-light);
+  color: var(--charcoal);
+  font-size: 0.85rem;
+}
+
+.admin-users-form__hint {
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .form-field--full {

@@ -1423,3 +1423,165 @@ class InternationalGeographyImportTests(TestCase):
         self.assertFalse(items["never@example.com"]["hasLoggedIn"])
         self.assertIsNone(items["never@example.com"]["lastLogin"])
 
+
+
+class AdminGuardianUpdateTests(TestCase):
+    """Admins can correct a student's guardian and record or revoke consent."""
+
+    def setUp(self):
+        self.admin_user = User.objects.create_user(email="guardian-admin@example.com")
+        self.student = User.objects.create_user(
+            email="ward@example.com", first_name="Wren", last_name="Ward",
+        )
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(
+            user=self.student, role=role, valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat@example.com",
+            parent_guardian_flag=True,
+            school_name="Test High",
+            year_lvl="10",
+        )
+        from apps.users.models import UserInterest, AreasOfInterest
+        UserInterest.objects.create(
+            user=self.student,
+            interest=AreasOfInterest.objects.create(interest_desc="Biotech"),
+        )
+
+    def _update(self, **fields):
+        return update_user(self.student.id, fields, initiated_by=self.admin_user)
+
+    def _audits(self):
+        from apps.audit.models import AuditLog
+        return AuditLog.objects.filter(
+            entity_type="user", entity_id=self.student.id, action="guardian_update",
+        )
+
+    def _make_pending(self):
+        self.profile.has_join_permission = True
+        self.profile.joinperm_responseID = "R_old"
+        self.profile.joinperm_granted_at = timezone.now() - timedelta(days=10)
+        self.profile.pending_pg_first_name = "Robin"
+        self.profile.pending_pg_last_name = "Carer"
+        self.profile.pending_pg_email = "robin@example.com"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
+
+    def test_editing_other_fields_keeps_the_guardian(self):
+        result = self._update(schoolName="New High", yearLevel=11)
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_last_name, "Parent")
+        self.assertEqual(self.profile.pg_email, "pat@example.com")
+        self.assertFalse(self._audits().exists())
+
+    def test_editing_other_fields_keeps_a_pending_change(self):
+        self._make_pending()
+
+        self._update(yearLevel=11)
+
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.joinperm_responseID, "R_old")
+
+    def test_admin_sets_the_guardian(self):
+        result = self._update(
+            guardianFirstName=" Sam ", guardianLastName="Sitter", guardianEmail="SAM@example.com",
+        )
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Sam")
+        self.assertEqual(self.profile.pg_last_name, "Sitter")
+        self.assertEqual(self.profile.pg_email, "sam@example.com")
+        self.assertEqual(result["data"]["guardianFirstName"], "Sam")
+        audit = self._audits().get()
+        self.assertEqual(audit.actor_user, self.admin_user)
+        self.assertEqual(audit.before_state["guardianFirstName"], "Pat")
+        self.assertEqual(audit.after_state["guardianFirstName"], "Sam")
+
+    def test_admin_can_clear_the_guardian_email(self):
+        self._update(guardianEmail="")
+
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.pg_email)
+
+    def test_admin_setting_the_guardian_clears_a_pending_change(self):
+        self._make_pending()
+
+        self._update(guardianEmail="pat.new@example.com")
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertTrue(self.profile.has_join_permission)
+
+    def test_admin_records_consent(self):
+        result = self._update(joinpermResponseId=" R_paper ")
+
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.joinperm_responseID, "R_paper")
+        self.assertIsNotNone(self.profile.joinperm_granted_at)
+        self.assertEqual(result["data"]["joinpermResponseId"], "R_paper")
+        self.assertIsNotNone(result["data"]["joinPermissionGrantedAt"])
+        audit = self._audits().get()
+        self.assertFalse(audit.before_state["joinPermissionReceived"])
+        self.assertTrue(audit.after_state["joinPermissionReceived"])
+
+    def test_admin_revokes_consent(self):
+        self.profile.has_join_permission = True
+        self.profile.joinperm_granted_at = timezone.now()
+        self.profile.save()
+
+        self._update(joinpermResponseId="")
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.joinperm_granted_at)
+        self.assertEqual(self._audits().count(), 1)
+
+    def test_recording_consent_promotes_a_pending_guardian(self):
+        self._make_pending()
+        old_granted_at = self.profile.joinperm_granted_at
+
+        self._update(joinpermResponseId="R_new")
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin@example.com")
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.joinperm_responseID, "R_new")
+        self.assertGreater(self.profile.joinperm_granted_at, old_granted_at)
+
+    def test_payload_includes_the_pending_guardian(self):
+        self._make_pending()
+
+        data = self._update(yearLevel=11)["data"]
+
+        self.assertEqual(data["pendingGuardian"]["firstName"], "Robin")
+        self.assertEqual(data["pendingGuardian"]["email"], "robin@example.com")
+
+    def test_rejects_invalid_guardian_input(self):
+        cases = [
+            ({"guardianFirstName": "  "}, "Guardian first name cannot be blank"),
+            ({"guardianLastName": ""}, "Guardian last name cannot be blank"),
+            ({"guardianEmail": "not-an-email"}, "Guardian email is not a valid email address"),
+            ({"guardianEmail": "Ward@Example.com"}, "Guardian email cannot be the student's own email"),
+        ]
+        for fields, message in cases:
+            with self.subTest(fields=fields):
+                result = self._update(**fields)
+                self.assertEqual(result["msg"], message)
+                self.assertIsNone(result["data"])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_email, "pat@example.com")
+        self.assertFalse(self._audits().exists())

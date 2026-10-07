@@ -76,6 +76,46 @@
         </dl>
       </section>
 
+      <section v-if="user?.role === 'student'" class="admin-users-detail__section" data-test="admin-guardian">
+        <h3>Guardian &amp; Consent</h3>
+        <dl class="admin-users-detail__list">
+          <div class="admin-users-detail__item">
+            <dt>Guardian</dt>
+            <dd data-test="admin-guardian-name">{{ guardian.name || '—' }}</dd>
+          </div>
+          <div class="admin-users-detail__item">
+            <dt>Guardian email</dt>
+            <dd>{{ user.guardianEmail || '—' }}</dd>
+          </div>
+          <div class="admin-users-detail__item">
+            <dt>Consent</dt>
+            <dd data-test="admin-consent">
+              <span
+                class="admin-users__consent-badge"
+                :class="`admin-users__consent-badge--${guardian.consent}`"
+              >
+                {{ consentLabel }}
+              </span>
+            </dd>
+          </div>
+          <div v-if="user.joinPermissionReceived" class="admin-users-detail__item">
+            <dt>Consent response</dt>
+            <dd>{{ user.joinpermResponseId || 'None on record' }}</dd>
+          </div>
+          <div v-if="user.joinPermissionReceived && user.joinPermissionGrantedAt" class="admin-users-detail__item">
+            <dt>Recorded</dt>
+            <dd>{{ formatFullDate(user.joinPermissionGrantedAt) }}</dd>
+          </div>
+          <div v-if="user.pendingGuardian" class="admin-users-detail__item" data-test="admin-pending-guardian">
+            <dt>Requested change</dt>
+            <dd>
+              {{ user.pendingGuardian.firstName }} {{ user.pendingGuardian.lastName }}
+              ({{ user.pendingGuardian.email || 'no email' }}), waiting for their consent
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       <section v-if="user?.role === 'mentor'" class="admin-users-detail__section">
         <h3>Mentor Profile</h3>
         <dl class="admin-users-detail__list">
@@ -149,6 +189,7 @@
 import { computed } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminUser } from '@/utils/adminAPI'
+import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
   formatFullDate,
   joinInterests,
@@ -171,6 +212,23 @@ const emit = defineEmits<{
 }>()
 
 const detailTitle = computed(() => userName(props.user) || 'User details')
+
+const guardian = computed(() => {
+  const user = props.user
+  const placeholder = isPlaceholderGuardian(user?.guardianFirstName, user?.guardianLastName, user?.firstName, user?.lastName)
+  return {
+    name: placeholder ? '' : `${user?.guardianFirstName || ''} ${user?.guardianLastName || ''}`.trim(),
+    // Consent with no form response on record is what the old admin path
+    // granted as a side effect — flag it rather than show it as received.
+    consent: !user?.joinPermissionReceived ? 'missing' : user.joinpermResponseId ? 'received' : 'unverified'
+  }
+})
+
+const consentLabel = computed(() => ({
+  received: 'Received',
+  unverified: 'Marked received, no response on record',
+  missing: 'Not received'
+})[guardian.value.consent])
 
 const onDismiss = () => {
   emit('close')
@@ -210,6 +268,29 @@ const onDismiss = () => {
 .admin-users__logged-in-badge--yes {
   background-color: rgba(16, 185, 129, 0.12);
   color: #047857;
+}
+
+.admin-users__consent-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-users__consent-badge--received {
+  background-color: var(--light-green);
+  color: var(--dark-green);
+}
+
+.admin-users__consent-badge--unverified {
+  border: 1px solid var(--warning);
+  color: var(--charcoal);
+}
+
+.admin-users__consent-badge--missing {
+  background-color: var(--bg-light);
+  color: var(--text-muted);
 }
 
 .admin-users-detail__section h3 {

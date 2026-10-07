@@ -203,6 +203,13 @@ export interface AdminUserSupervisee {
   email: string
 }
 
+export interface AdminPendingGuardian {
+  firstName: string
+  lastName: string
+  email: string | null
+  requestedAt: string
+}
+
 export interface AdminUser {
   id: number
   firstName: string | null
@@ -219,7 +226,13 @@ export interface AdminUser {
   mentorReason: string | null
   mentorMaxGroupCount: number | null
   yearLevel: number | null
+  guardianFirstName: string | null
+  guardianLastName: string | null
+  guardianEmail: string | null
   joinPermissionReceived: boolean
+  joinpermResponseId: string | null
+  joinPermissionGrantedAt: string | null
+  pendingGuardian: AdminPendingGuardian | null
   interests: string[]
   isAdmin: boolean
   isActive: boolean
