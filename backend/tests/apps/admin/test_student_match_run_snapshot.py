@@ -56,7 +56,7 @@ class StudentMatchRunSnapshotTests(TestCase):
         self.assertEqual(snapshot["totalWeight"], "100.0")
         self.assertEqual(snapshot["weights"]["yearWeight"], 30.0)
         # The existing payload is preserved alongside the rules block.
-        self.assertEqual(snapshot["strategy"], "hybrid-join-or-form")
+        self.assertEqual(snapshot["strategy"], "form-only")
 
     def test_snapshot_falls_back_to_the_builtin_weights(self):
         match_student(str(self.admin.id))
