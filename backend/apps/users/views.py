@@ -10,6 +10,8 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.middleware.csrf import get_token
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
@@ -35,9 +37,10 @@ from .serializers import (
     SupervisedStudentSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
+    StudentSelfProfileUpdateSerializer,
 )
+from .profile_images import save_profile_image
 from apps.common.rbac import is_admin, user_has_role
-from rest_framework.exceptions import PermissionDenied
 from apps.common.pii import email_log_tag
 from config.errors import (
     AccountInactive,
@@ -276,6 +279,12 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 #     surface immediately instead of looking like a silent no-op.
 SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 
+STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
+    "first_name", "last_name", "school_name", "year_lvl",
+    "pg_firstname", "pg_lastname", "pg_email",
+    "country_id", "state_id", "interest_ids",
+})
+
 SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
     "role_id", "role",
     "account_status",
@@ -293,8 +302,8 @@ SELF_PATCH_REJECTED_MESSAGE = (
 class MeRetrieveView(generics.RetrieveAPIView):
     """Authenticated user's self-profile endpoint.
 
-    PATCH is intentionally restricted to ``SELF_PATCHABLE_FIELDS`` (currently
-    just ``timezone``). Any field in ``SELF_PATCH_REJECTED_FIELDS`` aborts the
+    PATCH allows timezone and validated registration fields for unmanaged
+    students. Other fields in ``SELF_PATCH_REJECTED_FIELDS`` abort the
     entire request with HTTP 400 and a field-keyed error message — see the
     module-level comment above for the security rationale. The legitimate
     admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
@@ -308,11 +317,13 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user
 
+    @transaction.atomic
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data = request.data
 
-        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS)
+        student_geography = {"country_id", "state_id"} if StudentProfile.objects.filter(user=user).exists() else set()
+        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS and field not in student_geography)
         if rejected:
             # One warning per blocked attempt so credential-stuffed accounts
             # and compromised clients show up as 4xx spikes in log metrics
@@ -324,6 +335,80 @@ class MeRetrieveView(generics.RetrieveAPIView):
             raise serializers.ValidationError(
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
+
+        student_update_data = {
+            key: value for key, value in data.items() if key in STUDENT_SELF_PROFILE_FIELDS
+        }
+        if student_update_data:
+            student_serializer = StudentSelfProfileUpdateSerializer(data=student_update_data)
+            student_serializer.is_valid(raise_exception=True)
+
+            with transaction.atomic():
+                profile = StudentProfile.objects.select_for_update().filter(user=user).first()
+                if profile is None:
+                    raise serializers.ValidationError(
+                        {"detail": "Only student profiles can update these fields."}
+                    )
+                if profile.supervisor_id is not None:
+                    raise PermissionDenied(
+                        "Your supervisor manages these registration details. Contact them to make changes."
+                    )
+
+                cleaned = student_serializer.validated_data
+                country = cleaned.get("country_id", user.country)
+                state = cleaned.get("state_id", user.state)
+                if "country_id" in cleaned and "state_id" not in cleaned and state and state.country_id != getattr(country, "pk", None):
+                    state = None
+                if ("country_id" in cleaned or "state_id" in cleaned) and state and state.country_id != getattr(country, "pk", None):
+                    raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                if "country_id" in cleaned or "state_id" in cleaned:
+                    user.country, user.state = country, state
+                    user.save(update_fields=["country", "state"])
+                if "interest_ids" in cleaned:
+                    selected = {interest.pk for interest in cleaned["interest_ids"]}
+                    UserInterest.objects.filter(user=user).exclude(interest_id__in=selected).delete()
+                    for interest_id in selected:
+                        UserInterest.objects.get_or_create(user=user, interest_id=interest_id)
+                if "pg_email" in cleaned:
+                    cleaned["pg_email"] = cleaned["pg_email"] or None
+                user_fields = {
+                    field: cleaned[field]
+                    for field in ("first_name", "last_name")
+                    if field in cleaned
+                }
+                if user_fields:
+                    for field, value in user_fields.items():
+                        setattr(user, field, value)
+                    user.save(update_fields=list(user_fields))
+
+                profile_field_map = {
+                    "school_name": "school_name",
+                    "year_lvl": "year_lvl",
+                    "pg_firstname": "pg_first_name",
+                    "pg_lastname": "pg_last_name",
+                    "pg_email": "pg_email",
+                }
+                guardian_fields = {"pg_firstname", "pg_lastname", "pg_email"}
+                guardian_changed = any(
+                    field in cleaned and (cleaned[field] or "") != (getattr(profile, profile_field_map[field]) or "")
+                    for field in guardian_fields
+                )
+                profile_update_fields = []
+                for request_field, model_field in profile_field_map.items():
+                    if request_field in cleaned:
+                        setattr(profile, model_field, cleaned[request_field])
+                        profile_update_fields.append(model_field)
+
+                # Changing guardian details invalidates a prior consent response.
+                if guardian_changed:
+                    profile.has_join_permission = False
+                    profile.joinperm_responseID = None
+                    profile.joinperm_granted_at = None
+                    profile.guardian_reminder_sent_at = None
+                    profile.guardian_reminder_due_at = None
+                    profile_update_fields.extend(["has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
+                if profile_update_fields:
+                    profile.save(update_fields=list(set(profile_update_fields)))
 
         # Route every allowed field through ``UserSerializer`` so the same
         # validators the rest of the codebase relies on (e.g. the IANA
@@ -339,6 +424,21 @@ class MeRetrieveView(generics.RetrieveAPIView):
             serializer.save()
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class ProfileImageUploadView(APIView):
+    """Replace the authenticated user's private profile image."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(request=None, responses={200: UserSerializer})
+    def post(self, request):
+        image = request.FILES.get("image")
+        if image is None:
+            raise serializers.ValidationError({"image": "Select an image to upload."})
+        save_profile_image(user=request.user, uploaded_file=image)
+        return Response(UserSerializer(request.user).data)
 
 
 class SupervisedStudentsView(APIView):
@@ -784,6 +884,7 @@ class ReceiveJoinPermissionView(APIView):
         # reject the save.
         sp.parent_guardian_flag = True
         sp.has_join_permission = True
+        sp.guardian_reminder_due_at = None
         sp.joinperm_responseID = databody["ResponseID"]
         if sp.joinperm_granted_at is None:
             sp.joinperm_granted_at = timezone.now()

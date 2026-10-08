@@ -208,6 +208,7 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             profile.promote_pending_guardian()
         profile.parent_guardian_flag = True
         profile.has_join_permission = True
+        profile.guardian_reminder_due_at = None
         profile.joinperm_responseID = consent.reference
         profile.joinperm_granted_at = now
         profile.media_consent = media_consent

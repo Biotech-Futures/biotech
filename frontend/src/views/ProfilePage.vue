@@ -37,7 +37,12 @@
 
     <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
-        <div class="profile-avatar-large">{{ getInitials(user.name) }}</div>
+        <div class="profile-avatar-wrap">
+          <img v-if="avatarUrl" class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" @error="avatarUrl = ''" />
+          <div v-else class="profile-avatar-large profile-avatar-initials" :aria-label="user.name">{{ getInitials(user.name) }}</div>
+          <label class="avatar-change" for="profile-avatar">Change photo</label>
+          <input id="profile-avatar" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
+        </div>
         <h2 class="profile-name">{{ user.name }}</h2>
         <p class="profile-role">{{ capitalise(user.role) }} | {{ user.country }}</p>
       </div>
@@ -115,7 +120,23 @@
         </div>
 
         <div v-if="user.student.hasDetails" class="profile-section">
-          <h3 class="profile-section-title">Student Details</h3>
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Student Details <span v-if="hasLinkedSupervisor" class="registration-lock" role="img" aria-label="Registered by your supervisor. You cannot edit your own details." data-tooltip="Registered by your supervisor. You cannot edit your own details."><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
+            <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" @click="startStudentEdit">Edit details</button>
+          </div>
+          <form v-if="studentEditing" class="student-edit-form" @submit.prevent="saveStudentDetails">
+            <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
+            <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
+            <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
+            <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
+            <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
+            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
+            <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
+            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
+          </form>
+          <template v-else>
+          <div class="profile-field"><span class="profile-field-label">Name:</span><span class="profile-field-value">{{ user.name }}</span></div>
           <div class="profile-field">
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.student.schoolName }}</span>
@@ -156,6 +177,31 @@
               <span v-else>{{ user.student.supervisorEmail }}</span>
             </span>
           </div>
+          </template>
+        </div>
+
+        <div v-if="user.student.hasDetails && !studentEditing" class="profile-section">
+          <h3 class="profile-section-title">Team members</h3>
+          <p v-if="teamLoading" class="profile-note">Loading your team…</p>
+          <p v-else-if="teamError" class="profile-note">{{ teamError }}</p>
+          <template v-else-if="teamMembers.length">
+            <p class="profile-note">{{ teamName }}</p>
+            <div class="team-table-wrap">
+              <table class="team-table">
+                <thead><tr><th scope="col">First name</th><th scope="col">Last name</th><th scope="col">Year level</th><th scope="col">School</th><th scope="col">Supervisor</th></tr></thead>
+                <tbody>
+                  <tr v-for="member in teamMembers" :key="member.id">
+                    <td>{{ member.first_name || unsetLabel }}</td>
+                    <td>{{ member.last_name || unsetLabel }}</td>
+                    <td>{{ member.year_level || unsetLabel }}</td>
+                    <td>{{ member.school || unsetLabel }}</td>
+                    <td>{{ member.supervisor || 'Not assigned' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <p v-else class="profile-note">You have not been assigned to a team yet.</p>
         </div>
 
         <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
@@ -287,6 +333,12 @@
               </span>
             </span>
           </div>
+          <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">{{ formatPermissionReceivedAt(auth.user.guardian_reminder?.last_sent_at) || 'Not recorded' }}</span></div>
+          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.guardian.consentReceived && !user.guardian.pending ? 'No further reminder required' : formatPermissionReceivedAt(auth.user.guardian_reminder?.next_due_at) || 'No automatic reminder scheduled' }}</span></div>
+          <template v-if="!user.guardian.consentReceived || user.guardian.pending">
+            <button class="btn btn-outline" type="button" :disabled="guardianSending || !auth.user.guardian_reminder?.can_send" @click="sendGuardianInvitation">{{ guardianSending ? 'Sending…' : 'Resend guardian invitation' }}</button>
+            <p v-if="auth.user.guardian_reminder?.unavailable_reason" class="profile-note">{{ auth.user.guardian_reminder.unavailable_reason }}</p>
+          </template>
         </div>
 
         <div v-if="user.mentor.hasDetails" class="profile-section">
@@ -336,7 +388,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { buildSessionHeaders } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
@@ -350,8 +402,32 @@ const loading = ref(true)
 const error = ref('')
 const statusMessage = ref('')
 const timezoneSaving = ref(false)
+const studentSaving = ref(false)
+const studentEditing = ref(false)
+const studentDraft = ref({
+  first_name: '',
+  last_name: '',
+  school_name: '',
+  year_lvl: '9',
+  pg_firstname: '',
+  pg_lastname: '',
+  pg_email: '',
+  country_id: null,
+  state_id: null,
+  interest_ids: [],
+})
+const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
+const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+const guardianSending = ref(false)
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
+const teamMembers = ref([])
+const teamName = ref('')
+const teamLoading = ref(false)
+const teamError = ref('')
+const DEFAULT_PROFILE_AVATAR = ''
+const avatarUrl = ref(DEFAULT_PROFILE_AVATAR)
+const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
 let statusMessageTimer = null
 const commonTimeZones = [
@@ -400,6 +476,8 @@ const timeZoneOptions = computed(() => {
 })
 
 const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
+const hasLinkedSupervisor = computed(() => Boolean(auth.user?.supervisor_id || user.value?.student?.supervisorEmailAddress))
+const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !hasLinkedSupervisor.value)
 
 watch(
   () => auth.timeZone,
@@ -449,9 +527,164 @@ const clearStatusMessageTimer = () => {
   statusMessageTimer = null
 }
 
+const showTemporaryStatus = (message) => {
+  clearStatusMessageTimer()
+  statusMessage.value = message
+  statusMessageTimer = window.setTimeout(() => {
+    statusMessage.value = ''
+    statusMessageTimer = null
+  }, 3200)
+}
+
+const startStudentEdit = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-options/`, { credentials: 'include', headers: buildSessionHeaders() })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    profileOptions.value = await response.json()
+  } catch (loadError) {
+    error.value = loadError instanceof Error ? loadError.message : 'Profile options could not be loaded.'
+    return
+  }
+  const source = auth.user || {}
+  studentDraft.value = {
+    first_name: source.first_name || '',
+    last_name: source.last_name || '',
+    school_name: source.school_name || '',
+    year_lvl: source.year_lvl || '9',
+    country_id: source.country?.id || null,
+    state_id: source.state?.id || null,
+    interest_ids: [...profileOptions.value.selected_interest_ids],
+  }
+  error.value = ''
+  studentEditing.value = true
+}
+
+const cancelStudentEdit = () => {
+  if (studentSaving.value) return
+  studentEditing.value = false
+  error.value = ''
+}
+
+const sendGuardianInvitation = async () => {
+  guardianSending.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) throw new Error('Please refresh and try again.')
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/guardian-invitation/`, {
+      method: 'POST', credentials: 'include', headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify({}),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    const refreshed = await fetch(`${API_BASE_URL}/api/v1/users/me/`, { credentials: 'include', headers: buildSessionHeaders() })
+    if (!refreshed.ok) throw new Error('Invitation sent, but your profile could not be refreshed. Please reload the page.')
+    auth.loginWithUser(await refreshed.json())
+    showTemporaryStatus('Guardian invitation sent.')
+  } catch (sendError) {
+    error.value = sendError instanceof Error ? sendError.message : 'The invitation could not be sent.'
+  } finally { guardianSending.value = false }
+}
+
+const saveStudentDetails = async () => {
+  if (!canEditStudentDetails.value) return
+  studentSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(Object.fromEntries(Object.entries(studentDraft.value).filter(([key]) => !key.startsWith('pg_')))),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    studentEditing.value = false
+    showTemporaryStatus('Your details have been updated.')
+    await loadTeamMembers()
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your details could not be updated.'
+  } finally {
+    studentSaving.value = false
+  }
+}
+
+const selectAvatar = async (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    error.value = 'Choose a PNG, JPEG, or WebP image smaller than 5 MB.'
+    return
+  }
+  error.value = ''
+  statusMessage.value = 'Uploading profile picture…'
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure upload session. Please refresh and try again.')
+    }
+    const form = new FormData()
+    form.append('image', file)
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-image/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true, isFormData: true }),
+      body: form,
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(data?.image?.[0] || data?.detail || 'Your profile picture could not be uploaded.')
+    auth.loginWithUser(data)
+    avatarUrl.value = data.profile_image_url || DEFAULT_PROFILE_AVATAR
+    localStorage.removeItem('btf-local-profile-avatar')
+    window.dispatchEvent(new Event('btf-profile-avatar-changed'))
+    statusMessage.value = 'Profile picture uploaded successfully.'
+  } catch (uploadError) {
+    error.value = uploadError instanceof Error ? uploadError.message : 'Your profile picture could not be uploaded.'
+    statusMessage.value = ''
+  } finally {
+    event.target.value = ''
+  }
+}
+
+const loadTeamMembers = async () => {
+  teamLoading.value = true
+  teamError.value = ''
+  try {
+    const groupsResponse = await fetch(`${API_BASE_URL}/groups/groups/?page_size=1&mine=true`, { credentials: 'include', headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }) })
+    if (!groupsResponse.ok) throw new Error('Your team could not be loaded.')
+    const groups = (await groupsResponse.json())?.results || []
+    if (!groups[0]?.id) return
+    teamName.value = groups[0].group_name || `Group ${groups[0].id}`
+    const response = await fetch(`${API_BASE_URL}/groups/group-members/by-group/${groups[0].id}/`, { credentials: 'include', headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }) })
+    if (!response.ok) throw new Error('Your team members could not be loaded.')
+    // Student profiles are shown before the challenge begins, when a mentor
+    // has not yet been allocated. Keep the table focused on student teammates
+    // even if development data already has a mentor attached to the group.
+    teamMembers.value = (await response.json())
+      .filter((member) => String(member.membership_role || '').trim().toLowerCase() === 'student')
+      .map((member) => ({ id: member.id, ...member.student_details }))
+  } catch (loadError) {
+    teamError.value = loadError instanceof Error ? loadError.message : 'Your team members could not be loaded.'
+  } finally { teamLoading.value = false }
+}
+
 const valueOrFallback = (value, fallback = 'Not provided') => {
   const text = String(value ?? '').trim()
   return text || fallback
+}
+
+const formatPermissionReceivedAt = (value) => {
+  if (!value) return ''
+  const receivedAt = new Date(value)
+  if (Number.isNaN(receivedAt.getTime())) return ''
+  return receivedAt.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: auth.timeZone || 'Australia/Sydney',
+  })
 }
 
 const listOrEmpty = (value) => {
@@ -497,6 +730,9 @@ const user = computed(() => {
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
+  const permissionReceived = Boolean(source?.join_perm)
+  const permissionReceivedAt = formatPermissionReceivedAt(source?.joinperm_granted_at)
+
   return {
     name: fullName,
     email: source?.email || 'Unavailable',
@@ -512,7 +748,14 @@ const user = computed(() => {
       interests,
       supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
-      supervisorEmailAddress
+      supervisorEmailAddress,
+      guardianFirstName: valueOrFallback(source?.pg_firstname, unsetLabel),
+      guardianLastName: valueOrFallback(source?.pg_lastname, unsetLabel),
+      guardianEmail: valueOrFallback(source?.pg_email, unsetLabel),
+      permissionReceived,
+      permissionStatus: permissionReceived
+        ? `Received${permissionReceivedAt ? ` on ${permissionReceivedAt}` : ''}`
+        : 'Not received'
     },
     guardian: {
       hasDetails: hasStudentDetails,
@@ -673,6 +916,7 @@ async function loadProfile() {
     if (!auth.user) {
       throw new Error('Your current user profile could not be loaded.')
     }
+    avatarUrl.value = auth.user.profile_image_url || DEFAULT_PROFILE_AVATAR
   } catch (loadError) {
     error.value = loadError instanceof Error
       ? loadError.message
@@ -684,6 +928,7 @@ async function loadProfile() {
 
 onMounted(() => {
   loadProfile()
+  loadTeamMembers()
 })
 </script>
 
@@ -956,6 +1201,40 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 
+.profile-avatar-wrap { position: relative; display:flex; flex-direction:column; align-items:center; }
+.profile-avatar-initials { display:flex; align-items:center; justify-content:center; border-radius:50%; background:var(--white); color:var(--dark-green); font-size:2rem; font-weight:700; }
+.profile-section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
+.profile-section-heading .profile-section-title { margin:0; }
+.profile-avatar-large { width: 104px; height: 104px; flex-shrink:0; border: 4px solid rgba(255,255,255,.82); object-fit: cover; object-position:center; }
+.avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
+.permission-status { font-weight: 600; color: #9c401a; }
+.permission-status.received { color: var(--dark-green); }
+.profile-note { margin: 1rem 0 0; color: #5c6670; font-size: .92rem; }
+.profile-note a { color: var(--dark-green); }
+.registration-lock { position:relative; display:inline-flex; width:.9rem; height:.9rem; margin-left:.3rem; color:#657069; vertical-align:-.08rem; cursor:help; }
+.registration-lock svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
+.registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
+.profile-edit-button { margin:0; font-size:.85rem; }
+.student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
+.student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
+.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
+.student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
+.student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }
+.student-edit-form .interest-options input { width:auto; }
+.student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
+.student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
+.student-edit-actions .btn { margin:0; }
+.team-table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border-light); border-radius:8px; }
+.team-table { width:100%; border-collapse:collapse; min-width:360px; }
+.team-table th, .team-table td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid var(--border-light); }
+.team-table th { background:var(--accent-green-soft); color:var(--dark-green); font-size:.82rem; letter-spacing:.04em; text-transform:uppercase; }
+.team-table tr:last-child td { border-bottom:0; }
+.team-table td:first-child { display:flex; align-items:center; gap:.6rem; }
+.member-initial { display:inline-grid; place-items:center; width:2rem; height:2rem; border-radius:50%; background:var(--accent-green-soft); color:var(--dark-green); font-weight:700; }
+.member-role { color:#657069; font-size:.88rem; }
+
 @media (max-width: 640px) {
   .status-card {
     top: 0.75rem;
@@ -986,6 +1265,10 @@ onMounted(() => {
   .guardian-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .student-edit-form, .student-edit-form fieldset {
+    grid-template-columns:1fr;
   }
 }
 </style>
