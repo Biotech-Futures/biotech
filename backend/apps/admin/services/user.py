@@ -19,6 +19,7 @@ from apps.groups.models import (
     group_name_sort_key,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
+from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
@@ -190,6 +191,7 @@ def upsert_student_profile(
     joinperm_response_id: Any = _UNSET,
     state_id: Optional[int] = None,
     country_id: Optional[int] = None,
+    media_consent: Any = _UNSET,
 ) -> None:
     """
     Create or update student profile.
@@ -283,6 +285,13 @@ def upsert_student_profile(
     else:
         profile_data["joinperm_granted_at"] = None
 
+    # A media choice only stands alongside consent to take part; revoking that
+    # consent clears it, as a withdrawal does.
+    if media_consent is not _UNSET and profile_data["has_join_permission"]:
+        profile_data["media_consent"] = bool(media_consent)
+    elif joinperm_response_id is not _UNSET and not profile_data["has_join_permission"]:
+        profile_data["media_consent"] = None
+
     if supervisor_email is not _UNSET:
         profile_data["supervisor_id"] = _resolve_supervisor_id(
             supervisor_email,
@@ -296,6 +305,9 @@ def upsert_student_profile(
     student_profile, _ = StudentProfile.objects.update_or_create(
         user_id=user_id,
         defaults=profile_data,
+        # Added by an admin (one at a time or by import): the student can still
+        # edit their own details.
+        create_defaults={**profile_data, "registered_by": StudentProfile.RegisteredBy.ADMIN},
     )
 
     supervisor_id = profile_data.get("supervisor_id")
@@ -438,13 +450,91 @@ GUARDIAN_AUDIT_KEYS = (
     "guardianEmail",
     "joinPermissionReceived",
     "joinpermResponseId",
+    "mediaConsent",
     "pendingGuardian",
 )
+
+
+def _consent_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """The admin form's consent tick boxes, as ``upsert_student_profile`` takes
+    what they give.
+
+    ``consentGiven: true`` records the guardian's consent to the student taking
+    part, under an ``ADMIN-`` reference so it isn't flagged as having no form
+    on record; a pending guardian who consents this way becomes the guardian.
+    ``mediaConsent`` goes with it, or ``mediaConsent: true`` on its own records
+    media consent given later. Unticking is a withdrawal (``_withdrawals``).
+    An explicit ``joinpermResponseId`` still wins: "" revokes consent.
+    """
+    inputs: Dict[str, Any] = {}
+    giving = input_data.get("consentGiven") is True
+    if "joinpermResponseId" in input_data:
+        inputs["joinperm_response_id"] = input_data["joinpermResponseId"]
+    elif giving:
+        inputs["joinperm_response_id"] = f"ADMIN-{timezone.now():%Y%m%d%H%M%S}"
+    media = input_data.get("mediaConsent")
+    if isinstance(media, bool) and (giving or media):
+        inputs["media_consent"] = media
+    return inputs
+
+
+def _withdrawals(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> None:
+    """Unticking a consent on the admin form records the guardian's
+    withdrawal, as the detail sheet's buttons do: a signed consent is marked
+    withdrawn rather than quietly cleared."""
+    from apps.users import guardian_consent
+
+    profile = StudentProfile.objects.filter(user_id=user_id).first()
+    if profile is None or not profile.has_join_permission:
+        return
+    if input_data.get("consentGiven") is False:
+        guardian_consent.withdraw(profile, media_only=False, initiated_by=initiated_by)
+    elif input_data.get("mediaConsent") is False and profile.media_consent is not False:
+        guardian_consent.withdraw(profile, media_only=True, initiated_by=initiated_by)
 
 
 def _guardian_audit_state(user_id: int) -> Dict[str, Any]:
     guardian = _guardian_dict(StudentProfile.objects.filter(user_id=user_id).first())
     return {key: guardian[key] for key in GUARDIAN_AUDIT_KEYS}
+
+
+# Audit actions that change a user's details, for "Last edited by": by an
+# admin, the user themselves or their supervisor.
+EDIT_ACTIONS = (
+    "update",
+    "role_change",
+    "status_change",
+    "guardian_update",
+    "guardian_consent_withdrawn",
+    "guardian_media_consent_withdrawn",
+    "profile_update",
+)
+_NO_EDIT = {"lastEditedBy": None, "lastEditedAt": None}
+
+
+def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
+    """Who last changed each of ``user_ids``' details and when: their newest
+    edit in the audit log made by someone, not by the platform itself."""
+    latest = (
+        AuditLog.objects.filter(
+            entity_type="user",
+            entity_id__in=list(user_ids),
+            action__in=EDIT_ACTIONS,
+            actor_user__isnull=False,
+        )
+        .order_by()
+        .values("entity_id")
+        .annotate(latest=Max("id"))
+        .values_list("latest", flat=True)
+    )
+    edits: Dict[int, Dict[str, Any]] = {}
+    for entry in AuditLog.objects.filter(id__in=list(latest)).select_related("actor_user"):
+        actor = entry.actor_user
+        edits[entry.entity_id] = {
+            "lastEditedBy": f"{actor.first_name or ''} {actor.last_name or ''}".strip() or actor.email,
+            "lastEditedAt": entry.created_at.isoformat(),
+        }
+    return edits
 
 
 def build_user_dict(user: User, role_str: Optional[str] = None,
@@ -519,6 +609,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
 
@@ -743,6 +834,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                 "name": gm.group.group_name,
             }
 
+    last_edit_map = last_edits(user_ids)
+
     # User interests — plain strings to match build_user_dict
     interests_map: Dict[int, List[str]] = {}
     for ui in UserInterest.objects.filter(user_id__in=user_ids).select_related('interest'):
@@ -830,6 +923,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            **last_edit_map.get(uid, _NO_EDIT),
         })
 
     return {
@@ -1121,11 +1215,9 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         guardian_first_name=input_data.get("guardianFirstName"),
                         guardian_last_name=input_data.get("guardianLastName"),
                         guardian_email=input_data.get("guardianEmail"),
-                        joinperm_response_id=input_data.get(
-                            "joinpermResponseId", _UNSET
-                        ),
                         state_id=state_id,
                         country_id=country_id,
+                        **_consent_inputs(input_data),
                     )
                 
                 if role == "supervisor":
@@ -1413,7 +1505,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Max group count is required for mentor users", "data": None}
 
     role_changed = "role" in input_data and input_data["role"] != current_role
-    before_user = fetch_user_by_id(user_id) if role_changed else None
+    before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
 
     # Handle geography update. Country is the required half for non-admins; state
@@ -1505,10 +1597,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                         str(input_data["guardianEmail"] or "").strip().lower()
                         if "guardianEmail" in input_data else None
                     ),
-                    joinperm_response_id=input_data.get("joinpermResponseId", _UNSET),
                     state_id=user.state_id,
                     country_id=user.country_id,
+                    **_consent_inputs(input_data),
                 )
+                _withdrawals(user_id, input_data, initiated_by)
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
             
@@ -1571,7 +1664,22 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 before_state=before_guardian,
                 after_state=after_guardian,
             )
+    # Any change at all, so the user's page can say who last edited it.
+    if _without_last_edit(updated_user) != _without_last_edit(before_user):
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="user",
+            entity_id=user_id,
+            action="update",
+            before_state=before_user,
+            after_state=updated_user,
+        )
+        updated_user = fetch_user_by_id(user_id)
     return {"msg": "User updated successfully", "data": updated_user}
+
+
+def _without_last_edit(user_dict: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    return {key: value for key, value in (user_dict or {}).items() if key not in _NO_EDIT}
 
 
 def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str, Any]:

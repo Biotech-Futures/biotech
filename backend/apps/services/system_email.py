@@ -155,39 +155,88 @@ def is_email_enabled(key: str) -> bool:
 
 # --- admin-written bodies --------------------------------------------------
 
-# The editor's box and button blocks, and its tables' cells, carry inline
-# styles, since email clients ignore most stylesheets. Only these properties
-# are kept: enough to draw a box, a button or a table's lines, and nothing
-# that can load a URL or move content around.
+# The editor's text, box and button blocks, and its tables' cells, carry
+# inline styles, since email clients ignore most stylesheets. Only these
+# properties are kept: enough for the templates' text colours, sizes and
+# spacing, a box, a button or a table's lines, and nothing that can load a
+# URL or move content around.
 EMAIL_STYLE_PROPERTIES = frozenset({
     "background-color", "border", "border-collapse", "border-radius", "color", "display",
-    "font-family", "font-size", "font-weight", "letter-spacing", "line-height",
+    "font-family", "font-size", "font-weight", "height", "letter-spacing", "line-height",
     "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
     "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "text-align", "text-decoration",
+    "text-align", "text-decoration", "text-transform", "vertical-align", "width", "word-break",
 })
 
-_BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
-_BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
-_BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
-# Tables keep their lines and cell padding.
-for _tag in ("table", "th", "td"):
-    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {"style"}
+# Tags whose inline style is kept: boxes and buttons, tables' lines and cell
+# padding, and, in emails, text (so a template's colours and sizes survive).
+_BLOCK_STYLED_TAGS = ("div", "a", "table", "th", "td")
+_TEXT_STYLED_TAGS = (
+    "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "strong", "b", "em", "i", "u", "s", "code",
+    "ul", "ol", "li", "blockquote", "hr",
+)
 
 
-def clean_email_body(html: str) -> str:
+def _styled(tags) -> dict:
+    attributes = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
+    for tag in tags:
+        attributes[tag] = attributes.get(tag, set()) | {"style"}
+    return attributes
+
+
+_BODY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS + _TEXT_STYLED_TAGS)
+# An email keeps its HTML as written: class names on any tag (the layout's
+# phone styles use some, e.g. headline) and how its tables lay out.
+_BODY_ATTRIBUTES["*"] = _BODY_ATTRIBUTES.get("*", set()) | {"class"}
+for _tag in ("table", "tr", "td", "th"):
+    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {
+        "role", "width", "align", "valign", "cellpadding", "cellspacing", "border", "bgcolor",
+    }
+_BLOCK_ONLY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS)
+
+
+_STYLE_ATTRIBUTE = re.compile(r"""(\sstyle\s*=\s*)(["'])(.*?)\2""", re.IGNORECASE | re.DOTALL)
+# `background:` set to a plain colour, as the templates write their fills.
+_PLAIN_BACKGROUND = re.compile(
+    r"(^|;)\s*background\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)\s*(?=;|$)", re.IGNORECASE
+)
+
+
+def _background_colours(html: str) -> str:
+    """``background: #C3EBCA`` as ``background-color: #C3EBCA``, which is kept;
+    any other ``background`` (an image, say) is still dropped by the clean."""
+    def fill(match):
+        style = _PLAIN_BACKGROUND.sub(r"\1background-color:\2", match.group(3))
+        return f"{match.group(1)}{match.group(2)}{style}{match.group(2)}"
+
+    return _STYLE_ATTRIBUTE.sub(fill, html)
+
+
+def clean_email_body(html: str, *, site_look: bool = False) -> str:
     """Sanitise an admin-written body before it is saved or previewed.
 
-    Strips scripts, event handlers and javascript: URLs like a plain
-    ``nh3.clean``, but keeps the editor's boxes and buttons: their classes
-    (``cta-link`` also makes a button full width on phones) and their styles,
-    and its tables' borders and padding, all limited to
-    ``EMAIL_STYLE_PROPERTIES``.
+    Strips scripts, event handlers, javascript: URLs and tags email doesn't
+    use, like a plain ``nh3.clean``, but keeps the email as written: its
+    text's colours, sizes and spacing, its boxes, buttons and tables, its class
+    names, and its comments (Outlook reads its button code from them), with
+    styles limited to ``EMAIL_STYLE_PROPERTIES``. A plain-colour
+    ``background`` is kept as ``background-color``.
+
+    With ``site_look``, for text shown on the site in its own look, only the
+    boxes' and buttons' styles and classes are kept, and comments go.
     """
+    html = _background_colours(html or "")
+    if site_look:
+        return nh3.clean(
+            html or "",
+            attributes=_BLOCK_ONLY_ATTRIBUTES,
+            allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+            filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
+        )
     return nh3.clean(
         html or "",
         attributes=_BODY_ATTRIBUTES,
-        allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+        strip_comments=False,
         filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
     )
 

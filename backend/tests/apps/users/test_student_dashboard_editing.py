@@ -72,11 +72,16 @@ class StudentDashboardEditingTests(TestCase):
     def test_supervisor_managed_profile_cannot_edit(self):
         supervisor = User.objects.create_user(email="supervisor@example.org")
         self.profile.supervisor = SupervisorProfile.objects.create(user=supervisor, school_name="Test High")
+        # Registered by the supervisor: the details are theirs to change.
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
         self.profile.save()
         response = self.client.patch(self.url, {"interest_ids": [], "first_name": "Changed"}, format="json")
         self.assertEqual(response.status_code, 403)
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, "Hiro")
+
+    def _to(self, address):
+        return [message for message in mail.outbox if message.to == [address]]
 
     def prepare_invitation(self):
         self.profile.has_join_permission = False
@@ -94,7 +99,9 @@ class StudentDashboardEditingTests(TestCase):
         self.assertIsNone(self.profile.guardian_reminder_due_at)
         response = self.client.post(reverse("guardian-invitation"), {}, format="json")
         self.assertEqual(response.status_code, 429)
-        self.assertEqual(len(mail.outbox), 1)
+        # The guardian's request once, and the student told once that it went.
+        self.assertEqual(len(self._to("guardian@example.org")), 1)
+        self.assertEqual(len(self._to("student@example.org")), 1)
 
     def test_missing_guardian_email_cannot_send(self):
         self.prepare_invitation()
@@ -136,9 +143,11 @@ class StudentDashboardEditingTests(TestCase):
         call_command("send_guardian_reminders")
         self.profile.refresh_from_db()
         self.assertGreater(self.profile.guardian_reminder_due_at, timezone.now())
-        self.assertEqual(len(mail.outbox), 1)
+        # The guardian's request, and the student told that it went.
+        self.assertEqual(len(self._to("guardian@example.org")), 1)
+        self.assertEqual(len(self._to("student@example.org")), 1)
         call_command("send_guardian_reminders")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)
 
     def test_team_details_do_not_expose_guardian_data(self):
         group = Groups.objects.create(group_name="Team Test", year=2026)

@@ -1,6 +1,7 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
 from .consent_views import GuardianConsentView
+from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardianDetailsRemindersView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -46,4 +47,14 @@ urlpatterns = [
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),
     path("admin/summary/", AdminOperationalSummaryView.as_view(), name="admin-summary"),
     path("admin/users/bulk-status/", BulkUserStatusView.as_view(), name="admin-bulk-user-status"),
+    path(
+        "admin/send-guardian-details-reminders/",
+        SendGuardianDetailsRemindersView.as_view(),
+        name="guardian-details-reminders",
+    ),
+    path(
+        "admin/send-guardian-consent-reminders/",
+        SendGuardianConsentRemindersView.as_view(),
+        name="guardian-consent-reminders",
+    ),
 ]

@@ -59,6 +59,7 @@ const router = createRouter({
 })
 
 import { useAuthStore } from '../stores/auth'
+import { rememberReturnTo } from '../utils/postLoginRedirect'
 
 router.beforeEach((to, from, next) => {
 
@@ -83,6 +84,8 @@ router.beforeEach((to, from, next) => {
     next('/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
+    // Signing in brings them back here, e.g. to the page an email linked to.
+    rememberReturnTo(to.fullPath)
     next('/login')
 
   } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {

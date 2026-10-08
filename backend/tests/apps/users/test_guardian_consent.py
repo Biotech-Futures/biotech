@@ -9,6 +9,7 @@ import base64
 import io
 import tempfile
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
 from django.core import mail
@@ -132,7 +133,7 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
     # -- signing ---------------------------------------------------------------
 
-    def test_signing_records_consent_and_emails_a_copy(self):
+    def test_signing_records_consent_without_emailing(self):
         response = self.sign(mediaConsent=False)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -151,23 +152,22 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertIs(self.profile.media_consent, False)
         self.assertIsNotNone(consent.request.used_at)
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["pat@example.com"])
-        self.assertIn(consent.reference, mail.outbox[0].alternatives[0][0])
-        self.assertIn("No, media consent not provided", mail.outbox[0].alternatives[0][0])
+        # No confirmation email: the spec has none.
+        self.assertEqual(mail.outbox, [])
         self.assertTrue(AuditLog.objects.filter(action="guardian_consent_signed").exists())
 
-    def test_signing_stores_the_record_pdf_and_attaches_it(self):
+    def test_signing_stores_the_record_pdf(self):
         self.sign()
 
         consent = GuardianConsent.objects.get()
-        self.assertEqual(consent.record_pdf_key, f"{self.profile.user_id}/{consent.reference}.pdf")
+        # The year it was signed, the student's number, and their first consent.
+        year = timezone.localtime(consent.signed_at, ZoneInfo("Australia/Sydney")).year
+        name = f"{year}_{self.profile.user_id}_BTF_1.pdf"
+        self.assertEqual(guardian_consent.record_pdf_filename(consent), name)
+        # Stored under that name, at the top of the container.
+        self.assertEqual(consent.record_pdf_key, name)
         with get_consent_storage().open(consent.record_pdf_key) as stored:
             self.assertTrue(stored.read().startswith(b"%PDF"))
-        [(filename, content, mimetype)] = mail.outbox[0].attachments[1:]  # [0] is the inline logo
-        self.assertEqual(mimetype, "application/pdf")
-        self.assertTrue(filename.startswith(consent.reference))
-        self.assertTrue(content.startswith(b"%PDF"))
 
     def test_storage_failure_does_not_stop_signing(self):
         with patch("apps.common.storage.ManagedContainerStorage.save", side_effect=OSError("down")):
@@ -176,7 +176,6 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         consent = GuardianConsent.objects.get()
         self.assertEqual(consent.record_pdf_key, "")
-        self.assertEqual(len(mail.outbox), 1)  # still sent, with the PDF
 
     def test_record_renders_names_outside_western_scripts(self):
         profile = make_student(email="li@example.com", first="李", pg_email="g3@example.com")
@@ -253,6 +252,7 @@ class AdminConsentTests(TempMediaMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         [item] = response.data["data"]
         self.assertEqual(item["guardianFullName"], "Pat Parent")
+        self.assertRegex(item["fileName"], rf"^20\d\d_{self.profile.user_id}_BTF_1\.pdf$")
         self.assertTrue(item["mediaConsent"])
         self.assertTrue(item["signature"].startswith("data:image/png;base64,"))
 
@@ -269,8 +269,36 @@ class AdminConsentTests(TempMediaMixin, TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertIn(f'filename="{consent.reference}', response["Content-Disposition"])
+        self.assertRegex(response["Content-Disposition"], rf'filename="20\d\d_{self.profile.user_id}_BTF_1\.pdf"')
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_a_students_next_consent_is_numbered_after_their_first(self):
+        # A new guardian, waiting on their own consent, signs.
+        self.profile.refresh_from_db()
+        self.profile.pending_pg_first_name = "Robin"
+        self.profile.pending_pg_last_name = "Carer"
+        self.profile.pending_pg_email = "robin@example.com"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
+        guardian_consent.sign(
+            issue(self.profile), full_name="Robin Carer", media_consent=False,
+            signature=png_data_url(), version=CURRENT_VERSION, ip=None, user_agent="test",
+        )
+        first, second = GuardianConsent.objects.order_by("pk")
+
+        for consent, number in ((first, 1), (second, 2)):
+            self.assertTrue(consent.record_pdf_key.endswith(f"_{self.profile.user_id}_BTF_{number}.pdf"))
+            self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
+        # Another student starts at 1.
+        other = make_student(email="other@example.com", pg_email="g9@example.com")
+        guardian_consent.sign(
+            issue(other), full_name="Kim Lee", media_consent=True,
+            signature=png_data_url(), version=CURRENT_VERSION, ip=None, user_agent="test",
+        )
+        self.assertTrue(
+            guardian_consent.record_pdf_filename(GuardianConsent.objects.get(student=other))
+            .endswith(f"_{other.user_id}_BTF_1.pdf")
+        )
 
     def test_rebuilds_a_missing_record(self):
         consent = GuardianConsent.objects.get()

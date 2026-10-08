@@ -224,6 +224,7 @@ export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
 export interface GradingSettingsDetail {
   director_1_name: string
   director_1_position: string
+  /** The name the signature image was uploaded as (it's kept in the database), or null. */
   director_1_signature: string | null
   director_2_name: string
   director_2_position: string

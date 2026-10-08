@@ -3,6 +3,7 @@ The shared system email path: toggles, merge tags, rendering and sending.
 Run with: python manage.py test tests.apps.services.test_system_email
 """
 
+import re
 from datetime import datetime, timezone as dt_timezone
 from unittest import mock
 
@@ -296,3 +297,60 @@ class HtmlToTextTests(TestCase):
 
     def test_unescapes_entities(self):
         self.assertEqual(html_to_text("<p>Tom &amp; Jerry &mdash; hi</p>"), "Tom & Jerry — hi")
+
+
+class CleanEmailBodyTests(TestCase):
+    HTML = (
+        '<!--[if mso]><v:roundrect href="https://x.test"></v:roundrect><![endif]-->'
+        '<h1 class="headline" style="color:#1a2e23">Title</h1>'
+        '<div class="email-box" style="border:1px solid #d8e1dc">Box</div>'
+    )
+
+    def test_an_email_keeps_its_comments_and_class_names(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML)
+        self.assertIn("<!--[if mso]>", cleaned)
+        self.assertIn('<h1 class="headline" style="color:#1a2e23">', cleaned)
+
+    def test_the_site_look_keeps_only_boxes_and_buttons(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML, site_look=True)
+        self.assertNotIn("<!--", cleaned)
+        self.assertIn("<h1>Title</h1>", cleaned)
+        self.assertIn('<div class="email-box" style="border:1px solid #d8e1dc">', cleaned)
+
+    def test_a_plain_background_colour_is_kept_and_an_image_is_not(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(
+            '<a class="cta-link" href="https://x.test" style="background:#C3EBCA; color:#007253">Go</a>'
+            '<div style="background: url(https://tracker.test/x.png); color:red">Box</div>'
+            "<p>background: #fff, said in the text</p>"
+        )
+        self.assertIn('style="background-color:#C3EBCA;color:#007253"', cleaned)
+        self.assertNotIn("url(", cleaned)
+        self.assertIn("<p>background: #fff, said in the text</p>", cleaned)
+
+    def test_saving_a_template_unchanged_keeps_every_background_colour(self):
+        # Saving without touching the body sends the template's own HTML,
+        # which writes its fills as `background:`.
+        from apps.admin.services.system_email import _default_body
+        from apps.services.email_registry import EMAIL_TYPES
+        from apps.services.system_email import clean_email_body
+
+        for email_type in EMAIL_TYPES:
+            body = re.sub(r"<!--.*?-->", "", _default_body(email_type), flags=re.S)
+            fills = len(re.findall(r"background(?:-color)?\s*:", body))
+            with self.subTest(email_type.key):
+                self.assertEqual(len(re.findall(r"background-color:", clean_email_body(body))), fills)
+
+    def test_inline_code_keeps_its_look(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(
+            '<p><code style="background-color:#f3f4f6; padding:2px 4px; font-family:Menlo, monospace">BTF-42</code></p>'
+        )
+        for kept in ('<code style="background-color:#f3f4f6;', 'padding:2px 4px;', 'monospace'):
+            self.assertIn(kept, cleaned)

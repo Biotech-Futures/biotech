@@ -234,7 +234,13 @@
     />
 
     <!-- View detail sheet -->
-    <AdminUserDetailSheet :open="viewOpen" :user="detailUser" @close="onViewClose" @edit="openEditFromView" />
+    <AdminUserDetailSheet
+      :open="viewOpen"
+      :user="detailUser"
+      @close="onViewClose"
+      @edit="openEditFromView"
+      @updated="onDetailUpdated"
+    />
 
     <!-- Edit query criteria -->
     <AdminViewQueryDrawer v-model="queryDrawerOpen" :view="view" @saved="onQuerySaved" />
@@ -252,6 +258,7 @@ import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminViewBulkBar from '@/components/admin/views/AdminViewBulkBar.vue'
 import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
 import AdminViewResultsTable from '@/components/admin/views/AdminViewResultsTable.vue'
+import type { AdminUser } from '@/utils/adminAPI'
 import {
   useAdminViewExecuted,
   type GroupByOption,
@@ -346,6 +353,14 @@ const openEditFromView = (): void => {
 }
 
 const onFormSaved = (): void => {
+  void loadResults()
+}
+
+// A consent action on the detail sheet (sending the request, recording a
+// withdrawal): show the student as they are now, keeping the view's own
+// columns, and refresh the results to match, on the same page.
+const onDetailUpdated = (user: AdminUser): void => {
+  detailUser.value = { ...detailUser.value, ...user } as ViewResultRow
   void loadResults()
 }
 

@@ -47,6 +47,16 @@
             <dt>Last login</dt>
             <dd>{{ user.lastLogin ? formatFullDate(user.lastLogin) : 'Never' }}</dd>
           </div>
+          <div class="admin-users-detail__item" data-test="admin-last-edited">
+            <dt>Last edited</dt>
+            <dd>
+              {{
+                user.lastEditedBy && user.lastEditedAt
+                  ? `${user.lastEditedBy} · ${formatFullDate(user.lastEditedAt)}`
+                  : 'No edits on record'
+              }}
+            </dd>
+          </div>
         </dl>
       </section>
 
@@ -97,10 +107,6 @@
                 {{ consentLabel }}
               </span>
             </dd>
-          </div>
-          <div v-if="user.joinPermissionReceived" class="admin-users-detail__item">
-            <dt>Consent response</dt>
-            <dd>{{ user.joinpermResponseId || 'None on record' }}</dd>
           </div>
           <div v-if="user.joinPermissionReceived && user.joinPermissionGrantedAt" class="admin-users-detail__item">
             <dt>Recorded</dt>
@@ -337,7 +343,7 @@ const guardian = computed(() => {
 
 const consentLabel = computed(() => ({
   received: 'Received',
-  unverified: 'Marked received, no response on record',
+  unverified: 'Marked received, no signed form on record',
   missing: 'Not received'
 })[guardian.value.consent])
 

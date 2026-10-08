@@ -41,7 +41,7 @@ from .serializers import (
     missing_required_answers,
 )
 from .services import active_deadline, current_cohort, deadline_for_group
-from .storage import submission_file_service
+from .storage import submission_file_name, submission_file_service
 from .uploads import (
     PDF_SLOTS,
     POSTER,
@@ -196,6 +196,7 @@ class GroupSubmissionFileView(APIView):
             content_type_field="mime",
             size_field="size",
             original_filename_field="name",
+            storage_name=submission_file_name(submission, slot, uploaded.name),
         ) as file_data:
             setattr(submission, slot, file_data)
             fields = [slot, "updated_at"]

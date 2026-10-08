@@ -49,6 +49,8 @@ export const systemEmailTemplateSchema = z.object({
   description: z.string(),
   enabled: z.boolean(),
   locked: z.boolean(),
+  /** Who a whole group's email goes to, e.g. its students in To. Empty for an email to one person. */
+  delivery: z.string().optional(),
   usingSavedContent: z.boolean(),
   defaultSubject: z.string(),
   defaultBody: z.string(),
@@ -88,17 +90,32 @@ export const systemEmailPreviewSchema = z.object({
   key: z.string(),
   subject: z.string(),
   html: z.string(),
-  text: z.string()
+  text: z.string(),
+  /** The files the one picked would get with it, as on Release Results. */
+  attachments: z.array(z.string()).optional()
 })
 
 export type SystemEmailPreview = z.infer<typeof systemEmailPreviewSchema>
 
 export const systemEmailTestSendSchema = z.object({
   key: z.string(),
-  sentTo: z.string()
+  sentTo: z.string(),
+  // The address it went from, where a test that can't be delivered comes back to.
+  sentFrom: z.string().optional()
 })
 
 export type SystemEmailTestSend = z.infer<typeof systemEmailTestSendSchema>
+
+// Who a test can be "of": the email's groups ("BTF01") or people ("(BTF01) Pat
+// Lee"). Null when it has nothing of a person's own.
+export const systemEmailTestRecipientsSchema = z.object({
+  key: z.string(),
+  recipients: z.array(z.object({ value: z.string(), label: z.string() })).nullable()
+})
+
+export type SystemEmailTestRecipient = NonNullable<
+  z.infer<typeof systemEmailTestRecipientsSchema>['recipients']
+>[number]
 
 // ---------------------------------------------------------------------------
 // Request payloads
@@ -120,6 +137,25 @@ export interface SystemEmailTemplateUpdatePayload {
 export interface SystemEmailPreviewPayload {
   subject?: string
   body?: string
+}
+
+/**
+ * A test send: the preview's unsaved wording, where it goes (the admin's own
+ * address when absent) and whose details it carries (the samples when absent).
+ */
+export interface SystemEmailTestSendPayload extends SystemEmailPreviewPayload {
+  to?: string
+  /** A `value` from the email's test recipients. */
+  of?: string
+}
+
+/**
+ * An email's name split from who it goes to, when it ends with that, as in
+ * "Guardian consent sent (to student)". That part is shown in normal weight.
+ */
+export const nameParts = (name: string): { title: string; to: string } => {
+  const match = /^(.*\S)\s+(\(to [^)]*\))$/.exec(name)
+  return match ? { title: match[1], to: match[2] } : { title: name, to: '' }
 }
 
 /**

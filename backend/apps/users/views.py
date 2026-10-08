@@ -39,6 +39,8 @@ from .serializers import (
     UserSerializer,
     StudentSelfProfileUpdateSerializer,
 )
+from apps.audit.services import log_audit_event
+from .guardian_reminders import email_new_guardian
 from .profile_images import save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
@@ -349,7 +351,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     raise serializers.ValidationError(
                         {"detail": "Only student profiles can update these fields."}
                     )
-                if profile.supervisor_id is not None:
+                if profile.details_locked:
                     raise PermissionDenied(
                         "Your supervisor manages these registration details. Contact them to make changes."
                     )
@@ -409,6 +411,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     profile_update_fields.extend(["has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
                 if profile_update_fields:
                     profile.save(update_fields=list(set(profile_update_fields)))
+                _log_edit(user, user.id, "profile_update", {"fields": sorted(student_update_data)})
 
         # Route every allowed field through ``UserSerializer`` so the same
         # validators the rest of the codebase relies on (e.g. the IANA
@@ -540,14 +543,18 @@ class SupervisedStudentsView(APIView):
             profile.pg_last_name = pg_last_name
             profile.pg_email = pg_email
             profile.parent_guardian_flag = True
+            # A supervisor's edit makes the student's details theirs to change.
+            profile.supervisor_edited_at = timezone.now()
             profile.save(
                 update_fields=[
                     "pg_first_name",
                     "pg_last_name",
                     "pg_email",
                     "parent_guardian_flag",
+                    "supervisor_edited_at",
                 ]
             )
+            _log_edit(request.user, profile.user_id, "guardian_update", {"guardianEmail": pg_email})
 
         return self.get(request)
 
@@ -589,6 +596,11 @@ def _supervised_student_row(profile):
     }
 
 
+def _log_edit(actor, user_id: int, action: str, changes: dict) -> None:
+    """Record a change to a student's details, so admins can see who last edited them."""
+    log_audit_event(actor=actor, entity_type="user", entity_id=user_id, action=action, after_state=changes)
+
+
 class MeGuardianView(APIView):
     """A student updates the parent/guardian on their own profile.
 
@@ -613,34 +625,39 @@ class MeGuardianView(APIView):
         return Response(UserSerializer(request.user).data)
 
     @extend_schema(request=StudentGuardianUpdateSerializer, responses={200: UserSerializer})
-    @transaction.atomic
     def put(self, request):
-        profile = self._profile(request)
         serializer = StudentGuardianUpdateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         first_name = serializer.validated_data["first_name"]
         last_name = serializer.validated_data["last_name"]
         email = serializer.validated_data["email"]
 
-        if not profile.has_join_permission:
-            profile.pg_first_name = first_name
-            profile.pg_last_name = last_name
-            profile.pg_email = email
-            profile.parent_guardian_flag = True
-            profile.clear_pending_guardian()
-        elif (
-            first_name == profile.pg_first_name
-            and last_name == profile.pg_last_name
-            and email == (profile.pg_email or "").strip().lower()
-        ):
-            # Back to the guardian who already consented — nothing pending.
-            profile.clear_pending_guardian()
-        else:
-            profile.pending_pg_first_name = first_name
-            profile.pending_pg_last_name = last_name
-            profile.pending_pg_email = email
-            profile.pending_pg_requested_at = timezone.now()
-        profile.save()
+        with transaction.atomic():
+            profile = self._profile(request)
+            if not profile.has_join_permission:
+                profile.pg_first_name = first_name
+                profile.pg_last_name = last_name
+                profile.pg_email = email
+                profile.parent_guardian_flag = True
+                profile.clear_pending_guardian()
+            elif (
+                first_name == profile.pg_first_name
+                and last_name == profile.pg_last_name
+                and email == (profile.pg_email or "").strip().lower()
+            ):
+                # Back to the guardian who already consented — nothing pending.
+                profile.clear_pending_guardian()
+            else:
+                profile.pending_pg_first_name = first_name
+                profile.pending_pg_last_name = last_name
+                profile.pending_pg_email = email
+                profile.pending_pg_requested_at = timezone.now()
+            profile.save()
+            _log_edit(request.user, request.user.id, "guardian_update", {"guardianEmail": email})
+
+        # Once the details are saved, the guardian just named gets the consent
+        # form straight away rather than at the next daily run.
+        email_new_guardian(profile)
         return self._response(request)
 
     @extend_schema(request=None, responses={200: UserSerializer})
@@ -649,6 +666,7 @@ class MeGuardianView(APIView):
         profile = self._profile(request)
         profile.clear_pending_guardian()
         profile.save()
+        _log_edit(request.user, request.user.id, "guardian_update", {"pendingChangeWithdrawn": True})
         return self._response(request)
 
 
@@ -690,7 +708,9 @@ class SupervisedStudentDetailView(APIView):
 
         profile.school_name = data["school_name"].strip()
         profile.year_lvl = data["year_lvl"]
-        profile.save(update_fields=["school_name", "year_lvl"])
+        # A supervisor's edit makes the student's details theirs to change.
+        profile.supervisor_edited_at = timezone.now()
+        profile.save(update_fields=["school_name", "year_lvl", "supervisor_edited_at"])
 
         if "interests" in data:
             descriptions = []
@@ -710,9 +730,28 @@ class SupervisedStudentDetailView(APIView):
                 )
                 UserInterest.objects.create(user=user, interest=interest)
 
+        _log_edit(request.user, user.id, "profile_update", {"fields": sorted(data)})
         profile.refresh_from_db()
         profile.user.refresh_from_db()
         return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
+
+
+# What the registration form says about who filled it in, e.g. "Supervisor".
+_REGISTERED_BY = {
+    "self": StudentProfile.RegisteredBy.SELF,
+    "student": StudentProfile.RegisteredBy.SELF,
+    "individual": StudentProfile.RegisteredBy.SELF,
+    "peer": StudentProfile.RegisteredBy.PEER,
+    "team": StudentProfile.RegisteredBy.PEER,
+    "supervisor": StudentProfile.RegisteredBy.SUPERVISOR,
+    "teacher": StudentProfile.RegisteredBy.SUPERVISOR,
+}
+
+
+def _registered_by(value) -> str:
+    """Who registered the student, from the form's ``RegisteredBy``; blank
+    when it doesn't say, which leaves the student free to edit their details."""
+    return _REGISTERED_BY.get(str(value or "").strip().lower(), "")
 
 
 class UserRegisterView(APIView):
@@ -809,7 +848,8 @@ class UserRegisterView(APIView):
             parent_guardian_flag=True,
             supervisor=supprof,
             school_name=databody["SchoolName"],
-            year_lvl=databody["YearLevel"]
+            year_lvl=databody["YearLevel"],
+            registered_by=_registered_by(databody.get("RegisteredBy")),
         )
 
         ss = StudentSupervisor.objects.create(

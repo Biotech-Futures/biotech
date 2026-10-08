@@ -41,6 +41,8 @@ interface User {
   interests?: string[]
   supervisor_name?: string | null
   supervisor_id?: number | null
+  /** The student's own details are their supervisor's to change. */
+  details_locked?: boolean
   guardian_reminder?: {
     last_sent_at: string | null
     next_due_at: string | null

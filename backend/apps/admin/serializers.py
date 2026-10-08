@@ -120,7 +120,8 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
 
 
 class SystemEmailPreviewSerializer(serializers.Serializer):
-    """Optional unsaved wording for preview / test-send.
+    """Optional unsaved wording, and whose details to fill in, for preview /
+    test-send.
 
     Absent fields mean "use the saved/default wording"; an explicit empty
     string means "clear it", which is why both are allowed and null is not
@@ -131,6 +132,15 @@ class SystemEmailPreviewSerializer(serializers.Serializer):
         required=False, allow_blank=True, allow_null=True, max_length=255
     )
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Whose details it carries: one of the email's test recipients.
+    of = serializers.CharField(required=False, allow_blank=True, max_length=32)
+
+
+class SystemEmailTestSendSerializer(SystemEmailPreviewSerializer):
+    """A test send: the preview's optional unsaved wording and recipient,
+    and where it goes (the requesting admin when no address is given)."""
+
+    to = serializers.EmailField(required=False)
 
 
 class SystemEmailSettingsUpdateSerializer(serializers.Serializer):

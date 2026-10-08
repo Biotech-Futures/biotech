@@ -1560,6 +1560,87 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertEqual(self.profile.joinperm_responseID, "R_new")
         self.assertGreater(self.profile.joinperm_granted_at, old_granted_at)
 
+    def test_admin_records_consent_given_outside_the_platform_with_the_media_choice(self):
+        result = self._update(consentGiven=True, mediaConsent=False)
+
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertIs(self.profile.media_consent, False)
+        self.assertIsNotNone(self.profile.joinperm_granted_at)
+        # Its own reference, so it isn't flagged as having no form on record.
+        self.assertTrue(self.profile.joinperm_responseID.startswith("ADMIN-"))
+        self.assertTrue(result["data"]["joinPermissionReceived"])
+        self.assertIs(result["data"]["mediaConsent"], False)
+        audit = self._audits().get()
+        self.assertIs(audit.after_state["mediaConsent"], False)
+
+    def test_admin_records_media_consent_given_later(self):
+        self.profile.has_join_permission = True
+        self.profile.joinperm_responseID = "BTF-1"
+        self.profile.joinperm_granted_at = timezone.now() - timedelta(days=3)
+        self.profile.media_consent = False
+        self.profile.save()
+
+        self._update(mediaConsent=True)
+
+        self.profile.refresh_from_db()
+        self.assertIs(self.profile.media_consent, True)
+        # Consent to take part is untouched.
+        self.assertEqual(self.profile.joinperm_responseID, "BTF-1")
+
+    def test_a_media_choice_needs_consent_to_take_part(self):
+        self._update(mediaConsent=True)
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.media_consent)
+
+    def test_unticking_consent_records_a_withdrawal(self):
+        from apps.audit.models import AuditLog
+
+        self._update(consentGiven=True, mediaConsent=True)
+        self._update(consentGiven=False)
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.media_consent)
+        self.assertIsNone(self.profile.joinperm_granted_at)
+        self.assertTrue(
+            AuditLog.objects.filter(entity_id=self.student.id, action="guardian_consent_withdrawn").exists()
+        )
+
+    def test_unticking_media_consent_records_a_media_withdrawal(self):
+        from apps.audit.models import AuditLog
+
+        self._update(consentGiven=True, mediaConsent=True)
+        self._update(mediaConsent=False)
+
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertIs(self.profile.media_consent, False)
+        self.assertTrue(
+            AuditLog.objects.filter(entity_id=self.student.id, action="guardian_media_consent_withdrawn").exists()
+        )
+
+    def test_revoking_by_response_id_clears_the_media_choice(self):
+        self._update(consentGiven=True, mediaConsent=True)
+        self._update(joinpermResponseId="")
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.media_consent)
+
+    def test_consent_given_by_a_pending_guardian_makes_them_the_guardian(self):
+        self._make_pending()
+
+        self._update(consentGiven=True, mediaConsent=True)
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_email, "robin@example.com")
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertTrue(self.profile.joinperm_responseID.startswith("ADMIN-"))
+        self.assertIs(self.profile.media_consent, True)
+
     def test_payload_includes_the_pending_guardian(self):
         self._make_pending()
 

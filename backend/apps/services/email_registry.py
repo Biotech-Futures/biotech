@@ -44,6 +44,8 @@ class EmailType:
     # Which of settings.EMAIL_SENDERS it goes from until System Emails picks
     # another.
     default_sender: str = "info"
+    # Who an email for a whole group goes to, shown above "Send from".
+    delivery: str = ""
 
     def tag(self, name: str) -> Optional[MergeTag]:
         for merge_tag in self.merge_tags:
@@ -63,24 +65,14 @@ _BRAND_TAGS = (
     MergeTag("contact_email", "Support email address", "support@biotechfutures.org", "CONTACT_EMAIL"),
 )
 
+# Each group's one email, as the send code addresses it (see
+# apps.submissions.emails.to_and_cc and apps.management.services.delivery).
+_GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
+
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
 
 
 EMAIL_TYPES = (
-    EmailType(
-        key="guardian_invitation",
-        name="Guardian permission invitation",
-        description="Requested by a student, or sent by the configured guardian reminder schedule.",
-        default_subject="{{ brand_name }}: Guardian permission for {{ student_name }}",
-        default_template="emails/guardian_invitation.html",
-        merge_tags=(
-            _FIRST_NAME,
-            MergeTag("student_name", "Student name", "Alex Student", "STUDENT_NAME"),
-            MergeTag("student_email", "Student email to enter on the consent form", "student@example.com", "STUDENT_EMAIL"),
-            MergeTag("consent_url", "Approved guardian consent form", "https://example.com/consent", "CONSENT_URL"),
-            *_BRAND_TAGS,
-        ),
-    ),
     EmailType(
         key="login_code",
         name="Login code",
@@ -121,6 +113,59 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("changed_at", "When the password was changed (UTC)", "18 Sep 2026, 10:30", "CHANGED_AT"),
             MergeTag("request_ip", "IP address the change came from", "203.0.113.7", "REQUEST_IP"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_details_request",
+        name="Guardian details needed",
+        description=(
+            "Sent daily to a student with no parent or guardian email on file, "
+            "until they add one on their profile."
+        ),
+        default_subject="Information Required: Parent/Guardian Contact",
+        default_template="emails/guardian_details_request.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag(
+                "details_url",
+                "Link to the student's profile to add their guardian",
+                "https://biotechfutures.org/#/profile?guardian=edit",
+                "DETAILS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_student_notice",
+        name="Guardian consent sent (to student)",
+        description=(
+            "Sent to a student when their parent or guardian is emailed the consent form, "
+            "asking them to remind their guardian."
+        ),
+        default_subject="Parent/Guardian Action Required - Permission Form",
+        default_template="emails/guardian_consent_student_notice.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_request",
+        name="Guardian consent request (to guardian)",
+        description=(
+            "Sent to a student's parent or guardian with the consent form: when the student adds "
+            "them, when the student or an admin sends it, and every day until they sign."
+        ),
+        default_subject="Action Required: Sign parent/guardian permission form",
+        default_template="emails/guardian_consent_request.html",
+        merge_tags=(
+            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
+            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
             *_BRAND_TAGS,
         ),
     ),
@@ -196,7 +241,25 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Submission reminder",
+        description="Daily reminder in the final week before a group's deadline.",
+        default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
+        default_template="emails/submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
+            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
+            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
+            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
         name="Submission confirmation",
         description="Sent to a group when they submit their entry.",
         default_subject="{{ brand_name }}: Submission received for {{ group_name }}",
@@ -213,23 +276,8 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
-        key="submission_reminder",
-        name="Submission reminder",
-        description="Daily reminder in the final week before a group's deadline.",
-        default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
-        default_template="emails/submission_reminder.html",
-        merge_tags=(
-            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
-            MergeTag("year", "Competition year", "2026", "YEAR"),
-            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
-            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
-            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
-            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
         key="finalist_notification",
+        delivery=_GROUP_TO_AND_CC,
         name="Finalist notification",
         description="Sent to finalist teams from Notify Finalists.",
         default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
@@ -250,6 +298,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="nonfinalist_invitation",
+        delivery=_GROUP_TO_AND_CC,
         name="Non-finalist invitation",
         description="Sent to teams not picked as finalists, from Notify Nonfinalist.",
         default_subject="Thank you for your submission – Invitation to the Symposium",
@@ -268,6 +317,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="nonsubmission_notice",
+        delivery=_GROUP_TO_AND_CC,
         name="Non-submission notice",
         description="Sent to teams that didn't submit, from Notify Nonfinalist.",
         default_subject="{{ brand_name }} – No Submission Received",
@@ -286,7 +336,9 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_team",
-        name="Results (To groups)",
+        # Its students and mentors each get the group's certificates.
+        delivery="Each group gets one email: its students and mentors in To.",
+        name="Results (to groups)",
         description="Sent to each group's students and mentors from Release Results.",
         default_subject="Your {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_team.html",
@@ -305,43 +357,13 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_supervisor",
-        name="Results (To supervisors)",
+        name="Results (to supervisors)",
         description="Sent to their supervisors from Release Results.",
         default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_supervisor.html",
         merge_tags=(
             MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="guardian_consent_request",
-        name="Guardian consent request",
-        description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
-        default_subject="{{ brand_name }}: Permission for {{ student_first_name }} to take part",
-        default_template="emails/guardian_consent_request.html",
-        merge_tags=(
-            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
-            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
-            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
-            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
-            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="guardian_consent_confirmation",
-        name="Guardian consent confirmation",
-        description="Sent to a guardian after they sign the consent form, as their record of it.",
-        default_subject="{{ brand_name }}: Consent received for {{ student_name }}",
-        default_template="emails/guardian_consent_confirmation.html",
-        merge_tags=(
-            MergeTag("guardian_name", "Guardian's full name, as signed", "Pat Chen", "GUARDIAN_NAME"),
-            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
-            MergeTag("media_choice", "The media-consent answer", "Yes, media consent provided", "MEDIA_CHOICE"),
-            MergeTag("signed_at", "When the form was signed", "8 October 2026, 4:30 PM UTC", "SIGNED_AT"),
-            MergeTag("consent_reference", "Reference for this consent", "BTF-42", "CONSENT_REFERENCE"),
             *_BRAND_TAGS,
         ),
     ),

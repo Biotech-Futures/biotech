@@ -37,7 +37,7 @@ from .finalist import (
     times_shown,
 )
 from .models import FinalistEntry
-from .storage import FINALIST_SLIDES_FILES
+from .storage import FINALIST_SLIDES_FILES, slides_file_name
 from .uploads import FINALIST_MAX_UPLOAD_SIZE, validate_presentation_file
 
 # The slides' own container, which the Finalist Presentation tab opens them from.
@@ -146,6 +146,7 @@ class FinalistPresentationView(APIView):
             content_type_field="mime",
             size_field="size",
             original_filename_field="name",
+            storage_name=slides_file_name(group, uploaded.name),
         ) as file_data:
             entry.presentation = file_data
             entry.save(update_fields=["presentation", "updated_at"])
@@ -226,7 +227,7 @@ class FinalistSubmitView(APIView):
             superseded = (entry.submitted_presentation or {}).get("storage_key")
             entry.snapshot(request.user)
             entry.save()
-            # The Finalist Presentation tab's Finalist Submission table.
+            # The Finalist Presentation tab's Finalist Submissions table.
             record_submitted_slides(entry)
 
         # Outside the transaction, since a blob delete cannot be rolled back.

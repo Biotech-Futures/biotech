@@ -37,7 +37,8 @@ class OutcomeAnnouncementSerializer(serializers.Serializer):
             raise serializers.ValidationError("Write something to announce.")
         # Keeps its boxes and buttons, and strips scripts, event handlers and
         # javascript: URLs, as System Emails does: announcements show as is.
-        return clean_email_body(value)
+        # Text keeps no colours or sizes of its own, so it reads in the site's look.
+        return clean_email_body(value, site_look=True)
 
     def validate(self, attrs):
         # Only the email's own merge tags can be filled in, as on System Emails.

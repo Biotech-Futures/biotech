@@ -35,6 +35,7 @@ import {
   restoreSystemEmailTemplate,
   previewSystemEmailTemplate,
   testSendSystemEmailTemplate,
+  fetchSystemEmailTestRecipients,
   fetchSystemEmailSettings,
   updateSystemEmailSettings
 } from '@/utils/adminAPI'
@@ -1100,6 +1101,18 @@ describe('system email API', () => {
       '/email-template/password_reset/test-send/'
     )
     expect(result.sentTo).toBe('admin@example.com')
+  })
+
+  it('GETs who a test can be of, null when the email has no list', async () => {
+    const options = [{ value: '7', label: '(BTF1, mentor) Aga Smith' }]
+    const fetchMock = envelopeFetch({ key: 'login_code', recipients: options })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchSystemEmailTestRecipients('login_code')).toEqual(options)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/email-template/login_code/test-recipients/')
+
+    vi.stubGlobal('fetch', envelopeFetch({ key: 'announcement', recipients: null }))
+    expect(await fetchSystemEmailTestRecipients('announcement')).toBeNull()
   })
 
   it('gets and patches the global settings', async () => {

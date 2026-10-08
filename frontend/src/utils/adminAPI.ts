@@ -19,14 +19,17 @@ import {
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
   systemEmailTemplateSchema,
+  systemEmailTestRecipientsSchema,
   systemEmailTestSendSchema
 } from './systemEmail'
 import type {
   SystemEmailPreview,
   SystemEmailPreviewPayload,
+  SystemEmailTestSendPayload,
   SystemEmailSettings,
   SystemEmailTemplate,
   SystemEmailTemplateUpdatePayload,
+  SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
 
@@ -247,6 +250,9 @@ export interface AdminUser {
   supervisorName: string | null
   supervisorEmail: string | null
   supervisees: AdminUserSupervisee[]
+  /** Who last changed this user's details (an admin, the user or their supervisor), and when. */
+  lastEditedBy?: string | null
+  lastEditedAt?: string | null
 }
 
 export interface UserListParams {
@@ -384,6 +390,8 @@ export const sendGuardianConsentRequest = (userId: string | number) =>
 export interface AdminGuardianConsent {
   id: number
   reference: string
+  /** What its PDF record downloads as, e.g. "2026_318_BTF_1.pdf". */
+  fileName: string
   guardianFullName: string
   guardianEmail: string
   mediaConsent: boolean
@@ -403,7 +411,7 @@ export const fetchGuardianConsents = (userId: string | number) =>
 /** Download a signed consent's PDF record, sent with the admin's session like any admin call. */
 export const downloadGuardianConsentRecord = async (
   userId: string | number,
-  consent: Pick<AdminGuardianConsent, 'id' | 'reference'>
+  consent: Pick<AdminGuardianConsent, 'id' | 'fileName'>
 ) => {
   const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: 'application/pdf' } })
   const token = localStorage.getItem('access_token')
@@ -418,7 +426,7 @@ export const downloadGuardianConsentRecord = async (
   const blobUrl = window.URL.createObjectURL(await res.blob())
   const a = document.createElement('a')
   a.href = blobUrl
-  a.download = `${consent.reference}-consent-record.pdf`
+  a.download = consent.fileName
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -1438,13 +1446,19 @@ export const previewSystemEmailTemplate = (
     systemEmailPreviewSchema.parse(env.data)
   )
 
-/** Send the email to the requesting admin. Deliberately ignores the toggle. */
+/** Send the email to `to`, else the requesting admin. Deliberately ignores the toggle. */
 export const testSendSystemEmailTemplate = (
   key: string,
-  payload: SystemEmailPreviewPayload = {}
+  payload: SystemEmailTestSendPayload = {}
 ): Promise<SystemEmailTestSend> =>
   adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-send/`, payload).then((env) =>
     systemEmailTestSendSchema.parse(env.data)
+  )
+
+/** Who a test of the email can be "of"; null when it has nothing of a person's own. */
+export const fetchSystemEmailTestRecipients = (key: string): Promise<SystemEmailTestRecipient[] | null> =>
+  adminGet<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-recipients/`).then(
+    (env) => systemEmailTestRecipientsSchema.parse(env.data).recipients
   )
 
 export const fetchSystemEmailSettings = (): Promise<SystemEmailSettings> =>

@@ -92,6 +92,13 @@ describe('admin user form: guardian & consent', () => {
     vi.mocked(updateAdminUser).mockClear()
   })
 
+  it('puts Guardian & consent under Interests, before Account', async () => {
+    const wrapper = await openForm(student())
+    const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
+
+    expect(sections).toEqual(['Student details', 'Interests *', 'Guardian & consent', 'Account'])
+  })
+
   it('sends no guardian or consent fields when they are untouched', async () => {
     const wrapper = await openForm(student({
       joinPermissionReceived: true,
@@ -117,31 +124,95 @@ describe('admin user form: guardian & consent', () => {
     expect(payload).not.toHaveProperty('joinpermResponseId')
   })
 
-  it('records consent from a response ID', async () => {
-    const wrapper = await openForm(student())
-    await wrapper.find('#f-consent').setValue('R_paper')
-
-    expect((await save(wrapper))?.joinpermResponseId).toBe('R_paper')
-  })
-
-  it('revokes consent when the response ID is cleared', async () => {
+  it('has no response ID field: consent comes from the guardian signing', async () => {
     const wrapper = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'R_1' }))
-    expect(wrapper.text()).toContain('Clearing this ID revokes it')
-    await wrapper.find('#f-consent').setValue('')
 
-    expect((await save(wrapper))?.joinpermResponseId).toBe('')
+    expect(wrapper.find('#f-consent').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/response ID/i)
+    expect(await save(wrapper)).not.toHaveProperty('joinpermResponseId')
   })
 
-  it('revokes consent with no response on record only when asked', async () => {
+  const ticked = (wrapper: Awaited<ReturnType<typeof openForm>>, id: string) =>
+    (wrapper.find(id).element as HTMLInputElement).checked
+
+  it('ticks the consent boxes for what is on record, and sends nothing untouched', async () => {
+    const both = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'BTF-1', mediaConsent: true }))
+    expect(ticked(both, '#f-consent-given')).toBe(true)
+    expect(ticked(both, '#f-media-given')).toBe(true)
+    const payload = await save(both)
+    expect(payload).not.toHaveProperty('consentGiven')
+    expect(payload).not.toHaveProperty('mediaConsent')
+
+    const none = await openForm(student())
+    expect(ticked(none, '#f-consent-given')).toBe(false)
+    expect(ticked(none, '#f-media-given')).toBe(false)
+    // Media consent goes with consent to take part.
+    expect(none.find('#f-media-given').attributes('disabled')).toBeDefined()
+  })
+
+  it('records consent when ticked, with the media box', async () => {
+    const wrapper = await openForm(student())
+    await wrapper.find('#f-consent-given').setValue(true)
+    await wrapper.find('#f-media-given').setValue(true)
+
+    expect(await save(wrapper)).toMatchObject({ consentGiven: true, mediaConsent: true })
+
+    const noMedia = await openForm(student())
+    await noMedia.find('#f-consent-given').setValue(true)
+    expect(await save(noMedia)).toMatchObject({ consentGiven: true, mediaConsent: false })
+  })
+
+  it('records media consent given later, or its withdrawal when unticked', async () => {
+    const given = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'BTF-1', mediaConsent: false }))
+    await given.find('#f-media-given').setValue(true)
+    const payload = await save(given)
+    expect(payload?.mediaConsent).toBe(true)
+    expect(payload).not.toHaveProperty('consentGiven')
+
+    const withdrawn = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'BTF-1', mediaConsent: true }))
+    await withdrawn.find('#f-media-given').setValue(false)
+    expect((await save(withdrawn))?.mediaConsent).toBe(false)
+  })
+
+  it('records a withdrawal when consent is unticked, unticking media with it', async () => {
+    const wrapper = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'BTF-1', mediaConsent: true }))
+    await wrapper.find('#f-consent-given').setValue(false)
+
+    expect(ticked(wrapper, '#f-media-given')).toBe(false)
+    expect((await save(wrapper))?.consentGiven).toBe(false)
+  })
+
+  it('lets a pending new guardian be marked as having consented', async () => {
+    const wrapper = await openForm(student({
+      joinPermissionReceived: true,
+      joinpermResponseId: 'BTF-1',
+      mediaConsent: true,
+      pendingGuardian: { firstName: 'Robin', lastName: 'Carer', email: 'robin@example.com', requestedAt: '2026-10-01T00:00:00Z' }
+    }))
+    expect(wrapper.text()).toContain('Robin Carer (new guardian) has given consent')
+    await wrapper.find('#f-pending-consent').setValue(true)
+
+    expect(await save(wrapper)).toMatchObject({ consentGiven: true, mediaConsent: true })
+  })
+
+  it('says who last edited the user, at the top of the form', async () => {
+    const wrapper = await openForm(student({ lastEditedBy: 'Ada Admin', lastEditedAt: '2026-10-09T05:15:00Z' }))
+    expect(wrapper.text()).toContain('Last edited by Ada Admin · ')
+
+    const never = await openForm(student())
+    expect(never.text()).toContain('Update the account details below.')
+  })
+
+  it('flags consent with no signed form on record, which unticking revokes', async () => {
     const unverified = student({ joinPermissionReceived: true, joinpermResponseId: null })
 
     const kept = await openForm(unverified)
-    expect(kept.text()).toContain('no consent form response is on record')
-    expect(await save(kept)).not.toHaveProperty('joinpermResponseId')
+    expect(kept.text()).toContain('no signed consent form is on record')
+    expect(await save(kept)).not.toHaveProperty('consentGiven')
 
     const revoked = await openForm(unverified)
-    await revoked.find('#f-revoke').setValue(true)
-    expect((await save(revoked))?.joinpermResponseId).toBe('')
+    await revoked.find('#f-consent-given').setValue(false)
+    expect((await save(revoked))?.consentGiven).toBe(false)
   })
 
   it('leaves a placeholder guardian blank and unsent', async () => {
@@ -178,10 +249,18 @@ describe('admin user detail: guardian & consent', () => {
   const openDetail = (user: AdminUser) =>
     mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
 
-  it('flags consent with no response on record', () => {
+  it('flags consent with no signed form on record', () => {
     const wrapper = openDetail(student({ joinPermissionReceived: true, joinpermResponseId: null }))
 
-    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Marked received, no response on record')
+    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Marked received, no signed form on record')
+  })
+
+  it('says who last edited the user', () => {
+    const edited = openDetail(student({ lastEditedBy: 'Ada Admin', lastEditedAt: '2026-10-09T05:15:00Z' }))
+    expect(edited.find('[data-test="admin-last-edited"]').text()).toContain('Ada Admin · ')
+
+    const never = openDetail(student())
+    expect(never.find('[data-test="admin-last-edited"]').text()).toContain('No edits on record')
   })
 
   it('shows recorded consent and a pending change', () => {
@@ -192,7 +271,8 @@ describe('admin user detail: guardian & consent', () => {
     }))
 
     expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Received')
-    expect(wrapper.text()).toContain('R_1')
+    // The consent's response ID isn't shown.
+    expect(wrapper.text()).not.toContain('R_1')
     expect(wrapper.find('[data-test="admin-pending-guardian"]').text()).toContain('Robin Carer')
   })
 
@@ -298,6 +378,7 @@ describe('admin user detail: signed consent and withdrawal', () => {
     vi.mocked(fetchGuardianConsents).mockResolvedValue([{
       id: 3,
       reference: 'BTF-3',
+      fileName: '2026_318_BTF_1.pdf',
       guardianFullName: 'Pat Parent',
       guardianEmail: 'pat@example.com',
       mediaConsent: true,

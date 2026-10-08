@@ -3,7 +3,8 @@ viewing signed consents and recording a guardian's withdrawal.
 
 The email goes to the guardian whose consent is still needed: a requested
 guardian change if there is one, otherwise the guardian on file. The link opens
-the platform's consent page (apps.users.guardian_consent).
+the platform's consent page (apps.users.guardian_consent). Once it has gone,
+the student is told too, so they can remind their guardian.
 """
 import base64
 from datetime import timedelta
@@ -20,6 +21,7 @@ from apps.users import guardian_consent as consent
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 EMAIL_KEY = "guardian_consent_request"
+STUDENT_NOTICE_KEY = "guardian_consent_student_notice"
 
 # Spaces out sends to one guardian, so a double click or an impatient resend
 # doesn't fill their inbox.
@@ -76,6 +78,10 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
                 f"A consent request was just sent. Try again in {wait} minute{'s' if wait != 1 else ''}.",
             )
 
+        # The student hears once that their guardian was emailed, not with every reminder.
+        first_to_guardian = not GuardianConsentRequest.objects.filter(
+            student=profile, guardian_email=guardian.email,
+        ).exists()
         request, token = consent.issue_request(profile, guardian, sent_by=initiated_by)
         student = profile.user
         outcome = send_system_email(
@@ -113,6 +119,15 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             after_state={"guardianEmail": guardian.email, "requestId": request.pk},
         )
 
+    # The student's copy is an FYI: if it's switched off or doesn't go, the
+    # guardian's request still stands.
+    if student.email and first_to_guardian:
+        send_system_email(
+            STUDENT_NOTICE_KEY,
+            [student.email],
+            {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
+        )
+
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
 
 
@@ -126,6 +141,8 @@ def list_guardian_consents(user_id: int) -> Dict[str, Any]:
         {
             "id": c.pk,
             "reference": c.reference,
+            # What its PDF record downloads as, e.g. "2026_318_BTF_1.pdf".
+            "fileName": consent.record_pdf_filename(c),
             "guardianFullName": c.guardian_full_name,
             "guardianEmail": c.guardian_email,
             "mediaConsent": c.media_consent,
