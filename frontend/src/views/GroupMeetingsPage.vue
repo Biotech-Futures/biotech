@@ -20,7 +20,7 @@
 
       <button
         v-if="auth.isMentor"
-        class="primary-button"
+        class="primary-button schedule-button"
         @click="showCreateForm = !showCreateForm"
       >
         {{ showCreateForm ? 'Close' : '+ Schedule Meeting' }}
@@ -168,19 +168,27 @@
         :key="meeting.id"
         class="meeting-card"
       >
-        <div class="meeting-header">
-          <div>
-            <h2>{{ meeting.title }}</h2>
+      <div class="meeting-header">
+        <div class="meeting-info">
+          <div class="meeting-provider">
+            <img
+              v-if="providerLogo(meeting.provider)"
+              :src="providerLogo(meeting.provider)!"
+              :alt="`${meeting.provider} logo`"
+              class="meeting-logo"
+            />
+            <i v-else class="fas fa-video"></i>
+          </div>
+            <div class="meeting-details">
+              <h2>{{ meeting.title }}</h2>
 
-            <p class="meeting-time">
-              {{ formatMeetingDate(meeting.start_datetime) }}
-            </p>
+              <p class="meeting-time">
+                {{ formatMeetingDate(meeting.start_datetime) }}
+              </p>
+            </div>
           </div>
 
-          <span
-            v-if="meeting.can_manage"
-            class="manage-badge"
-          >
+          <span v-if="meeting.can_manage" class="manage-badge">
             You can manage
           </span>
         </div>
@@ -193,28 +201,6 @@
         </p>
 
         <div class="meeting-actions">
-          <a
-            v-if="meeting.join_link && selectedWhen === 'upcoming'"
-            :href="meeting.join_link"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="primary-button"
-          >
-            <img
-              v-if="providerLogo(meeting.provider)"
-              :src="providerLogo(meeting.provider)!"
-              :alt="`${meeting.provider} logo`"
-              class="meeting-provider-icon"
-            />
-
-            <i
-              v-else
-              class="fas fa-video meeting-provider-icon--generic"
-              aria-hidden="true"
-            ></i>
-
-            Join Meeting
-          </a>
 
           <button
             class="secondary-button"
@@ -222,6 +208,15 @@
           >
             View Details
           </button>
+          <a
+            v-if="meeting.join_link && selectedWhen === 'upcoming'"
+            :href="meeting.join_link"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="primary-button"
+          >
+            Join Meeting
+          </a>
         </div>
       </article>
     </div>
@@ -493,6 +488,19 @@ onMounted(() => {
 </script>
 
 <style scoped>
+
+/* Schedule Meeting button */
+.schedule-button {
+  background: #00866a !important;
+  color: #ffffff !important;
+  border-color: #00866a !important;
+}
+
+.schedule-button:hover {
+  background: #006f58 !important;
+  border-color: #006f58 !important;
+}
+
 .required-mark {
   color: #d32f2f;
   font-weight: 700;
@@ -972,6 +980,52 @@ onMounted(() => {
 
 :global(html[data-theme='dark']) .create-message {
   color: #c8d0ce;
+}
+
+/* Meeting card layout */
+.meeting-info {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.meeting-provider {
+  width: 76px;
+  min-width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.meeting-logo {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+}
+
+.meeting-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-card {
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.meeting-actions {
+  justify-content: flex-end;
+}
+
+.meeting-actions .primary-button {
+  background: #087c59;
+  color: white;
+}
+
+.meeting-actions .secondary-button {
+  border: 1px solid #087c59;
+  color: #087c59;
 }
 
 </style>
