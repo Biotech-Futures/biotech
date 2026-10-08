@@ -195,6 +195,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  /* The two columns stack by the page's own width (see the @container rule). */
+  container: admin-emails / inline-size;
 }
 
 .admin-emails__header {
@@ -302,9 +304,11 @@ onMounted(async () => {
   font-size: 0.875rem;
 }
 
+/* The right side never gets narrower than an email at full size (its 600px
+   card and the gap around it), so the preview never squeezes it. */
 .admin-emails__layout {
   display: grid;
-  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  grid-template-columns: minmax(15rem, 20rem) minmax(640px, 1fr);
   gap: 1.5rem;
   align-items: start;
 }
@@ -321,9 +325,11 @@ onMounted(async () => {
   min-width: 0;
 }
 
-@media (max-width: 1024px) {
+/* Too narrow for the list beside a full size right side (15rem + 1.5rem +
+   640px): the list moves above it instead. */
+@container admin-emails (max-width: 904px) {
   .admin-emails__layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-emails__sidebar {

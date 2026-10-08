@@ -98,7 +98,7 @@
       />
     </div>
 
-    <div class="editor__field">
+    <div class="editor__field email-editor__body-field">
       <label class="editor__label">Body</label>
       <!-- Like Subject, read-only only while its wording is being written: a
            read-only editor drops its toolbar, which flashed on quick saves like
@@ -257,6 +257,18 @@ const insertIntoSubject = (token: string) => {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
+}
+
+/* No line above the buttons here: on System Emails it sits above Preview
+   instead (EmailPreview). */
+.email-editor .editor__actions {
+  border-top: none;
+}
+
+/* The Body box stops at 670px, however wide the page is. */
+.email-editor__body-field {
+  width: 100%;
+  max-width: 670px;
 }
 
 .email-editor__header {

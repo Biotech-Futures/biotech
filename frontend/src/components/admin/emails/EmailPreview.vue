@@ -61,11 +61,18 @@ const fitFrame = (event: Event) => {
 </script>
 
 <style scoped>
+/* A line between the editor's buttons and Preview. */
 .email-preview {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   min-width: 0;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+:root[data-theme='dark'] .email-preview {
+  border-top-color: var(--border-light);
 }
 
 .email-preview__header {
