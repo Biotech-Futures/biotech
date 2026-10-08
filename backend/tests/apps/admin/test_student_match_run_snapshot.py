@@ -10,9 +10,8 @@ from apps.users.models import AreasOfInterest, StudentProfile, UserInterest
 
 WEIGHTS = {
     "year_weight": "30.00",
-    "country_mismatch_weight": "20.00",
-    "timezone_weight": "20.00",
-    "timezone_max_weight": "10.00",
+    "timezone_weight": "25.00",
+    "timezone_max_weight": "25.00",
     "size_bonus_weight": "20.00",
 }
 
@@ -84,9 +83,8 @@ class StudentMatchRunSnapshotTests(TestCase):
         MatchingConfig.objects.create(
             name="Heavy year",
             year_weight="60.00",
-            country_mismatch_weight="10.00",
-            timezone_weight="10.00",
-            timezone_max_weight="10.00",
+            timezone_weight="15.00",
+            timezone_max_weight="15.00",
             size_bonus_weight="10.00",
         )
 

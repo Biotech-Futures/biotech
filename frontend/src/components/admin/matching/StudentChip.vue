@@ -100,12 +100,6 @@
             </span>
           </div>
           <div class="student-chip-card__row">
-            <span>Location penalty</span>
-            <span class="student-chip-card__negative">
-              {{ signed(-entry.scoreBreakdown.countryPenalty) }}
-            </span>
-          </div>
-          <div class="student-chip-card__row">
             <span>Timezone penalty</span>
             <span class="student-chip-card__negative">
               {{ signed(-entry.scoreBreakdown.timezonePenalty) }}

@@ -223,7 +223,6 @@ def _build_form_recommendations(
                 'scoreBreakdown': {
                     'baseScore': 100,
                     'yearPenalty': 0,
-                    'countryPenalty': 0,
                     'timezonePenalty': 0,
                     'sizeBonus': 0,
                     'totalPenalty': 100,
@@ -249,7 +248,6 @@ def _build_form_recommendations(
             'scoreBreakdown': {
                 'baseScore': student_score['scoreBreakdown']['baseScore'] if student_score else 100,
                 'yearPenalty': student_score['scoreBreakdown']['yearPenalty'] if student_score else 0,
-                'countryPenalty': student_score['scoreBreakdown']['countryPenalty'] if student_score else 0,
                 'timezonePenalty': student_score['scoreBreakdown']['timezonePenalty'] if student_score else 0,
                 'sizeBonus': matched_group['scoreBreakdown']['sizeBonus'],
                 'totalPenalty': student_score['scoreBreakdown']['totalPenalty'] if student_score else 100,

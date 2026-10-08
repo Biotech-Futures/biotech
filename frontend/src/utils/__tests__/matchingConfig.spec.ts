@@ -19,10 +19,9 @@ const configRow = {
   name: 'Student v2',
   is_active: true,
   year_weight: '30.00',
-  country_mismatch_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
-  size_bonus_weight: '10.00',
+  size_bonus_weight: '30.00',
   total_weight: '100.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
@@ -33,10 +32,9 @@ const defaultsBlock = {
   requiredTotal: '100.00',
   defaults: {
     year_weight: 20.0,
-    country_mismatch_weight: 15.0,
-    timezone_weight: 25.0,
-    timezone_max_weight: 20.0,
-    size_bonus_weight: 20.0
+    timezone_weight: 30.0,
+    timezone_max_weight: 25.0,
+    size_bonus_weight: 25.0
   }
 }
 
@@ -44,10 +42,9 @@ const expectedDefaults = {
   requiredTotal: 100,
   weights: {
     yearWeight: 20,
-    countryMismatchWeight: 15,
-    timezoneWeight: 25,
-    timezoneMaxWeight: 20,
-    sizeBonusWeight: 20
+    timezoneWeight: 30,
+    timezoneMaxWeight: 25,
+    sizeBonusWeight: 25
   }
 }
 
@@ -64,10 +61,9 @@ describe('parseMatchingConfig', () => {
       isActive: true,
       weights: {
         yearWeight: 30,
-        countryMismatchWeight: 20,
         timezoneWeight: 15,
         timezoneMaxWeight: 25,
-        sizeBonusWeight: 10
+        sizeBonusWeight: 30
       },
       totalWeight: 100,
       updatedBy: 1,
@@ -119,13 +115,12 @@ describe('parseActiveMatchingConfig', () => {
     const parsed = expectOk(
       parseActiveMatchingConfig({
         data: configRow,
-        // ScoringWeights.as_dict() names two weights differently.
+        // ScoringWeights.as_dict() names one weight differently.
         weights: {
           yearWeight: 30.0,
-          countryMismatchPenalty: 20.0,
           timezoneWeight: 15.0,
           timezoneMaxPenalty: 25.0,
-          sizeBonusWeight: 10.0
+          sizeBonusWeight: 30.0
         },
         ...defaultsBlock
       })
@@ -136,10 +131,9 @@ describe('parseActiveMatchingConfig', () => {
     expect(parsed.config?.weights.yearWeight).toBe(30)
     expect(parsed.appliedWeights).toEqual({
       yearWeight: 30,
-      countryMismatchWeight: 20,
       timezoneWeight: 15,
       timezoneMaxWeight: 25,
-      sizeBonusWeight: 10
+      sizeBonusWeight: 30
     })
     expect(parsed.defaults).toEqual(expectedDefaults)
   })
@@ -150,7 +144,6 @@ describe('parseActiveMatchingConfig', () => {
         data: null,
         weights: {
           yearWeight: 8.0,
-          countryMismatchPenalty: 12.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
@@ -161,11 +154,10 @@ describe('parseActiveMatchingConfig', () => {
 
     expect(parsed.config).toBeNull()
     expect(parsed.usingBuiltInWeights).toBe(true)
-    // The legacy values total 46, not 100, and are reported as they are rather
+    // The legacy values total 34, not 100, and are reported as they are rather
     // than rescaled into a split they never were.
     expect(parsed.appliedWeights).toEqual({
       yearWeight: 8,
-      countryMismatchWeight: 12,
       timezoneWeight: 2,
       timezoneMaxWeight: 18,
       sizeBonusWeight: 6
@@ -194,20 +186,18 @@ describe('parseMatchingConfigDefaults', () => {
 describe('config request bodies', () => {
   const weights = {
     yearWeight: 30,
-    countryMismatchWeight: 20,
     timezoneWeight: 15,
     timezoneMaxWeight: 25,
-    sizeBonusWeight: 10
+    sizeBonusWeight: 30
   }
 
   it('builds a create body in backend field names', () => {
     expect(toCreateConfigBody({ name: 'Student v2', weights })).toEqual({
       name: 'Student v2',
       year_weight: 30,
-      country_mismatch_weight: 20,
       timezone_weight: 15,
       timezone_max_weight: 25,
-      size_bonus_weight: 10
+      size_bonus_weight: 30
     })
   })
 
@@ -230,8 +220,8 @@ describe('config request bodies', () => {
 
   it('builds a partial update body with only the fields given', () => {
     expect(
-      toUpdateConfigBody({ weights: { yearWeight: 40, countryMismatchWeight: 10 } })
-    ).toEqual({ year_weight: 40, country_mismatch_weight: 10 })
+      toUpdateConfigBody({ weights: { yearWeight: 40, timezoneWeight: 10 } })
+    ).toEqual({ year_weight: 40, timezone_weight: 10 })
     expect(toUpdateConfigBody({ name: 'Renamed', isActive: true })).toEqual({
       name: 'Renamed',
       is_active: true

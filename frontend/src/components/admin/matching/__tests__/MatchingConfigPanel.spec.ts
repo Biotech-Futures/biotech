@@ -14,10 +14,9 @@ const savedRow = {
   name: 'Student v2',
   is_active: true,
   year_weight: '30.00',
-  country_mismatch_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
-  size_bonus_weight: '10.00',
+  size_bonus_weight: '30.00',
   total_weight: '100.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
@@ -28,10 +27,9 @@ const defaultsBlock = {
   requiredTotal: '100.00',
   defaults: {
     year_weight: 20.0,
-    country_mismatch_weight: 15.0,
-    timezone_weight: 25.0,
-    timezone_max_weight: 20.0,
-    size_bonus_weight: 20.0
+    timezone_weight: 30.0,
+    timezone_max_weight: 25.0,
+    size_bonus_weight: 25.0
   }
 }
 
@@ -39,7 +37,6 @@ const builtInActive = {
   data: null,
   weights: {
     yearWeight: 8.0,
-    countryMismatchPenalty: 12.0,
     timezoneWeight: 2.0,
     timezoneMaxPenalty: 18.0,
     sizeBonusWeight: 6.0
@@ -51,10 +48,9 @@ const savedActive = {
   data: savedRow,
   weights: {
     yearWeight: 30.0,
-    countryMismatchPenalty: 20.0,
     timezoneWeight: 15.0,
     timezoneMaxPenalty: 25.0,
-    sizeBonusWeight: 10.0
+    sizeBonusWeight: 30.0
   },
   ...defaultsBlock
 }
@@ -145,27 +141,12 @@ describe('MatchingConfigPanel', () => {
       expect(wrapper.text()).toContain('Changes apply to the next student matching run.')
     })
 
-    it('describes the country value as reported and counted, not as driving the tie-break', async () => {
-      stubFetch({})
-      wrapper = await mountPanel()
-
-      const countryInput = weightInput(wrapper, 'countryMismatchWeight')
-      const helpId = countryInput.attributes('aria-describedby')!.split(' ')[0]
-      const help = wrapper.find(`#${helpId}`).text()
-      // The tie-break is separate from this value (country_mismatch_weight
-      // never reaches the comparator), so the copy must not tie them together.
-      expect(help).toContain('Country is used separately as a tie-breaker')
-      expect(help).toContain('reported in the score breakdown')
-      expect(help).toContain('counts towards the required 100% total')
-    })
-
     it('keeps each weight’s help in an accessible tooltip tied to its input', async () => {
       stubFetch({})
       wrapper = await mountPanel()
 
       for (const key of [
         'yearWeight',
-        'countryMismatchWeight',
         'timezoneWeight',
         'timezoneMaxWeight',
         'sizeBonusWeight'
@@ -184,17 +165,13 @@ describe('MatchingConfigPanel', () => {
       }
     })
 
-    it('keeps country an ordinary editable percentage with no tie-breaker label', async () => {
+    it('renders no country weight input at all', async () => {
       stubFetch({})
       wrapper = await mountPanel()
 
-      // Still part of the 100% total the backend requires, so still editable.
-      const country = weightInput(wrapper, 'countryMismatchWeight')
-      expect(country.attributes('type')).toBe('number')
-      expect(country.attributes('disabled')).toBeUndefined()
-      // A visible "Tie-breaker only" label implied the value controls the
-      // tie-break, which it does not.
-      expect(wrapper.text()).not.toContain('Tie-breaker only')
+      // Country stopped scoring and only ranks ties by its pair count, so there
+      // is nothing for an admin to tune and no input may appear.
+      expect(weightInput(wrapper, 'countryMismatchWeight').exists()).toBe(false)
     })
   })
 
@@ -207,10 +184,9 @@ describe('MatchingConfigPanel', () => {
         'Student v2'
       )
       expect(weightInput(wrapper, 'yearWeight').element.value).toBe('30')
-      expect(weightInput(wrapper, 'countryMismatchWeight').element.value).toBe('20')
       expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('15')
       expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
-      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('10')
+      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('30')
       expect(wrapper.text()).not.toContain('built-in weighting')
     })
 
@@ -220,10 +196,9 @@ describe('MatchingConfigPanel', () => {
 
       expect(wrapper.find<HTMLInputElement>('#matching-config-name').element.value).toBe('')
       expect(weightInput(wrapper, 'yearWeight').element.value).toBe('20')
-      expect(weightInput(wrapper, 'countryMismatchWeight').element.value).toBe('15')
-      expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('25')
-      expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('20')
-      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('20')
+      expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('30')
+      expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
+      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('25')
     })
 
     it('shows the built-in values in force separately, not as percentages', async () => {
@@ -236,7 +211,6 @@ describe('MatchingConfigPanel', () => {
       const values = builtin.findAll('.matching-config__builtin-value').map((row) => row.text())
       expect(values).toEqual([
         'Year8',
-        'Country12',
         'Timezone2',
         'Timezone cap18',
         'Group size bonus6'
@@ -297,9 +271,9 @@ describe('MatchingConfigPanel', () => {
       expect(wrapper.text()).toContain('Total: 105 / 100%')
       expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
       // Nothing else moved to compensate.
-      expect(weightInput(wrapper, 'countryMismatchWeight').element.value).toBe('20')
+      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('30')
 
-      await weightInput(wrapper, 'countryMismatchWeight').setValue('15')
+      await weightInput(wrapper, 'sizeBonusWeight').setValue('25')
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
@@ -326,7 +300,7 @@ describe('MatchingConfigPanel', () => {
       wrapper = await mountPanel()
 
       await weightInput(wrapper, 'yearWeight').setValue('33.33')
-      await weightInput(wrapper, 'countryMismatchWeight').setValue('16.67')
+      await weightInput(wrapper, 'sizeBonusWeight').setValue('26.67')
 
       expect(wrapper.text()).toContain('Total: 100 / 100%')
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
@@ -367,10 +341,9 @@ describe('MatchingConfigPanel', () => {
               id: 9,
               name: 'Student weights 2026',
               year_weight: '20.00',
-              country_mismatch_weight: '15.00',
-              timezone_weight: '25.00',
-              timezone_max_weight: '20.00',
-              size_bonus_weight: '20.00'
+              timezone_weight: '30.00',
+              timezone_max_weight: '25.00',
+              size_bonus_weight: '25.00'
             },
             201
           )
@@ -386,10 +359,9 @@ describe('MatchingConfigPanel', () => {
       expect(request.body).toEqual({
         name: 'Student weights 2026',
         year_weight: 20,
-        country_mismatch_weight: 15,
-        timezone_weight: 25,
-        timezone_max_weight: 20,
-        size_bonus_weight: 20,
+        timezone_weight: 30,
+        timezone_max_weight: 25,
+        size_bonus_weight: 25,
         is_active: true
       })
 
@@ -402,12 +374,12 @@ describe('MatchingConfigPanel', () => {
       const fetchMock = stubFetch({
         active: () => jsonResponse(savedActive),
         update: () =>
-          jsonResponse({ ...savedRow, year_weight: '33.33', country_mismatch_weight: '16.67' })
+          jsonResponse({ ...savedRow, year_weight: '33.33', size_bonus_weight: '26.67' })
       })
       wrapper = await mountPanel()
 
       await weightInput(wrapper, 'yearWeight').setValue('33.33')
-      await weightInput(wrapper, 'countryMismatchWeight').setValue('16.67')
+      await weightInput(wrapper, 'sizeBonusWeight').setValue('26.67')
       await submit(wrapper)
 
       const request = sent(fetchMock, 'PATCH')
@@ -416,10 +388,9 @@ describe('MatchingConfigPanel', () => {
       expect(request.body).toEqual({
         name: 'Student v2',
         year_weight: 33.33,
-        country_mismatch_weight: 16.67,
         timezone_weight: 15,
         timezone_max_weight: 25,
-        size_bonus_weight: 10
+        size_bonus_weight: 26.67
       })
       const methods = fetchMock.mock.calls.map(([, init]) => (init as RequestInit)?.method)
       expect(methods).not.toContain('POST')

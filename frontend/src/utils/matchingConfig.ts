@@ -9,8 +9,11 @@
  * - Config fields are snake_case and weights arrive as decimal strings ("20.00").
  * - `active/` returns `{ data, weights, requiredTotal, defaults }` at the top
  *   level, with `weights` under different camelCase names
- *   (`countryMismatchPenalty`, `timezoneMaxPenalty`).
+ *   (`timezoneMaxPenalty`).
  * - `defaults/` returns the same defaults block, but wrapped in `{ data }`.
+ *
+ * Country is deliberately absent: it stopped scoring in MA4 and now only breaks
+ * ties by its cross-country pair count, so it has no tunable weight here.
  *
  * Weights are never rescaled here. A saved config must total exactly
  * `requiredTotal` (100) and the backend rejects anything else, so the UI has to
@@ -24,10 +27,9 @@ import type { ParseResult } from './adminMatching'
 // Public types
 // ---------------------------------------------------------------------------
 
-/** The five scoring weights, as percentages of the 100-point base score. */
+/** The four scoring weights, as percentages of the 100-point base score. */
 export interface MatchingWeights {
   yearWeight: number
-  countryMismatchWeight: number
   timezoneWeight: number
   timezoneMaxWeight: number
   sizeBonusWeight: number
@@ -38,7 +40,6 @@ export type MatchingWeightKey = keyof MatchingWeights
 /** Display order for the weight inputs. */
 export const MATCHING_WEIGHT_KEYS: readonly MatchingWeightKey[] = [
   'yearWeight',
-  'countryMismatchWeight',
   'timezoneWeight',
   'timezoneMaxWeight',
   'sizeBonusWeight'
@@ -111,7 +112,6 @@ export interface MatchingConfigFieldErrors {
 /** Frontend weight key -> config field on the backend serializer. */
 const CONFIG_FIELD: Record<MatchingWeightKey, string> = {
   yearWeight: 'year_weight',
-  countryMismatchWeight: 'country_mismatch_weight',
   timezoneWeight: 'timezone_weight',
   timezoneMaxWeight: 'timezone_max_weight',
   sizeBonusWeight: 'size_bonus_weight'
@@ -119,11 +119,10 @@ const CONFIG_FIELD: Record<MatchingWeightKey, string> = {
 
 /**
  * Frontend weight key -> key in `active/`'s `weights` block, which comes from
- * ScoringWeights.as_dict() and names two of the weights differently.
+ * ScoringWeights.as_dict() and names one of the weights differently.
  */
 const APPLIED_WEIGHT_FIELD: Record<MatchingWeightKey, string> = {
   yearWeight: 'yearWeight',
-  countryMismatchWeight: 'countryMismatchPenalty',
   timezoneWeight: 'timezoneWeight',
   timezoneMaxWeight: 'timezoneMaxPenalty',
   sizeBonusWeight: 'sizeBonusWeight'
@@ -143,14 +142,14 @@ const decimal = z
   .transform(Number)
   .pipe(z.number().finite())
 
-/** Zod shape for the five weights under the given backend field names. */
+/** Zod shape for the four weights under the given backend field names. */
 const weightShape = (fields: Record<MatchingWeightKey, string>) =>
   Object.fromEntries(MATCHING_WEIGHT_KEYS.map((key) => [fields[key], decimal])) as Record<
     string,
     typeof decimal
   >
 
-/** Pick the five weights out of a parsed record, under frontend names. */
+/** Pick the four weights out of a parsed record, under frontend names. */
 const pickWeights = (
   raw: Record<string, unknown>,
   fields: Record<MatchingWeightKey, string>

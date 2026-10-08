@@ -164,22 +164,23 @@ class StudentMatchingModeTests(SimpleTestCase):
 
 
 class CountryTieBreakTests(SimpleTestCase):
-    def test_country_is_reported_but_never_penalised(self):
+    def test_country_mismatch_is_reported_but_never_penalised(self):
         candidate = score_student_for_existing_group(
             student(3, "Canada", -5),
             existing_group(20, "NSW Bio", [student(1, "Australia", 10)]),
         )
 
         breakdown = candidate["scoreBreakdown"]
-        # Reported for transparency...
-        self.assertEqual(breakdown["countryPenalty"], 12.0)
-        # ...but the blended penalty ignores it.
+        # Country no longer carries a weight or a reported penalty field.
+        self.assertNotIn("countryPenalty", breakdown)
+        self.assertEqual(candidate["countryMismatchCount"], 1)
+        # The blended penalty is year + timezone only, and the timezone term
+        # comes purely from the 15-hour gap (capped at 18).
+        self.assertEqual(breakdown["timezonePenalty"], 18.0)
         self.assertEqual(
             breakdown["totalPenalty"],
             breakdown["yearPenalty"] + breakdown["timezonePenalty"],
         )
-        self.assertEqual(breakdown["timezonePenalty"], 18.0)
-        self.assertEqual(candidate["countryMismatchCount"], 1)
 
     def test_same_timezone_gap_prefers_same_country(self):
         # Identical year gaps and zero timezone gaps on both sides, so country is
@@ -201,12 +202,11 @@ class CountryTieBreakTests(SimpleTestCase):
         self.assertLess(compare_recommendation_candidate(same_country, cross_country), 0)
         self.assertGreater(compare_recommendation_candidate(cross_country, same_country), 0)
 
-    def test_country_tie_break_survives_a_zero_country_weight(self):
-        # An admin may set country_mismatch_weight to 0 because country no
-        # longer scores; the tie-break must not disappear along with it.
+    def test_country_tie_break_survives_the_weight_being_gone(self):
+        # Country is a plain cross-country pair count, so the tie-break cannot
+        # be switched off by any weight an admin sets: it is not configurable.
         weights = ScoringWeights(
             year_weight=20.0,
-            country_mismatch_penalty=0.0,
             timezone_weight=25.0,
             timezone_max_penalty=20.0,
             size_bonus_weight=20.0,
@@ -222,8 +222,6 @@ class CountryTieBreakTests(SimpleTestCase):
             weights=weights,
         )
 
-        self.assertEqual(same_country["scoreBreakdown"]["countryPenalty"], 0.0)
-        self.assertEqual(cross_country["scoreBreakdown"]["countryPenalty"], 0.0)
         self.assertLess(compare_recommendation_candidate(same_country, cross_country), 0)
 
     def test_closer_timezone_ranks_first_across_borders(self):
@@ -240,12 +238,49 @@ class CountryTieBreakTests(SimpleTestCase):
         self.assertGreater(nearby["score"], further["score"])
         self.assertLess(compare_recommendation_candidate(nearby, further), 0)
 
+    def test_timezone_penalty_applies_within_a_country(self):
+        # Perth (+8) and an Australian eastern-state member (+11): same country
+        # but three hours apart, so the timezone signal must cost points on its
+        # own instead of being waived just because no border is crossed.
+        candidate = score_student_for_existing_group(
+            student(3, "Australia", 8),
+            existing_group(20, "NSW Bio", [student(1, "Australia", 11)]),
+        )
+
+        breakdown = candidate["scoreBreakdown"]
+        self.assertNotIn("countryPenalty", breakdown)
+        self.assertEqual(breakdown["timezonePenalty"], 6.0)  # min(18, 3 * 2)
+        self.assertEqual(breakdown["totalPenalty"], 6.0)
+
+    def test_timezone_beats_country_when_the_gap_differs(self):
+        # Perth (+8) vs a same-country member (+10) is two hours away, Perth vs
+        # a Tokyo member (+9, different country) is one hour away. The closer
+        # cross-country option must rank first: country only decides exact ties,
+        # never an actual timezone difference.
+        further_same_country = score_student_for_existing_group(
+            student(3, "Australia", 8),
+            existing_group(20, "NSW Bio", [student(1, "Australia", 10)]),
+        )
+        closer_cross_country = score_student_for_existing_group(
+            student(3, "Australia", 8),
+            existing_group(21, "Tokyo Bio", [student(2, "Japan", 9)]),
+        )
+
+        self.assertGreater(
+            further_same_country["scoreBreakdown"]["timezonePenalty"],
+            closer_cross_country["scoreBreakdown"]["timezonePenalty"],
+        )
+        self.assertLess(further_same_country["score"], closer_cross_country["score"])
+        self.assertLess(
+            compare_recommendation_candidate(closer_cross_country, further_same_country),
+            0,
+        )
+
 
 class ConfigurableScoringTests(SimpleTestCase):
     def test_configured_weights_replace_the_hardcoded_penalties(self):
         heavy_year = ScoringWeights(
             year_weight=40.0,
-            country_mismatch_penalty=10.0,
             timezone_weight=20.0,
             timezone_max_penalty=15.0,
             size_bonus_weight=15.0,
@@ -276,7 +311,6 @@ class ConfigurableScoringTests(SimpleTestCase):
     def test_size_bonus_weight_scales_the_objective_ceiling(self):
         generous = ScoringWeights(
             year_weight=20.0,
-            country_mismatch_penalty=15.0,
             timezone_weight=25.0,
             timezone_max_penalty=20.0,
             size_bonus_weight=20.0,

@@ -298,7 +298,7 @@ onMounted(() => {
 }
 
 /* Fields — same look as the admin form sheets. */
-/* Five across at desktop widths; auto-fit wraps them on narrower screens. */
+/* Four across at desktop widths; auto-fit wraps them on narrower screens. */
 .matching-config__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
