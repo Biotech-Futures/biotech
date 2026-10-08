@@ -286,6 +286,16 @@ describe('AdminViewsDirectoryPage', () => {
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
   })
 
+  it('navigates to the executed view when clicking anywhere on the view row', async () => {
+    wrapper = mountPage()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.admin-table__row')
+    await rows[1].trigger('click')
+
+    expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
+  })
+
   it('exports a default view as CSV', async () => {
     wrapper = mountPage()
     await flushPromises()

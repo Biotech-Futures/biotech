@@ -11,6 +11,7 @@
       empty-message="No views found."
       select-all-label="Select all views"
       @update:selected="onSelectedChange"
+      @row-click="onRowClick"
     >
       <template #cell-name="{ row }">
         <div class="admin-views-table__primary">
@@ -135,6 +136,10 @@ const goRun = (view: AdminView) => {
   router.push({ name: 'admin-view-detail', params: { id: view.id } })
 }
 
+const onRowClick = (row: Record<string, unknown>) => {
+  goRun(toView(row))
+}
+
 const exportCsv = (view: AdminView) => {
   window.open(getAdminViewExportUrl(view.id), '_blank')
 }
@@ -183,6 +188,10 @@ const confirmDelete = async () => {
 </script>
 
 <style scoped>
+:deep(.admin-table__row) {
+  cursor: pointer;
+}
+
 .admin-views-table__primary {
   min-width: 0;
   display: flex;
