@@ -44,6 +44,8 @@ class EmailType:
     # Which of settings.EMAIL_SENDERS it goes from until System Emails picks
     # another.
     default_sender: str = "info"
+    # Who an email for a whole group goes to, shown above "Send from".
+    delivery: str = ""
 
     def tag(self, name: str) -> Optional[MergeTag]:
         for merge_tag in self.merge_tags:
@@ -62,6 +64,10 @@ _BRAND_TAGS = (
     MergeTag("brand_connect", "Platform name", "BIOTech Connect", "BRAND_CONNECT"),
     MergeTag("contact_email", "Support email address", "support@biotechfutures.org", "CONTACT_EMAIL"),
 )
+
+# Each group's one email, as the send code addresses it (see
+# apps.submissions.emails.to_and_cc and apps.management.services.delivery).
+_GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
 
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
 
@@ -233,6 +239,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
         name="Submission confirmation",
         description="Sent to a group when they submit their entry.",
         default_subject="{{ brand_name }}: Submission received for {{ group_name }}",
@@ -250,6 +257,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
         name="Submission reminder",
         description="Daily reminder in the final week before a group's deadline.",
         default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
@@ -266,6 +274,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="finalist_notification",
+        delivery=_GROUP_TO_AND_CC,
         name="Finalist notification",
         description="Sent to finalist teams from Notify Finalists.",
         default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
@@ -286,6 +295,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="nonfinalist_invitation",
+        delivery=_GROUP_TO_AND_CC,
         name="Non-finalist invitation",
         description="Sent to teams not picked as finalists, from Notify Nonfinalist.",
         default_subject="Thank you for your submission – Invitation to the Symposium",
@@ -304,6 +314,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="nonsubmission_notice",
+        delivery=_GROUP_TO_AND_CC,
         name="Non-submission notice",
         description="Sent to teams that didn't submit, from Notify Nonfinalist.",
         default_subject="{{ brand_name }} – No Submission Received",
@@ -322,6 +333,8 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_team",
+        # Its students and mentors each get the group's certificates.
+        delivery="Each group gets one email: its students and mentors in To.",
         name="Results (to groups)",
         description="Sent to each group's students and mentors from Release Results.",
         default_subject="Your {{ year }} {{ brand_name }} Challenge results",

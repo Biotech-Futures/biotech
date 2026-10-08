@@ -2,9 +2,11 @@
 the page's "of" list shows them, and the merge values that recipient's own
 email carries. An email for a whole group lists groups ("BTF01"). An email to
 people lists only the roles it goes to: students by this year's groups
-("(BTF01) Pat Lee"), mentors with their role ("(BTF01, mentor) Aga Smith"),
-and supervisors and admins by their role alone ("(supervisor) Sam Lee",
-"(admin) Ada Lin").
+("(BTF01) Pat Lee"), mentors with their role too ("(BTF01, mentor) Aga
+Smith"), guardians by their student ("(BTF01, guardian) Pat Lee"), and
+supervisors and admins by their role alone ("(supervisor) Sam Lee", "(admin)
+Ada Lin"). A student or mentor with no group this year shows as "NoGroup"
+("(NoGroup) Pat Lee", "(NoGroup, mentor) Aga Smith").
 
 Only what is the recipient's own is filled in. Codes and links that act for
 someone (a login code, a password reset link, a guardian's consent link) stay
@@ -29,6 +31,8 @@ from apps.users.models import StudentProfile, User
 
 _ROLES = GroupMembership.MembershipRoleChoices
 _ADMIN = "admin"
+# Where a student or mentor with no group this year shows.
+_NO_GROUP = "NoGroup"
 # Roles shown without groups, listed after students and mentors in this order.
 _ROLE_ONLY = (_ROLES.SUPERVISOR, _ADMIN)
 # Accounts the platform no longer emails.
@@ -47,22 +51,24 @@ def _this_year():
 
 def _person_option(user, role: str, groups=()) -> dict:
     """"(BTF01) Pat Lee" for a student, "(BTF01, mentor) Aga Smith" for a
-    mentor, "(supervisor) Sam Lee" for a supervisor and "(admin) Ada Lin" for
-    an admin. Students and mentors come first in group order, then
-    supervisors, then admins."""
+    mentor, "(BTF01, guardian) Pat Lee" for Pat's guardian, "(supervisor) Sam
+    Lee" for a supervisor and "(admin) Ada Lin" for an admin. With no group,
+    "(NoGroup) Pat Lee" and "(NoGroup, mentor) Aga Smith". Those in groups
+    come first in group order, then those with none, then supervisors, then
+    admins."""
     name = person_name(user)
     if role in _ROLE_ONLY:
         return {
             "value": str(user.id),
             "label": f"({role}) {name}",
-            "order": (1 + _ROLE_ONLY.index(role), (), name.lower()),
+            "order": (2 + _ROLE_ONLY.index(role), (), name.lower()),
         }
-    groups = sorted(groups, key=natural_key)
-    parts = groups + ([role] if role == _ROLES.MENTOR else [])
+    groups = sorted(groups, key=natural_key) or [_NO_GROUP]
+    parts = groups + ([] if role == _ROLES.STUDENT else [role])
     return {
         "value": str(user.id),
         "label": f"({', '.join(parts)}) {name}",
-        "order": (0, natural_key(groups[0]), name.lower()),
+        "order": (1, (), name.lower()) if groups == [_NO_GROUP] else (0, natural_key(groups[0]), name.lower()),
     }
 
 
@@ -99,6 +105,20 @@ def _supervisors():
     )
 
 
+def _without_group(role: str):
+    """Mentors, and this year's students, with no place in this year's groups."""
+    from apps.common.rbac import users_with_role
+
+    in_groups = GroupMembership.objects.filter(
+        left_at__isnull=True, group__deleted_at__isnull=True, group__year=_this_year(),
+    ).values("user_id")
+    users = users_with_role(role).exclude(email="").exclude(account_status__in=_GONE).exclude(id__in=in_groups)
+    if role == _ROLES.STUDENT:
+        # Last year's students aren't this year's.
+        users = users.filter(date_joined__year=_this_year())
+    return users
+
+
 def _admins():
     from apps.common.rbac import users_with_role
     from apps.common.role_names import ROLE_ADMIN
@@ -106,11 +126,13 @@ def _admins():
     return users_with_role(ROLE_ADMIN).exclude(email="").exclude(account_status__in=_GONE)
 
 
-def _people(*roles: str) -> list[dict]:
+def _people(*roles: str, without_group: bool = True) -> list[dict]:
     """This year's people in ``roles``, once each: students and mentors by
-    their groups (a mentor in any group is listed as a mentor), supervisors
+    their groups (a mentor in any group is listed as a mentor), or as
+    "NoGroup" with none unless ``without_group`` is False, and supervisors
     and admins by their role alone. Someone with more than one role keeps
-    the first: their group, else supervisor, else admin."""
+    the first: their group, else mentor, else student, else supervisor, else
+    admin."""
     people: dict[int, tuple] = {}
     for membership in _this_years_members(*(role for role in roles if role not in _ROLE_ONLY)):
         user, groups, member_roles = people.setdefault(membership.user_id, (membership.user, set(), set()))
@@ -121,6 +143,14 @@ def _people(*roles: str) -> list[dict]:
         for user, groups, member_roles in people.values()
     ]
     listed = set(people)
+    if without_group:
+        for role in (_ROLES.MENTOR, _ROLES.STUDENT):
+            if role not in roles:
+                continue
+            for user in _without_group(role):
+                if user.id not in listed:
+                    listed.add(user.id)
+                    options.append(_person_option(user, role))
     for role, users in ((_ROLES.SUPERVISOR, _supervisors), (_ADMIN, _admins)):
         if role not in roles:
             continue
@@ -159,8 +189,8 @@ def _everyone() -> list[dict]:
 
 
 def _students_and_mentors() -> list[dict]:
-    # Group chat members; the digest leaves supervisors out.
-    return _people(_ROLES.STUDENT, _ROLES.MENTOR)
+    # Group chat members, so nobody without a group; the digest leaves supervisors out.
+    return _people(_ROLES.STUDENT, _ROLES.MENTOR, without_group=False)
 
 
 def _students() -> list[dict]:
@@ -173,18 +203,37 @@ def _guardian_details_context(value: str) -> dict:
     return {"STUDENT_FIRST_NAME": _user(value).first_name or "", "DETAILS_URL": details_link()}
 
 
-def _guardian_of(value: str):
-    """The student's profile and the guardian their consent email goes to:
-    the one still to ask, else the one on file. (None, None) without a profile."""
+def _guardian(profile: StudentProfile):
+    """The guardian a student's consent email goes to: the one still to ask,
+    else the one on file."""
     from apps.users.guardian_consent import Guardian, guardian_to_ask
 
-    profile = StudentProfile.objects.select_related("user").filter(user_id=int(value)).first()
-    if profile is None:
-        return None, None
-    guardian = guardian_to_ask(profile) or Guardian(
+    return guardian_to_ask(profile) or Guardian(
         profile.pg_first_name, profile.pg_last_name, (profile.pg_email or "").strip().lower(), False,
     )
-    return profile, guardian
+
+
+def _guardian_of(value: str):
+    """The student's profile and their guardian; (None, None) without a profile."""
+    profile = StudentProfile.objects.select_related("user").filter(user_id=int(value)).first()
+    return (profile, _guardian(profile)) if profile else (None, None)
+
+
+def _guardians() -> list[dict]:
+    """Each student's guardian, named by their student: "(BTF01, guardian)
+    Pat Lee" is Pat's guardian, and "(NoGroup, guardian) Pat Lee" when Pat
+    has no group. A guardian with no email can't be sent it, so isn't
+    listed."""
+    students: dict[int, set] = {}
+    for membership in _this_years_members(_ROLES.STUDENT):
+        students.setdefault(membership.user_id, set()).add(membership.group.group_name)
+    for user in _without_group(_ROLES.STUDENT):
+        students.setdefault(user.id, set())
+    options = []
+    for profile in StudentProfile.objects.filter(user_id__in=list(students)).select_related("user"):
+        if _guardian(profile).email:
+            options.append(_person_option(profile.user, "guardian", students[profile.user_id]))
+    return _sorted(options)
 
 
 def _student_notice_context(value: str) -> dict:
@@ -345,7 +394,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "event_promotion": _EVERYONE,
     "guardian_details_request": Recipients(_students, _guardian_details_context),
     "guardian_consent_student_notice": Recipients(_students, _student_notice_context),
-    "guardian_consent_request": Recipients(_students, _consent_request_context),
+    "guardian_consent_request": Recipients(_guardians, _consent_request_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),

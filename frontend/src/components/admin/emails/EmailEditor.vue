@@ -3,7 +3,12 @@
     <header class="email-editor__header">
       <div class="email-editor__title-block">
         <h2 class="email-editor__title">
-          {{ emailTemplate.name }}
+          <span>
+            {{ nameParts(emailTemplate.name).title }}
+            <span v-if="nameParts(emailTemplate.name).to" class="email-editor__to">
+              {{ nameParts(emailTemplate.name).to }}
+            </span>
+          </span>
           <i
             v-if="emailTemplate.locked"
             class="fas fa-lock email-editor__lock"
@@ -40,6 +45,11 @@
     <p v-if="emailTemplate.locked" class="email-editor__note">
       <i class="fas fa-shield-halved" aria-hidden="true"></i>
       {{ lockReason() }}
+    </p>
+
+    <p v-if="emailTemplate.delivery" class="email-editor__delivery" data-test="delivery">
+      <i class="fas fa-users" aria-hidden="true"></i>
+      {{ emailTemplate.delivery }}
     </p>
 
     <!-- The mailbox it goes from: only those the server can sign in to, since
@@ -123,36 +133,42 @@
       </div>
 
       <!-- Send the email as it stands to any address, as the group or person
-           picked would get it (sample values when nobody is picked). -->
+           picked would get it (sample values when nobody is picked). The
+           preview shows the one picked too. -->
       <div
         class="email-editor__test"
-        :class="{ 'email-editor__test--of': recipientsFailed || testRecipients }"
+        :class="{ 'email-editor__test--of': testRecipientsFailed || testRecipients }"
         data-test="test-email"
       >
         <button
           type="button"
           class="btn btn-outline btn-sm"
-          :disabled="busy || recipientsLoading || !testTo.trim()"
+          :disabled="busy || testRecipientsLoading || !testTo.trim()"
           @click="sendTest"
         >
           {{ testing ? 'Sending…' : 'Send Test' }}
         </button>
-        <template v-if="recipientsFailed || testRecipients">
+        <template v-if="testRecipientsFailed || testRecipients">
           <span class="email-editor__test-word">of</span>
-          <select
-            v-model="testOf"
-            class="email-editor__test-select"
-            aria-label="Send it as"
-            data-test="test-of"
-            :disabled="!testRecipients?.length"
-          >
-            <option v-if="!testRecipients?.length" value="">
-              {{ recipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
-            </option>
-            <option v-for="option in testRecipients" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+          <!-- A critical email (sign-in, passwords) shows its lock here too. -->
+          <span class="email-editor__test-of" :class="{ 'email-editor__test-of--locked': emailTemplate.locked }">
+            <i v-if="emailTemplate.locked" class="fas fa-lock email-editor__test-lock" aria-hidden="true"></i>
+            <select
+              v-model="testOf"
+              class="email-editor__test-select"
+              aria-label="Send it as"
+              data-test="test-of"
+              :title="emailTemplate.locked ? `${emailTemplate.name} is critical: it always sends` : undefined"
+              :disabled="!testRecipients?.length"
+            >
+              <option v-if="!testRecipients?.length" value="">
+                {{ testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
+              </option>
+              <option v-for="option in testRecipients" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </span>
         </template>
         <span class="email-editor__test-word email-editor__test-word--to">to</span>
         <!-- Password managers leave this box alone. -->
@@ -182,16 +198,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
 import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import {
   mergeTagToken,
+  nameParts,
   type SystemEmailMergeTag,
   type SystemEmailTemplate,
   type SystemEmailTestRecipient
 } from '@/utils/systemEmail'
-import { fetchSystemEmailTestRecipients } from '@/utils/adminAPI'
 import { useAuthStore } from '@/stores/auth'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
@@ -207,44 +223,22 @@ const props = defineProps<{
   restoring: boolean
   /** How the last test send went. */
   testResult?: { ok: boolean; text: string } | null
+  /** Who a test can be "of": null when the email has nothing of a person's own. */
+  testRecipients?: SystemEmailTestRecipient[] | null
+  testRecipientsLoading?: boolean
+  testRecipientsFailed?: boolean
 }>()
+
+// The one picked: the test and the preview carry their details.
+const testOf = defineModel<string>('testOf', { default: '' })
 
 // Where a test goes: the admin's own address to start with.
 const auth = useAuthStore()
 const testTo = ref(auth.user?.email ?? '')
 
-// Whose details it carries: one of the email's groups or people, the first to
-// start with. Null when the email has nothing of a person's own.
-const testRecipients = ref<SystemEmailTestRecipient[] | null>(null)
-const testOf = ref('')
-const recipientsLoading = ref(false)
-const recipientsFailed = ref(false)
-
-watch(
-  () => props.emailTemplate.key,
-  async (key) => {
-    testRecipients.value = null
-    testOf.value = ''
-    recipientsFailed.value = false
-    recipientsLoading.value = true
-    try {
-      const recipients = await fetchSystemEmailTestRecipients(key)
-      // Another email was picked while this one loaded.
-      if (key !== props.emailTemplate.key) return
-      testRecipients.value = recipients
-      testOf.value = recipients?.[0]?.value ?? ''
-    } catch {
-      if (key === props.emailTemplate.key) recipientsFailed.value = true
-    } finally {
-      if (key === props.emailTemplate.key) recipientsLoading.value = false
-    }
-  },
-  { immediate: true }
-)
-
 const sendTest = () => {
-  if (props.busy || recipientsLoading.value || !testTo.value.trim()) return
-  emit('test-send', testTo.value.trim(), testOf.value)
+  if (props.busy || props.testRecipientsLoading || !testTo.value.trim()) return
+  emit('test-send', testTo.value.trim())
 }
 
 /** This email's placeholders that hold a link, offered in the link dialog. */
@@ -285,7 +279,7 @@ const emit = defineEmits<{
   (e: 'change-sender', sender: string): void
   (e: 'save'): void
   (e: 'restore'): void
-  (e: 'test-send', to: string, of: string): void
+  (e: 'test-send', to: string): void
 }>()
 
 type EditableField = 'subject' | 'body'
@@ -374,9 +368,30 @@ const insertIntoSubject = (token: string) => {
 }
 
 /* As wide as the address box, or wider when a name needs it, up to 25rem. */
+.email-editor__test-of {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
 .email-editor__test-select {
   width: 100%;
   max-width: 25rem;
+}
+
+/* A critical email's lock, inside the list's box on the left. */
+.email-editor__test-lock {
+  position: absolute;
+  left: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6875rem;
+  color: var(--eucalypt);
+  pointer-events: none;
+}
+
+.email-editor__test-of--locked .email-editor__test-select {
+  padding-left: 1.5rem;
 }
 
 .email-editor__test-to {
@@ -428,12 +443,28 @@ const insertIntoSubject = (token: string) => {
   color: #111827;
 }
 
+/* Who it goes to, as in "(to student)": not bold, and lighter. */
+.email-editor__to {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .email-editor__lock {
   font-size: 0.75rem;
   color: #6b7280;
 }
 
 .email-editor__description {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+/* Who a group's email goes to: plain, like the description. */
+.email-editor__delivery {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 0.8125rem;
   color: #6b7280;

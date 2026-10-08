@@ -124,6 +124,8 @@ def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
         "description": email_type.description,
         "enabled": row.is_enabled if row is not None else True,
         "locked": email_type.locked,
+        # Who a whole group's email goes to; empty for an email to one person.
+        "delivery": email_type.delivery,
         "usingSavedContent": bool(row is not None and row.has_custom_content),
         "defaultSubject": email_type.default_subject,
         "defaultBody": _default_body(email_type),
@@ -366,18 +368,27 @@ def _preview_fields(key: str, subject, body) -> tuple:
     return subject, body, None
 
 
+# What templates build their lists from: once a recipient's details bring
+# these, the preview builds the list instead of showing its tag.
+_LIST_DATA = ("GROUPS", "REQUIRED_COMPONENTS", "OPTIONAL_COMPONENTS")
+
+
 def preview_email_template(
     key: str,
     subject=None,
     body=None,
+    of=None,
 ) -> dict:
     """Render email ``key`` for the editor's preview, honouring unsaved edits.
 
     Returns the finished subject and the full branded HTML + plain text.
     Recipient-specific merge tags stay visible as ``{{ tag }}`` so the admin
-    can see exactly where each person's data will go, and the logo is
-    embedded so it displays in the browser.
+    can see exactly where each person's data will go, except those that
+    recipient ``of`` (picked from ``test_recipients``) fills with their own
+    details. The logo is embedded so it displays in the browser.
     """
+    from apps.admin.services.system_email_recipients import RecipientError, recipient_context
+
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
 
@@ -386,10 +397,19 @@ def preview_email_template(
         return {"msg": error, "data": None}
 
     email_type = get_email_type(key)
+    context = _placeholder_context(email_type)
+    if of:
+        try:
+            own = recipient_context(key, of)
+        except RecipientError as exc:
+            return {"msg": str(exc), "data": None}
+        context.update(own)
+        if any(name in own for name in _LIST_DATA):
+            context["SHOW_MERGE_TAGS"] = False
     try:
         rendered = render_system_email(
             key,
-            _placeholder_context(email_type),
+            context,
             subject=cleaned_subject,
             body=cleaned_body,
         )

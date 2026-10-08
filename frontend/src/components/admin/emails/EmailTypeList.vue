@@ -30,7 +30,12 @@
         >
           <span class="email-type-list__copy">
             <span class="email-type-list__name">
-              {{ template.name }}
+              <span>
+                {{ nameParts(template.name).title }}
+                <span v-if="nameParts(template.name).to" class="email-type-list__to">
+                  {{ nameParts(template.name).to }}
+                </span>
+              </span>
               <i
                 v-if="template.locked"
                 class="fas fa-lock email-type-list__lock"
@@ -38,7 +43,6 @@
                 aria-hidden="true"
               ></i>
             </span>
-            <span class="email-type-list__description">{{ template.description }}</span>
           </span>
           <span
             class="email-type-list__status"
@@ -55,7 +59,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { SystemEmailTemplate } from '@/utils/systemEmail'
+import { nameParts, type SystemEmailTemplate } from '@/utils/systemEmail'
 
 const props = defineProps<{
   templates: SystemEmailTemplate[]
@@ -161,19 +165,19 @@ const filtered = computed(() => {
   align-items: center;
   gap: 0.375rem;
   font-size: 0.875rem;
-  font-weight: 600;
-  color: #111827;
+  font-weight: 500;
+  color: #000;
+}
+
+/* Who it goes to, as in "(to student)": not bold, and lighter. */
+.email-type-list__to {
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .email-type-list__lock {
   font-size: 0.6875rem;
   color: var(--eucalypt);
-}
-
-.email-type-list__description {
-  font-size: 0.75rem;
-  line-height: 1.4;
-  color: #6b7280;
 }
 
 .email-type-list__status {
@@ -206,9 +210,5 @@ const filtered = computed(() => {
 :root[data-theme='dark'] .email-type-list__search-input,
 :root[data-theme='dark'] .email-type-list__name {
   color: var(--charcoal);
-}
-
-:root[data-theme='dark'] .email-type-list__description {
-  color: var(--text-muted);
 }
 </style>

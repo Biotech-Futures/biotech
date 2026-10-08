@@ -49,6 +49,8 @@ export const systemEmailTemplateSchema = z.object({
   description: z.string(),
   enabled: z.boolean(),
   locked: z.boolean(),
+  /** Who a whole group's email goes to, e.g. its students in To. Empty for an email to one person. */
+  delivery: z.string().optional(),
   usingSavedContent: z.boolean(),
   defaultSubject: z.string(),
   defaultBody: z.string(),
@@ -143,6 +145,15 @@ export interface SystemEmailTestSendPayload extends SystemEmailPreviewPayload {
   to?: string
   /** A `value` from the email's test recipients. */
   of?: string
+}
+
+/**
+ * An email's name split from who it goes to, when it ends with that, as in
+ * "Guardian consent sent (to student)". That part is shown in normal weight.
+ */
+export const nameParts = (name: string): { title: string; to: string } => {
+  const match = /^(.*\S)\s+(\(to [^)]*\))$/.exec(name)
+  return match ? { title: match[1], to: match[2] } : { title: name, to: '' }
 }
 
 /**

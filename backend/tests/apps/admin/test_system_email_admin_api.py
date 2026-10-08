@@ -52,6 +52,17 @@ class SystemEmailAdminServiceTests(TestCase):
         by_key = {item["key"]: item for item in items}
         self.assertEqual(set(by_key), set(EMAIL_REGISTRY))
 
+        # Who a whole group's email goes to, shown above Send from.
+        to_and_cc = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
+        for key in (
+            "submission_confirmation", "submission_reminder", "finalist_notification",
+            "nonfinalist_invitation", "nonsubmission_notice",
+        ):
+            self.assertEqual(by_key[key]["delivery"], to_and_cc, key)
+        self.assertEqual(by_key["results_team"]["delivery"], "Each group gets one email: its students and mentors in To.")
+        self.assertEqual(by_key["login_code"]["delivery"], "")
+        self.assertEqual(by_key["results_supervisor"]["delivery"], "")
+
         login = by_key["login_code"]
         self.assertTrue(login["locked"])
         self.assertTrue(login["enabled"])

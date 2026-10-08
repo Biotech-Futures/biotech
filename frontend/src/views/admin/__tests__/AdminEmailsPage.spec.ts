@@ -105,6 +105,37 @@ describe('AdminEmailsPage', () => {
     expect(wrapper.findComponent(EmailEditor).props('emailTemplate').key).toBe('password_reset')
   })
 
+  it('shows who an email goes to in normal weight, apart from its bold name', async () => {
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+      buildTemplate({ key: 'guardian_consent_student_notice', name: 'Guardian consent sent (to student)' })
+    ])
+    const wrapper = await mountPage()
+
+    for (const selector of ['.email-type-list__name', '.email-editor__title']) {
+      const name = wrapper.find(selector)
+      expect(name.text()).toBe('Guardian consent sent (to student)')
+      expect(name.find('.email-type-list__to, .email-editor__to').text()).toBe('(to student)')
+    }
+  })
+
+  it('says above Send from who a group email goes to, and nothing for an email to one person', async () => {
+    const delivery = 'Each group gets one email: its students in To, and its mentors and supervisors in CC.'
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+      buildTemplate(),
+      buildTemplate({ key: 'submission_reminder', name: 'Submission reminder', delivery })
+    ])
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-test="delivery"]').exists()).toBe(false)
+
+    await wrapper.findAll('.email-type-list__item')[1].trigger('click')
+    await flushPromises()
+
+    const note = wrapper.find('[data-test="delivery"]')
+    expect(note.text()).toBe(delivery)
+    // Just above Send from.
+    expect(note.element.nextElementSibling?.querySelector('label')?.textContent).toBe('Send from')
+  })
+
   it('switches the editor to the selected email', async () => {
     const wrapper = await mountPage()
     const items = wrapper.findAll('.email-type-list__item')
@@ -340,8 +371,9 @@ describe('AdminEmailsPage', () => {
       '(BTF1, mentor) Aga Smith',
       '(BTF2) Ben Bell'
     ])
-    // The first one to start with.
+    // The first one to start with, with no lock on an email that can be switched off.
     expect((of.element as HTMLSelectElement).value).toBe('7')
+    expect(control.find('.email-editor__test-lock').exists()).toBe(false)
 
     await of.setValue('9')
     await control.find('input').setValue('tester@example.com')
@@ -386,5 +418,7 @@ describe('AdminEmailsPage', () => {
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenLastCalledWith('login_code')
     expect(wrapper.find('[data-test="test-of"]').text()).toBe('(BTF3) Cai Chen')
+    // A critical email shows its lock in the list too.
+    expect(wrapper.find('[data-test="test-email"] .email-editor__test-lock').exists()).toBe(true)
   })
 })

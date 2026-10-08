@@ -4,7 +4,7 @@
       <div>
         <h1 class="admin-emails__title">System Emails</h1>
         <p class="admin-emails__subtitle">
-          Edit the wording of the emails the platform sends, preview them with sample data, and
+          Edit the wording of the emails the platform sends, preview them with sample data and
           pause the ones you do not want going out.
         </p>
       </div>
@@ -75,6 +75,10 @@
           :saving="saving"
           :testing="testing"
           :test-result="testResult"
+          v-model:test-of="testOf"
+          :test-recipients="testRecipients"
+          :test-recipients-loading="testRecipientsLoading"
+          :test-recipients-failed="testRecipientsFailed"
           :restoring="restoring"
           @update:subject="setSubject"
           @update:body="setBody"
@@ -143,6 +147,10 @@ const {
   setBody,
   testSend,
   testResult,
+  testRecipients,
+  testRecipientsLoading,
+  testRecipientsFailed,
+  testOf,
   save,
   restore,
   toggleEnabled,

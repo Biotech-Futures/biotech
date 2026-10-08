@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import {
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
+  fetchSystemEmailTestRecipients,
   previewSystemEmailTemplate,
   restoreSystemEmailTemplate,
   testSendSystemEmailTemplate,
@@ -12,7 +13,8 @@ import { logApiError } from '@/utils/apiError'
 import type {
   SystemEmailPreview,
   SystemEmailSettings,
-  SystemEmailTemplate
+  SystemEmailTemplate,
+  SystemEmailTestRecipient
 } from '@/utils/systemEmail'
 
 export interface SystemEmailDraft {
@@ -49,6 +51,14 @@ export function useSystemEmails() {
   const selectedKey = ref<string | null>(null)
   const draft = ref<SystemEmailDraft>({ subject: '', body: '' })
   const preview = ref<SystemEmailPreview | null>(null)
+
+  // Who a test is "of": the email's groups or people, the first picked to
+  // start with. The test and the preview carry their details. Null when the
+  // email has nothing of a person's own.
+  const testRecipients = ref<SystemEmailTestRecipient[] | null>(null)
+  const testRecipientsLoading = ref(false)
+  const testRecipientsFailed = ref(false)
+  const testOf = ref('')
 
   const previewQueued = ref(false)
   let previewTimer: number | null = null
@@ -116,6 +126,9 @@ export function useSystemEmails() {
     return fields
   }
 
+  /** Whose details the preview and a test carry, when someone is picked. */
+  const ofPicked = (): { of?: string } => (testOf.value ? { of: testOf.value } : {})
+
   const clearMessages = () => {
     error.value = ''
     notice.value = ''
@@ -178,7 +191,10 @@ export function useSystemEmails() {
     if (options?.quiet) previewQueued.value = false
     else error.value = ''
     try {
-      preview.value = await previewSystemEmailTemplate(template.key, draftToRender(template))
+      preview.value = await previewSystemEmailTemplate(template.key, {
+        ...draftToRender(template),
+        ...ofPicked()
+      })
     } catch (previewError) {
       logApiError('admin.system-emails.preview', previewError)
       if (!options?.quiet) {
@@ -218,11 +234,41 @@ watch(
   { flush: 'pre' }
 )
 
+/** Load who the selected email's test can be "of", picking the first. */
+const loadTestRecipients = async (key: string) => {
+  testRecipients.value = null
+  testOf.value = ''
+  testRecipientsFailed.value = false
+  testRecipientsLoading.value = true
+  try {
+    const recipients = await fetchSystemEmailTestRecipients(key)
+    // Another email was picked while this one loaded.
+    if (key !== selectedKey.value) return
+    testRecipients.value = recipients
+    testOf.value = recipients?.[0]?.value ?? ''
+  } catch (recipientsError) {
+    logApiError('admin.system-emails.test-recipients', recipientsError)
+    if (key === selectedKey.value) testRecipientsFailed.value = true
+  } finally {
+    if (key === selectedKey.value) testRecipientsLoading.value = false
+  }
+}
+
+watch(selectedKey, (key) => {
+  if (key) void loadTestRecipients(key)
+})
+
+// The preview shows the one picked at once, but not the reset while the next
+// email's list loads.
+watch(testOf, () => {
+  if (!testRecipientsLoading.value) runLivePreview()
+})
+
 /**
  * Send the email as it stands to ``to``, or the admin's own address, with the
- * details of ``of`` (one of the email's test recipients), else the samples.
+ * details of the one picked, else the samples.
  */
-  const testSend = async (to?: string, of?: string) => {
+  const testSend = async (to?: string) => {
     const template = selected.value
     if (!template) return
     testing.value = true
@@ -231,7 +277,7 @@ watch(
       const result = await testSendSystemEmailTemplate(template.key, {
         ...draftToRender(template),
         ...(to ? { to } : {}),
-        ...(of ? { of } : {})
+        ...ofPicked()
       })
       // A test can take a few minutes too, and bounces like the real thing.
       const note = result.sentFrom
@@ -360,6 +406,10 @@ watch(
     refreshPreview,
     testSend,
     testResult,
+    testRecipients,
+    testRecipientsLoading,
+    testRecipientsFailed,
+    testOf,
     save,
     restore,
     toggleEnabled,
