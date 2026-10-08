@@ -8,8 +8,8 @@ import { keptAsBlock } from './emailBlocks'
 
 /** Tags the visual view reads (it keeps their text, styles and class names). */
 const VISUAL_TAGS = new Set([
-  'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del',
-  'a', 'ul', 'ol', 'li', 'blockquote', 'hr', 'span', 'code', 'pre', 'img',
+  'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 'u', 'code',
+  'a', 'ul', 'ol', 'li', 'blockquote', 'hr', 'span', 'img',
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'colgroup', 'col', 'div'
 ])
 
@@ -34,4 +34,4 @@ export function visualLosses(html: string): string[] {
 /** One block per line: the editor writes its HTML on a single line. Only
  *  after blocks, so no space appears between words or inline tags. */
 export const formatHtml = (html: string) =>
-  html.replace(/(<\/(?:p|h[1-6]|li|ul|ol|div|table|tbody|thead|tr|blockquote|pre)>|<hr[^>]*>)(?=<)/g, '$1\n')
+  html.replace(/(<\/(?:p|h[1-6]|li|ul|ol|div|table|tbody|thead|tr|blockquote)>|<hr[^>]*>)(?=<)/g, '$1\n')

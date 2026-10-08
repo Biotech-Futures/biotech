@@ -172,7 +172,7 @@ EMAIL_STYLE_PROPERTIES = frozenset({
 # padding, and, in emails, text (so a template's colours and sizes survive).
 _BLOCK_STYLED_TAGS = ("div", "a", "table", "th", "td")
 _TEXT_STYLED_TAGS = (
-    "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "strong", "b", "em", "i", "u", "s",
+    "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "strong", "b", "em", "i", "u", "s", "code",
     "ul", "ol", "li", "blockquote", "hr",
 )
 
@@ -195,6 +195,23 @@ for _tag in ("table", "tr", "td", "th"):
 _BLOCK_ONLY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS)
 
 
+_STYLE_ATTRIBUTE = re.compile(r"""(\sstyle\s*=\s*)(["'])(.*?)\2""", re.IGNORECASE | re.DOTALL)
+# `background:` set to a plain colour, as the templates write their fills.
+_PLAIN_BACKGROUND = re.compile(
+    r"(^|;)\s*background\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)\s*(?=;|$)", re.IGNORECASE
+)
+
+
+def _background_colours(html: str) -> str:
+    """``background: #C3EBCA`` as ``background-color: #C3EBCA``, which is kept;
+    any other ``background`` (an image, say) is still dropped by the clean."""
+    def fill(match):
+        style = _PLAIN_BACKGROUND.sub(r"\1background-color:\2", match.group(3))
+        return f"{match.group(1)}{match.group(2)}{style}{match.group(2)}"
+
+    return _STYLE_ATTRIBUTE.sub(fill, html)
+
+
 def clean_email_body(html: str, *, site_look: bool = False) -> str:
     """Sanitise an admin-written body before it is saved or previewed.
 
@@ -202,11 +219,13 @@ def clean_email_body(html: str, *, site_look: bool = False) -> str:
     use, like a plain ``nh3.clean``, but keeps the email as written: its
     text's colours, sizes and spacing, its boxes, buttons and tables, its class
     names, and its comments (Outlook reads its button code from them), with
-    styles limited to ``EMAIL_STYLE_PROPERTIES``.
+    styles limited to ``EMAIL_STYLE_PROPERTIES``. A plain-colour
+    ``background`` is kept as ``background-color``.
 
     With ``site_look``, for text shown on the site in its own look, only the
     boxes' and buttons' styles and classes are kept, and comments go.
     """
+    html = _background_colours(html or "")
     if site_look:
         return nh3.clean(
             html or "",

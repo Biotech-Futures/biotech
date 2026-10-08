@@ -74,6 +74,28 @@ export function styleValue(style: string | null | undefined, property: string): 
   return null
 }
 
+/**
+ * A text property at the selection, e.g. "color": ``own``, as set on the text
+ * itself with the colour or size tool, and ``shown``, what the text actually
+ * gets: its own, else a bold or link style's, else the nearest paragraph,
+ * heading, list, box, button or cell around it that sets one. Null when none does.
+ */
+export function textStyleAt(state: EditorState, property: string): { own: string | null; shown: string | null } {
+  const { $from } = state.selection
+  let own: string | null = null
+  let fromMarks: string | null = null
+  for (const mark of state.storedMarks ?? $from.marks()) {
+    const value = styleValue(mark.attrs.style, property)
+    if (mark.type.name === 'emailTextStyle') own = value
+    else fromMarks = fromMarks ?? value
+  }
+  let shown = own ?? fromMarks
+  for (let depth = $from.depth; shown === null && depth > 0; depth--) {
+    shown = styleValue($from.node(depth).attrs.style, property)
+  }
+  return { own, shown }
+}
+
 /** The style with one property set to ``value``, or taken off for null. */
 export function withProperty(style: string | null | undefined, property: string, value: string | null): string {
   const others = (style ?? '')
@@ -227,7 +249,7 @@ export const EmailTextStyles = Extension.create({
       {
         types: [
           'paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote', 'horizontalRule',
-          'bold', 'italic', 'underline', 'strike', 'link'
+          'bold', 'italic', 'underline', 'link'
         ],
         attributes: { style: keptStyle }
       },
@@ -236,7 +258,7 @@ export const EmailTextStyles = Extension.create({
         // some). Links keep theirs through their own class attribute.
         types: [
           'paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote', 'horizontalRule',
-          'bold', 'italic', 'underline', 'strike'
+          'bold', 'italic', 'underline'
         ],
         attributes: { class: keptClass }
       }

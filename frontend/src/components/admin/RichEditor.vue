@@ -6,7 +6,7 @@ import Image from '@tiptap/extension-image'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
-import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, colourKey, lookOf, swatchOf } from './emailBlocks'
 import { EmailTable, EmailTableCell, EmailTableHeader } from './emailTables'
 import {
   EmailTextStyle,
@@ -16,7 +16,8 @@ import {
   TEXT_SIZES,
   gapBelowSelection,
   hasGapTarget,
-  styleValue
+  styleValue,
+  textStyleAt
 } from './emailTextStyle'
 import LinkDialog from './LinkDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -41,6 +42,11 @@ interface Props {
   /** Email mode: the email's link placeholders, offered in the link dialog. */
   linkPlaceholders?: string[]
 }
+
+// Inline code in an email, as the editor shows it.
+const EMAIL_CODE_STYLE =
+  'background-color:#f3f4f6; color:#1a2e23; padding:2px 4px; border-radius:4px; ' +
+  "font-family:Menlo, Consolas, 'Courier New', monospace; font-size:13px"
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
@@ -81,6 +87,12 @@ const updateTick = ref(0)
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
+      // No code blocks or strikethrough: neither emails nor announcements use them.
+      codeBlock: false,
+      strike: false,
+      // In emails inline code carries its own look, since email apps ignore
+      // the editor's stylesheet; the server keeps it.
+      ...(props.emailMode ? { code: { HTMLAttributes: { style: EMAIL_CODE_STYLE } } } : {}),
       link: {
         openOnClick: props.readOnly,
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
@@ -243,15 +255,33 @@ const buttonLook = computed(() => {
 })
 
 /** The colour and size on the selected text, if it has its own. */
-const textColour = computed(() => {
+const colourAt = computed(() => {
   void updateTick.value
-  return styleValue(editor.value?.getAttributes('emailTextStyle').style, 'color')
+  return editor.value ? textStyleAt(editor.value.state, 'color') : { own: null, shown: null }
 })
 
-const textSize = computed(() => {
+const sizeAt = computed(() => {
   void updateTick.value
-  return styleValue(editor.value?.getAttributes('emailTextStyle').style, 'font-size')
+  return editor.value ? textStyleAt(editor.value.state, 'font-size') : { own: null, shown: null }
 })
+
+// The colour or size set on the text itself (the tool can take it off), and
+// the one the text shows, which may come from its paragraph or heading.
+const textColour = computed(() => colourAt.value.own)
+const shownColour = computed(() => colourAt.value.shown)
+const textSize = computed(() => sizeAt.value.own)
+const shownSize = computed(() => sizeAt.value.shown)
+
+const isShownColour = (colour: string) => !!shownColour.value && colourKey(colour) === colourKey(shownColour.value)
+
+/** The colour or size now, when it isn't one on offer: "Now: 26px", or
+ *  "Now: default" when nothing sets one (the email's own). */
+const colourNote = computed(() =>
+  TEXT_COLOURS.some((colour) => isShownColour(colour.value)) ? null : shownColour.value ? `Now: ${shownColour.value}` : 'Now: default'
+)
+const sizeNote = computed(() =>
+  TEXT_SIZES.some((size) => size.value === shownSize.value) ? null : shownSize.value ? `Now: ${shownSize.value}` : 'Now: default'
+)
 
 /** Colour the selected text, or (null) take its colour off. */
 function chooseTextColour(colour: string | null) {
@@ -556,12 +586,19 @@ defineExpose({ insertText })
                 class="heading-dropdown-menu email-look-menu"
                 :class="{ 'email-look-menu--right': emailMenuOnRight }"
               >
+                <template v-if="colourNote">
+                  <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
+                    <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
+                    {{ colourNote }}
+                  </div>
+                  <div class="email-look-sep"></div>
+                </template>
                 <button
                   v-for="colour in TEXT_COLOURS"
                   :key="colour.value"
                   type="button"
                   class="dropdown-item email-look-item"
-                  :class="{ active: textColour?.toLowerCase() === colour.value }"
+                  :class="{ active: isShownColour(colour.value) }"
                   @mousedown.prevent="chooseTextColour(colour.value)"
                 >
                   <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
@@ -592,12 +629,16 @@ defineExpose({ insertText })
                 class="heading-dropdown-menu email-look-menu"
                 :class="{ 'email-look-menu--right': emailMenuOnRight }"
               >
+                <template v-if="sizeNote">
+                  <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
+                  <div class="email-look-sep"></div>
+                </template>
                 <button
                   v-for="size in TEXT_SIZES"
                   :key="size.value"
                   type="button"
                   class="dropdown-item"
-                  :class="{ active: textSize === size.value }"
+                  :class="{ active: shownSize === size.value }"
                   :style="{ fontSize: size.value }"
                   @mousedown.prevent="chooseTextSize(size.value)"
                 >
@@ -686,15 +727,6 @@ defineExpose({ insertText })
           <button
             type="button"
             class="toolbar-btn icon-btn"
-            :class="{ active: isActive('strike') }"
-            title="Strikethrough"
-            @mousedown.prevent="editor?.chain().focus().toggleStrike().run()"
-          >
-            <i class="fas fa-strikethrough"></i>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn icon-btn"
             :class="{ active: isActive('code') }"
             title="Inline code"
             @mousedown.prevent="editor?.chain().focus().toggleCode().run()"
@@ -740,15 +772,6 @@ defineExpose({ insertText })
             @mousedown.prevent="editor?.chain().focus().toggleBlockquote().run()"
           >
             <i class="fas fa-quote-left"></i>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn icon-btn"
-            :class="{ active: isActive('codeBlock') }"
-            title="Code block"
-            @mousedown.prevent="editor?.chain().focus().toggleCodeBlock().run()"
-          >
-            <i class="fas fa-file-code"></i>
           </button>
           <button
             type="button"
@@ -1253,7 +1276,8 @@ defineExpose({ insertText })
 }
 
 /* The gap now, when it isn't one on offer: shown, not picked. */
-.dropdown-item.gap-now {
+.dropdown-item.gap-now,
+.dropdown-item.text-now {
   cursor: default;
 }
 
@@ -1503,21 +1527,6 @@ defineExpose({ insertText })
   border-radius: 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
-}
-
-.rich-editor-content-area .tiptap.ProseMirror pre {
-  background-color: #1f2937;
-  color: #f9fafb;
-  padding: 0.75rem 1rem;
-  border-radius: 0.375rem;
-  margin: 0.75rem 0;
-  overflow-x: auto;
-}
-
-.rich-editor-content-area .tiptap.ProseMirror pre code {
-  background-color: transparent;
-  color: inherit;
-  padding: 0;
 }
 
 .rich-editor-content-area .tiptap.ProseMirror hr {

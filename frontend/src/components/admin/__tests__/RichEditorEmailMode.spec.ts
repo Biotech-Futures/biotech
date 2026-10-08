@@ -54,6 +54,36 @@ describe('RichEditor in email mode', () => {
     expect((await gapNow('<p>One</p><p>Two</p>')).now).toBe('Now: default')
   })
 
+  it('gives inline code its own look in an email, and not elsewhere', async () => {
+    const codeHtml = async (props: Record<string, unknown>) => {
+      const wrapper = mount(RichEditor, { props: { ...props, modelValue: '<p><code>{{ magic_link }}</code></p>' }, attachTo: document.body })
+      await flushPromises()
+      const html = wrapper.find('.ProseMirror').html()
+      wrapper.unmount()
+      return html
+    }
+    const email = await codeHtml({ emailMode: true })
+    expect(email).toMatch(/<code style="[^"]*background-color: rgb\(243, 244, 246\)[^"]*font-family/)
+    expect(await codeHtml({})).toContain('<code>{{ magic_link }}</code>')
+  })
+
+  it("highlights the colour and size the text shows, even from its heading", async () => {
+    const menu = async (modelValue: string, tool: string) => {
+      const wrapper = mount(RichEditor, { props: { emailMode: true, modelValue }, attachTo: document.body })
+      await flushPromises()
+      await wrapper.find(`[data-test="${tool}"]`).trigger('mousedown')
+      const now = wrapper.find('.text-now')
+      const active = wrapper.findAll('.dropdown-item.active:not(.text-now)').map((item) => item.text().trim())
+      wrapper.unmount()
+      return { now: now.exists() ? now.text().trim() : null, active }
+    }
+    // The finalist email's heading: dark green, 26px. The cursor starts in it.
+    const heading = '<h1 style="color:#017151; font-size:26px">Congratulations</h1>'
+    expect(await menu(heading, 'text-colour')).toEqual({ now: null, active: ['Dark green'] })
+    expect(await menu(heading, 'text-size')).toEqual({ now: 'Now: 26px', active: [] })
+    expect((await menu('<p>Plain</p>', 'text-colour')).now).toBe('Now: default')
+  })
+
   describe('the HTML view', () => {
     // A heading with a phone style's class and Outlook's button code, as a template has them.
     const WRITTEN = '<!--[if mso]><v:roundrect></v:roundrect><![endif]--><h1 class="headline">Hi</h1>'

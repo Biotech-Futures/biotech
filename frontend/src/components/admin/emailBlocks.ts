@@ -96,7 +96,7 @@ export const marginsOf = (style: string) =>
   )
 
 /** "#017151" and "rgb(1, 113, 81)" both become "1,113,81". */
-function colourKey(value: string): string {
+export function colourKey(value: string): string {
   const colour = value.trim().toLowerCase()
   const hex = colour.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
   if (hex) {

@@ -7,7 +7,8 @@ import {
   EmailTextStyles,
   gapBelowSelection,
   marginOf,
-  styleValue
+  styleValue,
+  textStyleAt
 } from '@/components/admin/emailTextStyle'
 
 /** What the System Emails editor makes of some HTML. */
@@ -200,6 +201,33 @@ describe('the gap below a paragraph', () => {
     editor.commands.setTextSelection(2)
     expect(gapBelowSelection(editor.state)).toBeNull()
     editor.destroy()
+  })
+})
+
+describe('textStyleAt', () => {
+  const at = (content: string, pos: number, property: string) => {
+    const editor = new Editor({ extensions: [StarterKit, EmailBox, EmailButton, EmailTextStyle, EmailTextStyles], content })
+    editor.commands.setTextSelection(pos)
+    const found = textStyleAt(editor.state, property)
+    editor.destroy()
+    return found
+  }
+
+  it("shows a heading's colour and size, set on the heading", () => {
+    const heading = '<h1 style="color:#017151; font-size:26px">Congratulations</h1>'
+    expect(at(heading, 3, 'color')).toEqual({ own: null, shown: '#017151' })
+    expect(at(heading, 3, 'font-size')).toEqual({ own: null, shown: '26px' })
+  })
+
+  it('prefers the colour set on the text itself, then a bold style, then the paragraph', () => {
+    const p = '<p style="color:#3d4b43">Plain <strong style="color:#017151">bold</strong> <span style="color:#b3261e">red</span></p>'
+    expect(at(p, 3, 'color').shown).toBe('#3d4b43')
+    expect(at(p, 10, 'color').shown).toBe('#017151')
+    expect(at(p, 16, 'color')).toEqual({ own: '#b3261e', shown: '#b3261e' })
+  })
+
+  it('finds nothing where nothing sets one', () => {
+    expect(at('<p>Plain</p>', 2, 'color')).toEqual({ own: null, shown: null })
   })
 })
 
