@@ -77,6 +77,9 @@ AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
 AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
 # Finalists' presentation slides for the Symposium, apart from their entries.
 AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
+# Signed guardian consent records (PDF), private: only admins read them, through
+# the backend.
+AZURE_CONSENT_CONTAINER = config("AZURE_CONSENT_CONTAINER", default="guardian-consent-forms")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -231,6 +234,9 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # The public consent page, per IP: generous for a family sharing a
+        # connection, tight enough to make guessing links pointless.
+        'guardian_consent': '60/hour',
     },
 }
 

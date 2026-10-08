@@ -203,6 +203,13 @@ export interface AdminUserSupervisee {
   email: string
 }
 
+export interface AdminPendingGuardian {
+  firstName: string
+  lastName: string
+  email: string | null
+  requestedAt: string
+}
+
 export interface AdminUser {
   id: number
   firstName: string | null
@@ -219,7 +226,16 @@ export interface AdminUser {
   mentorReason: string | null
   mentorMaxGroupCount: number | null
   yearLevel: number | null
+  guardianFirstName: string | null
+  guardianLastName: string | null
+  guardianEmail: string | null
   joinPermissionReceived: boolean
+  joinpermResponseId: string | null
+  joinPermissionGrantedAt: string | null
+  pendingGuardian: AdminPendingGuardian | null
+  /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
+  mediaConsent: boolean | null
+  consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
   isActive: boolean
@@ -357,6 +373,61 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
 export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
     (env) => env.msg
+  )
+
+export const sendGuardianConsentRequest = (userId: string | number) =>
+  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-request/`).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export interface AdminGuardianConsent {
+  id: number
+  reference: string
+  guardianFullName: string
+  guardianEmail: string
+  mediaConsent: boolean
+  consentVersion: string
+  signedAt: string
+  withdrawnAt: string | null
+  mediaWithdrawnAt: string | null
+  /** The drawn signature as a PNG data URL. */
+  signature: string
+}
+
+export const fetchGuardianConsents = (userId: string | number) =>
+  adminGet<AdminEnvelope<AdminGuardianConsent[]>>(`/user/${userId}/guardian-consents/`).then(
+    (env) => env.data || []
+  )
+
+/** Download a signed consent's PDF record, sent with the admin's session like any admin call. */
+export const downloadGuardianConsentRecord = async (
+  userId: string | number,
+  consent: Pick<AdminGuardianConsent, 'id' | 'reference'>
+) => {
+  const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: 'application/pdf' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`${ADMIN_API_BASE}/user/${userId}/guardian-consents/${consent.id}/record/`, {
+    credentials: 'include',
+    headers
+  })
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Could not download the consent record.')
+
+  const blobUrl = window.URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = `${consent.reference}-consent-record.pdf`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}
+
+export const withdrawGuardianConsent = (userId: string | number, mediaOnly: boolean) =>
+  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-withdrawal/`, { mediaOnly }).then(
+    (env) => ({ msg: env.msg, data: env.data })
   )
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
@@ -654,6 +725,8 @@ export interface AdminEventRsvpItem {
   lastName?: string
   rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
   respondedAt: string | null
+  /** A student without media consent, on an event with an in-person part. */
+  noMediaConsent?: boolean
 }
 
 export interface AdminEventDetail {

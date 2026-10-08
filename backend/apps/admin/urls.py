@@ -17,6 +17,10 @@ urlpatterns = [
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
+    path('user/<str:user_id>/guardian-consent-request/', views.UserGuardianConsentRequestView.as_view(), name='user-guardian-consent-request'),
+    path('user/<str:user_id>/guardian-consents/', views.UserGuardianConsentsView.as_view(), name='user-guardian-consents'),
+    path('user/<str:user_id>/guardian-consents/<int:consent_id>/record/', views.UserGuardianConsentRecordView.as_view(), name='user-guardian-consent-record'),
+    path('user/<str:user_id>/guardian-consent-withdrawal/', views.UserGuardianConsentWithdrawView.as_view(), name='user-guardian-consent-withdrawal'),
     
     # ========================================================================
     # GROUP ROUTES

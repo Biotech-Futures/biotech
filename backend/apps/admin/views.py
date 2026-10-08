@@ -22,6 +22,7 @@ from apps.admin.services.user import (
     bulk_update_status, bulk_update_status_by_filter, delete_user,
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
+from apps.admin.services import guardian_consent
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -163,6 +164,64 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+GUARDIAN_CONSENT_STATUS_CODES = {
+    guardian_consent.SENT: status.HTTP_200_OK,
+    guardian_consent.OK: status.HTTP_200_OK,
+    guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
+    guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
+    guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
+    guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
+}
+
+
+class UserGuardianConsentRequestView(APIView):
+    """POST: email the student's guardian the consent form."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.send_guardian_consent_request(int(user_id), initiated_by=request.user)
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
+
+
+class UserGuardianConsentsView(APIView):
+    """GET: the consents signed on the platform for a student, with signatures."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id):
+        result = guardian_consent.list_guardian_consents(int(user_id))
+        code = status.HTTP_200_OK if result["data"] is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class UserGuardianConsentRecordView(APIView):
+    """GET: a signed consent's record as a PDF download, read through the
+    backend so no link to it ever leaves the admin page."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id, consent_id):
+        record = guardian_consent.guardian_consent_record(int(user_id), int(consent_id))
+        if record is None:
+            return Response({"msg": "Consent not found.", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        filename, pdf = record
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class UserGuardianConsentWithdrawView(APIView):
+    """POST {mediaOnly}: record that the guardian withdrew consent, or only
+    media consent."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.withdraw_guardian_consent(
+            int(user_id), media_only=request.data.get("mediaOnly") is True, initiated_by=request.user,
+        )
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
 
 
 class UserBulkStatusUpdateView(APIView):

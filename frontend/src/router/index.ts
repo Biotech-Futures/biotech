@@ -69,7 +69,11 @@ router.beforeEach((to, from, next) => {
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (to.meta.public === true) {
+    // Open to anyone, signed in or not, and never redirected away.
+    next()
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {

@@ -1,0 +1,55 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_NAME }}: Consent received for {{ STUDENT_NAME }}{% endblock %}
+
+{% block preheader %}Thank you. Your consent for {{ STUDENT_NAME }} has been recorded.{% endblock %}
+
+{% block footer_reason %}emails about your student's participation{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ GUARDIAN_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Consent received
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Thank you for completing the {{ BRAND_NAME }} consent form for {{ STUDENT_NAME }}. Please keep this email as your record.
+              </p>
+
+              <!-- Info card: what was recorded -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate; margin-top:22px;">
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                      <tr>
+                        <td style="padding:2px 12px 8px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:120px; vertical-align:top;">Participant</td>
+                        <td style="padding:2px 0 8px 0; color:#1a2e23; font-size:14px; line-height:1.55;">{{ STUDENT_NAME }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:2px 12px 8px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:120px; vertical-align:top;">Signed by</td>
+                        <td style="padding:2px 0 8px 0; color:#1a2e23; font-size:14px; line-height:1.55;">{{ GUARDIAN_NAME }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:2px 12px 8px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:120px; vertical-align:top;">Media consent</td>
+                        <td style="padding:2px 0 8px 0; color:#1a2e23; font-size:14px; line-height:1.55;">{{ MEDIA_CHOICE }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:2px 12px 8px 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:120px; vertical-align:top;">Signed</td>
+                        <td style="padding:2px 0 8px 0; color:#1a2e23; font-size:14px; line-height:1.55;">{{ SIGNED_AT }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:2px 12px 0 0; color:#6d7a72; font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:0.06em; width:120px; vertical-align:top;">Reference</td>
+                        <td style="padding:2px 0 0 0; color:#1a2e23; font-size:14px; line-height:1.55;">{{ CONSENT_REFERENCE }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:18px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.65;">
+                To withdraw consent or media consent at any time, email <a href="mailto:{{ CONTACT_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ CONTACT_EMAIL }}</a> and quote the reference above.
+              </p>
+{% endblock %}
