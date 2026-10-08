@@ -241,6 +241,7 @@
       :user="detailUser"
       @close="onViewClose"
       @edit="openEditFromView"
+      @updated="onDetailUpdated"
     />
 
     <AdminStudentImportSheet
@@ -392,6 +393,11 @@ const openEditFromView = () => {
 }
 
 const onFormSaved = () => {
+  void load()
+}
+
+const onDetailUpdated = (user: AdminUser) => {
+  detailUser.value = user
   void load()
 }
 

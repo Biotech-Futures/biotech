@@ -113,7 +113,32 @@
               ({{ user.pendingGuardian.email || 'no email' }}), waiting for their consent
             </dd>
           </div>
+          <div v-if="user.consentRequestSentAt" class="admin-users-detail__item" data-test="admin-consent-request-sent">
+            <dt>Consent requested</dt>
+            <dd>{{ formatFullDate(user.consentRequestSentAt) }}</dd>
+          </div>
         </dl>
+        <div v-if="consentRequestTo" class="admin-users-detail__consent-request">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            data-test="admin-send-consent-request"
+            :disabled="sendingRequest"
+            @click="sendConsentRequest"
+          >
+            {{ sendingRequest ? 'Sending…' : user.consentRequestSentAt ? 'Resend consent request' : 'Send consent request' }}
+          </button>
+          <p
+            v-if="requestMessage"
+            class="admin-users-detail__consent-message"
+            :class="{ 'admin-users-detail__consent-message--error': requestFailed }"
+            role="status"
+            data-test="admin-consent-request-message"
+          >
+            {{ requestMessage }}
+          </p>
+          <p v-else class="admin-users-detail__consent-hint">Emails the consent form to {{ consentRequestTo }}.</p>
+        </div>
       </section>
 
       <section v-if="user?.role === 'mentor'" class="admin-users-detail__section">
@@ -186,9 +211,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import { sendGuardianConsentRequest } from '@/utils/adminAPI'
 import type { AdminUser } from '@/utils/adminAPI'
+import { apiErrorFromUnknown } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
   formatFullDate,
@@ -209,6 +236,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'edit', user: AdminUser): void
+  (e: 'updated', user: AdminUser): void
 }>()
 
 const detailTitle = computed(() => userName(props.user) || 'User details')
@@ -229,6 +257,42 @@ const consentLabel = computed(() => ({
   unverified: 'Marked received, no response on record',
   missing: 'Not received'
 })[guardian.value.consent])
+
+// Who a consent request would go to: a requested guardian change first, else
+// the guardian on file while consent is still missing. Mirrors the backend.
+const consentRequestTo = computed(() => {
+  const user = props.user
+  if (!user) return null
+  if (user.pendingGuardian) return user.pendingGuardian.email
+  if (user.joinPermissionReceived) return null
+  return user.guardianEmail
+})
+
+const sendingRequest = ref(false)
+const requestMessage = ref('')
+const requestFailed = ref(false)
+
+watch(() => props.user?.id, () => {
+  requestMessage.value = ''
+  requestFailed.value = false
+})
+
+const sendConsentRequest = async () => {
+  const user = props.user
+  if (!user || sendingRequest.value) return
+  sendingRequest.value = true
+  try {
+    const result = await sendGuardianConsentRequest(user.id)
+    requestFailed.value = false
+    requestMessage.value = result.msg
+    if (result.data) emit('updated', result.data)
+  } catch (error) {
+    requestFailed.value = true
+    requestMessage.value = apiErrorFromUnknown(error, 'Could not send the consent request.').message
+  } finally {
+    sendingRequest.value = false
+  }
+}
 
 const onDismiss = () => {
   emit('close')
@@ -325,6 +389,27 @@ const onDismiss = () => {
   color: var(--charcoal);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.admin-users-detail__consent-request {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.admin-users-detail__consent-hint,
+.admin-users-detail__consent-message {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.admin-users-detail__consent-message--error {
+  color: var(--danger);
 }
 
 .admin-users-detail__supervisees {

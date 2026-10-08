@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AdminUserFormSheet from '../AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
-import { updateAdminUser } from '@/utils/adminAPI'
+import { sendGuardianConsentRequest, updateAdminUser } from '@/utils/adminAPI'
+import { ApiError } from '@/utils/apiError'
 import type { AdminUser } from '@/utils/adminAPI'
 
 vi.mock('@/utils/adminAPI', () => ({
   createAdminUser: vi.fn(),
   updateAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
-  setAdminUserActive: vi.fn()
+  setAdminUserActive: vi.fn(),
+  sendGuardianConsentRequest: vi.fn()
 }))
 
 const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -34,6 +36,7 @@ const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
   joinpermResponseId: null,
   joinPermissionGrantedAt: null,
   pendingGuardian: null,
+  consentRequestSentAt: null,
   interests: ['Biomedical Innovations'],
   isAdmin: false,
   isActive: true,
@@ -187,5 +190,72 @@ describe('admin user detail: guardian & consent', () => {
     const wrapper = openDetail(student({ guardianFirstName: 'Wren', guardianLastName: 'Ward' }))
 
     expect(wrapper.find('[data-test="admin-guardian-name"]').text()).toBe('—')
+  })
+})
+
+describe('admin user detail: consent request', () => {
+  const openDetail = (user: AdminUser) =>
+    mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
+  const button = '[data-test="admin-send-consent-request"]'
+
+  beforeEach(() => {
+    vi.mocked(sendGuardianConsentRequest).mockReset()
+  })
+
+  it('offers to email the guardian while consent is missing', () => {
+    const wrapper = openDetail(student())
+
+    expect(wrapper.find(button).text()).toBe('Send consent request')
+    expect(wrapper.text()).toContain('Emails the consent form to pat@example.com.')
+  })
+
+  it('emails the new guardian when a change is pending', () => {
+    const wrapper = openDetail(student({
+      joinPermissionReceived: true,
+      joinpermResponseId: 'R_1',
+      pendingGuardian: { firstName: 'Robin', lastName: 'Carer', email: 'robin@example.com', requestedAt: '2026-10-01T00:00:00Z' }
+    }))
+
+    expect(wrapper.text()).toContain('Emails the consent form to robin@example.com.')
+  })
+
+  it('hides the button once consent is in, or with no guardian email', () => {
+    expect(openDetail(student({ joinPermissionReceived: true, joinpermResponseId: 'R_1' })).find(button).exists()).toBe(false)
+    expect(openDetail(student({ guardianEmail: null })).find(button).exists()).toBe(false)
+  })
+
+  it('offers a resend and shows when it was last sent', () => {
+    const wrapper = openDetail(student({ consentRequestSentAt: '2026-10-07T03:00:00Z' }))
+
+    expect(wrapper.find(button).text()).toBe('Resend consent request')
+    expect(wrapper.find('[data-test="admin-consent-request-sent"]').exists()).toBe(true)
+  })
+
+  it('sends and passes the updated user up', async () => {
+    const updated = student({ consentRequestSentAt: '2026-10-08T03:00:00Z' })
+    vi.mocked(sendGuardianConsentRequest).mockResolvedValue({ msg: 'Consent request sent to pat@example.com.', data: updated })
+    const wrapper = openDetail(student())
+
+    await wrapper.find(button).trigger('click')
+    await flushPromises()
+
+    expect(sendGuardianConsentRequest).toHaveBeenCalledWith(7)
+    expect(wrapper.find('[data-test="admin-consent-request-message"]').text()).toBe('Consent request sent to pat@example.com.')
+    expect(wrapper.emitted('updated')?.[0]).toEqual([updated])
+  })
+
+  it('shows the reason a send was refused', async () => {
+    vi.mocked(sendGuardianConsentRequest).mockRejectedValue(
+      new ApiError({ error: 'A consent request was just sent. Try again in 9 minutes.', code: 'http_429', request_id: 'x' }, 429)
+    )
+    const wrapper = openDetail(student())
+
+    await wrapper.find(button).trigger('click')
+    await flushPromises()
+
+    const message = wrapper.find('[data-test="admin-consent-request-message"]')
+    expect(message.text()).toBe('A consent request was just sent. Try again in 9 minutes.')
+    expect(message.classes()).toContain('admin-users-detail__consent-message--error')
+    expect(wrapper.emitted('updated')).toBeUndefined()
   })
 })

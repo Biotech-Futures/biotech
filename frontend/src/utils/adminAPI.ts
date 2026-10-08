@@ -233,6 +233,7 @@ export interface AdminUser {
   joinpermResponseId: string | null
   joinPermissionGrantedAt: string | null
   pendingGuardian: AdminPendingGuardian | null
+  consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
   isActive: boolean
@@ -371,6 +372,12 @@ export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
     (env) => env.msg
   )
+
+export const sendGuardianConsentRequest = (userId: string | number) =>
+  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-request/`).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({

@@ -642,6 +642,10 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+# The upstream consent form that guardian consent request emails link to. Blank
+# means the "Send consent request" button refuses rather than emailing a guardian
+# a dead link.
+GUARDIAN_CONSENT_FORM_URL = config("GUARDIAN_CONSENT_FORM_URL", default="")
 
 # --- Grading platform --------------------------------------------------------
 # GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by

@@ -416,6 +416,9 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
             sp.joinperm_granted_at.isoformat() if sp and sp.joinperm_granted_at else None
         ),
         "pendingGuardian": pending,
+        "consentRequestSentAt": (
+            sp.guardian_request_sent_at.isoformat() if sp and sp.guardian_request_sent_at else None
+        ),
     }
 
 

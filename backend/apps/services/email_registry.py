@@ -301,6 +301,21 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    EmailType(
+        key="guardian_consent_request",
+        name="Guardian consent request",
+        description="Sent to a student's parent or guardian when an admin asks them to complete the consent form.",
+        default_subject="{{ brand_name }}: Permission for {{ student_first_name }} to take part",
+        default_template="emails/guardian_consent_request.html",
+        merge_tags=(
+            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("student_email", "Student's email, which the consent form asks for", "alex.chen@example.com", "STUDENT_EMAIL"),
+            MergeTag("consent_url", "Link to the consent form", "https://forms.example.com/consent", "CONSENT_URL"),
+            *_BRAND_TAGS,
+        ),
+    ),
 )
 
 EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}

@@ -21,6 +21,8 @@ class StudentProfile(models.Model):
     pending_pg_last_name = models.CharField(max_length=255, blank=True, default="")
     pending_pg_email = models.EmailField(blank=True, null=True)
     pending_pg_requested_at = models.DateTimeField(blank=True, null=True)
+    # When an admin last emailed the guardian the consent form; spaces out resends.
+    guardian_request_sent_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'student_profile'

@@ -30,6 +30,7 @@ EXPECTED_KEYS = {
     "nonsubmission_notice",
     "results_team",
     "results_supervisor",
+    "guardian_consent_request",
 }
 
 

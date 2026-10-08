@@ -22,6 +22,7 @@ from apps.admin.services.user import (
     bulk_update_status, bulk_update_status_by_filter, delete_user,
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
+from apps.admin.services import guardian_consent
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -163,6 +164,25 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class UserGuardianConsentRequestView(APIView):
+    """POST: email the student's guardian the consent form."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    STATUS_CODES = {
+        guardian_consent.SENT: status.HTTP_200_OK,
+        guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+        guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
+        guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
+        guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
+        guardian_consent.NOT_CONFIGURED: status.HTTP_503_SERVICE_UNAVAILABLE,
+        guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
+    }
+
+    def post(self, request, user_id):
+        result = guardian_consent.send_guardian_consent_request(int(user_id), initiated_by=request.user)
+        return Response(result, status=self.STATUS_CODES[result["status"]])
 
 
 class UserBulkStatusUpdateView(APIView):
