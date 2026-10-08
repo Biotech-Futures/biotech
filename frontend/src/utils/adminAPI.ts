@@ -433,11 +433,6 @@ export const downloadGuardianConsentRecord = async (
   window.URL.revokeObjectURL(blobUrl)
 }
 
-export const withdrawGuardianConsent = (userId: string | number, mediaOnly: boolean) =>
-  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-withdrawal/`, { mediaOnly }).then(
-    (env) => ({ msg: env.msg, data: env.data })
-  )
-
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
     msg: env.msg,

@@ -150,9 +150,8 @@
           <p v-else class="admin-users-detail__consent-hint">Emails the consent form to {{ consentRequestTo }}.</p>
         </div>
 
-        <div v-if="user.joinPermissionReceived" class="admin-users-detail__consent-actions">
+        <div v-if="user.joinPermissionReceived && signedOnPlatform" class="admin-users-detail__consent-actions">
           <button
-            v-if="signedOnPlatform"
             type="button"
             class="btn btn-outline btn-sm"
             data-test="admin-view-consent"
@@ -160,18 +159,6 @@
             @click="toggleConsents"
           >
             {{ consentsOpen ? 'Hide signed form' : 'View signed form' }}
-          </button>
-          <button
-            v-if="user.mediaConsent !== false"
-            type="button"
-            class="btn btn-outline btn-sm"
-            data-test="admin-withdraw-media"
-            @click="askWithdraw(true)"
-          >
-            Record media withdrawal
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" data-test="admin-withdraw-consent" @click="askWithdraw(false)">
-            Record consent withdrawal
           </button>
         </div>
         <p
@@ -273,19 +260,6 @@
       </section>
     </div>
 
-    <ConfirmDialog
-      v-model="withdrawDialog.open"
-      :title="withdrawDialog.mediaOnly ? 'Record media consent withdrawal?' : 'Record consent withdrawal?'"
-      :message="withdrawDialog.mediaOnly
-        ? 'Do this when the guardian has asked to withdraw media consent. The student stays consented to take part, but will be flagged on in-person events.'
-        : 'Do this when the guardian has asked to withdraw consent. The student will no longer be recorded as consented, and a new consent request can be sent.'"
-      :confirm-label="withdrawDialog.mediaOnly ? 'Record media withdrawal' : 'Record withdrawal'"
-      busy-label="Saving..."
-      variant="danger"
-      :busy="withdrawing"
-      @confirm="confirmWithdraw"
-    />
-
     <div class="admin-users-detail__footer">
       <button type="button" class="btn btn-outline" @click="onDismiss">Close</button>
       <button v-if="user" type="button" class="btn btn-primary" @click="emit('edit', user)">Edit</button>
@@ -295,13 +269,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import {
   downloadGuardianConsentRecord,
   fetchGuardianConsents,
-  sendGuardianConsentRequest,
-  withdrawGuardianConsent
+  sendGuardianConsentRequest
 } from '@/utils/adminAPI'
 import type { AdminGuardianConsent, AdminUser } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -423,31 +395,6 @@ const downloadRecord = async (consent: AdminGuardianConsent) => {
     showConsentsMessage(apiErrorFromUnknown(error, 'Could not download the consent record.').message, true)
   } finally {
     downloadingId.value = null
-  }
-}
-
-const withdrawDialog = ref({ open: false, mediaOnly: false })
-const withdrawing = ref(false)
-
-const askWithdraw = (mediaOnly: boolean) => {
-  withdrawDialog.value = { open: true, mediaOnly }
-}
-
-const confirmWithdraw = async () => {
-  const user = props.user
-  if (!user || withdrawing.value) return
-  withdrawing.value = true
-  try {
-    const result = await withdrawGuardianConsent(user.id, withdrawDialog.value.mediaOnly)
-    withdrawDialog.value.open = false
-    consentsOpen.value = false
-    showConsentsMessage(result.msg, false)
-    if (result.data) emit('updated', result.data)
-  } catch (error) {
-    withdrawDialog.value.open = false
-    showConsentsMessage(apiErrorFromUnknown(error, 'Could not record the withdrawal.').message, true)
-  } finally {
-    withdrawing.value = false
   }
 }
 
@@ -656,7 +603,5 @@ const onDismiss = () => {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-light);
 }
 </style>
