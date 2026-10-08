@@ -250,7 +250,7 @@ def record_pdf_filename(consent: GuardianConsent) -> str:
 
 
 def store_record_pdf(consent: GuardianConsent, pdf: bytes) -> bool:
-    """Keep the signed record in the consents container. A failure is logged,
+    """Keep the signed record in the guardian-consent-forms container. A failure is logged,
     not raised: the consent is already recorded and the PDF can be rebuilt
     from it whenever it's next asked for."""
     try:

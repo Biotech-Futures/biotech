@@ -335,7 +335,7 @@ def get_slides_storage() -> ManagedContainerStorage:
 
 @lru_cache(maxsize=2)
 def get_consent_storage() -> ManagedContainerStorage:
-    return ManagedContainerStorage("consents", ConsentAzureStorage)
+    return ManagedContainerStorage("guardian-consent-forms", ConsentAzureStorage)
 
 
 def reset_managed_storage_caches() -> None:

@@ -56,7 +56,7 @@ class GuardianConsent(models.Model):
     signed_at = models.DateTimeField(auto_now_add=True)
     signed_ip = models.GenericIPAddressField(null=True, blank=True)
     signed_user_agent = models.CharField(max_length=512, blank=True, default="")
-    # Where the signed record (PDF) is kept in the consents container. Blank
+    # Where the signed record (PDF) is kept in the guardian-consent-forms container. Blank
     # until it's been stored; it can always be rebuilt from this row.
     record_pdf_key = models.CharField(max_length=255, blank=True, default="")
     # Recorded by an admin when the guardian withdraws, by contacting support.
