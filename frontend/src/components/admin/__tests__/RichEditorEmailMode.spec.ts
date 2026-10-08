@@ -54,6 +54,59 @@ describe('RichEditor in email mode', () => {
     expect((await gapNow('<p>One</p><p>Two</p>')).now).toBe('Now: default')
   })
 
+  describe('the HTML view', () => {
+    // A heading with a phone style's class and Outlook's button code, as a template has them.
+    const WRITTEN = '<!--[if mso]><v:roundrect></v:roundrect><![endif]--><h1 class="headline">Hi</h1>'
+
+    const openHtml = async () => {
+      const wrapper = mount(RichEditor, { props: { emailMode: true, modelValue: WRITTEN }, attachTo: document.body })
+      await flushPromises()
+      const htmlButton = () => wrapper.findAll('.toolbar-btn').find((b) => ['HTML', 'Visual'].includes(b.text().trim()))!
+      await htmlButton().trigger('mousedown')
+      return { wrapper, htmlButton }
+    }
+
+    it('shows the HTML exactly as given, and keeps what is typed', async () => {
+      const { wrapper } = await openHtml()
+      const textarea = wrapper.find('textarea')
+      expect((textarea.element as HTMLTextAreaElement).value).toBe(WRITTEN)
+
+      await textarea.setValue(`${WRITTEN}<p>More</p>`)
+      expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toBe(`${WRITTEN}<p>More</p>`)
+      wrapper.unmount()
+    })
+
+    it('warns before the visual view drops anything, and can stay in HTML', async () => {
+      const { wrapper, htmlButton } = await openHtml()
+      await htmlButton().trigger('mousedown')
+      await flushPromises()
+
+      const losses = document.body.querySelector('[data-test="visual-losses"]')
+      expect(losses?.textContent).toContain("Outlook's button code")
+      const stay = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Stay in HTML')!
+      stay.click()
+      await flushPromises()
+      expect(wrapper.find('textarea').exists()).toBe(true)
+      wrapper.unmount()
+    })
+
+    it('switches anyway when asked, keeping what the visual view holds', async () => {
+      const { wrapper, htmlButton } = await openHtml()
+      await htmlButton().trigger('mousedown')
+      await flushPromises()
+      const go = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Switch anyway')!
+      go.click()
+      await flushPromises()
+
+      expect(wrapper.find('textarea').exists()).toBe(false)
+      const kept = String(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
+      expect(kept).not.toContain('<!--')
+      // The class name survives the visual view.
+      expect(kept).toContain('<h1 class="headline">Hi</h1>')
+      wrapper.unmount()
+    })
+  })
+
   it("shows a template's coloured and sized text as written", async () => {
     const wrapper = mount(RichEditor, {
       props: {

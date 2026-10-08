@@ -19,6 +19,8 @@ import {
   styleValue
 } from './emailTextStyle'
 import LinkDialog from './LinkDialog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
+import { formatHtml, visualLosses } from './emailHtml'
 
 interface Props {
   modelValue?: string
@@ -65,6 +67,11 @@ const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachmentRange = ref<{ from: number; to: number } | null>(null)
 const rawMode = ref(false)
 const rawHtml = ref(props.modelValue || '')
+// Whether the visual view has changed the content since it came in: until
+// then rawHtml is exactly the HTML it was given, which the HTML view shows.
+const visualEdited = ref(false)
+// A switch to the visual view waiting on the admin, and what it would drop.
+const visualSwitch = ref<{ open: boolean; losses: string[] }>({ open: false, losses: [] })
 const uploadingAttachment = ref(false)
 const attachmentError = ref<string | null>(null)
 const showHeadingDropdown = ref(false)
@@ -102,6 +109,7 @@ const editor = useEditor({
     if (!props.readOnly && !rawMode.value) {
       const html = ed.getHTML()
       rawHtml.value = html
+      visualEdited.value = true
       emit('update:modelValue', html)
       emit('change', html)
     }
@@ -123,6 +131,7 @@ watch(
     if (currentHTML !== newVal) {
       editor.value.commands.setContent(newVal || '', { emitUpdate: false })
       rawHtml.value = newVal || ''
+      visualEdited.value = false
     }
   }
 )
@@ -132,9 +141,6 @@ watch(
   (isReadOnly) => {
     if (!editor.value) return
     editor.value.setEditable(!isReadOnly)
-    if (isReadOnly && rawMode.value) {
-      rawMode.value = false
-    }
   }
 )
 
@@ -390,17 +396,45 @@ async function handleAttachmentFiles(files: File[]) {
 function toggleRawMode() {
   if (!editor.value) return
   if (rawMode.value) {
-    rawMode.value = false
-    editor.value.commands.setContent(rawHtml.value || '')
-    emit('update:modelValue', rawHtml.value)
-    emit('change', rawHtml.value)
+    // In emails the visual view can't hold everything HTML can: say what goes first.
+    const losses = props.emailMode ? visualLosses(rawHtml.value) : []
+    if (losses.length) {
+      visualSwitch.value = { open: true, losses }
+      return
+    }
+    showVisual()
   } else {
     rawMode.value = true
-    const current = editor.value.getHTML()
-    rawHtml.value = current.replace(/></g, '>\n<')
-    emit('update:modelValue', rawHtml.value)
-    emit('change', rawHtml.value)
+    // Exactly as given, unless the visual view has changed it since.
+    if (visualEdited.value) {
+      rawHtml.value = formatHtml(editor.value.getHTML())
+      emit('update:modelValue', rawHtml.value)
+      emit('change', rawHtml.value)
+    }
   }
+}
+
+/** Back to the visual view, rebuilt from the HTML (which still holds as typed). */
+function showVisual() {
+  if (!editor.value) return
+  rawMode.value = false
+  // Not an edit: the HTML as typed is what's kept until the visual view changes it.
+  editor.value.commands.setContent(rawHtml.value || '', { emitUpdate: false })
+  visualEdited.value = false
+  emit('update:modelValue', rawHtml.value)
+  emit('change', rawHtml.value)
+}
+
+/** Switched despite the warning: the content is now what the visual view holds. */
+function showVisualAnyway() {
+  visualSwitch.value = { open: false, losses: [] }
+  showVisual()
+  if (!editor.value) return
+  const rebuilt = editor.value.getHTML()
+  rawHtml.value = rebuilt
+  visualEdited.value = true
+  emit('update:modelValue', rebuilt)
+  emit('change', rebuilt)
 }
 
 function handleRawInput(e: Event) {
@@ -988,6 +1022,7 @@ defineExpose({ insertText })
       <div v-if="rawMode" class="rich-editor-raw-area">
         <textarea
           :value="rawHtml"
+          :readonly="readOnly"
           class="raw-html-textarea"
           placeholder="<p>HTML content…</p>"
           @input="handleRawInput"
@@ -996,6 +1031,21 @@ defineExpose({ insertText })
       <div v-else class="rich-editor-content-area" @mousedown="emailMenu = null">
         <EditorContent :editor="editor" />
       </div>
+
+      <!-- Switching to the visual view would drop part of the HTML (email mode) -->
+      <ConfirmDialog
+        v-model="visualSwitch.open"
+        title="Switch to the visual view?"
+        message="The visual view can't keep everything in this HTML. Switching rebuilds it and drops:"
+        confirm-label="Switch anyway"
+        cancel-label="Stay in HTML"
+        variant="warning"
+        @confirm="showVisualAnyway"
+      >
+        <ul class="visual-losses" data-test="visual-losses">
+          <li v-for="loss in visualSwitch.losses" :key="loss">{{ loss }}</li>
+        </ul>
+      </ConfirmDialog>
     </div>
 
     <LinkDialog
@@ -1194,6 +1244,12 @@ defineExpose({ insertText })
   background-color: #eff6ff;
   color: #2563eb;
   font-weight: 600;
+}
+
+/* What switching to the visual view would drop, in its warning. */
+.visual-losses {
+  margin: 0.5rem 0 0 1.25rem;
+  padding: 0;
 }
 
 /* The gap now, when it isn't one on offer: shown, not picked. */

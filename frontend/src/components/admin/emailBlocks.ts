@@ -173,6 +173,17 @@ function templateButtonLink(wrapper: HTMLElement): HTMLAnchorElement | null {
   return clean(wrapper.textContent) === clean(links[0].textContent) ? links[0] : null
 }
 
+/** Whether the editor keeps a `<div>` as a box or a button (any other div's
+ *  layout is lost, its text read as plain paragraphs). */
+export function keptAsBlock(div: HTMLElement): boolean {
+  return (
+    div.classList.contains('email-box') ||
+    div.classList.contains('email-button') ||
+    drawsBox(styleOf(div)) ||
+    !!templateButtonLink(div)
+  )
+}
+
 function buttonAttributes(wrapper: HTMLElement, link: HTMLAnchorElement | null) {
   if (!link) return false
   // Main's buttons paint their colour on the cell around the link.

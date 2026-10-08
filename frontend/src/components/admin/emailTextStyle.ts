@@ -172,6 +172,13 @@ export function gapBelowSelection(state: EditorState): string | null {
   return `${Math.max(bottom ?? 0, above ?? 0)}px`
 }
 
+/** A class attribute kept as written. */
+export const keptClass = {
+  default: null,
+  parseHTML: (element: HTMLElement) => element.getAttribute('class') || null,
+  renderHTML: (attributes: { class?: string | null }) => (attributes.class ? { class: attributes.class } : {})
+}
+
 const keptStyle = {
   default: null,
   parseHTML: (element: HTMLElement) => cleanEmailStyle(element.getAttribute('style')) || null,
@@ -223,6 +230,15 @@ export const EmailTextStyles = Extension.create({
           'bold', 'italic', 'underline', 'strike', 'link'
         ],
         attributes: { style: keptStyle }
+      },
+      {
+        // Class names as written, e.g. headline (the layout's phone styles use
+        // some). Links keep theirs through their own class attribute.
+        types: [
+          'paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote', 'horizontalRule',
+          'bold', 'italic', 'underline', 'strike'
+        ],
+        attributes: { class: keptClass }
       }
     ]
   },

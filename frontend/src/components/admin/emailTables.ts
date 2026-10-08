@@ -3,7 +3,7 @@ import { Table, TableCell, TableHeader } from '@tiptap/extension-table'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { cleanEmailStyle } from './emailBlocks'
-import { styleValue, withProperty } from './emailTextStyle'
+import { keptClass, styleValue, withProperty } from './emailTextStyle'
 
 /**
  * Tables for the System Emails editor, with or without lines.
@@ -56,6 +56,7 @@ function ownTableStyle(table: HTMLElement): string {
 const ownCells = (table: HTMLTableElement) => Array.from(table.rows).flatMap((row) => Array.from(row.cells))
 
 const cellAttributes = {
+  class: keptClass,
   lines: {
     default: true,
     parseHTML: (element: HTMLElement) => hasLineBorder(element),
@@ -89,6 +90,7 @@ export const EmailTable = Table.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      class: keptClass,
       // New tables start with lines; a template's table has none.
       lines: {
         default: true,

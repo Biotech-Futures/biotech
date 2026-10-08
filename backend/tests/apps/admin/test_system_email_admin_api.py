@@ -188,7 +188,7 @@ class SystemEmailAdminServiceTests(TestCase):
         '<div class="email-box" style="padding: 12px 14px; background-color: rgb(233, 246, 241); '
         'position: absolute; background: url(https://tracker.example/x.png);"><p>Important</p></div>'
         '<div class="email-button" style="margin: 20px 0px; text-align: left;">'
-        '<a class="cta-link sneaky" href="{{ reset_link }}" onclick="steal()" '
+        '<a class="cta-link" href="{{ reset_link }}" onclick="steal()" '
         'style="display: inline-block; background-color: rgb(1, 113, 81); color: rgb(255, 255, 255);">'
         "Reset</a></div>"
         '<p style="color: red; position: fixed;">Text keeps its colour.</p>'
@@ -202,7 +202,7 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn('class="cta-link"', html)
         self.assertIn("background-color:rgb(1, 113, 81)", html)
         self.assertIn('<p style="color:red">Text keeps its colour.</p>', html)
-        for gone in ("position", "url(", "tracker", "onclick", "sneaky"):
+        for gone in ("position", "url(", "tracker", "onclick"):
             self.assertNotIn(gone, html)
 
     def test_update_keeps_the_editors_boxes_and_buttons(self):
@@ -550,6 +550,32 @@ class SystemEmailAdminApiTests(TestCase):
             self.assertIn(kept, body)
         self.assertNotIn("position", body)
         self.assertNotIn("url(", body)
+
+    def test_patch_keeps_html_as_written(self):
+        # As typed in the editor's HTML view: Outlook's button code in its
+        # comments, a phone style's class name, a table laid out with attributes.
+        written = (
+            '<!--[if mso]><v:roundrect href="{{ reset_link }}" style="height:48px"><center>Reset</center>'
+            '</v:roundrect><![endif]-->'
+            '<h1 class="headline">Reset your password</h1>'
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+            '<tr><td valign="top" class="info-label">When</td></tr></table>'
+            '<p onclick="steal()">Hi</p><script>steal()</script>'
+        )
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/", {"body": written}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()["data"]["body"]
+        for kept in (
+            '<!--[if mso]><v:roundrect href="{{ reset_link }}"',
+            '<h1 class="headline">',
+            'role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"',
+            'valign="top" class="info-label"',
+        ):
+            self.assertIn(kept, body)
+        self.assertNotIn("onclick", body)
+        self.assertNotIn("<script", body)
 
     def test_patch_unknown_tag_returns_400(self):
         response = self.client.patch(

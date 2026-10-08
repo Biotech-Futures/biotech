@@ -296,3 +296,26 @@ class HtmlToTextTests(TestCase):
 
     def test_unescapes_entities(self):
         self.assertEqual(html_to_text("<p>Tom &amp; Jerry &mdash; hi</p>"), "Tom & Jerry — hi")
+
+
+class CleanEmailBodyTests(TestCase):
+    HTML = (
+        '<!--[if mso]><v:roundrect href="https://x.test"></v:roundrect><![endif]-->'
+        '<h1 class="headline" style="color:#1a2e23">Title</h1>'
+        '<div class="email-box" style="border:1px solid #d8e1dc">Box</div>'
+    )
+
+    def test_an_email_keeps_its_comments_and_class_names(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML)
+        self.assertIn("<!--[if mso]>", cleaned)
+        self.assertIn('<h1 class="headline" style="color:#1a2e23">', cleaned)
+
+    def test_the_site_look_keeps_only_boxes_and_buttons(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML, site_look=True)
+        self.assertNotIn("<!--", cleaned)
+        self.assertIn("<h1>Title</h1>", cleaned)
+        self.assertIn('<div class="email-box" style="border:1px solid #d8e1dc">', cleaned)

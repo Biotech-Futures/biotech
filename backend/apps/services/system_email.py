@@ -185,23 +185,39 @@ def _styled(tags) -> dict:
 
 
 _BODY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS + _TEXT_STYLED_TAGS)
+# An email keeps its HTML as written: class names on any tag (the layout's
+# phone styles use some, e.g. headline) and how its tables lay out.
+_BODY_ATTRIBUTES["*"] = _BODY_ATTRIBUTES.get("*", set()) | {"class"}
+for _tag in ("table", "tr", "td", "th"):
+    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {
+        "role", "width", "align", "valign", "cellpadding", "cellspacing", "border", "bgcolor",
+    }
 _BLOCK_ONLY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS)
 
 
-def clean_email_body(html: str, *, text_styles: bool = True) -> str:
+def clean_email_body(html: str, *, site_look: bool = False) -> str:
     """Sanitise an admin-written body before it is saved or previewed.
 
-    Strips scripts, event handlers and javascript: URLs like a plain
-    ``nh3.clean``, but keeps the text's colours, sizes and spacing, the
-    editor's boxes and buttons (their classes, ``cta-link`` also making a
-    button full width on phones, and their styles), and its tables' borders and
-    padding, all limited to ``EMAIL_STYLE_PROPERTIES``. Without
-    ``text_styles`` the text's own styles go, for text shown in the site's look.
+    Strips scripts, event handlers, javascript: URLs and tags email doesn't
+    use, like a plain ``nh3.clean``, but keeps the email as written: its
+    text's colours, sizes and spacing, its boxes, buttons and tables, its class
+    names, and its comments (Outlook reads its button code from them), with
+    styles limited to ``EMAIL_STYLE_PROPERTIES``.
+
+    With ``site_look``, for text shown on the site in its own look, only the
+    boxes' and buttons' styles and classes are kept, and comments go.
     """
+    if site_look:
+        return nh3.clean(
+            html or "",
+            attributes=_BLOCK_ONLY_ATTRIBUTES,
+            allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+            filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
+        )
     return nh3.clean(
         html or "",
-        attributes=_BODY_ATTRIBUTES if text_styles else _BLOCK_ONLY_ATTRIBUTES,
-        allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+        attributes=_BODY_ATTRIBUTES,
+        strip_comments=False,
         filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
     )
 

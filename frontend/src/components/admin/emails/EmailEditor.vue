@@ -47,9 +47,9 @@
       class="email-editor__note email-editor__note--muted"
     >
       <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-      These are the current built-in contents. Save to switch to your custom wording.
-      Saving your own wording replaces the built-in design: boxes and buttons are kept, but
-      other styling, such as coloured or smaller text, becomes plain.
+      These are the current built-in contents. Save to switch to your custom wording, which
+      keeps the design as you see it here. To keep anything the visual view can't show, like
+      Outlook's button code, edit in HTML.
     </p>
 
     <!-- The mailbox it goes from: only those the server can sign in to, since

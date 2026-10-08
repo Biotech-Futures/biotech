@@ -162,7 +162,7 @@ def as_announcement(html: str, greeting: str) -> str:
     html = _LINK_TEXT.sub(r"\1\2\3", _FILL.sub(r"background-color:\1", html))
     # Only the boxes' and buttons' own styles are kept, so the rest reads in
     # the site's own look.
-    html = _GREETING.sub(greeting, clean_email_body(html, text_styles=False))
+    html = _GREETING.sub(greeting, clean_email_body(html, site_look=True))
     for email_words, ours in _EMAIL_WORDS:
         html = html.replace(email_words, ours)
     return html
