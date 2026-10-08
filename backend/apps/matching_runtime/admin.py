@@ -35,7 +35,6 @@ class MatchingConfigAdmin(admin.ModelAdmin):
         "name",
         "is_active",
         "year_weight",
-        "country_mismatch_weight",
         "timezone_weight",
         "timezone_max_weight",
         "size_bonus_weight",

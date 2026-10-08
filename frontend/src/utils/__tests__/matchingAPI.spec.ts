@@ -20,10 +20,9 @@ const configRow = {
   name: 'Student v2',
   is_active: true,
   year_weight: '30.00',
-  country_mismatch_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
-  size_bonus_weight: '10.00',
+  size_bonus_weight: '30.00',
   total_weight: '100.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
@@ -34,19 +33,17 @@ const defaultsBlock = {
   requiredTotal: '100.00',
   defaults: {
     year_weight: 20.0,
-    country_mismatch_weight: 15.0,
-    timezone_weight: 25.0,
-    timezone_max_weight: 20.0,
-    size_bonus_weight: 20.0
+    timezone_weight: 30.0,
+    timezone_max_weight: 25.0,
+    size_bonus_weight: 25.0
   }
 }
 
 const weights = {
   yearWeight: 30,
-  countryMismatchWeight: 20,
   timezoneWeight: 15,
   timezoneMaxWeight: 25,
-  sizeBonusWeight: 10
+  sizeBonusWeight: 30
 }
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -99,7 +96,6 @@ describe('reads', () => {
         data: null,
         weights: {
           yearWeight: 8.0,
-          countryMismatchPenalty: 12.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
@@ -119,7 +115,7 @@ describe('reads', () => {
     expect(csrfFetches(fetchMock)).toBe(0)
 
     expect(active.usingBuiltInWeights).toBe(true)
-    expect(active.appliedWeights.countryMismatchWeight).toBe(12)
+    expect(active.appliedWeights.sizeBonusWeight).toBe(6)
     expect(active.defaults.requiredTotal).toBe(100)
   })
 
@@ -129,7 +125,7 @@ describe('reads', () => {
     const defaults = await fetchMatchingConfigDefaults()
 
     expect(apiCall(fetchMock).url).toMatch(/\/matching\/configs\/defaults\/$/)
-    expect(defaults.weights.timezoneWeight).toBe(25)
+    expect(defaults.weights.timezoneWeight).toBe(30)
     expect(defaults.requiredTotal).toBe(100)
   })
 
@@ -156,10 +152,9 @@ describe('writes', () => {
     expect(body).toEqual({
       name: 'Student v2',
       year_weight: 30,
-      country_mismatch_weight: 20,
       timezone_weight: 15,
       timezone_max_weight: 25,
-      size_bonus_weight: 10
+      size_bonus_weight: 30
     })
 
     expect(created).toMatchObject({ id: 7, isActive: true, totalWeight: 100, weights })
@@ -167,18 +162,18 @@ describe('writes', () => {
 
   it('updates a config with PATCH, sending only the given fields', async () => {
     const fetchMock = stubFetch(() =>
-      jsonResponse({ ...configRow, year_weight: '40.00', country_mismatch_weight: '10.00' })
+      jsonResponse({ ...configRow, year_weight: '40.00', timezone_weight: '5.00' })
     )
 
     const updated = await updateMatchingConfig(7, {
-      weights: { yearWeight: 40, countryMismatchWeight: 10 }
+      weights: { yearWeight: 40, timezoneWeight: 5 }
     })
 
     const { url, init, headers, body } = apiCall(fetchMock)
     expect(url).toMatch(/\/matching\/configs\/7\/$/)
     expect(init.method).toBe('PATCH')
     expect(headers.get('X-CSRFToken')).toBe('csrf-test')
-    expect(body).toEqual({ year_weight: 40, country_mismatch_weight: 10 })
+    expect(body).toEqual({ year_weight: 40, timezone_weight: 5 })
     expect(updated.weights.yearWeight).toBe(40)
   })
 

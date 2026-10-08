@@ -38,7 +38,6 @@ class ExistingGroupMemberInput(TypedDict, total=False):
 class GroupScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     totalPenalty: float
     sizeBonus: float
@@ -56,7 +55,6 @@ class MatchGroup(TypedDict):
 class StudentScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     totalPenalty: float
 
@@ -86,7 +84,6 @@ class StudentGroupRecommendation(TypedDict):
 class RecommendationScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     sizeBonus: float
     totalPenalty: float
@@ -355,8 +352,8 @@ class RecommendationCandidate(TypedDict):
     averageYearGap: float
     averageTimezoneGap: float
     #: Peers whose country differs from the student's. MA4 ranks on this only
-    #: after every scored signal has tied, so it never depends on whether the
-    #: admin set ``country_mismatch_weight`` above zero.
+    #: after every scored signal has tied, so it is a pure count with no weight
+    #: in the scoring configuration.
     countryMismatchCount: int
     sharedInterests: List[str]
     scoreBreakdown: RecommendationScoreBreakdown
@@ -397,7 +394,6 @@ def score_student_for_existing_group(
     scoring = resolve_weights(weights)
     shared_interests = get_shared_interests_with_group(student, group)
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
     country_mismatch_count = 0
     timezone_penalty_sum = 0.0
     timezone_gap_sum = 0.0
@@ -413,19 +409,18 @@ def score_student_for_existing_group(
         timezone_gap = abs(get_student_timezone(student) - get_member_timezone(member))
         if get_student_country(student) != get_member_country(member):
             country_mismatch_count += 1
-            country_penalty_sum += scoring.country_mismatch_penalty
-            timezone_penalty_sum += min(
-                scoring.timezone_max_penalty,
-                timezone_gap * scoring.timezone_weight,
-            )
+        timezone_penalty_sum += min(
+            scoring.timezone_max_penalty,
+            timezone_gap * scoring.timezone_weight,
+        )
         timezone_gap_sum += timezone_gap
 
     peer_count = len(group_students)
     year_penalty = round2(year_penalty_sum / peer_count)
-    country_penalty = round2(country_penalty_sum / peer_count)
     timezone_penalty = round2(timezone_penalty_sum / peer_count)
-    # MA4: country only ever breaks a tie (see compare_recommendation_candidate),
-    # so it stays out of the blended penalty.
+    # MA4: the timezone penalty is earned by a real time gap whether or not a
+    # border is crossed. Country does not score at all - it only breaks an
+    # otherwise exact tie, via the count below, and is never part of this.
     total_penalty = round2(year_penalty + timezone_penalty)
     score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
     resulting_group_size = len(group_students) + 1
@@ -448,7 +443,6 @@ def score_student_for_existing_group(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "sizeBonus": size_bonus,
             "totalPenalty": total_penalty,
@@ -471,8 +465,8 @@ def compare_recommendation_candidate(
         return -1 if a["averageYearGap"] < b["averageYearGap"] else 1
     if a["averageTimezoneGap"] != b["averageTimezoneGap"]:
         return -1 if a["averageTimezoneGap"] < b["averageTimezoneGap"] else 1
-    # MA4: country never scored, so it can only break an otherwise exact tie —
-    # reached only when timezone distance has already been found equal.
+    # MA4: country never scores, so it can only break an otherwise exact tie —
+    # reached only when year and timezone distance have both been found equal.
     a_country_mismatch = a["countryMismatchCount"] > 0
     b_country_mismatch = b["countryMismatchCount"] > 0
     if a_country_mismatch != b_country_mismatch:
@@ -520,7 +514,6 @@ def build_unmatched_recommendation(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": 0,
-            "countryPenalty": 0,
             "timezonePenalty": 0,
             "sizeBonus": 0,
             "totalPenalty": BASE_SCORE,
@@ -544,7 +537,6 @@ def score_group(
     scoring = resolve_weights(weights)
     pair_count = get_pair_count(len(group))
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
     timezone_penalty_sum = 0.0
 
     for i in range(len(group)):
@@ -554,18 +546,16 @@ def score_group(
             year_gap = abs(get_student_year_level(a) - get_student_year_level(b))
             year_penalty_sum += year_gap * scoring.year_weight
 
-            if get_student_country(a) != get_student_country(b):
-                country_penalty_sum += scoring.country_mismatch_penalty
-                timezone_gap = abs(get_student_timezone(a) - get_student_timezone(b))
-                timezone_penalty_sum += min(
-                    scoring.timezone_max_penalty,
-                    timezone_gap * scoring.timezone_weight,
-                )
+            timezone_gap = abs(get_student_timezone(a) - get_student_timezone(b))
+            timezone_penalty_sum += min(
+                scoring.timezone_max_penalty,
+                timezone_gap * scoring.timezone_weight,
+            )
 
     year_penalty = round2(year_penalty_sum / pair_count)
-    country_penalty = round2(country_penalty_sum / pair_count)
     timezone_penalty = round2(timezone_penalty_sum / pair_count)
-    # MA4: country is a ranking tie-breaker only, never part of the penalty.
+    # MA4: the timezone penalty is earned by a real time gap whether or not the
+    # pair crosses a border. Country never scores - it only decides ties later.
     total_penalty = round2(year_penalty + timezone_penalty)
     quality_score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
     size_bonus = scoring.size_bonus(len(group))
@@ -577,7 +567,6 @@ def score_group(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "totalPenalty": total_penalty,
             "sizeBonus": size_bonus,
@@ -606,25 +595,22 @@ def score_student_in_group(
 
     scoring = resolve_weights(weights)
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
     timezone_penalty_sum = 0.0
 
     for peer in peers:
         year_gap = abs(get_student_year_level(student) - get_student_year_level(peer))
         year_penalty_sum += year_gap * scoring.year_weight
 
-        if get_student_country(student) != get_student_country(peer):
-            country_penalty_sum += scoring.country_mismatch_penalty
-            timezone_gap = abs(get_student_timezone(student) - get_student_timezone(peer))
-            timezone_penalty_sum += min(
-                scoring.timezone_max_penalty,
-                timezone_gap * scoring.timezone_weight,
-            )
+        timezone_gap = abs(get_student_timezone(student) - get_student_timezone(peer))
+        timezone_penalty_sum += min(
+            scoring.timezone_max_penalty,
+            timezone_gap * scoring.timezone_weight,
+        )
 
     year_penalty = round2(year_penalty_sum / len(peers))
-    country_penalty = round2(country_penalty_sum / len(peers))
     timezone_penalty = round2(timezone_penalty_sum / len(peers))
-    # MA4: country is reported and used as a tie-breaker, not scored.
+    # MA4: timezone distance is scored on its own for every pair, country or
+    # not. Country is never part of this score.
     total_penalty = round2(year_penalty + timezone_penalty)
     score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
 
@@ -638,7 +624,6 @@ def score_student_in_group(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "totalPenalty": total_penalty,
         },
@@ -713,8 +698,9 @@ def candidate_sort_key(
     a candidate that leaves a student with no interest-compatible peer left is
     ranked behind one that does not, so capacity is spent only when the pool has
     nothing safer to spend it on. Both modes end on the same tie-breaker tail,
-    which is where country acts (MA4): once timezone distance is equal, fewer
-    cross-country pairs wins.
+    which is where country acts (MA4): it separates candidates only once
+    timezone distance and year spread are equally close, so fewer cross-country
+    pairs wins any remaining exact tie instead of outranking a real time gap.
     """
     if mode == "coverage":
         primary_key: Tuple[Any, ...] = (
@@ -732,8 +718,8 @@ def candidate_sort_key(
 
     return primary_key + (
         candidate["averageTimezoneGap"],
-        candidate["countryMismatchCount"],
         candidate["averageYearGap"],
+        candidate["countryMismatchCount"],
         "|".join(candidate["memberIds"]),
     )
 

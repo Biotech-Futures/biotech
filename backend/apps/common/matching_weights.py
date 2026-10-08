@@ -9,9 +9,11 @@ deployment with no saved configuration keeps its previous scoring.
 Each weight is a percentage of the 100-point base score, so a weight of 8 costs
 8 points. ``BASE_SCORE`` itself is the scale the percentages are measured
 against rather than one of the tunables. A stored configuration must total
-exactly 100 across all five weights: the percentages describe how the whole
+exactly 100 across all four weights: the percentages describe how the whole
 scoring budget is divided, so anything else is rejected at save time rather
-than silently normalised.
+than silently normalised. Country is deliberately absent: it stopped scoring in
+MA4 and only survives as a count-based tie-break, so it no longer belongs in the
+weight budget.
 """
 
 from dataclasses import dataclass
@@ -31,7 +33,6 @@ REQUIRED_WEIGHT_TOTAL = "100.00"
 #: serializer and the algorithm cannot drift apart on naming.
 WEIGHT_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("year_weight", "year_weight"),
-    ("country_mismatch_weight", "country_mismatch_penalty"),
     ("timezone_weight", "timezone_weight"),
     ("timezone_max_weight", "timezone_max_penalty"),
     ("size_bonus_weight", "size_bonus_weight"),
@@ -43,7 +44,6 @@ class ScoringWeights:
     """Points of penalty (or bonus) applied by each matching signal."""
 
     year_weight: float = 8.0
-    country_mismatch_penalty: float = 12.0
     timezone_weight: float = 2.0
     timezone_max_penalty: float = 18.0
     size_bonus_weight: float = 6.0
@@ -59,7 +59,6 @@ class ScoringWeights:
     def total(self) -> float:
         return round(
             self.year_weight
-            + self.country_mismatch_penalty
             + self.timezone_weight
             + self.timezone_max_penalty
             + self.size_bonus_weight,
@@ -69,7 +68,6 @@ class ScoringWeights:
     def as_dict(self) -> Dict[str, float]:
         return {
             "yearWeight": self.year_weight,
-            "countryMismatchPenalty": self.country_mismatch_penalty,
             "timezoneWeight": self.timezone_weight,
             "timezoneMaxPenalty": self.timezone_max_penalty,
             "sizeBonusWeight": self.size_bonus_weight,
@@ -77,18 +75,18 @@ class ScoringWeights:
 
 
 #: What an admin panel should start from: a complete, valid split of the budget
-#: with roughly the same emphasis as the historical constants.
+#: with roughly the same emphasis as the historical constants. Timezone now owns
+#: the whole geography slice, so it carries the share country used to take.
 DEFAULT_WEIGHT_VALUES: Dict[str, float] = {
     "year_weight": 20.0,
-    "country_mismatch_weight": 15.0,
-    "timezone_weight": 25.0,
-    "timezone_max_weight": 20.0,
-    "size_bonus_weight": 20.0,
+    "timezone_weight": 30.0,
+    "timezone_max_weight": 25.0,
+    "size_bonus_weight": 25.0,
 }
 
 
 def weights_from_config(config: Any) -> ScoringWeights:
-    """Build weights from any object exposing the five weight fields."""
+    """Build weights from any object exposing the four weight fields."""
     return ScoringWeights(
         **{attribute: float(getattr(config, field)) for field, attribute in WEIGHT_FIELDS}
     )

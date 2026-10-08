@@ -72,7 +72,8 @@ class MatchingConfig(models.Model):
     Weights are percentages of the 100-point base score and must total exactly
     100 — see ``apps.common.matching_weights``. The values are read once per
     matching run and snapshotted onto ``MatchRun.rules_snapshot``, so changing
-    them never rewrites the rules a past run was scored under.
+    them never rewrites the rules a past run was scored under. Country is not
+    among them: it stopped scoring in MA4 and only ranks ties via its count.
 
     At most one row is active; :meth:`activate` retires the previous one.
     """
@@ -84,12 +85,6 @@ class MatchingConfig(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
         help_text="Percentage of the base score charged per year of year-level gap.",
-    )
-    country_mismatch_weight = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Reported weight for a cross-country pair; ranks ties only.",
     )
     timezone_weight = models.DecimalField(
         max_digits=5,

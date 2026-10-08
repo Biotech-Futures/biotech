@@ -23,10 +23,9 @@ from apps.matching_runtime.services import (
 
 VALID_WEIGHTS = {
     "year_weight": "30.00",
-    "country_mismatch_weight": "20.00",
     "timezone_weight": "20.00",
-    "timezone_max_weight": "10.00",
-    "size_bonus_weight": "20.00",
+    "timezone_max_weight": "20.00",
+    "size_bonus_weight": "30.00",
 }
 
 
@@ -73,10 +72,9 @@ class MatchingConfigModelTests(TestCase):
             weights,
             ScoringWeights(
                 year_weight=30.0,
-                country_mismatch_penalty=20.0,
                 timezone_weight=20.0,
-                timezone_max_penalty=10.0,
-                size_bonus_weight=20.0,
+                timezone_max_penalty=20.0,
+                size_bonus_weight=30.0,
             ),
         )
 
@@ -97,7 +95,7 @@ class MatchingConfigModelTests(TestCase):
 
         self.assertIsNone(rules.config)
         self.assertEqual(rules.weights, ScoringWeights())
-        self.assertEqual(rules.weights.total(), 46.0)
+        self.assertEqual(rules.weights.total(), 34.0)
 
     def test_resolve_scoring_rules_reads_the_active_config(self):
         config = create_config()
@@ -106,7 +104,7 @@ class MatchingConfigModelTests(TestCase):
 
         self.assertEqual(rules.config, config)
         self.assertEqual(rules.weights.year_weight, 30.0)
-        self.assertEqual(resolve_scoring_weights().size_bonus_weight, 20.0)
+        self.assertEqual(resolve_scoring_weights().size_bonus_weight, 30.0)
 
     def test_snapshot_records_the_weights_actually_applied(self):
         config = create_config()
@@ -119,7 +117,8 @@ class MatchingConfigModelTests(TestCase):
         self.assertEqual(snapshot["configName"], config.name)
         self.assertEqual(snapshot["totalWeight"], "100.0")
         self.assertEqual(snapshot["weights"]["yearWeight"], 30.0)
-        self.assertEqual(snapshot["weights"]["countryMismatchPenalty"], 20.0)
+        self.assertEqual(snapshot["weights"]["timezoneWeight"], 20.0)
+        self.assertEqual(snapshot["weights"]["sizeBonusWeight"], 30.0)
 
     def test_snapshot_is_json_serialisable_for_match_run(self):
         import json
@@ -148,7 +147,7 @@ class MatchingConfigModelTests(TestCase):
 class MatchingConfigSerializerTests(TestCase):
     def test_serializer_rejects_weights_that_do_not_total_one_hundred(self):
         serializer = MatchingConfigSerializer(
-            data={"name": "Bad", **{**VALID_WEIGHTS, "size_bonus_weight": "30.00"}}
+            data={"name": "Bad", **{**VALID_WEIGHTS, "size_bonus_weight": "40.00"}}
         )
 
         self.assertFalse(serializer.is_valid())
@@ -169,7 +168,7 @@ class MatchingConfigSerializerTests(TestCase):
         config = create_config()
         serializer = MatchingConfigSerializer(
             config,
-            data={"year_weight": "40.00", "country_mismatch_weight": "10.00"},
+            data={"year_weight": "40.00", "timezone_weight": "10.00"},
             partial=True,
         )
 
@@ -235,7 +234,7 @@ class MatchingConfigApiTests(TestCase):
 
         response = self.client.patch(
             "/matching/configs/1/",
-            {"year_weight": "40.00", "country_mismatch_weight": "10.00"},
+            {"year_weight": "40.00", "timezone_weight": "10.00"},
             format="json",
         )
 
@@ -309,10 +308,9 @@ class MatchingConfigApiTests(TestCase):
             {
                 "name": "Heavy year",
                 "year_weight": "40.00",
-                "country_mismatch_weight": "10.00",
                 "timezone_weight": "20.00",
                 "timezone_max_weight": "15.00",
-                "size_bonus_weight": "15.00",
+                "size_bonus_weight": "25.00",
             },
             format="json",
         )

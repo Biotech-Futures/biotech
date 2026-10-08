@@ -47,7 +47,6 @@ class StudentAlgorithmParityTests(SimpleTestCase):
                 "scoreBreakdown": {
                     "baseScore": 100,
                     "yearPenalty": 8.0,
-                    "countryPenalty": 0.0,
                     "timezonePenalty": 0.0,
                     "totalPenalty": 8.0,
                     "sizeBonus": 0,
@@ -121,7 +120,6 @@ class StudentAlgorithmParityTests(SimpleTestCase):
                 "scoreBreakdown": {
                     "baseScore": 100,
                     "yearPenalty": 0.0,
-                    "countryPenalty": 0.0,
                     "timezonePenalty": 0.0,
                     "sizeBonus": 0,
                     "totalPenalty": 0.0,

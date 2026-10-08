@@ -15,8 +15,7 @@ import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPan
 const scoreBreakdown = {
   baseScore: 100,
   yearPenalty: 0,
-  countryPenalty: 12,
-  timezonePenalty: 0,
+  timezonePenalty: 12,
   sizeBonus: 3,
   totalPenalty: 12,
   objectiveScore: 91
@@ -105,7 +104,6 @@ const fetchMock = (options: { match?: unknown; matchStatus?: number } = {}) =>
         data: null,
         weights: {
           yearWeight: 8.0,
-          countryMismatchPenalty: 12.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
@@ -113,10 +111,9 @@ const fetchMock = (options: { match?: unknown; matchStatus?: number } = {}) =>
         requiredTotal: '100.00',
         defaults: {
           year_weight: 20.0,
-          country_mismatch_weight: 15.0,
-          timezone_weight: 25.0,
-          timezone_max_weight: 20.0,
-          size_bonus_weight: 20.0
+          timezone_weight: 30.0,
+          timezone_max_weight: 25.0,
+          size_bonus_weight: 25.0
         }
       })
     }

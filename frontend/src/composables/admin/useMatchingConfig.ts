@@ -14,17 +14,12 @@ import {
   matchingConfigFieldErrors
 } from '@/utils/matchingConfig'
 
-/** Labels and help copy for the five weight inputs, in display order. */
+/** Labels and help copy for the four weight inputs, in display order. */
 export const MATCHING_WEIGHT_FIELDS: { key: MatchingWeightKey; label: string; help: string }[] = [
   {
     key: 'yearWeight',
     label: 'Year',
     help: 'Taken off the score for each year of year-level difference between students.'
-  },
-  {
-    key: 'countryMismatchWeight',
-    label: 'Country',
-    help: 'Country is used separately as a tie-breaker when otherwise suitable matches are tied. This configured value is currently reported in the score breakdown and counts towards the required 100% total.'
   },
   {
     key: 'timezoneWeight',
@@ -88,7 +83,6 @@ export function useMatchingConfig() {
   const name = ref('')
   const weights = ref<Record<MatchingWeightKey, WeightInput>>({
     yearWeight: '',
-    countryMismatchWeight: '',
     timezoneWeight: '',
     timezoneMaxWeight: '',
     sizeBonusWeight: ''
@@ -102,7 +96,7 @@ export function useMatchingConfig() {
 
   const fillForm = (state: ActiveMatchingConfig) => {
     // With no saved config the built-in weights are not a valid percentage
-    // split (they total 46), so the form starts from the suggested defaults.
+    // split (they total 34), so the form starts from the suggested defaults.
     const source = state.config?.weights ?? state.defaults.weights
     name.value = state.config?.name ?? ''
     weights.value = { ...source }
