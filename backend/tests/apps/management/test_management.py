@@ -554,7 +554,7 @@ class GradingSettingsViewTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.content)
         self.assertIn("director_1_signature", r.json()["fields"])
-        self.assertFalse(GradingSettings.load().director_1_signature)
+        self.assertIsNone(GradingSettings.load().director_1_signature_image)
 
     def test_bad_file_rejects_the_whole_patch(self):
         """One bad upload must not let the rest of the request half-apply."""
@@ -599,22 +599,44 @@ class GradingSettingsViewTests(_GradingFixture):
         # The superseded blob is cleaned up, not orphaned in the container.
         self.assertFalse(default_storage.exists(old_name))
 
-    def test_clearing_a_signature_deletes_its_blob(self):
+    def test_a_signature_is_kept_in_the_database_and_can_be_cleared(self):
         upload = self.client.patch(
             reverse("management:settings"),
-            {"director_1_signature": SimpleUploadedFile("sig.png", self._PNG)},
+            {"director_1_signature": SimpleUploadedFile("nixon.png", self._PNG)},
             format="multipart",
         )
         self.assertEqual(upload.status_code, status.HTTP_200_OK, upload.content)
-        name = GradingSettings.load().director_1_signature.name
-        self.assertTrue(default_storage.exists(name))
+        # The page shows the name it was uploaded as.
+        self.assertEqual(upload.json()["director_1_signature"], "nixon.png")
+        self.assertIsNone(upload.json()["director_2_signature"])
+        row = GradingSettings.load()
+        self.assertEqual(bytes(row.director_1_signature_image), self._PNG)
+        self.assertEqual(row.director_1_signature_name, "nixon.png")
+        # Nothing goes to storage.
+        self.assertFalse(default_storage.exists("grading/signatures/nixon.png"))
 
         cleared = self.client.patch(
             reverse("management:settings"), {"director_1_signature": None}, format="json"
         )
         self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
-        self.assertFalse(GradingSettings.load().director_1_signature)
-        self.assertFalse(default_storage.exists(name))
+        self.assertIsNone(cleared.json()["director_1_signature"])
+        row = GradingSettings.load()
+        self.assertIsNone(row.director_1_signature_image)
+        self.assertEqual(row.director_1_signature_name, "")
+
+    def test_saving_other_details_keeps_the_signature(self):
+        self.client.patch(
+            reverse("management:settings"),
+            {"director_1_signature": SimpleUploadedFile("nixon.png", self._PNG)},
+            format="multipart",
+        )
+
+        response = self.client.patch(
+            reverse("management:settings"), {"director_1_name": "Mr William Nixon"}, format="json"
+        )
+
+        self.assertEqual(response.json()["director_1_signature"], "nixon.png")
+        self.assertEqual(bytes(GradingSettings.load().director_1_signature_image), self._PNG)
 
     def test_candidate_scan_previews_without_saving(self):
         r = self.client.post(

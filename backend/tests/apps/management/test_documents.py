@@ -683,8 +683,10 @@ class DirectorSignatureTests(_GradingFixture):
             "tpl.docx", self._token_template(template_text)
         )
         if with_signatures:
-            settings_row.director_1_signature = SimpleUploadedFile("sig1.png", self.PNG_1PX)
-            settings_row.director_2_signature = SimpleUploadedFile("sig2.png", self.PNG_1PX)
+            settings_row.director_1_signature_image = self.PNG_1PX
+            settings_row.director_1_signature_name = "sig1.png"
+            settings_row.director_2_signature_image = self.PNG_1PX
+            settings_row.director_2_signature_name = "sig2.png"
         settings_row.save()
         return settings_row
 

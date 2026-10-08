@@ -85,10 +85,14 @@ class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
     director_1_position = models.CharField(max_length=255, blank=True)
-    director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    # Each signature image is kept here, with the name it was uploaded as
+    # (shown on Document Setup); certificates and marks sheets embed it.
+    director_1_signature_image = models.BinaryField(blank=True, null=True)
+    director_1_signature_name = models.CharField(max_length=255, blank=True, default="")
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
-    director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    director_2_signature_image = models.BinaryField(blank=True, null=True)
+    director_2_signature_name = models.CharField(max_length=255, blank=True, default="")
     marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
