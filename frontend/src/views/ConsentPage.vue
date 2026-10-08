@@ -30,7 +30,7 @@
             {{ signed.mediaConsent ? 'with' : 'without' }} media consent.
           </p>
           <p class="consent-muted">
-            We've emailed you a copy. Your reference is <strong>{{ signed.reference }}</strong>.
+            Your reference is <strong>{{ signed.reference }}</strong>.
             To withdraw consent later, email <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>.
           </p>
         </div>

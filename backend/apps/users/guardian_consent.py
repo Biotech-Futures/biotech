@@ -18,12 +18,11 @@ from typing import NamedTuple, Optional
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.utils import dateformat, timezone
+from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
 from apps.common.storage import get_consent_storage
-from apps.services.system_email import send_system_email
 
 from .consent_form import CURRENT_VERSION, render_consent_form
 from .consent_pdf import render_consent_pdf
@@ -226,21 +225,7 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             },
         )
 
-    pdf = render_consent_pdf(consent)
-    store_record_pdf(consent, pdf)
-    send_system_email(
-        "guardian_consent_confirmation",
-        [consent.guardian_email],
-        {
-            "GUARDIAN_NAME": consent.guardian_full_name,
-            "STUDENT_NAME": student_name(profile),
-            "MEDIA_CHOICE": "Yes, media consent provided" if media_consent else "No, media consent not provided",
-            "SIGNED_AT": dateformat.format(timezone.localtime(consent.signed_at), "j F Y, g:i A T"),
-            "CONSENT_REFERENCE": consent.reference,
-        },
-        background=True,
-        files=[(record_pdf_filename(consent), pdf, "application/pdf")],
-    )
+    store_record_pdf(consent, render_consent_pdf(consent))
     return consent
 
 

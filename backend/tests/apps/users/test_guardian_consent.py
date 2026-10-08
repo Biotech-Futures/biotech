@@ -132,7 +132,7 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
     # -- signing ---------------------------------------------------------------
 
-    def test_signing_records_consent_and_emails_a_copy(self):
+    def test_signing_records_consent_without_emailing(self):
         response = self.sign(mediaConsent=False)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -151,23 +151,17 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertIs(self.profile.media_consent, False)
         self.assertIsNotNone(consent.request.used_at)
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["pat@example.com"])
-        self.assertIn(consent.reference, mail.outbox[0].alternatives[0][0])
-        self.assertIn("No, media consent not provided", mail.outbox[0].alternatives[0][0])
+        # No confirmation email: the spec has none.
+        self.assertEqual(mail.outbox, [])
         self.assertTrue(AuditLog.objects.filter(action="guardian_consent_signed").exists())
 
-    def test_signing_stores_the_record_pdf_and_attaches_it(self):
+    def test_signing_stores_the_record_pdf(self):
         self.sign()
 
         consent = GuardianConsent.objects.get()
         self.assertEqual(consent.record_pdf_key, f"{self.profile.user_id}/{consent.reference}.pdf")
         with get_consent_storage().open(consent.record_pdf_key) as stored:
             self.assertTrue(stored.read().startswith(b"%PDF"))
-        [(filename, content, mimetype)] = mail.outbox[0].attachments[1:]  # [0] is the inline logo
-        self.assertEqual(mimetype, "application/pdf")
-        self.assertTrue(filename.startswith(consent.reference))
-        self.assertTrue(content.startswith(b"%PDF"))
 
     def test_storage_failure_does_not_stop_signing(self):
         with patch("apps.common.storage.ManagedContainerStorage.save", side_effect=OSError("down")):
@@ -176,7 +170,6 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         consent = GuardianConsent.objects.get()
         self.assertEqual(consent.record_pdf_key, "")
-        self.assertEqual(len(mail.outbox), 1)  # still sent, with the PDF
 
     def test_record_renders_names_outside_western_scripts(self):
         profile = make_student(email="li@example.com", first="李", pg_email="g3@example.com")

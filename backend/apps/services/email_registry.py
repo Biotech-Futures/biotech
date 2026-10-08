@@ -351,21 +351,6 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
-    EmailType(
-        key="guardian_consent_confirmation",
-        name="Guardian consent confirmation",
-        description="Sent to a guardian after they sign the consent form, as their record of it.",
-        default_subject="{{ brand_name }}: Consent received for {{ student_name }}",
-        default_template="emails/guardian_consent_confirmation.html",
-        merge_tags=(
-            MergeTag("guardian_name", "Guardian's full name, as signed", "Pat Chen", "GUARDIAN_NAME"),
-            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
-            MergeTag("media_choice", "The media-consent answer", "Yes, media consent provided", "MEDIA_CHOICE"),
-            MergeTag("signed_at", "When the form was signed", "8 October 2026, 4:30 PM UTC", "SIGNED_AT"),
-            MergeTag("consent_reference", "Reference for this consent", "BTF-42", "CONSENT_REFERENCE"),
-            *_BRAND_TAGS,
-        ),
-    ),
 )
 
 EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}
