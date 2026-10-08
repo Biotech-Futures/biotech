@@ -165,6 +165,21 @@ describe('MatchingConfigPanel', () => {
       }
     })
 
+    it('offers exactly the four scoring weights, in order', async () => {
+      stubFetch({})
+      wrapper = await mountPanel()
+
+      const grid = wrapper.find('.matching-config__grid')
+      expect(grid.findAll('input')).toHaveLength(4)
+      expect(grid.findAll('label').map((label) => label.text())).toEqual([
+        'Year',
+        'Timezone',
+        'Timezone cap',
+        'Group size bonus'
+      ])
+      expect(grid.text()).not.toMatch(/country/i)
+    })
+
     it('renders no country weight input at all', async () => {
       stubFetch({})
       wrapper = await mountPanel()
@@ -260,6 +275,18 @@ describe('MatchingConfigPanel', () => {
 
       expect(wrapper.text()).toContain('Total: 85 / 100%')
       expect(wrapper.text()).toContain('must total exactly 100%')
+    })
+
+    it('totals only the four weights', async () => {
+      stubFetch({ active: () => jsonResponse(savedActive) })
+      wrapper = await mountPanel()
+
+      for (const key of ['yearWeight', 'timezoneWeight', 'timezoneMaxWeight', 'sizeBonusWeight']) {
+        await weightInput(wrapper, key).setValue('25')
+      }
+
+      expect(wrapper.text()).toContain('Total: 100 / 100%')
+      expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
     it('blocks saving until the total is exactly 100, without rebalancing', async () => {
