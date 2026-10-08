@@ -19,6 +19,7 @@ from apps.groups.models import (
     group_name_sort_key,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
+from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
@@ -447,6 +448,45 @@ def _guardian_audit_state(user_id: int) -> Dict[str, Any]:
     return {key: guardian[key] for key in GUARDIAN_AUDIT_KEYS}
 
 
+# Audit actions that change a user's details, for "Last edited by": by an
+# admin, the user themselves or their supervisor.
+EDIT_ACTIONS = (
+    "update",
+    "role_change",
+    "status_change",
+    "guardian_update",
+    "guardian_consent_withdrawn",
+    "guardian_media_consent_withdrawn",
+    "profile_update",
+)
+_NO_EDIT = {"lastEditedBy": None, "lastEditedAt": None}
+
+
+def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
+    """Who last changed each of ``user_ids``' details and when: their newest
+    edit in the audit log made by someone, not by the platform itself."""
+    latest = (
+        AuditLog.objects.filter(
+            entity_type="user",
+            entity_id__in=list(user_ids),
+            action__in=EDIT_ACTIONS,
+            actor_user__isnull=False,
+        )
+        .order_by()
+        .values("entity_id")
+        .annotate(latest=Max("id"))
+        .values_list("latest", flat=True)
+    )
+    edits: Dict[int, Dict[str, Any]] = {}
+    for entry in AuditLog.objects.filter(id__in=list(latest)).select_related("actor_user"):
+        actor = entry.actor_user
+        edits[entry.entity_id] = {
+            "lastEditedBy": f"{actor.first_name or ''} {actor.last_name or ''}".strip() or actor.email,
+            "lastEditedAt": entry.created_at.isoformat(),
+        }
+    return edits
+
+
 def build_user_dict(user: User, role_str: Optional[str] = None,
                    state: Optional[Dict[str, Any]] = None,
                    group_name: Optional[str] = None,
@@ -519,6 +559,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
 
@@ -743,6 +784,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                 "name": gm.group.group_name,
             }
 
+    last_edit_map = last_edits(user_ids)
+
     # User interests — plain strings to match build_user_dict
     interests_map: Dict[int, List[str]] = {}
     for ui in UserInterest.objects.filter(user_id__in=user_ids).select_related('interest'):
@@ -830,6 +873,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            **last_edit_map.get(uid, _NO_EDIT),
         })
 
     return {
@@ -1413,7 +1457,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Max group count is required for mentor users", "data": None}
 
     role_changed = "role" in input_data and input_data["role"] != current_role
-    before_user = fetch_user_by_id(user_id) if role_changed else None
+    before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
 
     # Handle geography update. Country is the required half for non-admins; state
@@ -1571,7 +1615,22 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 before_state=before_guardian,
                 after_state=after_guardian,
             )
+    # Any change at all, so the user's page can say who last edited it.
+    if _without_last_edit(updated_user) != _without_last_edit(before_user):
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="user",
+            entity_id=user_id,
+            action="update",
+            before_state=before_user,
+            after_state=updated_user,
+        )
+        updated_user = fetch_user_by_id(user_id)
     return {"msg": "User updated successfully", "data": updated_user}
+
+
+def _without_last_edit(user_dict: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    return {key: value for key, value in (user_dict or {}).items() if key not in _NO_EDIT}
 
 
 def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str, Any]:

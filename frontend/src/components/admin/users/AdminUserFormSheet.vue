@@ -2,7 +2,7 @@
   <FormSheet
     v-model="open"
     :title="isEditing ? `Edit ${userNoun}` : `Add ${userNoun}`"
-    :description="isEditing ? 'Update the account details below.' : 'Manage role, state, and account status without touching other modules.'"
+    :description="isEditing ? lastEditedLabel || 'Update the account details below.' : 'Manage role, state, and account status without touching other modules.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-users-form" novalidate @submit.prevent="submitForm">
@@ -156,8 +156,8 @@
         <p v-if="pendingGuardian" class="admin-users-form__note" data-test="form-pending-guardian">
           The student asked to change their guardian to
           <strong>{{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }}</strong>
-          ({{ pendingGuardian.email || 'no email' }}). Recording a new consent response makes them the
-          guardian; changing the guardian below discards the request.
+          ({{ pendingGuardian.email || 'no email' }}). They become the guardian once they sign the consent
+          form; changing the guardian below discards the request.
         </p>
         <div class="admin-users-form__grid">
           <div class="form-field">
@@ -172,30 +172,13 @@
             <label class="form-label" for="f-gemail">Guardian email</label>
             <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
           </div>
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-consent">Consent form response ID</label>
-            <input
-              id="f-consent"
-              v-model.trim="form.joinpermResponseId"
-              class="form-input"
-              placeholder="e.g. R_1a2b3c4d5e6f7g8"
-            />
-            <p class="admin-users-form__hint">{{ consentHint }}</p>
-          </div>
           <div v-if="consentUnverified" class="form-field form-field--full">
             <p class="admin-users-form__note">
-              This student is marked as consented, but no consent form response is on record.
-              Enter the response ID above if you have it.
+              This student is marked as consented, but no signed consent form is on record.
             </p>
             <label class="form-label">
-              <input
-                id="f-revoke"
-                v-model="form.revokeUnverifiedConsent"
-                type="checkbox"
-                class="form-checkbox"
-                :disabled="Boolean(form.joinpermResponseId)"
-              />
-              Revoke consent until a response is received
+              <input id="f-revoke" v-model="form.revokeUnverifiedConsent" type="checkbox" class="form-checkbox" />
+              Revoke consent until their guardian signs the consent form
             </label>
           </div>
         </div>
@@ -240,7 +223,7 @@ import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } f
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
-import { roleLabel, userName } from '@/utils/userFormat'
+import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
 import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
 
 interface UserForm {
@@ -262,12 +245,11 @@ interface UserForm {
   guardianFirstName: string
   guardianLastName: string
   guardianEmail: string
-  joinpermResponseId: string
   revokeUnverifiedConsent: boolean
   active: boolean
 }
 
-type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail' | 'joinpermResponseId'>
+type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail'>
 
 const props = defineProps<{
   modelValue: boolean
@@ -315,7 +297,6 @@ const defaultForm = (): UserForm => ({
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
-  joinpermResponseId: '',
   revokeUnverifiedConsent: false,
   active: true
 })
@@ -323,8 +304,7 @@ const defaultForm = (): UserForm => ({
 const blankGuardian = (): GuardianFields => ({
   guardianFirstName: '',
   guardianLastName: '',
-  guardianEmail: '',
-  joinpermResponseId: ''
+  guardianEmail: ''
 })
 
 const form = reactive<UserForm>(defaultForm())
@@ -340,9 +320,10 @@ const pendingGuardian = computed(() => (form.role === 'student' ? props.user?.pe
 const consentUnverified = computed(() =>
   Boolean(props.user?.role === 'student' && props.user.joinPermissionReceived && !props.user.joinpermResponseId)
 )
-const consentHint = computed(() => {
-  if (originalGuardian.value.joinpermResponseId) return 'Consent is recorded. Clearing this ID revokes it.'
-  return 'Enter the response ID from the consent form to record consent.'
+// Who last changed this user, from anywhere: an admin, the user or their supervisor.
+const lastEditedLabel = computed(() => {
+  const { lastEditedBy, lastEditedAt } = props.user ?? {}
+  return lastEditedBy && lastEditedAt ? `Last edited by ${lastEditedBy} · ${formatFullDate(lastEditedAt)}` : ''
 })
 
 const formStates = computed(() => {
@@ -380,8 +361,7 @@ const initForm = (editingUser: AdminUser | null) => {
   originalGuardian.value = {
     guardianFirstName: isStudent && !placeholder ? editingUser.guardianFirstName || '' : '',
     guardianLastName: isStudent && !placeholder ? editingUser.guardianLastName || '' : '',
-    guardianEmail: isStudent ? editingUser.guardianEmail || '' : '',
-    joinpermResponseId: isStudent ? editingUser.joinpermResponseId || '' : ''
+    guardianEmail: isStudent ? editingUser.guardianEmail || '' : ''
   }
   Object.assign(form, {
     firstName: editingUser.firstName || '',
@@ -496,9 +476,8 @@ const guardianPayload = (): Record<string, unknown> => {
   if (form.guardianEmail !== originalGuardian.value.guardianEmail) {
     payload.guardianEmail = form.guardianEmail
   }
-  if (form.joinpermResponseId !== originalGuardian.value.joinpermResponseId) {
-    payload.joinpermResponseId = form.joinpermResponseId
-  } else if (consentUnverified.value && form.revokeUnverifiedConsent) {
+  // Revoking clears the recorded consent; consent itself comes from the guardian signing.
+  if (consentUnverified.value && form.revokeUnverifiedConsent) {
     payload.joinpermResponseId = ''
   }
   return payload

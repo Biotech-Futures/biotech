@@ -124,26 +124,27 @@ describe('admin user form: guardian & consent', () => {
     expect(payload).not.toHaveProperty('joinpermResponseId')
   })
 
-  it('records consent from a response ID', async () => {
-    const wrapper = await openForm(student())
-    await wrapper.find('#f-consent').setValue('R_paper')
-
-    expect((await save(wrapper))?.joinpermResponseId).toBe('R_paper')
-  })
-
-  it('revokes consent when the response ID is cleared', async () => {
+  it('has no response ID field: consent comes from the guardian signing', async () => {
     const wrapper = await openForm(student({ joinPermissionReceived: true, joinpermResponseId: 'R_1' }))
-    expect(wrapper.text()).toContain('Clearing this ID revokes it')
-    await wrapper.find('#f-consent').setValue('')
 
-    expect((await save(wrapper))?.joinpermResponseId).toBe('')
+    expect(wrapper.find('#f-consent').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/response ID/i)
+    expect(await save(wrapper)).not.toHaveProperty('joinpermResponseId')
   })
 
-  it('revokes consent with no response on record only when asked', async () => {
+  it('says who last edited the user, at the top of the form', async () => {
+    const wrapper = await openForm(student({ lastEditedBy: 'Ada Admin', lastEditedAt: '2026-10-09T05:15:00Z' }))
+    expect(wrapper.text()).toContain('Last edited by Ada Admin · ')
+
+    const never = await openForm(student())
+    expect(never.text()).toContain('Update the account details below.')
+  })
+
+  it('revokes consent with no signed form on record only when asked', async () => {
     const unverified = student({ joinPermissionReceived: true, joinpermResponseId: null })
 
     const kept = await openForm(unverified)
-    expect(kept.text()).toContain('no consent form response is on record')
+    expect(kept.text()).toContain('no signed consent form is on record')
     expect(await save(kept)).not.toHaveProperty('joinpermResponseId')
 
     const revoked = await openForm(unverified)
@@ -185,10 +186,18 @@ describe('admin user detail: guardian & consent', () => {
   const openDetail = (user: AdminUser) =>
     mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
 
-  it('flags consent with no response on record', () => {
+  it('flags consent with no signed form on record', () => {
     const wrapper = openDetail(student({ joinPermissionReceived: true, joinpermResponseId: null }))
 
-    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Marked received, no response on record')
+    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Marked received, no signed form on record')
+  })
+
+  it('says who last edited the user', () => {
+    const edited = openDetail(student({ lastEditedBy: 'Ada Admin', lastEditedAt: '2026-10-09T05:15:00Z' }))
+    expect(edited.find('[data-test="admin-last-edited"]').text()).toContain('Ada Admin · ')
+
+    const never = openDetail(student())
+    expect(never.find('[data-test="admin-last-edited"]').text()).toContain('No edits on record')
   })
 
   it('shows recorded consent and a pending change', () => {
@@ -199,7 +208,8 @@ describe('admin user detail: guardian & consent', () => {
     }))
 
     expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Received')
-    expect(wrapper.text()).toContain('R_1')
+    // The consent's response ID isn't shown.
+    expect(wrapper.text()).not.toContain('R_1')
     expect(wrapper.find('[data-test="admin-pending-guardian"]').text()).toContain('Robin Carer')
   })
 
@@ -305,6 +315,7 @@ describe('admin user detail: signed consent and withdrawal', () => {
     vi.mocked(fetchGuardianConsents).mockResolvedValue([{
       id: 3,
       reference: 'BTF-3',
+      fileName: '2026_318_BTF_1.pdf',
       guardianFullName: 'Pat Parent',
       guardianEmail: 'pat@example.com',
       mediaConsent: true,

@@ -141,6 +141,8 @@ def list_guardian_consents(user_id: int) -> Dict[str, Any]:
         {
             "id": c.pk,
             "reference": c.reference,
+            # What its PDF record downloads as, e.g. "2026_318_BTF_1.pdf".
+            "fileName": consent.record_pdf_filename(c),
             "guardianFullName": c.guardian_full_name,
             "guardianEmail": c.guardian_email,
             "mediaConsent": c.media_consent,

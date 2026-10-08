@@ -13,6 +13,7 @@ import io
 import logging
 import secrets
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 from typing import NamedTuple, Optional
 
 from django.conf import settings
@@ -230,32 +231,50 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
     return consent
 
 
+# The year in a record's name is the one it was signed in, in Sydney.
+_RECORD_TZ = ZoneInfo("Australia/Sydney")
+
+
+def consent_number(consent: GuardianConsent) -> int:
+    """Which of the student's signed consents this is: 1 for their first."""
+    return GuardianConsent.objects.filter(student_id=consent.student_id, pk__lte=consent.pk).count()
+
+
 def record_pdf_filename(consent: GuardianConsent) -> str:
-    # The reference alone: plain ASCII whatever the student's name is written in.
-    return f"{consent.reference}-consent-record.pdf"
+    """"2026_318_BTF_1.pdf": the year it was signed, the student's number (their
+    user id) and which of their consents it is. Plain ASCII, whatever script
+    anyone's name is written in."""
+    year = consent.signed_at.astimezone(_RECORD_TZ).year
+    return f"{year}_{consent.student_id}_BTF_{consent_number(consent)}.pdf"
 
 
 def store_record_pdf(consent: GuardianConsent, pdf: bytes) -> bool:
-    """Keep the signed record in the guardian-consent-forms container. A failure is logged,
-    not raised: the consent is already recorded and the PDF can be rebuilt
-    from it whenever it's next asked for."""
+    """Keep the signed record in the guardian-consent-forms container, under
+    its name (``record_pdf_filename``). A failure is logged, not raised: the
+    consent is already recorded and the PDF can be rebuilt from it whenever
+    it's next asked for."""
+    name = record_pdf_filename(consent)
     try:
-        key = get_consent_storage().save(f"{consent.student_id}/{consent.reference}.pdf", ContentFile(pdf))
+        storage = get_consent_storage()
+        # A copy that couldn't be read goes, so the new one gets the name
+        # rather than a renamed one beside it.
+        if storage.exists(name):
+            storage.delete(name)
+        storage.save(name, ContentFile(pdf))
     except Exception as exc:
         logger.error("guardian_consent.record_store_failed consent=%s error=%s", consent.pk, type(exc).__name__)
         return False
-    consent.record_pdf_key = key
-    consent.save(update_fields=["record_pdf_key"])
     return True
 
 
 def record_pdf_bytes(consent: GuardianConsent) -> bytes:
     """The signed record's PDF: the stored copy, or a rebuilt one (stored for
-    next time) if it was never stored or has gone missing."""
+    next time) if it was never stored, has gone missing or can't be read."""
     storage = get_consent_storage()
-    if consent.record_pdf_key:
+    name = record_pdf_filename(consent)
+    if storage.exists(name):
         try:
-            with storage.open(consent.record_pdf_key) as stored:
+            with storage.open(name) as stored:
                 return stored.read()
         except Exception as exc:
             logger.warning(
