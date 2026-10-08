@@ -121,7 +121,7 @@
 
         <div v-if="user.student.hasDetails" class="profile-section">
           <div class="profile-section-heading">
-            <h3 class="profile-section-title">Student Details <span v-if="hasLinkedSupervisor" class="registration-lock" role="img" aria-label="Registered by your supervisor. You cannot edit your own details." data-tooltip="Registered by your supervisor. You cannot edit your own details."><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
+            <h3 class="profile-section-title">Student Details <span v-if="detailsLocked" class="registration-lock" role="img" :aria-label="lockReason" :data-tooltip="lockReason" data-test="details-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
             <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" @click="startStudentEdit">Edit details</button>
           </div>
           <form v-if="studentEditing" class="student-edit-form" @submit.prevent="saveStudentDetails">
@@ -535,8 +535,19 @@ const timeZoneOptions = computed(() => {
 })
 
 const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
-const hasLinkedSupervisor = computed(() => Boolean(auth.user?.supervisor_id || user.value?.student?.supervisorEmailAddress))
-const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !hasLinkedSupervisor.value)
+// Registered by their supervisor, or edited by them since: the supervisor
+// changes these details. A student who registered themselves (or through a
+// peer) changes their own. Guardian details are the student's either way.
+const detailsLocked = computed(() => Boolean(auth.user?.details_locked))
+const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !detailsLocked.value)
+const lockReason = computed(() => {
+  const name = String(auth.user?.supervisor_name || '').trim()
+  const email = String(auth.user?.supervisor_email || '').trim()
+  const who = name && email ? `${name} (${email})` : name || email
+  return who
+    ? `Your supervisor, ${who}, manages these details. Contact them to make changes.`
+    : 'Your supervisor manages these details. Contact them to make changes.'
+})
 
 watch(
   () => auth.timeZone,

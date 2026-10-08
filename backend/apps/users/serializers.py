@@ -34,6 +34,9 @@ class UserRegisterBodySerializer(serializers.Serializer):
     SchoolName = serializers.CharField(max_length=255)
     YearLevel = serializers.CharField(max_length=255)
     Areaofinterest = serializers.CharField(max_length=255)
+    # Who filled the form in: "Self", "Peer" or "Supervisor". A supervisor's
+    # registration locks the student's own details; missing leaves them editable.
+    RegisteredBy = serializers.CharField(max_length=32, required=False, allow_blank=True)
 
 # Registration Wrapper
 class UserRegisterRequestSerializer(serializers.Serializer):
@@ -100,6 +103,8 @@ class UserSerializer(serializers.ModelSerializer):
     profile_image_url = serializers.SerializerMethodField()
     guardian_reminder = serializers.SerializerMethodField()
     supervisor_id = serializers.SerializerMethodField()
+    # The student's own details are their supervisor's to change (see StudentProfile.details_locked).
+    details_locked = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -144,6 +149,7 @@ class UserSerializer(serializers.ModelSerializer):
             "profile_image_url",
             "guardian_reminder",
             "supervisor_id",
+            "details_locked",
             "must_change_password",
             "timezone",
         ]
@@ -176,6 +182,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_supervisor_id(self, obj):
         profile = self._student_profile(obj)
         return profile.supervisor_id if profile else None
+
+    def get_details_locked(self, obj):
+        profile = self._student_profile(obj)
+        return bool(profile and profile.details_locked)
 
     def get_guardian_reminder(self, obj):
         from .guardian_reminders import reminder_info

@@ -58,12 +58,27 @@ describe('Student profile', () => {
     wrapper.unmount()
   })
 
-  it('locks supervisor-linked profiles even when the supervisor email is missing', async () => {
-    useAuthStore().user!.supervisor_id = 9
+  it('locks a student their supervisor registered or edited, naming the supervisor', async () => {
+    Object.assign(useAuthStore().user!, {
+      supervisor_id: 9, details_locked: true, supervisor_name: 'Grace Green', supervisor_email: 'grace@school.edu',
+    })
     const wrapper = mount(ProfilePage)
     await flushPromises()
     expect(wrapper.find('.profile-edit-button').exists()).toBe(false)
-    expect(wrapper.find('.registration-lock').exists()).toBe(true)
+    expect(wrapper.find('[data-test="details-lock"]').attributes('data-tooltip')).toBe(
+      'Your supervisor, Grace Green (grace@school.edu), manages these details. Contact them to make changes.'
+    )
+    // Guardian details stay the student's to change.
+    expect(wrapper.find('[data-test="guardian-edit"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('leaves a student who registered themselves free to edit, supervisor or not', async () => {
+    Object.assign(useAuthStore().user!, { supervisor_id: 9, details_locked: false })
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    expect(wrapper.find('.profile-edit-button').exists()).toBe(true)
+    expect(wrapper.find('[data-test="details-lock"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

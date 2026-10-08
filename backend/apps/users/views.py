@@ -351,7 +351,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     raise serializers.ValidationError(
                         {"detail": "Only student profiles can update these fields."}
                     )
-                if profile.supervisor_id is not None:
+                if profile.details_locked:
                     raise PermissionDenied(
                         "Your supervisor manages these registration details. Contact them to make changes."
                     )
@@ -543,12 +543,15 @@ class SupervisedStudentsView(APIView):
             profile.pg_last_name = pg_last_name
             profile.pg_email = pg_email
             profile.parent_guardian_flag = True
+            # A supervisor's edit makes the student's details theirs to change.
+            profile.supervisor_edited_at = timezone.now()
             profile.save(
                 update_fields=[
                     "pg_first_name",
                     "pg_last_name",
                     "pg_email",
                     "parent_guardian_flag",
+                    "supervisor_edited_at",
                 ]
             )
             _log_edit(request.user, profile.user_id, "guardian_update", {"guardianEmail": pg_email})
@@ -705,7 +708,9 @@ class SupervisedStudentDetailView(APIView):
 
         profile.school_name = data["school_name"].strip()
         profile.year_lvl = data["year_lvl"]
-        profile.save(update_fields=["school_name", "year_lvl"])
+        # A supervisor's edit makes the student's details theirs to change.
+        profile.supervisor_edited_at = timezone.now()
+        profile.save(update_fields=["school_name", "year_lvl", "supervisor_edited_at"])
 
         if "interests" in data:
             descriptions = []
@@ -729,6 +734,24 @@ class SupervisedStudentDetailView(APIView):
         profile.refresh_from_db()
         profile.user.refresh_from_db()
         return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
+
+
+# What the registration form says about who filled it in, e.g. "Supervisor".
+_REGISTERED_BY = {
+    "self": StudentProfile.RegisteredBy.SELF,
+    "student": StudentProfile.RegisteredBy.SELF,
+    "individual": StudentProfile.RegisteredBy.SELF,
+    "peer": StudentProfile.RegisteredBy.PEER,
+    "team": StudentProfile.RegisteredBy.PEER,
+    "supervisor": StudentProfile.RegisteredBy.SUPERVISOR,
+    "teacher": StudentProfile.RegisteredBy.SUPERVISOR,
+}
+
+
+def _registered_by(value) -> str:
+    """Who registered the student, from the form's ``RegisteredBy``; blank
+    when it doesn't say, which leaves the student free to edit their details."""
+    return _REGISTERED_BY.get(str(value or "").strip().lower(), "")
 
 
 class UserRegisterView(APIView):
@@ -825,7 +848,8 @@ class UserRegisterView(APIView):
             parent_guardian_flag=True,
             supervisor=supprof,
             school_name=databody["SchoolName"],
-            year_lvl=databody["YearLevel"]
+            year_lvl=databody["YearLevel"],
+            registered_by=_registered_by(databody.get("RegisteredBy")),
         )
 
         ss = StudentSupervisor.objects.create(

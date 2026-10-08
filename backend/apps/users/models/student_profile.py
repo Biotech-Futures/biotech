@@ -3,6 +3,12 @@ from django.db import models
 from django.db.models import Q
 
 class StudentProfile(models.Model):
+    class RegisteredBy(models.TextChoices):
+        SELF = "self", "The student"
+        PEER = "peer", "Another student"
+        SUPERVISOR = "supervisor", "Their supervisor"
+        ADMIN = "admin", "An admin"
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     pg_first_name = models.CharField(max_length=255)
     pg_last_name = models.CharField(max_length=255)
@@ -30,6 +36,11 @@ class StudentProfile(models.Model):
     # The last day the student was emailed to add their parent/guardian's
     # details (apps.users.guardian_details), so a rerun never emails twice.
     guardian_details_reminded_on = models.DateField(blank=True, null=True)
+    # Who registered the student; blank for those registered before it was
+    # recorded. Registered by a supervisor, or edited by one since, the student
+    # can't change their own details: they ask their supervisor (``details_locked``).
+    registered_by = models.CharField(max_length=16, choices=RegisteredBy.choices, blank=True, default="")
+    supervisor_edited_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'student_profile'
@@ -60,6 +71,13 @@ class StudentProfile(models.Model):
             name='permission_requires_parent_guardian'
         )
         ]
+
+    @property
+    def details_locked(self) -> bool:
+        """The student's own details are their supervisor's to change: they
+        registered the student, or have edited them since. Guardian details
+        stay the student's to change either way."""
+        return self.registered_by == self.RegisteredBy.SUPERVISOR or self.supervisor_edited_at is not None
 
     @property
     def has_pending_guardian(self):

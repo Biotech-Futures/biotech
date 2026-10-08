@@ -305,6 +305,9 @@ def upsert_student_profile(
     student_profile, _ = StudentProfile.objects.update_or_create(
         user_id=user_id,
         defaults=profile_data,
+        # Added by an admin (one at a time or by import): the student can still
+        # edit their own details.
+        create_defaults={**profile_data, "registered_by": StudentProfile.RegisteredBy.ADMIN},
     )
 
     supervisor_id = profile_data.get("supervisor_id")

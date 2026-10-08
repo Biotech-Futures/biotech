@@ -72,6 +72,8 @@ class StudentDashboardEditingTests(TestCase):
     def test_supervisor_managed_profile_cannot_edit(self):
         supervisor = User.objects.create_user(email="supervisor@example.org")
         self.profile.supervisor = SupervisorProfile.objects.create(user=supervisor, school_name="Test High")
+        # Registered by the supervisor: the details are theirs to change.
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
         self.profile.save()
         response = self.client.patch(self.url, {"interest_ids": [], "first_name": "Changed"}, format="json")
         self.assertEqual(response.status_code, 403)
