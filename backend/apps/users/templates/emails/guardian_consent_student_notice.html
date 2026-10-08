@@ -1,0 +1,32 @@
+{% extends "emails/base.html" %}
+{# The client's "parent/guardian action needed" email to the student (sent    #}
+{# from Power Automate), in the shared layout. Sent with the guardian's       #}
+{# consent request, so the student can remind them.                           #}
+
+{% block title %}{{ BRAND_NAME }}: Parent/Guardian Action Required - Permission Form{% endblock %}
+
+{% block preheader %}Your nominated parent or guardian has just now been sent a permission form. Please remind them to complete it as soon as possible.{% endblock %}
+
+{% block footer_reason %}emails about your registration{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ STUDENT_FIRST_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Action is required from your parent/guardian for your <span style="color:#307054;">{{ BRAND_NAME }}</span> permission form.
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Your nominated parent or guardian has just now been sent a permission form to <a href="mailto:{{ GUARDIAN_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ GUARDIAN_EMAIL }}</a> for you to compete in the {{ BRAND_NAME }} Challenge. <strong>Please remind them to complete it as soon as possible.</strong>
+              </p>
+
+              <p style="margin:14px 0 0 0; color:#017151; font-size:15px; line-height:1.65; font-weight:700;">
+                You will not be able to participate in {{ BRAND_NAME }} unless this step is completed.
+              </p>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Should you have any questions please don't hesitate to reach out to our team at <a href="mailto:{{ SENDER_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ SENDER_EMAIL }}</a>
+              </p>
+{% endblock %}

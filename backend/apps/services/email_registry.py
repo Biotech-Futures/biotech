@@ -317,6 +317,21 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="guardian_consent_student_notice",
+        name="Guardian consent sent (to student)",
+        description=(
+            "Sent to a student when their parent or guardian is emailed the consent form, "
+            "asking them to remind their guardian."
+        ),
+        default_subject="Parent/Guardian Action Required - Permission Form",
+        default_template="emails/guardian_consent_student_notice.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="guardian_consent_confirmation",
         name="Guardian consent confirmation",
         description="Sent to a guardian after they sign the consent form, as their record of it.",

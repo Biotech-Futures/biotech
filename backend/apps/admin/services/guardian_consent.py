@@ -3,7 +3,8 @@ viewing signed consents and recording a guardian's withdrawal.
 
 The email goes to the guardian whose consent is still needed: a requested
 guardian change if there is one, otherwise the guardian on file. The link opens
-the platform's consent page (apps.users.guardian_consent).
+the platform's consent page (apps.users.guardian_consent). Once it has gone,
+the student is told too, so they can remind their guardian.
 """
 import base64
 from datetime import timedelta
@@ -19,6 +20,7 @@ from apps.users import guardian_consent as consent
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 EMAIL_KEY = "guardian_consent_request"
+STUDENT_NOTICE_KEY = "guardian_consent_student_notice"
 
 # Spaces out sends to one guardian, so a double click or an impatient resend
 # doesn't fill their inbox.
@@ -105,6 +107,15 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             entity_id=user_id,
             action="guardian_consent_request",
             after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+        )
+
+    # The student's copy is an FYI: if it's switched off or doesn't go, the
+    # guardian's request still stands.
+    if student.email:
+        send_system_email(
+            STUDENT_NOTICE_KEY,
+            [student.email],
+            {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
