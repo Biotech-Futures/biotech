@@ -363,16 +363,16 @@ describe('sending', () => {
   })
 
   it('a send pressed while another is going says it is queued', async () => {
-    notifyMock.mockResolvedValueOnce({ ...finishedRun(), queued: 1, ahead: ['Results (To groups)'], pending: 2 })
+    notifyMock.mockResolvedValueOnce({ ...finishedRun(), queued: 1, ahead: ['Results (to groups)'], pending: 2 })
     const wrapper = await mountPage()
     await buttonNamed(wrapper, /^Email All$/).trigger('click')
     await buttonNamed(wrapper, /^Send$/).trigger('click')
     await flushPromises()
     expect(wrapper.find('.notify-finalists__banner--ok').text()).toBe(
-      'Queued behind the Results (To groups) email. It starts a few seconds after that has finished.'
+      'Queued behind the Results (to groups) email. It starts a few seconds after that has finished.'
     )
     expect(wrapper.find('.notify-finalists__queued').text()).toBe(
-      'Queued behind the Results (To groups) email, starts once that has finished.'
+      'Queued behind the Results (to groups) email, starts once that has finished.'
     )
   })
 

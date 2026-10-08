@@ -111,6 +111,56 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="guardian_details_request",
+        name="Guardian details needed",
+        description=(
+            "Sent daily to a student with no parent or guardian email on file, "
+            "until they add one on their profile."
+        ),
+        default_subject="Information Required: Parent/Guardian Contact",
+        default_template="emails/guardian_details_request.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag(
+                "details_url",
+                "Link to the student's profile to add their guardian",
+                "https://biotechfutures.org/#/profile?guardian=edit",
+                "DETAILS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_student_notice",
+        name="Guardian consent sent (to student)",
+        description=(
+            "Sent to a student when their parent or guardian is emailed the consent form, "
+            "asking them to remind their guardian."
+        ),
+        default_subject="Parent/Guardian Action Required - Permission Form",
+        default_template="emails/guardian_consent_student_notice.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_request",
+        name="Guardian consent request (to guardian)",
+        description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
+        default_subject="Action Required: Sign parent/guardian permission form",
+        default_template="emails/guardian_consent_request.html",
+        merge_tags=(
+            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
+            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="unread_messages",
         name="Unread messages digest",
         description="Scheduled summary of unread group chat messages.",
@@ -272,7 +322,7 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_team",
-        name="Results (To groups)",
+        name="Results (to groups)",
         description="Sent to each group's students and mentors from Release Results.",
         default_subject="Your {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_team.html",
@@ -291,63 +341,13 @@ EMAIL_TYPES = (
     ),
     EmailType(
         key="results_supervisor",
-        name="Results (To supervisors)",
+        name="Results (to supervisors)",
         description="Sent to their supervisors from Release Results.",
         default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
         default_template="emails/results_supervisor.html",
         merge_tags=(
             MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="guardian_consent_request",
-        name="Guardian consent request",
-        description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
-        default_subject="Action Required: Sign parent/guardian permission form",
-        default_template="emails/guardian_consent_request.html",
-        merge_tags=(
-            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
-            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
-            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
-            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
-            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="guardian_details_request",
-        name="Guardian details needed (to student)",
-        description=(
-            "Sent daily to a student with no parent or guardian email on file, "
-            "until they add one on their profile."
-        ),
-        default_subject="Information Required: Parent/Guardian Contact",
-        default_template="emails/guardian_details_request.html",
-        merge_tags=(
-            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
-            MergeTag(
-                "details_url",
-                "Link to the student's profile to add their guardian",
-                "https://biotechfutures.org/#/profile?guardian=edit",
-                "DETAILS_URL",
-            ),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="guardian_consent_student_notice",
-        name="Guardian consent sent (to student)",
-        description=(
-            "Sent to a student when their parent or guardian is emailed the consent form, "
-            "asking them to remind their guardian."
-        ),
-        default_subject="Parent/Guardian Action Required - Permission Form",
-        default_template="emails/guardian_consent_student_notice.html",
-        merge_tags=(
-            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
-            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
             *_BRAND_TAGS,
         ),
     ),
