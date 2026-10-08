@@ -51,9 +51,12 @@ class UserSerializer(serializers.ModelSerializer):
     #student
     pg_firstname = serializers.SerializerMethodField()
     pg_lastname = serializers.SerializerMethodField()
+    pg_email = serializers.SerializerMethodField()
     year_lvl = serializers.SerializerMethodField()
     school_name = serializers.SerializerMethodField()
     join_perm = serializers.SerializerMethodField()
+    join_perm_granted_at = serializers.SerializerMethodField()
+    pending_guardian = serializers.SerializerMethodField()
 
     #mentor
     ment_inst = serializers.SerializerMethodField()
@@ -96,9 +99,12 @@ class UserSerializer(serializers.ModelSerializer):
             "current_role_name",
             "pg_firstname",
             "pg_lastname",
+            "pg_email",
             "year_lvl",
             "school_name",
             "join_perm",
+            "join_perm_granted_at",
+            "pending_guardian",
             "ment_inst",
             "ment_reason",
             "ment_max_groups",
@@ -245,6 +251,11 @@ class UserSerializer(serializers.ModelSerializer):
         sp = self._student_profile(obj)
         return None if sp is None else sp.pg_last_name
     
+    @extend_schema_field(serializers.EmailField(allow_null=True))
+    def get_pg_email(self, obj):
+        sp = self._student_profile(obj)
+        return None if sp is None else sp.pg_email
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_year_lvl(self, obj):
         sp = self._student_profile(obj)
@@ -259,7 +270,24 @@ class UserSerializer(serializers.ModelSerializer):
     def get_join_perm(self, obj):
         sp = self._student_profile(obj)
         return None if sp is None else sp.has_join_permission
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_join_perm_granted_at(self, obj):
+        sp = self._student_profile(obj)
+        return None if sp is None or sp.joinperm_granted_at is None else sp.joinperm_granted_at.isoformat()
     
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_pending_guardian(self, obj):
+        sp = self._student_profile(obj)
+        if sp is None or not sp.has_pending_guardian:
+            return None
+        return {
+            "first_name": sp.pending_pg_first_name,
+            "last_name": sp.pending_pg_last_name,
+            "email": sp.pending_pg_email,
+            "requested_at": sp.pending_pg_requested_at.isoformat(),
+        }
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_ment_inst(self, obj):
         mp = self._mentor_profile(obj)
@@ -394,6 +422,21 @@ class SupervisedMentorSerializer(serializers.Serializer):
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+
+
+class StudentGuardianUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    last_name = serializers.CharField(max_length=255, trim_whitespace=True)
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        user = self.context["request"].user
+        if value == (user.email or "").strip().lower():
+            raise serializers.ValidationError(
+                "Enter your parent or guardian's email, not your own."
+            )
+        return value
 
 
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):

@@ -1,4 +1,5 @@
 from django.contrib.auth import update_session_auth_hash
+from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -6,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.admin.models import AdminView
 from apps.admin.permissions import IsAdminScoped
 from apps.admin.serializers import (
     BulkUserRowSerializer,
@@ -15,6 +17,11 @@ from apps.admin.serializers import (
     bulk_user_error_message,
     serializer_error_message,
 )
+from apps.admin.services.views import (
+    execute_view_query,
+    export_view_csv,
+    serialize_admin_view,
+)
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_countries, query_states,
@@ -22,6 +29,7 @@ from apps.admin.services.user import (
     bulk_update_status, bulk_update_status_by_filter, delete_user,
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
+from apps.admin.services import guardian_consent
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -163,6 +171,64 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+GUARDIAN_CONSENT_STATUS_CODES = {
+    guardian_consent.SENT: status.HTTP_200_OK,
+    guardian_consent.OK: status.HTTP_200_OK,
+    guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
+    guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
+    guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
+    guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
+}
+
+
+class UserGuardianConsentRequestView(APIView):
+    """POST: email the student's guardian the consent form."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.send_guardian_consent_request(int(user_id), initiated_by=request.user)
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
+
+
+class UserGuardianConsentsView(APIView):
+    """GET: the consents signed on the platform for a student, with signatures."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id):
+        result = guardian_consent.list_guardian_consents(int(user_id))
+        code = status.HTTP_200_OK if result["data"] is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class UserGuardianConsentRecordView(APIView):
+    """GET: a signed consent's record as a PDF download, read through the
+    backend so no link to it ever leaves the admin page."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id, consent_id):
+        record = guardian_consent.guardian_consent_record(int(user_id), int(consent_id))
+        if record is None:
+            return Response({"msg": "Consent not found.", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        filename, pdf = record
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class UserGuardianConsentWithdrawView(APIView):
+    """POST {mediaOnly}: record that the guardian withdrew consent, or only
+    media consent."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.withdraw_guardian_consent(
+            int(user_id), media_only=request.data.get("mediaOnly") is True, initiated_by=request.user,
+        )
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
 
 
 class UserBulkStatusUpdateView(APIView):
@@ -1254,6 +1320,226 @@ class AdminSetPasswordView(APIView):
         request.user.save(update_fields=["password"])
         update_session_auth_hash(request, request.user)
         return Response({"msg": "Password set successfully", "data": True})
+
+
+# ============================================================================
+# USER VIEW ENDPOINTS
+# ============================================================================
+class AdminViewListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        tab = request.query_params.get("tab", "all").lower().strip()
+        role = request.query_params.get("role")
+        search = request.query_params.get("search")
+
+        qs = AdminView.objects.all()
+        if tab == "default":
+            qs = qs.filter(is_default=True)
+        elif tab == "custom":
+            qs = qs.filter(is_default=False)
+
+        if role:
+            qs = qs.filter(target_roles__contains=role)
+
+        if search:
+            s = search.strip()
+            qs = qs.filter(Q(name__icontains=s) | Q(description__icontains=s))
+
+        items = [serialize_admin_view(v) for v in qs]
+        return Response({
+            "msg": "Views retrieved successfully",
+            "data": {
+                "items": items,
+                "total": len(items),
+            }
+        })
+
+    def post(self, request):
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response(
+                {"msg": "View name is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if AdminView.objects.filter(name__iexact=name).exists():
+            return Response(
+                {"msg": f"A view named '{name}' already exists", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        view = AdminView.objects.create(
+            name=name,
+            description=(request.data.get("description") or "").strip(),
+            created_by=request.user,
+            is_default=False,
+            target_roles=request.data.get("targetRoles", request.data.get("target_roles", [])),
+            account_status=request.data.get("accountStatus", request.data.get("account_status", "all")),
+            engagement_status=request.data.get("engagementStatus", request.data.get("engagement_status", "all")),
+            advanced_conditions=request.data.get("advancedConditions", request.data.get("advanced_conditions", [])),
+            visible_columns=request.data.get("visibleColumns", request.data.get("visible_columns", ["name", "email", "role", "status"])),
+        )
+
+        return Response(
+            {"msg": "View created successfully", "data": serialize_admin_view(view)},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminViewDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            "msg": "View retrieved successfully",
+            "data": serialize_admin_view(view),
+        })
+
+    def put(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if view.is_default:
+            return Response(
+                {"msg": "System default views cannot be modified", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = request.data.get("name")
+        if name is not None:
+            name = name.strip()
+            if not name:
+                return Response(
+                    {"msg": "View name cannot be empty", "data": None},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if AdminView.objects.filter(name__iexact=name).exclude(id=view.id).exists():
+                return Response(
+                    {"msg": f"A view named '{name}' already exists", "data": None},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            view.name = name
+
+        if "description" in request.data:
+            view.description = (request.data["description"] or "").strip()
+        if "targetRoles" in request.data or "target_roles" in request.data:
+            view.target_roles = request.data.get("targetRoles", request.data.get("target_roles", []))
+        if "accountStatus" in request.data or "account_status" in request.data:
+            view.account_status = request.data.get("accountStatus", request.data.get("account_status", "all"))
+        if "engagementStatus" in request.data or "engagement_status" in request.data:
+            view.engagement_status = request.data.get("engagementStatus", request.data.get("engagement_status", "all"))
+        if "advancedConditions" in request.data or "advanced_conditions" in request.data:
+            view.advanced_conditions = request.data.get("advancedConditions", request.data.get("advanced_conditions", []))
+        if "visibleColumns" in request.data or "visible_columns" in request.data:
+            view.visible_columns = request.data.get("visibleColumns", request.data.get("visible_columns", []))
+
+        view.save()
+        return Response({
+            "msg": "View updated successfully",
+            "data": serialize_admin_view(view),
+        })
+
+    def delete(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if view.is_default:
+            return Response(
+                {"msg": "System default views cannot be deleted", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        view.delete()
+        return Response({"msg": "View deleted successfully", "data": True})
+
+
+class AdminViewBulkDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request):
+        view_ids = request.data.get("viewIds") or request.data.get("view_ids") or []
+        if not view_ids:
+            return Response(
+                {"msg": "No view IDs provided", "data": {"deletedCount": 0}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deleted_count, _ = AdminView.objects.filter(
+            id__in=view_ids,
+            is_default=False,
+        ).delete()
+
+        return Response({
+            "msg": "Views deleted successfully",
+            "data": {"deletedCount": deleted_count},
+        })
+
+
+class AdminViewRunView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        page = int(request.query_params.get("page", 1))
+        limit = int(request.query_params.get("limit", 25))
+        search = request.query_params.get("search")
+        sort_by = request.query_params.get("sortBy", "createdAt")
+        sort_order = request.query_params.get("sortOrder", "desc")
+
+        result = execute_view_query(
+            view=view,
+            page=page,
+            limit=limit,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+        return Response({
+            "msg": "View executed successfully",
+            "data": result,
+        })
+
+
+class AdminViewExportCsvView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        search = request.query_params.get("search")
+        return export_view_csv(view, search=search)
 
 
 # ============================================================================
