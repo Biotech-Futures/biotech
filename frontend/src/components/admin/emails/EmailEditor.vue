@@ -140,35 +140,34 @@
         :class="{ 'email-editor__test--of': testRecipientsFailed || testRecipients }"
         data-test="test-email"
       >
+        <!-- A critical email (sign-in, passwords) can't be test sent. -->
         <button
           type="button"
           class="btn btn-outline btn-sm"
-          :disabled="busy || testRecipientsLoading || !testTo.trim()"
+          :disabled="emailTemplate.locked || busy || testRecipientsLoading || !testTo.trim()"
+          :title="emailTemplate.locked ? lockedTestReason : undefined"
           @click="sendTest"
         >
+          <i v-if="emailTemplate.locked" class="fas fa-lock email-editor__test-button-lock" aria-hidden="true"></i>
           {{ testing ? 'Sending…' : 'Send Test' }}
         </button>
         <template v-if="testRecipientsFailed || testRecipients">
           <span class="email-editor__test-word">of</span>
-          <!-- A critical email (sign-in, passwords) shows its lock here too. -->
-          <span class="email-editor__test-of" :class="{ 'email-editor__test-of--locked': emailTemplate.locked }">
-            <i v-if="emailTemplate.locked" class="fas fa-lock email-editor__test-lock" aria-hidden="true"></i>
-            <select
-              v-model="testOf"
-              class="email-editor__test-select"
-              aria-label="Send it as"
-              data-test="test-of"
-              :title="emailTemplate.locked ? `${emailTemplate.name} is critical: it always sends` : undefined"
-              :disabled="!testRecipients?.length"
-            >
-              <option v-if="!testRecipients?.length" value="">
-                {{ testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
-              </option>
-              <option v-for="option in testRecipients" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </span>
+          <!-- Open even on a critical email, so its preview can show anyone. -->
+          <select
+            v-model="testOf"
+            class="email-editor__test-select"
+            aria-label="Send it as"
+            data-test="test-of"
+            :disabled="!testRecipients?.length"
+          >
+            <option v-if="!testRecipients?.length" value="">
+              {{ testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
+            </option>
+            <option v-for="option in testRecipients" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
         </template>
         <span class="email-editor__test-word email-editor__test-word--to">to</span>
         <!-- Password managers leave this box alone. -->
@@ -236,8 +235,11 @@ const testOf = defineModel<string>('testOf', { default: '' })
 const auth = useAuthStore()
 const testTo = ref(auth.user?.email ?? '')
 
+// Why a critical email's test is locked, shown on hover.
+const lockedTestReason = computed(() => `${props.emailTemplate.name} is critical, so it can't be test sent`)
+
 const sendTest = () => {
-  if (props.busy || props.testRecipientsLoading || !testTo.value.trim()) return
+  if (props.emailTemplate.locked || props.busy || props.testRecipientsLoading || !testTo.value.trim()) return
   emit('test-send', testTo.value.trim())
 }
 
@@ -368,31 +370,16 @@ const insertIntoSubject = (token: string) => {
 }
 
 /* As wide as the address box, or wider when a name needs it, up to 25rem. */
-.email-editor__test-of {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
 .email-editor__test-select {
   width: 100%;
   max-width: 25rem;
 }
 
-/* A critical email's lock, inside the list's box on the left. */
-.email-editor__test-lock {
-  position: absolute;
-  left: 0.55rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.6875rem;
-  color: var(--eucalypt);
-  pointer-events: none;
+.email-editor__test-button-lock {
+  margin-right: 0.25rem;
+  font-size: 0.75em;
 }
 
-.email-editor__test-of--locked .email-editor__test-select {
-  padding-left: 1.5rem;
-}
 
 .email-editor__test-to {
   /* 17rem, narrowing to 13rem when room is short. */

@@ -90,7 +90,9 @@ export const systemEmailPreviewSchema = z.object({
   key: z.string(),
   subject: z.string(),
   html: z.string(),
-  text: z.string()
+  text: z.string(),
+  /** The files the one picked would get with it, as on Release Results. */
+  attachments: z.array(z.string()).optional()
 })
 
 export type SystemEmailPreview = z.infer<typeof systemEmailPreviewSchema>

@@ -294,3 +294,44 @@ class SystemEmailRecipientsTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["msg"], "Pick one from the list.")
+
+    def _results_audience(self):
+        return SimpleNamespace(
+            year=2026,
+            teams=[self.btf2],
+            team_students={self.btf2.id: [self.ben]},
+            team_mentors={self.btf2.id: [self.aga]},
+            supervisors=[self.sam],
+            supervisor_students={self.sam.id: [(self.ben, self.btf2)]},
+        )
+
+    def test_the_preview_lists_the_files_a_results_email_carries(self):
+        with patch(
+            "apps.management.services.results_notify.results_audience", return_value=self._results_audience(),
+        ):
+            group = self._preview("results_team", str(self.btf2.id)).json()["data"]
+            supervisor = self._preview("results_supervisor", str(self.sam.id)).json()["data"]
+
+        self.assertEqual(
+            group["attachments"],
+            [
+                "2026_BTF_Student_Certificate_Ben_Bell.docx",
+                "2026_BTF_Mentor_Certificate_Aga_Smith.docx",
+                "2026_BTF_Marks_BTF2.docx",
+            ],
+        )
+        self.assertEqual(
+            supervisor["attachments"],
+            [
+                "2026_BTF_Student_Certificate_Ben_Bell.docx",
+                "2026_BTF_Mentor_Certificate_Aga_Smith.docx",
+                "2026_BTF_Student_Marks_Sam_Lee.xlsx",
+            ],
+        )
+
+    def test_the_preview_lists_no_files_for_other_emails_or_without_a_pick(self):
+        self.assertEqual(self._preview("submission_reminder", str(self.btf10.id)).json()["data"]["attachments"], [])
+        with patch(
+            "apps.management.services.results_notify.results_audience", return_value=self._results_audience(),
+        ):
+            self.assertEqual(self._preview("results_team", "").json()["data"]["attachments"], [])

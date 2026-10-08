@@ -136,6 +136,27 @@ describe('AdminEmailsPage', () => {
     expect(note.element.nextElementSibling?.querySelector('label')?.textContent).toBe('Send from')
   })
 
+  it('lists the files the one picked would get, after the email', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-test="attachments"]').exists()).toBe(false)
+
+    vi.mocked(previewSystemEmailTemplate).mockResolvedValue({
+      ...preview,
+      attachments: ['2026_BTF_Student_Certificate_Liam_Dubois.docx', '2026_BTF_Marks_BTF01.docx']
+    })
+    await wrapper.findAll('.email-type-list__item')[1].trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await flushPromises()
+
+    const files = wrapper.find('[data-test="attachments"]')
+    expect(files.text()).toContain('Attachments')
+    expect(files.element.previousElementSibling?.classList.contains('email-preview__frame-wrap')).toBe(true)
+    expect(files.findAll('li').map((li) => li.text())).toEqual([
+      '2026_BTF_Student_Certificate_Liam_Dubois.docx',
+      '2026_BTF_Marks_BTF01.docx'
+    ])
+  })
+
   it('switches the editor to the selected email', async () => {
     const wrapper = await mountPage()
     const items = wrapper.findAll('.email-type-list__item')
@@ -373,7 +394,7 @@ describe('AdminEmailsPage', () => {
     ])
     // The first one to start with, with no lock on an email that can be switched off.
     expect((of.element as HTMLSelectElement).value).toBe('7')
-    expect(control.find('.email-editor__test-lock').exists()).toBe(false)
+    expect(control.find('button .fa-lock').exists()).toBe(false)
 
     await of.setValue('9')
     await control.find('input').setValue('tester@example.com')
@@ -418,7 +439,14 @@ describe('AdminEmailsPage', () => {
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenLastCalledWith('login_code')
     expect(wrapper.find('[data-test="test-of"]').text()).toBe('(BTF3) Cai Chen')
-    // A critical email shows its lock in the list too.
-    expect(wrapper.find('[data-test="test-email"] .email-editor__test-lock').exists()).toBe(true)
+    // A critical email can't be test sent: Send Test shows a lock and is off,
+    // while anyone can still be picked and an address typed.
+    const control = wrapper.find('[data-test="test-email"]')
+    const send = control.find('button')
+    expect(send.find('.fa-lock').exists()).toBe(true)
+    expect(send.attributes('disabled')).toBeDefined()
+    expect(control.find('input').attributes('disabled')).toBeUndefined()
+    expect(control.find('[data-test="test-of"]').attributes('disabled')).toBeUndefined()
+    expect(control.find('[data-test="test-of"] .fa-lock').exists()).toBe(false)
   })
 })

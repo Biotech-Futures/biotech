@@ -350,6 +350,17 @@ def _results_teams() -> list[dict]:
     return _groups(results_audience().teams)
 
 
+def _results_team_files(value: str) -> list[str]:
+    """The names of the files the group's email carries (they aren't made)."""
+    from apps.management.services import results_notify
+
+    audience = results_notify.results_audience()
+    team = next((team for team in audience.teams if str(team.id) == value), None)
+    if team is None:
+        return []
+    return [file.name for file in results_notify.team_files(results_notify.Documents(audience.year), audience, team)]
+
+
 def _results_team_context(value: str) -> dict:
     from apps.management.models import ResultsEmailSettings
     from apps.management.services.results_notify import results_audience, team_email_context
@@ -364,6 +375,18 @@ def _results_supervisors() -> list[dict]:
     return _sorted([
         _person_option(supervisor, _ROLES.SUPERVISOR) for supervisor in results_audience().supervisors
     ])
+
+
+def _results_supervisor_files(value: str) -> list[str]:
+    """The names of the files the supervisor's email carries (they aren't made)."""
+    from apps.management.services import results_notify
+
+    audience = results_notify.results_audience()
+    supervisor = next((supervisor for supervisor in audience.supervisors if str(supervisor.id) == value), None)
+    if supervisor is None:
+        return []
+    docs = results_notify.Documents(audience.year)
+    return [file.name for file in results_notify.supervisor_files(docs, audience, supervisor)]
 
 
 def _results_supervisor_context(value: str) -> dict:
@@ -381,6 +404,8 @@ class Recipients:
 
     options: Callable[[], list[dict]]
     context: Callable[[str], dict]
+    # The names of the files a recipient's email carries, for an email with any.
+    files: Optional[Callable[[str], list[str]]] = None
 
 
 _EVERYONE = Recipients(_everyone, _first_name)
@@ -400,8 +425,8 @@ RECIPIENTS: dict[str, Recipients] = {
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),
-    "results_team": Recipients(_results_teams, _results_team_context),
-    "results_supervisor": Recipients(_results_supervisors, _results_supervisor_context),
+    "results_team": Recipients(_results_teams, _results_team_context, _results_team_files),
+    "results_supervisor": Recipients(_results_supervisors, _results_supervisor_context, _results_supervisor_files),
 }
 
 
@@ -418,3 +443,10 @@ def recipient_context(key: str, value: str) -> dict:
     if recipients is None or value not in {option["value"] for option in recipients.options()}:
         raise RecipientError("Pick one from the list.")
     return recipients.context(value)
+
+
+def recipient_files(key: str, value: str) -> list[str]:
+    """The names of the files ``value``'s own email carries; none for most
+    emails. ``value`` is one already checked by ``recipient_context``."""
+    recipients = RECIPIENTS.get(key)
+    return recipients.files(value) if recipients and recipients.files else []

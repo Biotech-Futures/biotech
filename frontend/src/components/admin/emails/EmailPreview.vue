@@ -40,6 +40,15 @@
           @load="fitFrame"
         ></iframe>
       </div>
+      <!-- The files it carries, after the email as a mail app shows them. -->
+      <div v-if="preview.attachments?.length" class="email-preview__attachments" data-test="attachments">
+        <span class="email-preview__attachments-label">
+          <i class="fas fa-paperclip" aria-hidden="true"></i> Attachments
+        </span>
+        <ul>
+          <li v-for="name in preview.attachments" :key="name">{{ name }}</li>
+        </ul>
+      </div>
     </template>
   </section>
 </template>
@@ -136,6 +145,36 @@ const fitFrame = (event: Event) => {
   margin: 0;
   color: #111827;
   word-break: break-word;
+}
+
+/* The files it carries, as Release Results' preview shows them. */
+.email-preview__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.email-preview__attachments-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.email-preview__attachments ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.email-preview__attachments li {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  background: var(--bg-light);
 }
 
 .email-preview__frame-wrap {

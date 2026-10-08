@@ -385,9 +385,14 @@ def preview_email_template(
     Recipient-specific merge tags stay visible as ``{{ tag }}`` so the admin
     can see exactly where each person's data will go, except those that
     recipient ``of`` (picked from ``test_recipients``) fills with their own
-    details. The logo is embedded so it displays in the browser.
+    details, and the names of the files their email carries are listed. The
+    logo is embedded so it displays in the browser.
     """
-    from apps.admin.services.system_email_recipients import RecipientError, recipient_context
+    from apps.admin.services.system_email_recipients import (
+        RecipientError,
+        recipient_context,
+        recipient_files,
+    )
 
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
@@ -398,12 +403,14 @@ def preview_email_template(
 
     email_type = get_email_type(key)
     context = _placeholder_context(email_type)
+    attachments: list[str] = []
     if of:
         try:
             own = recipient_context(key, of)
         except RecipientError as exc:
             return {"msg": str(exc), "data": None}
         context.update(own)
+        attachments = recipient_files(key, of)
         if any(name in own for name in _LIST_DATA):
             context["SHOW_MERGE_TAGS"] = False
     try:
@@ -428,6 +435,8 @@ def preview_email_template(
             "subject": rendered.subject,
             "html": _with_visible_logo(rendered.html),
             "text": rendered.text,
+            # The files the one picked would get with it; they aren't made.
+            "attachments": attachments,
         },
     }
 
