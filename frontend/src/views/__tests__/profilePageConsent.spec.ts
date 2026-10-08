@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ProfilePage from '../ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -161,5 +162,38 @@ describe('ProfilePage guardian consent', () => {
     await flushPromises()
 
     expect(withdraw).toHaveBeenCalled()
+  })
+})
+
+describe('ProfilePage opened from the guardian details email', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  async function mountAt(path: string) {
+    const auth = useAuthStore()
+    auth.user = { ...baseUser, join_perm: false } as typeof auth.user
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined as never)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/profile', component: ProfilePage }],
+    })
+    await router.push(path)
+    await router.isReady()
+    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('opens the guardian form when the link asks for it', async () => {
+    const wrapper = await mountAt('/profile?guardian=edit')
+
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(true)
+  })
+
+  it('leaves the form closed otherwise', async () => {
+    const wrapper = await mountAt('/profile')
+
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
   })
 })

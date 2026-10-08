@@ -317,6 +317,26 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="guardian_details_request",
+        name="Guardian details needed (to student)",
+        description=(
+            "Sent daily to a student with no parent or guardian email on file, "
+            "until they add one on their profile."
+        ),
+        default_subject="Information Required: Parent/Guardian Contact",
+        default_template="emails/guardian_details_request.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag(
+                "details_url",
+                "Link to the student's profile to add their guardian",
+                "https://biotechfutures.org/#/profile?guardian=edit",
+                "DETAILS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="guardian_consent_student_notice",
         name="Guardian consent sent (to student)",
         description=(

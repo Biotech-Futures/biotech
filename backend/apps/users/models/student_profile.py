@@ -25,6 +25,9 @@ class StudentProfile(models.Model):
     # photographed/recorded and so attend in-person events. None when consent
     # came through the old Qualtrics form, which didn't send the answer here.
     media_consent = models.BooleanField(blank=True, null=True)
+    # The last day the student was emailed to add their parent/guardian's
+    # details (apps.users.guardian_details), so a rerun never emails twice.
+    guardian_details_reminded_on = models.DateField(blank=True, null=True)
 
     class Meta:
         db_table = 'student_profile'

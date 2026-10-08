@@ -334,7 +334,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import { routeLocationKey } from 'vue-router'
 
 import { buildSessionHeaders } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
@@ -682,8 +683,20 @@ async function loadProfile() {
   }
 }
 
-onMounted(() => {
-  loadProfile()
+// The route, when the page runs under the router (tests may mount it bare).
+const route = inject(routeLocationKey, null)
+
+// The guardian details email links here with ?guardian=edit: open the form.
+const openGuardianFromLink = async () => {
+  if (route?.query?.guardian !== 'edit' || !user.value?.guardian?.hasDetails) return
+  startGuardianEdit()
+  await nextTick()
+  document.querySelector('[data-test="guardian-details"]')?.scrollIntoView?.({ block: 'start' })
+}
+
+onMounted(async () => {
+  await loadProfile()
+  await openGuardianFromLink()
 })
 </script>
 

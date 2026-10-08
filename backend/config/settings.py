@@ -638,6 +638,11 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # above: unset means the endpoint answers 503 rather than standing open.
 SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
 
+# Shared secret for POST /api/v1/admin/send-guardian-details-reminders/, the
+# daily email to students with no parent/guardian details. Same fail-loud
+# contract: unset means the endpoint answers 503.
+GUARDIAN_REMINDER_TOKEN = config("GUARDIAN_REMINDER_TOKEN", default="")
+
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
 )
