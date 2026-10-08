@@ -35,22 +35,34 @@
 
       <template #cell-actions="{ row }">
         <div class="admin-views-table__actions">
-          <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
-            Run
-          </button>
-          <button
-            v-if="toView(row).isDefault"
-            type="button"
-            class="btn btn-sm btn-outline"
-            @click.stop="exportCsv(toView(row))"
-          >
-            Export
-          </button>
+          <template v-if="toView(row).isDefault">
+            <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
+              View
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click.stop="exportCsv(toView(row))"
+            >
+              Export
+            </button>
+          </template>
           <template v-else>
-            <button type="button" class="btn btn-sm btn-outline" @click.stop="requestEdit(toView(row))">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click.stop="requestEdit(toView(row))"
+            >
               Edit
             </button>
-            <button type="button" class="btn btn-sm btn-outline" @click.stop="openDelete(toView(row))">
+            <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
+              View
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click.stop="openDelete(toView(row))"
+            >
               Delete
             </button>
           </template>

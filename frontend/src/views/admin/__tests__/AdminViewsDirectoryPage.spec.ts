@@ -277,11 +277,11 @@ describe('AdminViewsDirectoryPage', () => {
     expect(rowButtonByText(wrapper, 0, 'Export')).toBeDefined()
   })
 
-  it('navigates to the executed view when Run is clicked', async () => {
+  it('navigates to the executed view when View is clicked', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 1, 'Run')!.trigger('click')
+    await rowButtonByText(wrapper, 1, 'View')!.trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
   })
@@ -525,11 +525,11 @@ describe('AdminViewsDirectoryPage', () => {
     expect(badges).toEqual(['Mentor', 'Student'])
   })
 
-  it('navigates to the executed view when Run is clicked on a default view', async () => {
+  it('navigates to the executed view when View is clicked on a default view', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 0, 'Run')!.trigger('click')
+    await rowButtonByText(wrapper, 0, 'View')!.trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 1 } })
   })
