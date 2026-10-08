@@ -132,8 +132,7 @@
             <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
             <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
-            <fieldset><legend>Guardian details</legend><label>First name<input v-model.trim="studentDraft.pg_firstname" required maxlength="255" /></label><label>Last name<input v-model.trim="studentDraft.pg_lastname" required maxlength="255" /></label><label>Email<input v-model.trim="studentDraft.pg_email" type="email" maxlength="254" /></label></fieldset>
-            <p class="profile-note">Changing guardian details resets their permission confirmation.</p>
+            <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
           </form>
           <template v-else>
@@ -205,19 +204,141 @@
           <p v-else class="profile-note">You have not been assigned to a team yet.</p>
         </div>
 
-        <div v-if="user.student.hasDetails && !studentEditing" class="profile-section">
-          <h3 class="profile-section-title">Guardian details &amp; permission</h3>
-          <div class="profile-field"><span class="profile-field-label">First Name:</span><span class="profile-field-value">{{ user.student.guardianFirstName }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Last Name:</span><span class="profile-field-value">{{ user.student.guardianLastName }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Email:</span><span class="profile-field-value">{{ user.student.guardianEmail }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Permission:</span><span class="profile-field-value permission-status" :class="{ received: user.student.permissionReceived }">{{ user.student.permissionStatus }}</span></div>
+        <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
+          <div class="guardian-heading">
+            <h3 class="profile-section-title">Guardian Details</h3>
+            <button
+              v-if="!guardianEditing"
+              class="btn btn-outline"
+              type="button"
+              data-test="guardian-edit"
+              @click="startGuardianEdit"
+            >
+              Edit guardian
+            </button>
+          </div>
+
+          <form
+            v-if="guardianEditing"
+            class="guardian-form"
+            data-test="guardian-form"
+            novalidate
+            @submit.prevent="saveGuardian"
+          >
+            <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
+              {{ user.guardian.consentingName }} has already given consent and stays on file
+              until your new guardian completes the consent form.
+            </p>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-first-name">First name:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-first-name"
+                  v-model.trim="guardianForm.first_name"
+                  class="guardian-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.first_name" class="guardian-error">{{ guardianErrors.first_name }}</span>
+              </div>
+            </div>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-last-name">Last name:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-last-name"
+                  v-model.trim="guardianForm.last_name"
+                  class="guardian-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.last_name" class="guardian-error">{{ guardianErrors.last_name }}</span>
+              </div>
+            </div>
+            <div class="profile-field guardian-form-field">
+              <label class="profile-field-label" for="guardian-email">Email:</label>
+              <div class="guardian-input-wrap">
+                <input
+                  id="guardian-email"
+                  v-model.trim="guardianForm.email"
+                  class="guardian-input"
+                  type="email"
+                  autocomplete="off"
+                  required
+                >
+                <span v-if="guardianErrors.email" class="guardian-error">{{ guardianErrors.email }}</span>
+              </div>
+            </div>
+            <div class="guardian-actions">
+              <button class="btn btn-outline" type="button" :disabled="guardianSaving" @click="cancelGuardianEdit">
+                Cancel
+              </button>
+              <button class="btn btn-primary" type="submit" :disabled="guardianSaving" data-test="guardian-save">
+                {{ guardianSaving ? 'Saving...' : 'Save guardian' }}
+              </button>
+            </div>
+          </form>
+
+          <div v-if="user.guardian.pending && !guardianEditing" class="guardian-pending" data-test="guardian-pending">
+            <p>
+              <strong>Change requested:</strong>
+              {{ user.guardian.pending.name }} ({{ user.guardian.pending.email }}).
+              Waiting for their consent — until then {{ user.guardian.consentingName }} stays on file.
+            </p>
+            <button
+              class="btn btn-outline"
+              type="button"
+              :disabled="guardianSaving"
+              data-test="guardian-withdraw"
+              @click="withdrawGuardianChange"
+            >
+              {{ guardianSaving ? 'Withdrawing...' : 'Withdraw change' }}
+            </button>
+          </div>
+
+          <div class="profile-field">
+            <span class="profile-field-label">Name:</span>
+            <span class="profile-field-value" data-test="guardian-name">{{ user.guardian.name }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Email:</span>
+            <span class="profile-field-value" data-test="guardian-email">
+              <a
+                v-if="user.guardian.emailAddress"
+                class="profile-link"
+                :href="`mailto:${user.guardian.emailAddress}`"
+              >
+                {{ user.guardian.emailAddress }}
+              </a>
+              <span v-else>{{ unsetLabel }}</span>
+            </span>
+          </div>
+          <div class="profile-field consent-field">
+            <span class="profile-field-label">Consent:</span>
+            <span class="profile-field-value">
+              <span
+                class="consent-status"
+                :class="user.guardian.consentReceived ? 'consent-status--received' : 'consent-status--pending'"
+                data-test="guardian-consent"
+              >
+                {{ user.guardian.consentReceived ? 'Received' : 'Not received yet' }}
+              </span>
+              <span v-if="user.guardian.consentReceivedOn" class="consent-hint" data-test="guardian-consent-date">
+                Received on {{ user.guardian.consentReceivedOn }}
+              </span>
+              <span v-if="!user.guardian.consentReceived" class="consent-hint">
+                Your parent or guardian needs to complete the consent form. Ask your supervisor if you're not sure how.
+              </span>
+            </span>
+          </div>
           <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">{{ formatPermissionReceivedAt(auth.user.guardian_reminder?.last_sent_at) || 'Not recorded' }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.student.permissionReceived ? 'No further reminder required' : formatPermissionReceivedAt(auth.user.guardian_reminder?.next_due_at) || 'No automatic reminder scheduled' }}</span></div>
-          <template v-if="!user.student.permissionReceived">
+          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.guardian.consentReceived && !user.guardian.pending ? 'No further reminder required' : formatPermissionReceivedAt(auth.user.guardian_reminder?.next_due_at) || 'No automatic reminder scheduled' }}</span></div>
+          <template v-if="!user.guardian.consentReceived || user.guardian.pending">
             <button class="btn btn-outline" type="button" :disabled="guardianSending || !auth.user.guardian_reminder?.can_send" @click="sendGuardianInvitation">{{ guardianSending ? 'Sending…' : 'Resend guardian invitation' }}</button>
             <p v-if="auth.user.guardian_reminder?.unavailable_reason" class="profile-note">{{ auth.user.guardian_reminder.unavailable_reason }}</p>
           </template>
-          <p class="profile-note">Some registration details are managed by your supervisor. Contact your supervisor or <a :href="`mailto:${supportEmail}`">support</a> if a locked detail needs updating.</p>
         </div>
 
         <div v-if="user.mentor.hasDetails" class="profile-section">
@@ -270,7 +391,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
+import { isPlaceholderGuardian } from '@/utils/guardian'
+import { formatLongDateAU, formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -429,9 +551,6 @@ const startStudentEdit = async () => {
     last_name: source.last_name || '',
     school_name: source.school_name || '',
     year_lvl: source.year_lvl || '9',
-    pg_firstname: source.pg_firstname || '',
-    pg_lastname: source.pg_lastname || '',
-    pg_email: source.pg_email || '',
     country_id: source.country?.id || null,
     state_id: source.state?.id || null,
     interest_ids: [...profileOptions.value.selected_interest_ids],
@@ -477,7 +596,7 @@ const saveStudentDetails = async () => {
       method: 'PATCH',
       credentials: 'include',
       headers: buildSessionHeaders({ includeCSRF: true }),
-      body: JSON.stringify(studentDraft.value),
+      body: JSON.stringify(Object.fromEntries(Object.entries(studentDraft.value).filter(([key]) => !key.startsWith('pg_')))),
     })
     if (!response.ok) throw await apiErrorFromResponse(response)
     auth.loginWithUser(await response.json())
@@ -605,6 +724,9 @@ const user = computed(() => {
     })
     : []
   const hasStudentDetails = roleKey === 'student'
+  const consentReceived = source?.join_perm === true
+  const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
+  const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
@@ -635,6 +757,28 @@ const user = computed(() => {
         ? `Received${permissionReceivedAt ? ` on ${permissionReceivedAt}` : ''}`
         : 'Not received'
     },
+    guardian: {
+      hasDetails: hasStudentDetails,
+      name: (!placeholderGuardian && guardianName) || unsetLabel,
+      consentingName: (!placeholderGuardian && guardianName) || 'Your current guardian',
+      emailAddress: String(source?.pg_email || '').trim(),
+      // null when there's no student profile behind the account; treat as not received.
+      consentReceived,
+      consentReceivedOn: consentReceived && source?.join_perm_granted_at
+        ? formatLongDateAU(source.join_perm_granted_at)
+        : '',
+      pending: source?.pending_guardian
+        ? {
+          name: `${source.pending_guardian.first_name} ${source.pending_guardian.last_name}`.trim(),
+          firstName: source.pending_guardian.first_name,
+          lastName: source.pending_guardian.last_name,
+          email: source.pending_guardian.email
+        }
+        : null,
+      // Form defaults: blank when the guardian fields only hold the placeholder.
+      firstName: placeholderGuardian ? '' : String(source?.pg_firstname || ''),
+      lastName: placeholderGuardian ? '' : String(source?.pg_lastname || '')
+    },
     mentor: {
       hasDetails: hasMentorDetails,
       background: valueOrFallback(source?.ment_bg),
@@ -652,6 +796,97 @@ const user = computed(() => {
     }
   }
 })
+
+const guardianEditing = ref(false)
+const guardianSaving = ref(false)
+const guardianForm = ref({ first_name: '', last_name: '', email: '' })
+const guardianErrors = ref({})
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const startGuardianEdit = () => {
+  const { guardian } = user.value
+  // Editing a pending change picks up where the student left off.
+  guardianForm.value = guardian.pending
+    ? { first_name: guardian.pending.firstName, last_name: guardian.pending.lastName, email: guardian.pending.email }
+    : { first_name: guardian.firstName, last_name: guardian.lastName, email: guardian.emailAddress }
+  guardianErrors.value = {}
+  error.value = ''
+  guardianEditing.value = true
+}
+
+const cancelGuardianEdit = () => {
+  guardianEditing.value = false
+  guardianErrors.value = {}
+}
+
+const validateGuardianForm = () => {
+  const errors = {}
+  const form = guardianForm.value
+  if (!form.first_name) errors.first_name = 'Enter their first name.'
+  if (!form.last_name) errors.last_name = 'Enter their last name.'
+  if (!form.email) {
+    errors.email = 'Enter their email.'
+  } else if (!EMAIL_PATTERN.test(form.email)) {
+    errors.email = 'Enter a valid email address.'
+  } else if (form.email.toLowerCase() === String(auth.user?.email || '').toLowerCase()) {
+    errors.email = "Enter your parent or guardian's email, not your own."
+  }
+  guardianErrors.value = errors
+  return Object.keys(errors).length === 0
+}
+
+const showStatus = (message) => {
+  clearStatusMessageTimer()
+  statusMessage.value = message
+  statusMessageTimer = window.setTimeout(() => {
+    statusMessage.value = ''
+    statusMessageTimer = null
+  }, 3200)
+}
+
+const saveGuardian = async () => {
+  if (!validateGuardianForm()) return
+
+  guardianSaving.value = true
+  error.value = ''
+  const hadConsent = user.value.guardian.consentReceived
+
+  try {
+    await auth.updateGuardian({ ...guardianForm.value })
+    guardianEditing.value = false
+    showStatus(hadConsent && user.value.guardian.pending
+      ? 'Saved. Your new guardian needs to complete the consent form.'
+      : 'Your guardian details have been updated.')
+  } catch (saveError) {
+    const fields = saveError?.fields || {}
+    guardianErrors.value = Object.fromEntries(
+      Object.entries(fields).map(([key, messages]) => [key, [].concat(messages)[0]])
+    )
+    if (!Object.keys(guardianErrors.value).length) {
+      error.value = saveError instanceof Error
+        ? saveError.message
+        : 'Your guardian details could not be updated right now.'
+    }
+  } finally {
+    guardianSaving.value = false
+  }
+}
+
+const withdrawGuardianChange = async () => {
+  guardianSaving.value = true
+  error.value = ''
+
+  try {
+    await auth.withdrawGuardianChange()
+    showStatus('The guardian change has been withdrawn.')
+  } catch (withdrawError) {
+    error.value = withdrawError instanceof Error
+      ? withdrawError.message
+      : 'The guardian change could not be withdrawn right now.'
+  } finally {
+    guardianSaving.value = false
+  }
+}
 
 const getInitials = (name) => String(name || 'U')
   .split(' ')
@@ -860,6 +1095,107 @@ onMounted(() => {
   line-height: 1.2;
 }
 
+.consent-field {
+  align-items: flex-start;
+}
+
+.consent-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.consent-status--received {
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+}
+
+.consent-status--pending {
+  border: 1px solid var(--warning);
+  color: var(--charcoal);
+}
+
+.consent-hint {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.guardian-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.guardian-heading .btn {
+  margin: 0;
+}
+
+.guardian-form {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.guardian-form-hint {
+  margin: 0 0 0.75rem;
+}
+
+.guardian-form-field {
+  align-items: flex-start;
+}
+
+.guardian-input-wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.guardian-input {
+  width: min(100%, 360px);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  color: var(--charcoal);
+}
+
+.guardian-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.guardian-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.guardian-actions .btn,
+.guardian-pending .btn {
+  margin: 0;
+}
+
+.guardian-pending {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background: var(--accent-green-soft);
+}
+
+.guardian-pending p {
+  margin: 0 0 0.75rem;
+  color: var(--charcoal);
+}
+
 .profile-link {
   color: var(--dark-green);
   overflow-wrap: anywhere;
@@ -925,7 +1261,8 @@ onMounted(() => {
     width: auto;
   }
 
-  .timezone-actions {
+  .timezone-actions,
+  .guardian-actions {
     flex-direction: column;
     align-items: stretch;
   }

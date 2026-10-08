@@ -1,0 +1,58 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_NAME }}: Permission for {{ STUDENT_FIRST_NAME }} to take part{% endblock %}
+
+{% block preheader %}{{ STUDENT_NAME }} has joined {{ BRAND_NAME }}. Please complete the parent/guardian consent form.{% endblock %}
+
+{% block footer_reason %}emails about your student's participation{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ GUARDIAN_FIRST_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Your permission is needed
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                {{ STUDENT_NAME }} has signed up for {{ BRAND_NAME }}, and you're listed as their parent or guardian. Before they can take part, we need your consent. It only takes a few minutes.
+              </p>
+
+              <!-- CTA: bulletproof button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td align="center" style="padding:28px 0 24px 0;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ CONSENT_URL }}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="12%" strokecolor="#007253" fillcolor="#C3EBCA">
+                      <w:anchorlock/>
+                      <center style="color:#007253;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">Review and sign the form</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a class="cta-link" href="{{ CONSENT_URL }}" style="background:#C3EBCA; border:1px solid #007253; border-radius:6px; color:#007253; display:inline-block; font-size:16px; font-weight:700; line-height:1.2; padding:14px 28px; text-align:center; text-decoration:none; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      Review and sign the form
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Info card: what the form covers + expiry -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
+                      This link is just for you and expires in {{ EXPIRY_DAYS }} days.
+                    </p>
+                    <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55;">
+                      The form records your consent for {{ STUDENT_FIRST_NAME }} to take part, and your choice about photos and recordings, which decides whether they can attend in-person events. You'll sign it on screen.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:18px 0 0 0; color:#6d7a72; font-size:12px; line-height:1.6;">
+                Questions? Email us at <a href="mailto:{{ CONTACT_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ CONTACT_EMAIL }}</a>. Button not working? <a href="{{ CONSENT_URL }}" style="color:#307054; text-decoration:underline; font-weight:600;">Open the consent form</a>.
+              </p>
+{% endblock %}

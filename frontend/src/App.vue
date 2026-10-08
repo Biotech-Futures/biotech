@@ -187,6 +187,15 @@
                 </li>
                 <li class="sidebar-subitem">
                   <RouterLink
+                    to="/admin/views"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/admin/views') }"
+                  >
+                    <span>Views</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
                     to="/admin/groups"
                     class="sidebar-sublink"
                     :class="{ active: route.path === '/admin/groups' }"
@@ -403,7 +412,8 @@ const toggleTheme = () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
+  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path) ||
+  route.meta.public === true,
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(

@@ -14,7 +14,7 @@ from apps.groups.serializers import GroupMembershipSerializer
 from apps.users.models import User, StudentProfile, SupervisorProfile, AreasOfInterest, UserInterest
 
 
-@override_settings(GUARDIAN_CONSENT_URL="https://example.org/guardian-consent", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", GUARDIAN_REMINDER_INTERVAL_DAYS=0)
+@override_settings(FRONTEND_BASE_URL="http://localhost:5173", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", GUARDIAN_REMINDER_INTERVAL_DAYS=0)
 class StudentDashboardEditingTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -88,7 +88,7 @@ class StudentDashboardEditingTests(TestCase):
         response = self.client.post(reverse("guardian-invitation"), {"email": "other@example.org"}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(mail.outbox[0].to, ["guardian@example.org"])
-        self.assertIn("https://example.org/guardian-consent", mail.outbox[0].body)
+        self.assertIn("http://localhost:5173/#/consent/", mail.outbox[0].body)
         self.profile.refresh_from_db()
         self.assertIsNotNone(self.profile.guardian_reminder_sent_at)
         self.assertIsNone(self.profile.guardian_reminder_due_at)
@@ -96,15 +96,31 @@ class StudentDashboardEditingTests(TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertEqual(len(mail.outbox), 1)
 
-    @override_settings(GUARDIAN_CONSENT_URL="")
-    def test_unconfigured_form_cannot_send(self):
+    def test_missing_guardian_email_cannot_send(self):
         self.prepare_invitation()
+        self.profile.pg_email = None
+        self.profile.save()
         response = self.client.post(reverse("guardian-invitation"), {}, format="json")
         self.assertEqual(response.status_code, 400)
         self.profile.refresh_from_db()
         self.assertIsNone(self.profile.guardian_reminder_sent_at)
 
-    @patch("apps.users.guardian_reminders.send_system_email", return_value="failed")
+    def test_pending_guardian_invitation_preserves_current_consent(self):
+        self.profile.pg_email = "currentguardian@example.org"
+        self.profile.pending_pg_first_name = "New"
+        self.profile.pending_pg_last_name = "Guardian"
+        self.profile.pending_pg_email = "newguardian@example.org"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
+        response = self.client.post(reverse("guardian-invitation"), {}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(mail.outbox[0].to, ["newguardian@example.org"])
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.pg_email, "currentguardian@example.org")
+        self.assertTrue(self.profile.consent_requests.get().for_pending_guardian)
+
+    @patch("apps.admin.services.guardian_consent.send_system_email", return_value="failed")
     def test_failed_delivery_does_not_record_sent(self, send):
         self.prepare_invitation()
         response = self.client.post(reverse("guardian-invitation"), {}, format="json")

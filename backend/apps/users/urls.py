@@ -1,5 +1,6 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
+from .consent_views import GuardianConsentView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -10,6 +11,7 @@ from .supervisor_group_views import (
 from .views import (
     UserListHTMLView,
     UsersRetrieveUpdateView,
+    MeGuardianView,
     MeRetrieveView,
     UserRegisterView,
     ReceiveJoinPermissionView,
@@ -28,6 +30,7 @@ urlpatterns = [
     path("login/", PasswordLoginView.as_view(), name="password-login"),
     path("set-password/", SetPasswordView.as_view(), name="set-password"),
     path("users/me/", MeRetrieveView.as_view(), name="MeListHTMLView"),
+    path("users/me/guardian/", MeGuardianView.as_view(), name="me-guardian"),
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/<int:pk>/", SupervisedStudentDetailView.as_view(), name="supervised-student-detail"),
     path("users/supervised-groups/mentors/", SupervisedMentorsView.as_view(), name="supervised-mentors"),
@@ -40,6 +43,7 @@ urlpatterns = [
     path("users/me/profile-image/", ProfileImageUploadView.as_view(), name="profile-image-upload"),
     path('registration', UserRegisterView.as_view(), name = "registration"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
+    path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),
     path("admin/summary/", AdminOperationalSummaryView.as_view(), name="admin-summary"),
     path("admin/users/bulk-status/", BulkUserStatusView.as_view(), name="admin-bulk-user-status"),
 ]

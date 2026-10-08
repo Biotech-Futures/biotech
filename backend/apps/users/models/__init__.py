@@ -1,6 +1,7 @@
 from .admin_profile import AdminProfile
 from .admin_scope import AdminScope
 from .areas_of_interest import AreasOfInterest
+from .guardian_consent import GuardianConsent, GuardianConsentRequest
 from .mentor_availability import MentorAvailability
 from .mentor_profile import MentorProfile
 from .student_profile import StudentProfile
@@ -13,6 +14,8 @@ __all__ = [
     'AdminProfile',
     'AdminScope',
     'AreasOfInterest',
+    'GuardianConsent',
+    'GuardianConsentRequest',
     'MentorAvailability',
     'MentorProfile',
     'StudentProfile',

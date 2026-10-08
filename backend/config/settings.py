@@ -81,6 +81,9 @@ AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototy
 AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 # Finalists' presentation slides for the Symposium, apart from their entries.
 AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
+# Signed guardian consent records (PDF), private: only admins read them, through
+# the backend.
+AZURE_CONSENT_CONTAINER = config("AZURE_CONSENT_CONTAINER", default="guardian-consent-forms")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -235,6 +238,9 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # The public consent page, per IP: generous for a family sharing a
+        # connection, tight enough to make guessing links pointless.
+        'guardian_consent': '60/hour',
     },
 }
 
@@ -647,8 +653,6 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
-# Approved external form that posts back through the join-permission webhook.
-GUARDIAN_CONSENT_URL = config("GUARDIAN_CONSENT_URL", default="")
 # Set above zero only when send_guardian_reminders is scheduled regularly.
 GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=0, cast=int)
 

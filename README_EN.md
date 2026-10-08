@@ -39,15 +39,16 @@ API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
 ### Student profile and guardian invitations
 
 Students without a linked supervisor can edit their name, school, year, country,
-region, interests and guardian details from their profile. An actual guardian
-change clears the previous permission, consent timestamp and reminder history.
+region and interests from their profile. Guardian editing uses the separate
+Guardian Details section: after consent, the current guardian stays on file
+until the new guardian signs the platform's consent form.
 
-Set `GUARDIAN_CONSENT_URL` in `backend/.env` to the approved HTTPS guardian form
-URL. The existing form must continue identifying the student by email and posting
-the consent result to the authenticated `updjoinperms` webhook. Confirm that
-contract with the form owner before enabling it in a deployed environment.
-The invitation uses the shared System Emails settings/template and the guardian
-email saved on the student's profile; resend is limited to once per 24 hours.
+The resend button uses the same `guardian_consent_request` email service as the
+admin page, including its ten-minute cooldown and single-use consent link.
+Links use `FRONTEND_BASE_URL` and open `/#/consent/<token>`; the earlier
+`GUARDIAN_CONSENT_URL` placeholder is no longer needed. Signatures are stored
+with the consent record and PDF copies use the private `guardian-consent-forms`
+container (`AZURE_CONSENT_CONTAINER`).
 With `config.settings_local`, outgoing emails are saved under
 `backend/sent_emails/`, not delivered to real inboxes.
 
@@ -55,7 +56,7 @@ Automatic reminders are disabled by default. After arranging a regular scheduler
 for `python manage.py send_guardian_reminders`, set
 `GUARDIAN_REMINDER_INTERVAL_DAYS` (for example, `7`). Successfully sent invitations
 then record a next reminder due date. The command only processes due reminders
-for active students who still need permission; it doesn't send an initial email
+for active students who still need permission or have a pending guardian change; it doesn't send an initial email
 to every existing student. No scheduler is created by these code changes.
 
 ### Frontend

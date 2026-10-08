@@ -8,6 +8,12 @@ import { BRAND_NAME } from '@/constants/brand'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+export interface GuardianDetails {
+  first_name: string
+  last_name: string
+  email: string
+}
+
 interface User {
   id: number
   email: string
@@ -30,6 +36,8 @@ interface User {
   school_name?: string | null
   join_perm?: boolean | null
   joinperm_granted_at?: string | null
+  join_perm_granted_at?: string | null
+  pending_guardian?: (GuardianDetails & { requested_at: string }) | null
   interests?: string[]
   supervisor_name?: string | null
   supervisor_id?: number | null
@@ -324,6 +332,50 @@ export const useAuthStore = defineStore('auth', {
           normalizeApiErrorBody(
             data,
             'Could not update your timezone. Please try again.',
+            response.headers.get('X-Request-ID') || undefined,
+            response.status
+          ),
+          response.status
+        )
+      }
+
+      this.user = data
+      localStorage.setItem('auth.user', JSON.stringify(data))
+      return data
+    },
+
+    // Before consent this replaces the guardian; after consent it is held as
+    // pending until the new guardian consents (see `pending_guardian`).
+    async updateGuardian(guardian: GuardianDetails) {
+      return this.sendGuardianRequest('PUT', guardian, 'Could not update your guardian details. Please try again.')
+    },
+
+    async withdrawGuardianChange() {
+      return this.sendGuardianRequest('DELETE', undefined, 'Could not withdraw the guardian change. Please try again.')
+    },
+
+    async sendGuardianRequest(method: 'PUT' | 'DELETE', body: GuardianDetails | undefined, fallbackMessage: string) {
+      const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+      if (!csrfReady) {
+        throw new Error('Could not initialize a secure session. Please refresh and try again.')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/users/me/guardian/`, {
+        method,
+        credentials: 'include',
+        headers: buildSessionHeaders({
+          includeCSRF: true
+        }),
+        body: body ? JSON.stringify(body) : undefined
+      })
+
+      const data = await parseResponseJson(response)
+
+      if (!response.ok) {
+        throw new ApiError(
+          normalizeApiErrorBody(
+            data,
+            fallbackMessage,
             response.headers.get('X-Request-ID') || undefined,
             response.status
           ),

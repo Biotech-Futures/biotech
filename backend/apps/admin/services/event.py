@@ -9,7 +9,7 @@ from apps.events.image_storage import extract_event_image_key, resolve_event_ima
 from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
 from apps.groups.models import Groups, group_name_sort_key
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.users.models import User
+from apps.users.models import StudentProfile, User
 from apps.audit.services import log_audit_event
 
 
@@ -487,7 +487,8 @@ def delete_event(id_str: str, initiated_by=None) -> EventResponseDict:
     return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
 
 
-def _rsvp_to_camel(rsvp: Dict[str, Any], role_name: Optional[str] = None) -> Dict[str, Any]:
+def _rsvp_to_camel(rsvp: Dict[str, Any], role_name: Optional[str] = None,
+                   no_media_consent: bool = False) -> Dict[str, Any]:
     """Convert a raw RSVP values() dict to camelCase for the frontend."""
     first_name = rsvp.get("user__first_name") or ""
     last_name = rsvp.get("user__last_name") or ""
@@ -513,6 +514,9 @@ def _rsvp_to_camel(rsvp: Dict[str, Any], role_name: Optional[str] = None) -> Dic
         "lastName": last_name,
         "rsvpStatus": rsvp.get("rsvp_status"),
         "respondedAt": rsvp.get("responded_at").isoformat() if rsvp.get("responded_at") else None,
+        # A student whose guardian declined media consent, on an event with an
+        # in-person part. Flagged for admins; the RSVP itself isn't blocked.
+        "noMediaConsent": no_media_consent,
     }
 
 
@@ -563,7 +567,23 @@ def query_event_rsvps(id_str: str) -> EventResponseDict:
         for rah in assignments:
             role_map[rah.user_id] = rah.role.role_name
 
-    rsvps = [_rsvp_to_camel(r, role_name=role_map.get(r.get("user_id"))) for r in raw_rsvps]
+    no_media_consent_ids: set = set()
+    event_format = Events.objects.filter(id=event_id).values_list("event_format", flat=True).first()
+    if user_ids and event_format in (Events.EventFormat.IN_PERSON, Events.EventFormat.HYBRID):
+        no_media_consent_ids = set(
+            StudentProfile.objects
+            .filter(user_id__in=user_ids, media_consent=False)
+            .values_list("user_id", flat=True)
+        )
+
+    rsvps = [
+        _rsvp_to_camel(
+            r,
+            role_name=role_map.get(r.get("user_id")),
+            no_media_consent=r.get("user_id") in no_media_consent_ids,
+        )
+        for r in raw_rsvps
+    ]
 
     return {"msg": "Event RSVPs retrieved successfully", "data": rsvps}
 

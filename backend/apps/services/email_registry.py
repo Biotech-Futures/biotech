@@ -315,6 +315,36 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    EmailType(
+        key="guardian_consent_request",
+        name="Guardian consent request",
+        description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
+        default_subject="{{ brand_name }}: Permission for {{ student_first_name }} to take part",
+        default_template="emails/guardian_consent_request.html",
+        merge_tags=(
+            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
+            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_confirmation",
+        name="Guardian consent confirmation",
+        description="Sent to a guardian after they sign the consent form, as their record of it.",
+        default_subject="{{ brand_name }}: Consent received for {{ student_name }}",
+        default_template="emails/guardian_consent_confirmation.html",
+        merge_tags=(
+            MergeTag("guardian_name", "Guardian's full name, as signed", "Pat Chen", "GUARDIAN_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("media_choice", "The media-consent answer", "Yes, media consent provided", "MEDIA_CHOICE"),
+            MergeTag("signed_at", "When the form was signed", "8 October 2026, 4:30 PM UTC", "SIGNED_AT"),
+            MergeTag("consent_reference", "Reference for this consent", "BTF-42", "CONSENT_REFERENCE"),
+            *_BRAND_TAGS,
+        ),
+    ),
 )
 
 EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}
