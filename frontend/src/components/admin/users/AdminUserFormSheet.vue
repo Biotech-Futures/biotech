@@ -172,15 +172,24 @@
             <label class="form-label" for="f-gemail">Guardian email</label>
             <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
           </div>
-          <div v-if="consentUnverified" class="form-field form-field--full">
-            <p class="admin-users-form__note">
-              This student is marked as consented, but no signed consent form is on record.
-            </p>
-            <label class="form-label">
-              <input id="f-revoke" v-model="form.revokeUnverifiedConsent" type="checkbox" class="form-checkbox" />
-              Revoke consent until their guardian signs the consent form
+          <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
+          <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
+            <label class="admin-users-form__check">
+              <input id="f-consent-given" v-model="form.consentGiven" type="checkbox" />
+              Consent to take part
+            </label>
+            <label class="admin-users-form__check" :class="{ 'is-disabled': !form.consentGiven }">
+              <input id="f-media-given" v-model="form.mediaGiven" type="checkbox" :disabled="!form.consentGiven" />
+              Media consent
+            </label>
+            <label v-if="pendingGuardian" class="admin-users-form__check">
+              <input id="f-pending-consent" v-model="form.pendingConsentGiven" type="checkbox" />
+              {{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }} (new guardian) has given consent
             </label>
           </div>
+          <p v-if="consentUnverified" class="admin-users-form__note form-field--full">
+            This student is marked as consented, but no signed consent form is on record.
+          </p>
         </div>
       </template>
 
@@ -245,7 +254,10 @@ interface UserForm {
   guardianFirstName: string
   guardianLastName: string
   guardianEmail: string
-  revokeUnverifiedConsent: boolean
+  /** Ticked when given: ticking records consent, unticking a withdrawal. */
+  consentGiven: boolean
+  mediaGiven: boolean
+  pendingConsentGiven: boolean
   active: boolean
 }
 
@@ -297,7 +309,9 @@ const defaultForm = (): UserForm => ({
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
-  revokeUnverifiedConsent: false,
+  consentGiven: false,
+  mediaGiven: false,
+  pendingConsentGiven: false,
   active: true
 })
 
@@ -317,6 +331,16 @@ const editingOriginalActive = ref(false)
 const originalGuardian = ref<GuardianFields>(blankGuardian())
 
 const pendingGuardian = computed(() => (form.role === 'student' ? props.user?.pendingGuardian ?? null : null))
+// What's on record, so only the tick boxes that changed are sent.
+const consentWas = computed(() => Boolean(isEditing.value && props.user?.joinPermissionReceived))
+const mediaWas = computed(() => consentWas.value && props.user?.mediaConsent === true)
+// Media consent goes with consent to take part.
+watch(
+  () => form.consentGiven,
+  (given) => {
+    if (!given) form.mediaGiven = false
+  }
+)
 const consentUnverified = computed(() =>
   Boolean(props.user?.role === 'student' && props.user.joinPermissionReceived && !props.user.joinpermResponseId)
 )
@@ -380,7 +404,9 @@ const initForm = (editingUser: AdminUser | null) => {
     mentorReason: editingUser.role === 'mentor' ? (editingUser.mentorReason || '') : '',
     mentorMaxGroupCount: editingUser.role === 'mentor' ? (editingUser.mentorMaxGroupCount ?? 2) : 2,
     ...originalGuardian.value,
-    revokeUnverifiedConsent: false,
+    consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
+    mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
+    pendingConsentGiven: false,
     active: editingUser.isActive
   })
 }
@@ -476,9 +502,15 @@ const guardianPayload = (): Record<string, unknown> => {
   if (form.guardianEmail !== originalGuardian.value.guardianEmail) {
     payload.guardianEmail = form.guardianEmail
   }
-  // Revoking clears the recorded consent; consent itself comes from the guardian signing.
-  if (consentUnverified.value && form.revokeUnverifiedConsent) {
-    payload.joinpermResponseId = ''
+  // Ticking records consent with the media box; unticking records a withdrawal.
+  if (pendingGuardian.value && form.pendingConsentGiven) {
+    payload.consentGiven = true
+    payload.mediaConsent = form.mediaGiven
+  } else if (form.consentGiven !== consentWas.value) {
+    payload.consentGiven = form.consentGiven
+    if (form.consentGiven) payload.mediaConsent = form.mediaGiven
+  } else if (form.consentGiven && form.mediaGiven !== mediaWas.value) {
+    payload.mediaConsent = form.mediaGiven
   }
   return payload
 }
@@ -622,10 +654,39 @@ const submitForm = async () => {
   font-size: 0.85rem;
 }
 
-.admin-users-form__hint {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
-  font-size: 0.8rem;
+/* Consent to take part and media consent: large tick boxes. */
+.admin-users-form__consents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The form's usual label text, beside a larger tick box. */
+.admin-users-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.admin-users-form__check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--dark-green);
+  cursor: pointer;
+}
+
+.admin-users-form__check.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-users-form__check.is-disabled input {
+  cursor: not-allowed;
 }
 
 .form-field--full {

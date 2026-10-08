@@ -191,6 +191,7 @@ def upsert_student_profile(
     joinperm_response_id: Any = _UNSET,
     state_id: Optional[int] = None,
     country_id: Optional[int] = None,
+    media_consent: Any = _UNSET,
 ) -> None:
     """
     Create or update student profile.
@@ -283,6 +284,13 @@ def upsert_student_profile(
         profile_data["joinperm_granted_at"] = existing_granted_at or timezone.now()
     else:
         profile_data["joinperm_granted_at"] = None
+
+    # A media choice only stands alongside consent to take part; revoking that
+    # consent clears it, as a withdrawal does.
+    if media_consent is not _UNSET and profile_data["has_join_permission"]:
+        profile_data["media_consent"] = bool(media_consent)
+    elif joinperm_response_id is not _UNSET and not profile_data["has_join_permission"]:
+        profile_data["media_consent"] = None
 
     if supervisor_email is not _UNSET:
         profile_data["supervisor_id"] = _resolve_supervisor_id(
@@ -439,8 +447,47 @@ GUARDIAN_AUDIT_KEYS = (
     "guardianEmail",
     "joinPermissionReceived",
     "joinpermResponseId",
+    "mediaConsent",
     "pendingGuardian",
 )
+
+
+def _consent_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """The admin form's consent tick boxes, as ``upsert_student_profile`` takes
+    what they give.
+
+    ``consentGiven: true`` records the guardian's consent to the student taking
+    part, under an ``ADMIN-`` reference so it isn't flagged as having no form
+    on record; a pending guardian who consents this way becomes the guardian.
+    ``mediaConsent`` goes with it, or ``mediaConsent: true`` on its own records
+    media consent given later. Unticking is a withdrawal (``_withdrawals``).
+    An explicit ``joinpermResponseId`` still wins: "" revokes consent.
+    """
+    inputs: Dict[str, Any] = {}
+    giving = input_data.get("consentGiven") is True
+    if "joinpermResponseId" in input_data:
+        inputs["joinperm_response_id"] = input_data["joinpermResponseId"]
+    elif giving:
+        inputs["joinperm_response_id"] = f"ADMIN-{timezone.now():%Y%m%d%H%M%S}"
+    media = input_data.get("mediaConsent")
+    if isinstance(media, bool) and (giving or media):
+        inputs["media_consent"] = media
+    return inputs
+
+
+def _withdrawals(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> None:
+    """Unticking a consent on the admin form records the guardian's
+    withdrawal, as the detail sheet's buttons do: a signed consent is marked
+    withdrawn rather than quietly cleared."""
+    from apps.users import guardian_consent
+
+    profile = StudentProfile.objects.filter(user_id=user_id).first()
+    if profile is None or not profile.has_join_permission:
+        return
+    if input_data.get("consentGiven") is False:
+        guardian_consent.withdraw(profile, media_only=False, initiated_by=initiated_by)
+    elif input_data.get("mediaConsent") is False and profile.media_consent is not False:
+        guardian_consent.withdraw(profile, media_only=True, initiated_by=initiated_by)
 
 
 def _guardian_audit_state(user_id: int) -> Dict[str, Any]:
@@ -1165,11 +1212,9 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         guardian_first_name=input_data.get("guardianFirstName"),
                         guardian_last_name=input_data.get("guardianLastName"),
                         guardian_email=input_data.get("guardianEmail"),
-                        joinperm_response_id=input_data.get(
-                            "joinpermResponseId", _UNSET
-                        ),
                         state_id=state_id,
                         country_id=country_id,
+                        **_consent_inputs(input_data),
                     )
                 
                 if role == "supervisor":
@@ -1549,10 +1594,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                         str(input_data["guardianEmail"] or "").strip().lower()
                         if "guardianEmail" in input_data else None
                     ),
-                    joinperm_response_id=input_data.get("joinpermResponseId", _UNSET),
                     state_id=user.state_id,
                     country_id=user.country_id,
+                    **_consent_inputs(input_data),
                 )
+                _withdrawals(user_id, input_data, initiated_by)
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
             
