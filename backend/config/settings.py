@@ -642,9 +642,11 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 # above: unset means the endpoint answers 503 rather than standing open.
 SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
 
-# Shared secret for POST /api/v1/admin/send-guardian-details-reminders/, the
-# daily email to students with no parent/guardian details. Same fail-loud
-# contract: unset means the endpoint answers 503.
+# Shared secret for the daily guardian emails: POST
+# /api/v1/admin/send-guardian-details-reminders/ (students with no
+# parent/guardian details) and /api/v1/admin/send-guardian-consent-reminders/
+# (guardians who haven't signed). Same fail-loud contract: unset means the
+# endpoints answer 503.
 GUARDIAN_REMINDER_TOKEN = config("GUARDIAN_REMINDER_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
@@ -658,8 +660,9 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
-# Set above zero only when send_guardian_reminders is scheduled regularly.
-GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=0, cast=int)
+# Days between the consent form reminders to a guardian who hasn't signed
+# (the daily guardian-consent-reminders workflow runs them). 0 switches them off.
+GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=1, cast=int)
 
 # --- Grading platform --------------------------------------------------------
 # GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by

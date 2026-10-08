@@ -78,6 +78,10 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
                 f"A consent request was just sent. Try again in {wait} minute{'s' if wait != 1 else ''}.",
             )
 
+        # The student hears once that their guardian was emailed, not with every reminder.
+        first_to_guardian = not GuardianConsentRequest.objects.filter(
+            student=profile, guardian_email=guardian.email,
+        ).exists()
         request, token = consent.issue_request(profile, guardian, sent_by=initiated_by)
         student = profile.user
         outcome = send_system_email(
@@ -117,7 +121,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
 
     # The student's copy is an FYI: if it's switched off or doesn't go, the
     # guardian's request still stands.
-    if student.email:
+    if student.email and first_to_guardian:
         send_system_email(
             STUDENT_NOTICE_KEY,
             [student.email],

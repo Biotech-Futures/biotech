@@ -95,56 +95,6 @@
         </div>
       </template>
 
-      <template v-if="form.role === 'student'">
-        <div class="admin-users-form__section">Guardian &amp; consent</div>
-        <p v-if="pendingGuardian" class="admin-users-form__note" data-test="form-pending-guardian">
-          The student asked to change their guardian to
-          <strong>{{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }}</strong>
-          ({{ pendingGuardian.email || 'no email' }}). Recording a new consent response makes them the
-          guardian; changing the guardian below discards the request.
-        </p>
-        <div class="admin-users-form__grid">
-          <div class="form-field">
-            <label class="form-label" for="f-gfirst">Guardian first name</label>
-            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="f-glast">Guardian last name</label>
-            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
-          </div>
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-gemail">Guardian email</label>
-            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
-          </div>
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-consent">Consent form response ID</label>
-            <input
-              id="f-consent"
-              v-model.trim="form.joinpermResponseId"
-              class="form-input"
-              placeholder="e.g. R_1a2b3c4d5e6f7g8"
-            />
-            <p class="admin-users-form__hint">{{ consentHint }}</p>
-          </div>
-          <div v-if="consentUnverified" class="form-field form-field--full">
-            <p class="admin-users-form__note">
-              This student is marked as consented, but no consent form response is on record.
-              Enter the response ID above if you have it.
-            </p>
-            <label class="form-label">
-              <input
-                id="f-revoke"
-                v-model="form.revokeUnverifiedConsent"
-                type="checkbox"
-                class="form-checkbox"
-                :disabled="Boolean(form.joinpermResponseId)"
-              />
-              Revoke consent until a response is received
-            </label>
-          </div>
-        </div>
-      </template>
-
       <template v-if="form.role === 'supervisor'">
         <div class="admin-users-form__section">Supervisor details</div>
         <div class="admin-users-form__grid">
@@ -199,6 +149,56 @@
             <span>{{ option }}</span>
           </label>
         </fieldset>
+      </template>
+
+      <template v-if="form.role === 'student'">
+        <div class="admin-users-form__section">Guardian &amp; consent</div>
+        <p v-if="pendingGuardian" class="admin-users-form__note" data-test="form-pending-guardian">
+          The student asked to change their guardian to
+          <strong>{{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }}</strong>
+          ({{ pendingGuardian.email || 'no email' }}). Recording a new consent response makes them the
+          guardian; changing the guardian below discards the request.
+        </p>
+        <div class="admin-users-form__grid">
+          <div class="form-field">
+            <label class="form-label" for="f-gfirst">Guardian first name</label>
+            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="f-glast">Guardian last name</label>
+            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
+          </div>
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-gemail">Guardian email</label>
+            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
+          </div>
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-consent">Consent form response ID</label>
+            <input
+              id="f-consent"
+              v-model.trim="form.joinpermResponseId"
+              class="form-input"
+              placeholder="e.g. R_1a2b3c4d5e6f7g8"
+            />
+            <p class="admin-users-form__hint">{{ consentHint }}</p>
+          </div>
+          <div v-if="consentUnverified" class="form-field form-field--full">
+            <p class="admin-users-form__note">
+              This student is marked as consented, but no consent form response is on record.
+              Enter the response ID above if you have it.
+            </p>
+            <label class="form-label">
+              <input
+                id="f-revoke"
+                v-model="form.revokeUnverifiedConsent"
+                type="checkbox"
+                class="form-checkbox"
+                :disabled="Boolean(form.joinpermResponseId)"
+              />
+              Revoke consent until a response is received
+            </label>
+          </div>
+        </div>
       </template>
 
       <div class="admin-users-form__section">Account</div>

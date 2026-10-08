@@ -39,6 +39,7 @@ from .serializers import (
     UserSerializer,
     StudentSelfProfileUpdateSerializer,
 )
+from .guardian_reminders import email_new_guardian
 from .profile_images import save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
@@ -613,34 +614,38 @@ class MeGuardianView(APIView):
         return Response(UserSerializer(request.user).data)
 
     @extend_schema(request=StudentGuardianUpdateSerializer, responses={200: UserSerializer})
-    @transaction.atomic
     def put(self, request):
-        profile = self._profile(request)
         serializer = StudentGuardianUpdateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         first_name = serializer.validated_data["first_name"]
         last_name = serializer.validated_data["last_name"]
         email = serializer.validated_data["email"]
 
-        if not profile.has_join_permission:
-            profile.pg_first_name = first_name
-            profile.pg_last_name = last_name
-            profile.pg_email = email
-            profile.parent_guardian_flag = True
-            profile.clear_pending_guardian()
-        elif (
-            first_name == profile.pg_first_name
-            and last_name == profile.pg_last_name
-            and email == (profile.pg_email or "").strip().lower()
-        ):
-            # Back to the guardian who already consented — nothing pending.
-            profile.clear_pending_guardian()
-        else:
-            profile.pending_pg_first_name = first_name
-            profile.pending_pg_last_name = last_name
-            profile.pending_pg_email = email
-            profile.pending_pg_requested_at = timezone.now()
-        profile.save()
+        with transaction.atomic():
+            profile = self._profile(request)
+            if not profile.has_join_permission:
+                profile.pg_first_name = first_name
+                profile.pg_last_name = last_name
+                profile.pg_email = email
+                profile.parent_guardian_flag = True
+                profile.clear_pending_guardian()
+            elif (
+                first_name == profile.pg_first_name
+                and last_name == profile.pg_last_name
+                and email == (profile.pg_email or "").strip().lower()
+            ):
+                # Back to the guardian who already consented — nothing pending.
+                profile.clear_pending_guardian()
+            else:
+                profile.pending_pg_first_name = first_name
+                profile.pending_pg_last_name = last_name
+                profile.pending_pg_email = email
+                profile.pending_pg_requested_at = timezone.now()
+            profile.save()
+
+        # Once the details are saved, the guardian just named gets the consent
+        # form straight away rather than at the next daily run.
+        email_new_guardian(profile)
         return self._response(request)
 
     @extend_schema(request=None, responses={200: UserSerializer})

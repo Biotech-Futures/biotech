@@ -74,20 +74,6 @@ _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Na
 
 EMAIL_TYPES = (
     EmailType(
-        key="guardian_invitation",
-        name="Guardian permission invitation",
-        description="Requested by a student, or sent by the configured guardian reminder schedule.",
-        default_subject="{{ brand_name }}: Guardian permission for {{ student_name }}",
-        default_template="emails/guardian_invitation.html",
-        merge_tags=(
-            _FIRST_NAME,
-            MergeTag("student_name", "Student name", "Alex Student", "STUDENT_NAME"),
-            MergeTag("student_email", "Student email to enter on the consent form", "student@example.com", "STUDENT_EMAIL"),
-            MergeTag("consent_url", "Approved guardian consent form", "https://example.com/consent", "CONSENT_URL"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
         key="login_code",
         name="Login code",
         description="Sent when a user signs in with their email address.",
@@ -168,7 +154,10 @@ EMAIL_TYPES = (
     EmailType(
         key="guardian_consent_request",
         name="Guardian consent request (to guardian)",
-        description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
+        description=(
+            "Sent to a student's parent or guardian with the consent form: when the student adds "
+            "them, when the student or an admin sends it, and every day until they sign."
+        ),
         default_subject="Action Required: Sign parent/guardian permission form",
         default_template="emails/guardian_consent_request.html",
         merge_tags=(
@@ -252,6 +241,23 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Submission reminder",
+        description="Daily reminder in the final week before a group's deadline.",
+        default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
+        default_template="emails/submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
+            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
+            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
+            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="submission_confirmation",
         delivery=_GROUP_TO_AND_CC,
         name="Submission confirmation",
@@ -263,23 +269,6 @@ EMAIL_TYPES = (
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
             MergeTag("submitted_by", "Who submitted the entry", "Alex Chen", "SUBMITTED_BY"),
-            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
-            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
-            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="submission_reminder",
-        delivery=_GROUP_TO_AND_CC,
-        name="Submission reminder",
-        description="Daily reminder in the final week before a group's deadline.",
-        default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
-        default_template="emails/submission_reminder.html",
-        merge_tags=(
-            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
-            MergeTag("year", "Competition year", "2026", "YEAR"),
-            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
             MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
             MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
             MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),

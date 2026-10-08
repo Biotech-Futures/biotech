@@ -92,6 +92,13 @@ describe('admin user form: guardian & consent', () => {
     vi.mocked(updateAdminUser).mockClear()
   })
 
+  it('puts Guardian & consent under Interests, before Account', async () => {
+    const wrapper = await openForm(student())
+    const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
+
+    expect(sections).toEqual(['Student details', 'Interests *', 'Guardian & consent', 'Account'])
+  })
+
   it('sends no guardian or consent fields when they are untouched', async () => {
     const wrapper = await openForm(student({
       joinPermissionReceived: true,

@@ -1,7 +1,7 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
 from .consent_views import GuardianConsentView
-from .guardian_details_views import SendGuardianDetailsRemindersView
+from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardianDetailsRemindersView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -51,5 +51,10 @@ urlpatterns = [
         "admin/send-guardian-details-reminders/",
         SendGuardianDetailsRemindersView.as_view(),
         name="guardian-details-reminders",
+    ),
+    path(
+        "admin/send-guardian-consent-reminders/",
+        SendGuardianConsentRemindersView.as_view(),
+        name="guardian-consent-reminders",
     ),
 ]

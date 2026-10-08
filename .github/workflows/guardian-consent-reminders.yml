@@ -1,0 +1,46 @@
+name: Daily guardian consent reminders
+
+# Emails the consent form to every parent/guardian who hasn't signed, once a
+# day, until they do. It also sends the first email to guardians added at
+# registration, by an admin or by the student import. The backend decides who
+# is due, so this only has to fire once a day.
+#
+# Firing more often than that is harmless: a guardian already emailed today is
+# skipped, so a retry or an overlapping run cannot email anyone twice.
+#
+# Required configuration (shared with the guardian details reminders):
+#   secret  GUARDIAN_REMINDER_TOKEN    must match backend env of same name
+#   var     RSVP_REMINDER_BACKEND_URL  e.g. https://biotechbe.azurewebsites.net
+#
+# 06:47 UTC is late afternoon in Sydney, just after the guardian details
+# reminders. The odd minute avoids GitHub's top-of-hour cron congestion.
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger guardian consent reminders
+        env:
+          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          REMINDER_TOKEN: ${{ secrets.GUARDIAN_REMINDER_TOKEN }}
+        run: |
+          if [ -z "${BACKEND_URL}" ]; then
+            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
+            exit 1
+          fi
+          if [ -z "${REMINDER_TOKEN}" ]; then
+            echo "GUARDIAN_REMINDER_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding.
+          curl -fsS -X POST \
+            -H "X-Reminder-Token: ${REMINDER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/admin/send-guardian-consent-reminders/"
