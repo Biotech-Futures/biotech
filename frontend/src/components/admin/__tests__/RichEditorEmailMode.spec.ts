@@ -77,8 +77,8 @@ describe('RichEditor in email mode', () => {
     const html = String(wrapper.emitted('update:modelValue')?.at(-1)?.[0] ?? '')
     expect(html).toContain('border-collapse: collapse')
     // Every cell, header or not, with a thin line and padding.
-    expect(html).toMatch(/<th style="border: 1px solid [^"]+; padding: 6px 10px;"/)
-    expect(html).toMatch(/<td style="border: 1px solid [^"]+; padding: 6px 10px;"/)
+    expect(html).toMatch(/<th[^>]* style="border: 1px solid [^"]+; padding: 6px 10px;"/)
+    expect(html).toMatch(/<td[^>]* style="border: 1px solid [^"]+; padding: 6px 10px;"/)
     wrapper.unmount()
   })
 })

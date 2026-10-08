@@ -7,6 +7,7 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
 import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import { EmailTable, EmailTableCell, EmailTableHeader } from './emailTables'
 import {
   EmailTextStyle,
   EmailTextStyles,
@@ -38,10 +39,6 @@ interface Props {
   /** Email mode: the email's link placeholders, offered in the link dialog. */
   linkPlaceholders?: string[]
 }
-
-// An email's table lines and cell padding (see the Table extension below).
-const EMAIL_TABLE_STYLE = 'border-collapse: collapse'
-const EMAIL_CELL_STYLE = 'border: 1px solid #d1d5db; padding: 6px 10px'
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
@@ -85,10 +82,11 @@ const editor = useEditor({
     Image.configure({ inline: false, allowBase64: true }),
     // In emails a table draws its own lines, since email clients ignore the
     // page's stylesheet; the server keeps these styles.
-    Table.configure({ resizable: false, ...(props.emailMode ? { HTMLAttributes: { style: EMAIL_TABLE_STYLE } } : {}) }),
-    TableRow,
-    TableHeader.configure(props.emailMode ? { HTMLAttributes: { style: EMAIL_CELL_STYLE } } : {}),
-    TableCell.configure(props.emailMode ? { HTMLAttributes: { style: EMAIL_CELL_STYLE } } : {}),
+    // In emails a table draws its own lines, since email clients ignore the
+    // page's stylesheet, or none for a template's layout (emailTables.ts).
+    ...(props.emailMode
+      ? [EmailTable.configure({ resizable: false }), TableRow, EmailTableHeader, EmailTableCell]
+      : [Table.configure({ resizable: false }), TableRow, TableHeader, TableCell]),
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
@@ -158,6 +156,12 @@ const currentHeadingLabel = computed(() => {
 const isInTable = computed(() => {
   void updateTick.value
   return editor.value?.isActive('table') ?? false
+})
+
+/** Whether the table the cursor is in draws its lines (email mode). */
+const tableHasLines = computed(() => {
+  void updateTick.value
+  return editor.value?.getAttributes('table').lines !== false
 })
 
 const canUndo = computed(() => {
@@ -950,6 +954,23 @@ defineExpose({ insertText })
           Header col
         </button>
 
+        <!-- Lines on or off for the whole table (email mode) -->
+        <template v-if="emailMode">
+          <div class="toolbar-sep"></div>
+          <button
+            type="button"
+            class="table-action-btn"
+            :class="{ active: tableHasLines }"
+            :aria-pressed="tableHasLines"
+            title="Draw or take away this table's lines"
+            data-test="table-lines"
+            @mousedown.prevent="editor?.chain().focus().toggleTableLines().run()"
+          >
+            <i class="fas fa-border-all"></i>
+            <span>{{ tableHasLines ? 'Lines on' : 'Lines off' }}</span>
+          </button>
+        </template>
+
         <div class="toolbar-sep"></div>
 
         <button
@@ -1283,6 +1304,11 @@ defineExpose({ insertText })
 
 .table-action-btn:hover {
   background-color: #dbeafe;
+}
+
+.table-action-btn.active {
+  background-color: #dbeafe;
+  font-weight: 600;
 }
 
 .table-action-btn.danger {

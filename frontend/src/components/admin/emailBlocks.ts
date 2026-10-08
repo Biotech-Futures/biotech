@@ -25,15 +25,15 @@ declare module '@tiptap/core' {
   }
 }
 
-// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py,
-// which also keeps border-collapse, for tables (boxes and buttons don't need it).
-// Text uses them too (emailTextStyle.ts): height draws a divider line.
+// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py.
+// Text (emailTextStyle.ts) and tables (emailTables.ts) use them too: height
+// draws a divider line, border-collapse and width lay out a table.
 const STYLE_PROPERTIES = new Set([
-  'background-color', 'border', 'border-radius', 'color', 'display',
+  'background-color', 'border', 'border-collapse', 'border-radius', 'color', 'display',
   'font-family', 'font-size', 'font-weight', 'height', 'letter-spacing', 'line-height',
   'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'text-align', 'text-decoration', 'text-transform', 'word-break'
+  'text-align', 'text-decoration', 'text-transform', 'vertical-align', 'width', 'word-break'
 ])
 
 export interface EmailLook {
@@ -231,7 +231,12 @@ export const EmailBox = Node.create({
         contentElement: (table) => cardCell(table as HTMLElement) as HTMLElement,
         getAttrs: (element) => {
           const cell = cardCell(element as HTMLElement)
-          return cell ? { style: cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell)) } : false
+          // A box needs the card's look, not the table's layout.
+          const look = cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell))
+            .split('; ')
+            .filter((declaration) => !/^(border-collapse|width|vertical-align):/.test(declaration))
+            .join('; ')
+          return cell ? { style: look } : false
         }
       }
     ]

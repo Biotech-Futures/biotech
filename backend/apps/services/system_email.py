@@ -165,7 +165,7 @@ EMAIL_STYLE_PROPERTIES = frozenset({
     "font-family", "font-size", "font-weight", "height", "letter-spacing", "line-height",
     "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
     "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "text-align", "text-decoration", "text-transform", "word-break",
+    "text-align", "text-decoration", "text-transform", "vertical-align", "width", "word-break",
 })
 
 # Tags whose inline style is kept: boxes and buttons, tables' lines and cell

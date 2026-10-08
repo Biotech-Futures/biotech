@@ -75,7 +75,7 @@ export function styleValue(style: string | null | undefined, property: string): 
 }
 
 /** The style with one property set to ``value``, or taken off for null. */
-function withProperty(style: string | null | undefined, property: string, value: string | null): string {
+export function withProperty(style: string | null | undefined, property: string, value: string | null): string {
   const others = (style ?? '')
     .split(';')
     .filter((declaration) => declaration.includes(':') && declaration.split(':')[0].trim().toLowerCase() !== property)
