@@ -2,6 +2,7 @@
 The times are the Finalist Presentation tab's, each student gives their own
 availability, and the submitted slides land in that tab's table."""
 import io
+import tempfile
 import zipfile
 from datetime import time
 
@@ -41,6 +42,13 @@ def _ppt(name="deck.ppt"):
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
 class FinalistTests(TestCase):
     def setUp(self):
+        # Files are stored under fixed names; keep each test's in a throwaway folder.
+        # A download a test leaves open can't be deleted on Windows; skip it.
+        media = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(media.cleanup)
+        setting = override_settings(MEDIA_ROOT=media.name)
+        setting.enable()
+        self.addCleanup(setting.disable)
         reset_managed_storage_caches()
         self.addCleanup(reset_managed_storage_caches)
 
@@ -233,6 +241,13 @@ class FinalistTests(TestCase):
                 response = client.post(self.file_url, {"file": upload}, format="multipart")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.data["entry"]["presentation"]["name"], upload.name)
+
+    def test_slides_are_stored_named_for_the_year_and_group(self):
+        response = self._client(self.student).post(self.file_url, {"file": _pptx("Our Deck.pptx")}, format="multipart")
+
+        self.assertEqual(response.status_code, 200)
+        entry = FinalistEntry.objects.get(group=self.group)
+        self.assertEqual(entry.presentation["storage_key"], f"{self.group.year}_BTF-FINAL_Slides.pptx")
 
     def test_other_file_types_are_refused(self):
         upload = SimpleUploadedFile("deck.docx", b"PK\x03\x04rest", content_type="application/octet-stream")

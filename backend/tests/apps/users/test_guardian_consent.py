@@ -164,7 +164,9 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         year = timezone.localtime(consent.signed_at, ZoneInfo("Australia/Sydney")).year
         name = f"{year}_{self.profile.user_id}_BTF_1.pdf"
         self.assertEqual(guardian_consent.record_pdf_filename(consent), name)
-        with get_consent_storage().open(name) as stored:
+        # Stored under that name, at the top of the container.
+        self.assertEqual(consent.record_pdf_key, name)
+        with get_consent_storage().open(consent.record_pdf_key) as stored:
             self.assertTrue(stored.read().startswith(b"%PDF"))
 
     def test_storage_failure_does_not_stop_signing(self):
@@ -173,7 +175,7 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         consent = GuardianConsent.objects.get()
-        self.assertFalse(get_consent_storage().exists(guardian_consent.record_pdf_filename(consent)))
+        self.assertEqual(consent.record_pdf_key, "")
 
     def test_record_renders_names_outside_western_scripts(self):
         profile = make_student(email="li@example.com", first="李", pg_email="g3@example.com")
@@ -285,9 +287,8 @@ class AdminConsentTests(TempMediaMixin, TestCase):
         first, second = GuardianConsent.objects.order_by("pk")
 
         for consent, number in ((first, 1), (second, 2)):
-            name = guardian_consent.record_pdf_filename(consent)
-            self.assertTrue(name.endswith(f"_{self.profile.user_id}_BTF_{number}.pdf"))
-            self.assertTrue(get_consent_storage().exists(name))
+            self.assertTrue(consent.record_pdf_key.endswith(f"_{self.profile.user_id}_BTF_{number}.pdf"))
+            self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
         # Another student starts at 1.
         other = make_student(email="other@example.com", pg_email="g9@example.com")
         guardian_consent.sign(
@@ -301,13 +302,14 @@ class AdminConsentTests(TempMediaMixin, TestCase):
 
     def test_rebuilds_a_missing_record(self):
         consent = GuardianConsent.objects.get()
-        get_consent_storage().delete(guardian_consent.record_pdf_filename(consent))
+        get_consent_storage().delete(consent.record_pdf_key)
 
         response = self.client.get(f"{self.base}/guardian-consents/{consent.pk}/record/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.content.startswith(b"%PDF"))
-        self.assertTrue(get_consent_storage().exists(guardian_consent.record_pdf_filename(consent)))
+        consent.refresh_from_db()
+        self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
 
     def test_record_belongs_to_its_student(self):
         consent = GuardianConsent.objects.get()

@@ -173,8 +173,11 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ) -> dict:
-        storage_name = self.build_storage_name(getattr(uploaded_file, "name", ""))
+        # A caller can name the file itself (e.g. "2026_BTF01_Poster.pdf");
+        # otherwise it goes under the day and a random folder.
+        storage_name = storage_name or self.build_storage_name(getattr(uploaded_file, "name", ""))
         saved_name = self._storage().save(storage_name, uploaded_file)
         file_data = {
             "storage_key": saved_name,
@@ -199,6 +202,7 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ):
         # Storage writes are not part of the surrounding DB transaction, so any
         # DB error after the upload would leave a blob with no row pointing at
@@ -209,6 +213,7 @@ class ManagedFileService:
             content_type_field=content_type_field,
             size_field=size_field,
             original_filename_field=original_filename_field,
+            storage_name=storage_name,
         )
         try:
             yield file_data

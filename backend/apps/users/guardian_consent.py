@@ -249,21 +249,18 @@ def record_pdf_filename(consent: GuardianConsent) -> str:
 
 
 def store_record_pdf(consent: GuardianConsent, pdf: bytes) -> bool:
-    """Keep the signed record in the guardian-consent-forms container, under
-    its name (``record_pdf_filename``). A failure is logged, not raised: the
-    consent is already recorded and the PDF can be rebuilt from it whenever
-    it's next asked for."""
-    name = record_pdf_filename(consent)
+    """Keep the signed record in the guardian-consent-forms container. A failure is logged,
+    not raised: the consent is already recorded and the PDF can be rebuilt
+    from it whenever it's next asked for."""
     try:
-        storage = get_consent_storage()
-        # A copy that couldn't be read goes, so the new one gets the name
-        # rather than a renamed one beside it.
-        if storage.exists(name):
-            storage.delete(name)
-        storage.save(name, ContentFile(pdf))
+        # Under its own name, e.g. "2026_318_BTF_1.pdf"; a name already taken
+        # (a copy that couldn't be read) gets a random ending from storage.
+        key = get_consent_storage().save(record_pdf_filename(consent), ContentFile(pdf))
     except Exception as exc:
         logger.error("guardian_consent.record_store_failed consent=%s error=%s", consent.pk, type(exc).__name__)
         return False
+    consent.record_pdf_key = key
+    consent.save(update_fields=["record_pdf_key"])
     return True
 
 
@@ -271,10 +268,9 @@ def record_pdf_bytes(consent: GuardianConsent) -> bytes:
     """The signed record's PDF: the stored copy, or a rebuilt one (stored for
     next time) if it was never stored, has gone missing or can't be read."""
     storage = get_consent_storage()
-    name = record_pdf_filename(consent)
-    if storage.exists(name):
+    if consent.record_pdf_key:
         try:
-            with storage.open(name) as stored:
+            with storage.open(consent.record_pdf_key) as stored:
                 return stored.read()
         except Exception as exc:
             logger.warning(

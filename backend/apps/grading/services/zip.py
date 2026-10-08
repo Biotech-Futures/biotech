@@ -23,7 +23,6 @@ from __future__ import annotations
 import io
 import logging
 import os
-import re
 import zipfile
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -31,22 +30,12 @@ from typing import Iterable
 
 from fpdf import FPDF
 
+from apps.common.filenames import safe_name
 from apps.submissions.services import current_cohort
 
 from .content import ComponentEntry, open_file
 
 logger = logging.getLogger(__name__)
-
-
-_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
-
-
-def safe_name(name: str) -> str:
-    """Filesystem-safe segment. Collapses runs of unsafe chars to ``_`` and
-    trims leading/trailing dots to keep Windows extractors happy."""
-    cleaned = _UNSAFE.sub("_", (name or "").strip())
-    cleaned = cleaned.strip("._")
-    return cleaned or "unnamed"
 
 
 def _read_entry_bytes(entry: ComponentEntry) -> bytes | None:
