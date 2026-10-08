@@ -38,6 +38,8 @@ export function useSystemEmails() {
   const saving = ref(false)
   const previewing = ref(false)
   const testing = ref(false)
+  // How the last test send went, shown beside its button.
+  const testResult = ref<{ ok: boolean; text: string } | null>(null)
   const restoring = ref(false)
   const togglingGlobal = ref(false)
   const togglingKey = ref<string | null>(null)
@@ -117,6 +119,7 @@ export function useSystemEmails() {
   const clearMessages = () => {
     error.value = ''
     notice.value = ''
+    testResult.value = null
   }
 
   const messageFrom = (fallback: string, caught: unknown): string =>
@@ -215,17 +218,29 @@ watch(
   { flush: 'pre' }
 )
 
-const testSend = async () => {
+/**
+ * Send the email as it stands to ``to``, or the admin's own address, with the
+ * details of ``of`` (one of the email's test recipients), else the samples.
+ */
+  const testSend = async (to?: string, of?: string) => {
     const template = selected.value
     if (!template) return
     testing.value = true
     clearMessages()
     try {
-      const result = await testSendSystemEmailTemplate(template.key, draftToRender(template))
-      notice.value = `Test email sent to ${result.sentTo}.`
+      const result = await testSendSystemEmailTemplate(template.key, {
+        ...draftToRender(template),
+        ...(to ? { to } : {}),
+        ...(of ? { of } : {})
+      })
+      // A test can take a few minutes too, and bounces like the real thing.
+      const note = result.sentFrom
+        ? ` It can take a few minutes to arrive. If it can't be delivered, it comes back to ${result.sentFrom}.`
+        : ''
+      testResult.value = { ok: true, text: `Test sent to ${result.sentTo}.${note}` }
     } catch (testError) {
       logApiError('admin.system-emails.test-send', testError)
-      error.value = messageFrom('Unable to send the test email.', testError)
+      testResult.value = { ok: false, text: messageFrom('Unable to send the test email.', testError) }
     } finally {
       testing.value = false
     }
@@ -344,6 +359,7 @@ const testSend = async () => {
     setBody,
     refreshPreview,
     testSend,
+    testResult,
     save,
     restore,
     toggleEnabled,

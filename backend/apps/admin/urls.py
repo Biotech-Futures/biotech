@@ -118,6 +118,7 @@ urlpatterns = [
     # Literal sub-paths precede <str:key> so they are never swallowed as a key.
     path('email-template/<str:key>/preview/', views.SystemEmailTemplatePreviewView.as_view(), name='email-template-preview'),
     path('email-template/<str:key>/test-send/', views.SystemEmailTemplateTestSendView.as_view(), name='email-template-test-send'),
+    path('email-template/<str:key>/test-recipients/', views.SystemEmailTemplateTestRecipientsView.as_view(), name='email-template-test-recipients'),
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),

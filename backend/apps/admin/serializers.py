@@ -133,6 +133,15 @@ class SystemEmailPreviewSerializer(serializers.Serializer):
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
+class SystemEmailTestSendSerializer(SystemEmailPreviewSerializer):
+    """A test send: the preview's optional unsaved wording, where it goes
+    (the requesting admin when no address is given) and whose details it
+    carries (the samples when nobody is picked)."""
+
+    to = serializers.EmailField(required=False)
+    of = serializers.CharField(required=False, allow_blank=True, max_length=32)
+
+
 class SystemEmailSettingsUpdateSerializer(serializers.Serializer):
     """PATCH /api/v1/admin/email-settings/ body."""
 

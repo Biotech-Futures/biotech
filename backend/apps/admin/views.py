@@ -12,6 +12,7 @@ from apps.admin.permissions import IsAdminScoped
 from apps.admin.serializers import (
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
+    SystemEmailTestSendSerializer,
     SystemEmailSettingsUpdateSerializer,
     SystemEmailTemplateUpdateSerializer,
     bulk_user_error_message,
@@ -75,6 +76,7 @@ from apps.admin.services.system_email import (
     preview_email_template,
     restore_email_template,
     send_test_email,
+    test_recipients,
     update_email_settings,
     update_email_template,
 )
@@ -1618,17 +1620,30 @@ class SystemEmailTemplatePreviewView(APIView):
         return Response(result)
 
 
-class SystemEmailTemplateTestSendView(APIView):
-    """POST /api/v1/admin/email-template/<key>/test-send/ — send to the admin.
+class SystemEmailTemplateTestRecipientsView(APIView):
+    """GET /api/v1/admin/email-template/<key>/test-recipients/ — who a test
+    can be "of": the email's groups or people, or null when it has none."""
 
-    The recipient is always the requesting admin; the enabled toggle is
-    deliberately bypassed so a disabled email can still be tested.
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, key):
+        result = test_recipients(key)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class SystemEmailTemplateTestSendView(APIView):
+    """POST /api/v1/admin/email-template/<key>/test-send/ — send a test.
+
+    To the address in ``to``, else the requesting admin, with the details of
+    ``of`` when one is picked; the enabled toggle is deliberately bypassed so
+    a disabled email can still be tested.
     """
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request, key):
-        serializer = SystemEmailPreviewSerializer(data=request.data)
+        serializer = SystemEmailTestSendSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
                 {"msg": serializer_error_message(serializer.errors), "data": None},

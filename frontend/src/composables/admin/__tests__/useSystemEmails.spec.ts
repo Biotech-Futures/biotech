@@ -240,7 +240,50 @@ describe('useSystemEmails', () => {
 
     await view.testSend()
 
-    expect(view.notice.value).toContain('admin@example.com')
+    expect(view.testResult.value).toEqual({ ok: true, text: 'Test sent to admin@example.com.' })
+  })
+
+  it('sends a test to a typed address, with where a bounce goes', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com',
+      sentFrom: 'info@biotechfutures.org'
+    })
+
+    await view.testSend('tester@example.com')
+
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { to: 'tester@example.com' })
+    expect(view.testResult.value?.ok).toBe(true)
+    expect(view.testResult.value?.text).toContain('Test sent to tester@example.com.')
+    expect(view.testResult.value?.text).toContain('comes back to info@biotechfutures.org')
+  })
+
+  it('sends a test as the one picked, else with the samples', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com'
+    })
+
+    await view.testSend('tester@example.com', '9')
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {
+      to: 'tester@example.com',
+      of: '9'
+    })
+
+    await view.testSend('tester@example.com', '')
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { to: 'tester@example.com' })
+  })
+
+  it('reports a failed test send beside the button', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockRejectedValue(new Error('smtp down'))
+
+    await view.testSend('tester@example.com')
+
+    expect(view.testResult.value?.ok).toBe(false)
+    expect(view.error.value).toBe('')
   })
 
   it('loads all emails when the server call fails', async () => {

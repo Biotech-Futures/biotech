@@ -412,18 +412,38 @@ def preview_email_template(
     }
 
 
+def test_recipients(key: str) -> dict:
+    """Who a test of email ``key`` can be "of": its real recipients, or None
+    when it has nothing of a person's own (see ``system_email_recipients``)."""
+    from apps.admin.services.system_email_recipients import recipient_options
+
+    if not is_known_email_type(key):
+        return {"msg": f"Unknown email type '{key}'", "data": None}
+    return {
+        "msg": "Test recipients retrieved successfully",
+        "data": {"key": key, "recipients": recipient_options(key)},
+    }
+
+
 def send_test_email(
     key: str,
     *,
     requested_by,
     subject=None,
     body=None,
+    to=None,
+    of=None,
 ) -> dict:
-    """Send email ``key`` to the requesting admin's address.
+    """Send email ``key`` to ``to``, else the requesting admin's address.
 
+    It's filled with the registry's sample values, and with recipient
+    ``of``'s own details when one is picked from ``test_recipients``.
     Deliberately bypasses the enabled toggle: an admin must be able to test a
     disabled email before re-arming it. Unsaved edits are sent when provided.
     """
+    from apps.admin.services.system_email_recipients import RecipientError, recipient_context
+
+    recipient = (to or requested_by.email or "").strip()
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
 
@@ -432,10 +452,16 @@ def send_test_email(
         return {"msg": error, "data": None}
 
     email_type = get_email_type(key)
+    context = _sample_context(email_type)
+    if of:
+        try:
+            context.update(recipient_context(key, of))
+        except RecipientError as exc:
+            return {"msg": str(exc), "data": None}
     try:
         rendered = render_system_email(
             key,
-            _sample_context(email_type),
+            context,
             subject=cleaned_subject,
             body=cleaned_body,
         )
@@ -448,7 +474,7 @@ def send_test_email(
     # From the sender picked for it, as the real email goes.
     sender = sender_for(key)
     message = build_message(
-        rendered, requested_by.email, from_email=sender.from_email, connection=sender_connection(sender),
+        rendered, recipient, from_email=sender.from_email, connection=sender_connection(sender),
     )
 
     try:
@@ -466,8 +492,9 @@ def send_test_email(
         }
 
     return {
-        "msg": f"Test email sent to {requested_by.email}",
-        "data": {"key": key, "sentTo": requested_by.email},
+        "msg": f"Test email sent to {recipient}",
+        # Where mail that can't be delivered comes back to: the address it's sent from.
+        "data": {"key": key, "sentTo": recipient, "sentFrom": sender.address},
     }
 
 

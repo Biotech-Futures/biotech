@@ -74,6 +74,7 @@
           :busy="busy"
           :saving="saving"
           :testing="testing"
+          :test-result="testResult"
           :restoring="restoring"
           @update:subject="setSubject"
           @update:body="setBody"
@@ -141,6 +142,7 @@ const {
   setSubject,
   setBody,
   testSend,
+  testResult,
   save,
   restore,
   toggleEnabled,

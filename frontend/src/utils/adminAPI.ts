@@ -19,14 +19,17 @@ import {
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
   systemEmailTemplateSchema,
+  systemEmailTestRecipientsSchema,
   systemEmailTestSendSchema
 } from './systemEmail'
 import type {
   SystemEmailPreview,
   SystemEmailPreviewPayload,
+  SystemEmailTestSendPayload,
   SystemEmailSettings,
   SystemEmailTemplate,
   SystemEmailTemplateUpdatePayload,
+  SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
 
@@ -1438,13 +1441,19 @@ export const previewSystemEmailTemplate = (
     systemEmailPreviewSchema.parse(env.data)
   )
 
-/** Send the email to the requesting admin. Deliberately ignores the toggle. */
+/** Send the email to `to`, else the requesting admin. Deliberately ignores the toggle. */
 export const testSendSystemEmailTemplate = (
   key: string,
-  payload: SystemEmailPreviewPayload = {}
+  payload: SystemEmailTestSendPayload = {}
 ): Promise<SystemEmailTestSend> =>
   adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-send/`, payload).then((env) =>
     systemEmailTestSendSchema.parse(env.data)
+  )
+
+/** Who a test of the email can be "of"; null when it has nothing of a person's own. */
+export const fetchSystemEmailTestRecipients = (key: string): Promise<SystemEmailTestRecipient[] | null> =>
+  adminGet<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-recipients/`).then(
+    (env) => systemEmailTestRecipientsSchema.parse(env.data).recipients
   )
 
 export const fetchSystemEmailSettings = (): Promise<SystemEmailSettings> =>

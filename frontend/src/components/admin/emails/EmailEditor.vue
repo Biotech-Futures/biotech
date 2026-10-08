@@ -42,16 +42,6 @@
       {{ lockReason() }}
     </p>
 
-    <p
-      v-if="!emailTemplate.usingSavedContent"
-      class="email-editor__note email-editor__note--muted"
-    >
-      <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-      These are the current built-in contents. Save to switch to your custom wording, which
-      keeps the design as you see it here. To keep anything the visual view can't show, like
-      Outlook's button code, edit in HTML.
-    </p>
-
     <!-- The mailbox it goes from: only those the server can sign in to, since
          Hostinger rejects a From that isn't the signed-in mailbox or one of
          its aliases. Saved at once, like the on/off switch. -->
@@ -119,44 +109,90 @@
 
     <footer class="editor__actions">
       <div class="editor__actions-primary">
-        <button
-          type="button"
-          class="btn btn-primary"
-          :disabled="!dirty || busy"
-          @click="emit('save')"
-        >
-          <i v-if="saving" class="fas fa-spinner fa-spin" aria-hidden="true"></i>
-          <i v-else class="fas fa-floppy-disk" aria-hidden="true"></i>
-          <span>{{ saving ? 'Saving…' : 'Save changes' }}</span>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || busy" @click="emit('save')">
+          {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
         <button
           type="button"
-          class="btn btn-outline"
+          class="btn btn-outline btn-sm"
           :disabled="!emailTemplate.usingSavedContent || busy"
           @click="emit('restore')"
         >
-          <i v-if="restoring" class="fas fa-spinner fa-spin" aria-hidden="true"></i>
-          <i v-else class="fas fa-rotate-left" aria-hidden="true"></i>
-          <span>{{ restoring ? 'Restoring…' : 'Restore default' }}</span>
+          {{ restoring ? 'Restoring…' : 'Restore default' }}
         </button>
       </div>
 
-      <div class="editor__actions-secondary">
-        <button type="button" class="btn btn-outline" :disabled="busy" @click="emit('test-send')">
-          <i v-if="testing" class="fas fa-spinner fa-spin" aria-hidden="true"></i>
-          <i v-else class="fas fa-paper-plane" aria-hidden="true"></i>
-          <span>{{ testing ? 'Sending…' : 'Send test' }}</span>
+      <!-- Send the email as it stands to any address, as the group or person
+           picked would get it (sample values when nobody is picked). -->
+      <div
+        class="email-editor__test"
+        :class="{ 'email-editor__test--of': recipientsFailed || testRecipients }"
+        data-test="test-email"
+      >
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="busy || recipientsLoading || !testTo.trim()"
+          @click="sendTest"
+        >
+          {{ testing ? 'Sending…' : 'Send Test' }}
         </button>
+        <template v-if="recipientsFailed || testRecipients">
+          <span class="email-editor__test-word">of</span>
+          <select
+            v-model="testOf"
+            class="email-editor__test-select"
+            aria-label="Send it as"
+            data-test="test-of"
+            :disabled="!testRecipients?.length"
+          >
+            <option v-if="!testRecipients?.length" value="">
+              {{ recipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
+            </option>
+            <option v-for="option in testRecipients" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </template>
+        <span class="email-editor__test-word email-editor__test-word--to">to</span>
+        <!-- Password managers leave this box alone. -->
+        <input
+          v-model="testTo"
+          type="email"
+          class="email-editor__test-to"
+          placeholder="Email address"
+          aria-label="Send the test to"
+          autocomplete="off"
+          data-bwignore
+          data-1p-ignore
+          data-lpignore="true"
+          @keydown.enter.prevent="sendTest"
+        />
+        <span
+          v-if="testResult"
+          class="email-editor__test-result"
+          :class="testResult.ok ? 'email-editor__test-result--ok' : 'email-editor__test-result--error'"
+          role="status"
+        >
+          {{ testResult.text }}
+        </span>
       </div>
     </footer>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
 import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
-import { mergeTagToken, type SystemEmailMergeTag, type SystemEmailTemplate } from '@/utils/systemEmail'
+import {
+  mergeTagToken,
+  type SystemEmailMergeTag,
+  type SystemEmailTemplate,
+  type SystemEmailTestRecipient
+} from '@/utils/systemEmail'
+import { fetchSystemEmailTestRecipients } from '@/utils/adminAPI'
+import { useAuthStore } from '@/stores/auth'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
 
@@ -169,7 +205,47 @@ const props = defineProps<{
   saving: boolean
   testing: boolean
   restoring: boolean
+  /** How the last test send went. */
+  testResult?: { ok: boolean; text: string } | null
 }>()
+
+// Where a test goes: the admin's own address to start with.
+const auth = useAuthStore()
+const testTo = ref(auth.user?.email ?? '')
+
+// Whose details it carries: one of the email's groups or people, the first to
+// start with. Null when the email has nothing of a person's own.
+const testRecipients = ref<SystemEmailTestRecipient[] | null>(null)
+const testOf = ref('')
+const recipientsLoading = ref(false)
+const recipientsFailed = ref(false)
+
+watch(
+  () => props.emailTemplate.key,
+  async (key) => {
+    testRecipients.value = null
+    testOf.value = ''
+    recipientsFailed.value = false
+    recipientsLoading.value = true
+    try {
+      const recipients = await fetchSystemEmailTestRecipients(key)
+      // Another email was picked while this one loaded.
+      if (key !== props.emailTemplate.key) return
+      testRecipients.value = recipients
+      testOf.value = recipients?.[0]?.value ?? ''
+    } catch {
+      if (key === props.emailTemplate.key) recipientsFailed.value = true
+    } finally {
+      if (key === props.emailTemplate.key) recipientsLoading.value = false
+    }
+  },
+  { immediate: true }
+)
+
+const sendTest = () => {
+  if (props.busy || recipientsLoading.value || !testTo.value.trim()) return
+  emit('test-send', testTo.value.trim(), testOf.value)
+}
 
 /** This email's placeholders that hold a link, offered in the link dialog. */
 const linkPlaceholders = computed(() =>
@@ -209,7 +285,7 @@ const emit = defineEmits<{
   (e: 'change-sender', sender: string): void
   (e: 'save'): void
   (e: 'restore'): void
-  (e: 'test-send'): void
+  (e: 'test-send', to: string, of: string): void
 }>()
 
 type EditableField = 'subject' | 'body'
@@ -263,6 +339,70 @@ const insertIntoSubject = (token: string) => {
    instead (EmailPreview). */
 .email-editor .editor__actions {
   border-top: none;
+}
+
+/* Send Test Email of someone to an address, as on the Management pages' email tabs. */
+/* The button, then "of" and its list, then "to" and the address on the line
+   below, lined up under "of". Without a list, "to" sits beside the button. */
+.email-editor__test {
+  display: grid;
+  /* At least 13rem, taking the room there is up to the wider of the
+     address box and the longest name. */
+  grid-template-columns: auto auto minmax(13rem, max-content);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.email-editor__test-word {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.email-editor__test--of .email-editor__test-word--to {
+  grid-column: 2;
+}
+
+.email-editor__test-select,
+.email-editor__test-to {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+}
+
+/* As wide as the address box, or wider when a name needs it, up to 25rem. */
+.email-editor__test-select {
+  width: 100%;
+  max-width: 25rem;
+}
+
+.email-editor__test-to {
+  /* 17rem, narrowing to 13rem when room is short. */
+  width: 17rem;
+  max-width: 100%;
+}
+
+.email-editor__test-select:focus,
+.email-editor__test-to:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
+.email-editor__test-result {
+  font-size: 0.85rem;
+  /* Its own line, so it never pushes the address box down. */
+  grid-column: 1 / -1;
+}
+
+.email-editor__test-result--ok {
+  color: var(--dark-green);
+}
+
+.email-editor__test-result--error {
+  color: var(--danger);
 }
 
 /* The Body box stops at 670px, however wide the page is. */
@@ -377,28 +517,13 @@ const insertIntoSubject = (token: string) => {
   color: var(--dark-green);
 }
 
-.email-editor__note--muted {
-  background: #f9fafb;
-  color: #6b7280;
-}
-
-/* Dark theme: the note, subject and body editor take the grey other pages
-   give their boxes, with light text. */
+/* Dark theme: the subject and body editor take the grey other pages give
+   their boxes, with light text. */
 :root[data-theme='dark'] .email-editor__title {
   color: var(--charcoal);
 }
 
 :root[data-theme='dark'] .email-editor__switch-label {
-  color: var(--text-muted);
-}
-
-:root[data-theme='dark'] .email-editor__note--muted {
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  border-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .email-editor__note--muted {
   color: var(--text-muted);
 }
 

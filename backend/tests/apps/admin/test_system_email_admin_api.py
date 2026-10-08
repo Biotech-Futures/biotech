@@ -404,12 +404,20 @@ class SystemEmailAdminServiceTests(TestCase):
 
     # -- test send ---------------------------------------------------------
 
-    def test_test_send_goes_only_to_the_admin(self):
+    def test_test_send_goes_to_the_admin_when_no_address_is_given(self):
         mail.outbox = []
         result = send_test_email("password_reset", requested_by=self.admin)
         self.assertEqual(result["data"]["sentTo"], "admin@example.com")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
+
+    def test_test_send_goes_to_the_address_typed(self):
+        mail.outbox = []
+        result = send_test_email("password_reset", requested_by=self.admin, to="tester@example.com")
+        self.assertEqual(result["data"]["sentTo"], "tester@example.com")
+        # Where a test that can't be delivered comes back to.
+        self.assertEqual(result["data"]["sentFrom"], "info@biotechfutures.org")
+        self.assertEqual(mail.outbox[0].to, ["tester@example.com"])
 
     def test_test_send_works_even_when_type_is_disabled(self):
         SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
@@ -664,6 +672,18 @@ class SystemEmailAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data"]["sentTo"], "admin@example.com")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_test_send_goes_to_a_typed_address_and_refuses_a_bad_one(self):
+        mail.outbox = []
+        url = "/api/v1/admin/email-template/password_reset/test-send/"
+        response = self.client.post(url, {"to": "tester@example.com"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["data"]["sentTo"], "tester@example.com")
+        self.assertEqual(mail.outbox[0].to, ["tester@example.com"])
+
+        response = self.client.post(url, {"to": "not an address"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_restore_clears_saved_wording(self):

@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import AdminEmailsPage from '@/views/admin/AdminEmailsPage.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import {
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
+  fetchSystemEmailTestRecipients,
   previewSystemEmailTemplate,
   restoreSystemEmailTemplate,
   testSendSystemEmailTemplate,
@@ -21,6 +23,7 @@ vi.mock('@/utils/adminAPI', () => ({
   restoreSystemEmailTemplate: vi.fn(),
   previewSystemEmailTemplate: vi.fn(),
   testSendSystemEmailTemplate: vi.fn(),
+  fetchSystemEmailTestRecipients: vi.fn(),
   updateSystemEmailSettings: vi.fn()
 }))
 
@@ -74,6 +77,8 @@ const mountPage = async () => {
 }
 
 beforeEach(() => {
+  // The editor's test send starts from the signed-in admin's address.
+  setActivePinia(createPinia())
   vi.clearAllMocks()
   vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
     buildTemplate(),
@@ -87,6 +92,8 @@ beforeEach(() => {
   ])
   vi.mocked(fetchSystemEmailSettings).mockResolvedValue({ emailsEnabled: true, updatedAt: null })
   vi.mocked(previewSystemEmailTemplate).mockResolvedValue(preview)
+  // Most tests use an email with nothing of a person's own, so no "of" list.
+  vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue(null)
 })
 
 describe('AdminEmailsPage', () => {
@@ -286,5 +293,98 @@ describe('AdminEmailsPage', () => {
     // Unchanged built-in wording is sent from the template file.
     expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {})
     expect(wrapper.text()).toContain('admin@example.com')
+  })
+
+  it('sends a test to the address typed, with Save green and Restore styled like it', async () => {
+    const wrapper = await mountPage()
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com',
+      sentFrom: 'info@biotechfutures.org'
+    })
+    const control = wrapper.find('[data-test="test-email"]')
+    const send = control.findAll('button').find((button) => button.text() === 'Send Test')!
+
+    await control.find('input').setValue('tester@example.com')
+    await send.trigger('click')
+    await flushPromises()
+
+    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { to: 'tester@example.com' })
+    expect(control.text()).toContain('Test sent to tester@example.com.')
+    // Save is the green button; Restore default and Send Test share the outlined look.
+    const button = (label: string) => wrapper.findAll('button').find((b) => b.text() === label)!
+    expect(button('Save changes').classes()).toEqual(expect.arrayContaining(['btn', 'btn-primary', 'btn-sm']))
+    for (const label of ['Restore default', 'Send Test']) {
+      expect(button(label).classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline', 'btn-sm']))
+    }
+    // An email with nothing of a person's own has no "of" list.
+    expect(control.find('[data-test="test-of"]').exists()).toBe(false)
+  })
+
+  it('tests an email as the group or person picked from its list', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue([
+      { value: '7', label: '(BTF1, mentor) Aga Smith' },
+      { value: '9', label: '(BTF2) Ben Bell' }
+    ])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com'
+    })
+    const wrapper = await mountPage()
+    const control = wrapper.find('[data-test="test-email"]')
+    const of = control.find('[data-test="test-of"]')
+
+    expect(fetchSystemEmailTestRecipients).toHaveBeenCalledWith('password_reset')
+    expect(control.text()).toMatch(/Send Test\s*of\s*(.|\n)*to/)
+    expect(of.findAll('option').map((option) => option.text())).toEqual([
+      '(BTF1, mentor) Aga Smith',
+      '(BTF2) Ben Bell'
+    ])
+    // The first one to start with.
+    expect((of.element as HTMLSelectElement).value).toBe('7')
+
+    await of.setValue('9')
+    await control.find('input').setValue('tester@example.com')
+    await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
+    await flushPromises()
+
+    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', {
+      to: 'tester@example.com',
+      of: '9'
+    })
+  })
+
+  it('falls back to the sample details when nobody is on the list yet', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue([])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com'
+    })
+    const wrapper = await mountPage()
+    const control = wrapper.find('[data-test="test-email"]')
+    const of = control.find('[data-test="test-of"]')
+
+    expect(of.text()).toBe('Nobody yet (sample details)')
+    expect(of.attributes('disabled')).toBeDefined()
+
+    await control.find('input').setValue('tester@example.com')
+    await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
+    await flushPromises()
+
+    expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { to: 'tester@example.com' })
+  })
+
+  it('loads the list again for each email picked', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockImplementation(async (key) =>
+      key === 'login_code' ? [{ value: '3', label: '(BTF3) Cai Chen' }] : null
+    )
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-test="test-of"]').exists()).toBe(false)
+
+    await wrapper.findAll('.email-type-list__item')[1].trigger('click')
+    await flushPromises()
+
+    expect(fetchSystemEmailTestRecipients).toHaveBeenLastCalledWith('login_code')
+    expect(wrapper.find('[data-test="test-of"]').text()).toBe('(BTF3) Cai Chen')
   })
 })
