@@ -14,6 +14,8 @@ class StudentProfile(models.Model):
     has_join_permission = models.BooleanField(default=False)
     joinperm_responseID = models.CharField(max_length=255, null=True)
     joinperm_granted_at = models.DateTimeField(blank=True, null=True)
+    guardian_reminder_sent_at = models.DateTimeField(blank=True, null=True)
+    guardian_reminder_due_at = models.DateTimeField(blank=True, null=True)
     # A guardian change the student asked for after consent was received. The
     # consenting guardian stays on file until the new one consents, at which
     # point the join-permission webhook promotes these into pg_*.

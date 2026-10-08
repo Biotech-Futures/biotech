@@ -11,6 +11,7 @@ from datetime import timedelta
 from typing import Any, Dict
 
 from django.db import transaction
+from django.conf import settings
 from django.utils import timezone
 
 from apps.admin.services.user import fetch_user_by_id
@@ -100,6 +101,11 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             if outcome == SKIPPED:
                 return _result(DISABLED, "Guardian consent request emails are switched off on System Emails.")
             return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
+
+        profile.guardian_reminder_sent_at = now
+        interval = getattr(settings, "GUARDIAN_REMINDER_INTERVAL_DAYS", 0)
+        profile.guardian_reminder_due_at = now + timedelta(days=interval) if interval > 0 else None
+        profile.save(update_fields=["guardian_reminder_sent_at", "guardian_reminder_due_at"])
 
         log_audit_event(
             actor=initiated_by,

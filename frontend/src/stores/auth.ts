@@ -35,10 +35,18 @@ interface User {
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
+  joinperm_granted_at?: string | null
   join_perm_granted_at?: string | null
   pending_guardian?: (GuardianDetails & { requested_at: string }) | null
   interests?: string[]
   supervisor_name?: string | null
+  supervisor_id?: number | null
+  guardian_reminder?: {
+    last_sent_at: string | null
+    next_due_at: string | null
+    can_send: boolean
+    unavailable_reason: string
+  } | null
   supervisor_email?: string | null
   ment_bg?: string | null
   ment_inst?: string | null
@@ -52,6 +60,7 @@ interface User {
     email: string
     relationship_type: string
   }>
+  profile_image_url?: string | null
 }
 
 async function parseResponseJson(response: Response): Promise<any> {

@@ -16,6 +16,7 @@ from apps.services.email_registry import (
 )
 
 EXPECTED_KEYS = {
+    "guardian_invitation",
     "login_code",
     "password_reset",
     "password_changed",

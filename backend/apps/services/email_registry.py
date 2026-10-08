@@ -74,6 +74,20 @@ _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Na
 
 EMAIL_TYPES = (
     EmailType(
+        key="guardian_invitation",
+        name="Guardian permission invitation",
+        description="Requested by a student, or sent by the configured guardian reminder schedule.",
+        default_subject="{{ brand_name }}: Guardian permission for {{ student_name }}",
+        default_template="emails/guardian_invitation.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("student_name", "Student name", "Alex Student", "STUDENT_NAME"),
+            MergeTag("student_email", "Student email to enter on the consent form", "student@example.com", "STUDENT_EMAIL"),
+            MergeTag("consent_url", "Approved guardian consent form", "https://example.com/consent", "CONSENT_URL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="login_code",
         name="Login code",
         description="Sent when a user signs in with their email address.",
