@@ -527,11 +527,15 @@ const onDismiss = () => {
 
 .admin-users-detail__section h3 {
   margin: 0 0 0.4rem;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   color: var(--dark-green);
+}
+
+.admin-users-detail__section + .admin-users-detail__section {
+  margin-top: 1.4rem;
 }
 
 .admin-users-detail__list {
@@ -547,6 +551,7 @@ const onDismiss = () => {
 }
 
 .admin-users-detail__item dt {
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -645,5 +650,7 @@ const onDismiss = () => {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
 }
 </style>

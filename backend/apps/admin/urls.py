@@ -121,4 +121,13 @@ urlpatterns = [
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
+
+    # ========================================================================
+    # USER VIEW ROUTES
+    # ========================================================================
+    path('view/', views.AdminViewListCreateView.as_view(), name='view-list-create'),
+    path('view/bulk-delete/', views.AdminViewBulkDeleteView.as_view(), name='view-bulk-delete'),
+    path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
+    path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
+    path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
 ]
