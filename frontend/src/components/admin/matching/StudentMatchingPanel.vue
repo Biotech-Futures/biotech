@@ -80,26 +80,6 @@
       <MatchingConfigPanel v-if="weightsOpened" />
     </div>
 
-    <!-- Stat tiles -->
-    <div v-if="hasRun" class="student-matching__stats">
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Total groups</p>
-        <p class="student-matching__stat-value">{{ totalGroups }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Visible groups</p>
-        <p class="student-matching__stat-value">{{ visibleGroupCount }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Open seats</p>
-        <p class="student-matching__stat-value">{{ totalOpenSeats }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Waiting students</p>
-        <p class="student-matching__stat-value">{{ waitingCount }}</p>
-      </div>
-    </div>
-
     <p v-if="error" class="student-matching__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -299,9 +279,6 @@ const {
   search,
   groupFilter,
   visibleGroups,
-  totalGroups,
-  visibleGroupCount,
-  totalOpenSeats,
   waitingCount,
   assignmentCount,
   isEmpty,
@@ -431,32 +408,6 @@ const onConfirm = () => {
   color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 600;
-}
-
-/* Stats */
-.student-matching__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.6rem;
-}
-
-.student-matching__stat {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--bg-light);
-}
-
-.student-matching__stat-label {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.student-matching__stat-value {
-  margin: 0.15rem 0 0;
-  font-size: 1.1rem;
-  font-weight: 700;
 }
 
 /* Filters */

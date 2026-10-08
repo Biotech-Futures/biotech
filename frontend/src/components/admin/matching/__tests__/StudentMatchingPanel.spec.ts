@@ -184,15 +184,25 @@ describe('StudentMatchingPanel', () => {
     )
   })
 
-  it('defaults to balanced mode', () => {
+  it('lists the modes Strict, Balanced, Coverage', () => {
     vi.stubGlobal('fetch', fetchMock())
     wrapper = mount(StudentMatchingPanel)
 
     const radios = wrapper.findAll('[role="radio"]')
-    expect(radios.map((radio) => radio.text().trim())).toEqual(['Balanced', 'Strict', 'Coverage'])
+    expect(radios.map((radio) => radio.text().trim())).toEqual(['Strict', 'Balanced', 'Coverage'])
+  })
+
+  it('defaults to balanced mode, though it is not listed first', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(StudentMatchingPanel)
+
     expect(modeButton(wrapper, 'Balanced').attributes('aria-checked')).toBe('true')
     expect(modeButton(wrapper, 'Strict').attributes('aria-checked')).toBe('false')
     expect(modeButton(wrapper, 'Coverage').attributes('aria-checked')).toBe('false')
+
+    await runMatch(wrapper)
+    expect(matchUrls(fetch)).toEqual([expect.stringContaining('/match/student/?mode=balanced')])
   })
 
   it('describes each mode in a tooltip tied to its button', () => {
@@ -298,7 +308,7 @@ describe('StudentMatchingPanel', () => {
     expect(activeCalls).toHaveLength(1)
   })
 
-  it('renders proposed groups, the waiting area and the stats after a run', async () => {
+  it('renders proposed groups and the waiting area after a run', async () => {
     vi.stubGlobal('fetch', fetchMock())
     wrapper = mount(StudentMatchingPanel)
     await runMatch(wrapper)
@@ -308,7 +318,19 @@ describe('StudentMatchingPanel', () => {
     // Unmatched students start in the waiting area.
     expect(wrapper.text()).toContain('Waiting Area')
     expect(wrapper.text()).toContain('Liam Costa')
-    expect(wrapper.text()).toContain('Total groups')
+  })
+
+  it('shows no summary stat tiles, before or after a run', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    wrapper = mount(StudentMatchingPanel)
+
+    // Removed: with no data before a run they had nothing to say, and after a
+    // run the board already shows the same information.
+    const statLabels = ['Total groups', 'Visible groups', 'Open seats', 'Waiting students']
+    for (const label of statLabels) expect(wrapper.text()).not.toContain(label)
+
+    await runMatch(wrapper)
+    for (const label of statLabels) expect(wrapper.text()).not.toContain(label)
   })
 
   it('does not offer already-formed groups as drop targets', async () => {

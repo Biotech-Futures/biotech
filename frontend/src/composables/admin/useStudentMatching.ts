@@ -27,21 +27,23 @@ export interface BoardGroup {
 }
 
 /**
- * Copy for the mode selector. Same three modes as mentor matching, but worded
- * for how build_groups() in algorithms/student.py actually forms groups.
+ * Copy for the mode selector, in display order (Strict → Balanced → Coverage,
+ * narrowest to widest). Same three modes as mentor matching, but worded for
+ * how build_groups() in algorithms/student.py actually forms groups. Order is
+ * display only: the default mode is set in useStudentMatching().
  */
 export const STUDENT_MATCH_MODES: { value: MatchMode; label: string; description: string }[] = [
-  {
-    value: 'balanced',
-    label: 'Balanced',
-    description:
-      'Forms groups within each country first, then groups the remaining students across countries. Picks the highest-scoring groups for the best overall fit.'
-  },
   {
     value: 'strict',
     label: 'Strict',
     description:
       'Only forms groups of students from the same country (a student with no country set can join any group). Students with no same-country match are left waiting.'
+  },
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    description:
+      'Forms groups within each country first, then groups the remaining students across countries. Picks the highest-scoring groups for the best overall fit.'
   },
   {
     value: 'coverage',
@@ -207,11 +209,6 @@ export function useStudentMatching() {
     })
   })
 
-  const totalGroups = computed(() => groups.value.length)
-  const visibleGroupCount = computed(() => visibleGroups.value.length)
-  const totalOpenSeats = computed(() =>
-    groups.value.reduce((sum, group) => sum + openSeatsFor(group), 0)
-  )
   const waitingCount = computed(() => waiting.value.length)
 
   /** Students sitting in a group bucket — i.e. what confirm would write. */
@@ -328,9 +325,6 @@ export function useStudentMatching() {
     search,
     groupFilter,
     visibleGroups,
-    totalGroups,
-    visibleGroupCount,
-    totalOpenSeats,
     waitingCount,
     assignmentCount,
     isEmpty,

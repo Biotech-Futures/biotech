@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/utils/apiError'
 import {
+  MATCHING_WEIGHT_KEYS,
   matchingConfigFieldErrors,
   parseActiveMatchingConfig,
   parseMatchingConfig,
@@ -52,6 +53,18 @@ const expectOk = <T>(result: { ok: true; data: T } | { ok: false; message: strin
   if (!result.ok) throw new Error(`expected a successful parse, got: ${result.message}`)
   return result.data
 }
+
+describe('weight keys', () => {
+  it('has exactly the four scoring weights, in display order', () => {
+    // Country only breaks ties (MA4), so it is not one of the weights.
+    expect(MATCHING_WEIGHT_KEYS).toEqual([
+      'yearWeight',
+      'timezoneWeight',
+      'timezoneMaxWeight',
+      'sizeBonusWeight'
+    ])
+  })
+})
 
 describe('parseMatchingConfig', () => {
   it('turns decimal strings into numbers and snake_case into the frontend shape', () => {
@@ -216,6 +229,14 @@ describe('config request bodies', () => {
     // Totals 90 and has three decimal places: both are the server's to reject.
     expect(body.year_weight).toBe(20)
     expect(body.timezone_weight).toBe(15.555)
+  })
+
+  it('never sends a country weight, even if one is passed in', () => {
+    const stale = { ...weights, countryMismatchWeight: 15 } as typeof weights
+    expect(toCreateConfigBody({ name: 'Student v2', weights: stale })).not.toHaveProperty(
+      'country_mismatch_weight'
+    )
+    expect(toUpdateConfigBody({ weights: stale })).not.toHaveProperty('country_mismatch_weight')
   })
 
   it('builds a partial update body with only the fields given', () => {
