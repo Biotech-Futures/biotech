@@ -196,6 +196,22 @@ class UserGuardianConsentsView(APIView):
         return Response(result, status=code)
 
 
+class UserGuardianConsentRecordView(APIView):
+    """GET: a signed consent's record as a PDF download, read through the
+    backend so no link to it ever leaves the admin page."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id, consent_id):
+        record = guardian_consent.guardian_consent_record(int(user_id), int(consent_id))
+        if record is None:
+            return Response({"msg": "Consent not found.", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        filename, pdf = record
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
+
+
 class UserGuardianConsentWithdrawView(APIView):
     """POST {mediaOnly}: record that the guardian withdrew consent, or only
     media consent."""

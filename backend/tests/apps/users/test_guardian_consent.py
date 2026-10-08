@@ -7,7 +7,9 @@ on event RSVPs.
 """
 import base64
 import io
+import tempfile
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core import mail
 from django.test import TestCase, override_settings
@@ -17,6 +19,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
+from apps.common.storage import get_consent_storage, reset_managed_storage_caches
 from apps.events.models import EventRsvp, Events
 from apps.users import guardian_consent
 from apps.users.consent_form import CURRENT_VERSION
@@ -45,14 +48,28 @@ def make_student(email="wren@example.com", first="Wren", **profile):
     return StudentProfile.objects.create(user=user, **defaults)
 
 
+class TempMediaMixin:
+    """Signing stores a PDF; keep it in a throwaway folder."""
+
+    def use_temp_media(self):
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        setting = override_settings(MEDIA_ROOT=media.name)
+        setting.enable()
+        self.addCleanup(setting.disable)
+        reset_managed_storage_caches()
+        self.addCleanup(reset_managed_storage_caches)
+
+
 def issue(profile):
     _, token = guardian_consent.issue_request(profile, guardian_consent.guardian_to_ask(profile))
     return token
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
-class ConsentPageTests(TestCase):
+class ConsentPageTests(TempMediaMixin, TestCase):
     def setUp(self):
+        self.use_temp_media()
         self.client = APIClient()
         self.profile = make_student()
         self.token = issue(self.profile)
@@ -140,6 +157,34 @@ class ConsentPageTests(TestCase):
         self.assertIn("No, media consent not provided", mail.outbox[0].alternatives[0][0])
         self.assertTrue(AuditLog.objects.filter(action="guardian_consent_signed").exists())
 
+    def test_signing_stores_the_record_pdf_and_attaches_it(self):
+        self.sign()
+
+        consent = GuardianConsent.objects.get()
+        self.assertEqual(consent.record_pdf_key, f"{self.profile.user_id}/{consent.reference}.pdf")
+        with get_consent_storage().open(consent.record_pdf_key) as stored:
+            self.assertTrue(stored.read().startswith(b"%PDF"))
+        [(filename, content, mimetype)] = mail.outbox[0].attachments[1:]  # [0] is the inline logo
+        self.assertEqual(mimetype, "application/pdf")
+        self.assertTrue(filename.startswith(consent.reference))
+        self.assertTrue(content.startswith(b"%PDF"))
+
+    def test_storage_failure_does_not_stop_signing(self):
+        with patch("apps.common.storage.ManagedContainerStorage.save", side_effect=OSError("down")):
+            response = self.sign()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        consent = GuardianConsent.objects.get()
+        self.assertEqual(consent.record_pdf_key, "")
+        self.assertEqual(len(mail.outbox), 1)  # still sent, with the PDF
+
+    def test_record_renders_names_outside_western_scripts(self):
+        profile = make_student(email="li@example.com", first="李", pg_email="g3@example.com")
+
+        response = self.sign(issue(profile), guardianFullName="王 芳")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_a_link_signs_once(self):
         self.sign()
 
@@ -188,8 +233,9 @@ class ConsentPageTests(TestCase):
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
-class AdminConsentTests(TestCase):
+class AdminConsentTests(TempMediaMixin, TestCase):
     def setUp(self):
+        self.use_temp_media()
         self.admin = User.objects.create_user(email="admin@example.com", password="x")
         AdminScope.objects.create(user=self.admin)
         self.client = APIClient()
@@ -215,6 +261,35 @@ class AdminConsentTests(TestCase):
 
         self.assertIs(response.data["data"]["mediaConsent"], True)
         self.assertEqual(response.data["data"]["joinpermResponseId"][:4], "BTF-")
+
+    def test_downloads_the_signed_record(self):
+        consent = GuardianConsent.objects.get()
+
+        response = self.client.get(f"{self.base}/guardian-consents/{consent.pk}/record/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn(f'filename="{consent.reference}', response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_rebuilds_a_missing_record(self):
+        consent = GuardianConsent.objects.get()
+        get_consent_storage().delete(consent.record_pdf_key)
+
+        response = self.client.get(f"{self.base}/guardian-consents/{consent.pk}/record/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.content.startswith(b"%PDF"))
+        consent.refresh_from_db()
+        self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
+
+    def test_record_belongs_to_its_student(self):
+        consent = GuardianConsent.objects.get()
+        other = make_student(email="other2@example.com", pg_email="g4@example.com")
+
+        response = self.client.get(f"/api/v1/admin/user/{other.user_id}/guardian-consents/{consent.pk}/record/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_withdrawing_media_consent_keeps_participation(self):
         response = self.client.post(f"{self.base}/guardian-consent-withdrawal/", {"mediaOnly": True}, format="json")

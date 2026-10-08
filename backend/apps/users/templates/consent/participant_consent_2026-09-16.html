@@ -19,17 +19,8 @@
 
 <p>By signing this form, I confirm that:</p>
 <ul>
-  <li>I am the parent, guardian or other person authorised to provide consent for {{ student_name }}.</li>
-  <li>I give permission for {{ student_name }} to participate in the {{ brand_name }} Challenge and its related online activities, subject to the Challenge Participant Terms and Conditions.</li>
-  <li>I understand that attendance at in-person {{ brand_name }} events is permitted only where media consent is provided. This includes, but is not limited to, workshops, campus or laboratory visits, networking events and the Symposium.</li>
-  <li>I have read and acknowledge the Challenge Participant Terms and Conditions, Child Safety Policy and Privacy Policy. I will support the participant to follow the applicable participation, conduct, communication and safety requirements.</li>
-  <li>I understand that the Challenge may involve teamwork, approved online communication, mentor guidance, workshops, webinars, submissions, judging and the Symposium.</li>
-  <li>I understand that particular activities, including laboratory visits, campus visits, travel or activities with additional safety requirements, may require further information or a separate activity-specific consent form.</li>
-  <li>I consent to {{ brand_name }} collecting and handling the participant’s personal information, including any emergency, medical or accessibility information provided, as described in the Privacy Policy and where reasonably necessary for program delivery and safety.</li>
-  <li>I understand that the participant retains ownership of their pre-existing ideas and intellectual property. When Challenge materials are submitted, the team gives {{ brand_name }} the non-exclusive permission described in section 15 of the Challenge Participant Terms and Conditions.</li>
-  <li>I understand that the participant may withdraw from the Challenge by contacting <a href="mailto:{{ support_email }}">{{ support_email }}</a>, subject to the arrangements for existing team submissions and previously published material explained in section 20 of the Challenge Participant Terms and Conditions.</li>
-  <li>I understand that this consent does not waive any right or protection that cannot lawfully be excluded. It does not release {{ brand_name }} or another party from liability for negligence, breach of law or other liability that cannot be excluded.</li>
-</ul>
+{% for statement in participation %}  <li>{{ statement|urlize }}</li>
+{% endfor %}</ul>
 
 <h2>Media consent</h2>
 

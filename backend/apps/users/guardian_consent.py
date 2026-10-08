@@ -10,20 +10,26 @@ import base64
 import binascii
 import hashlib
 import io
+import logging
 import secrets
 from datetime import timedelta
 from typing import NamedTuple, Optional
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import dateformat, timezone
 from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
+from apps.common.storage import get_consent_storage
 from apps.services.system_email import send_system_email
 
 from .consent_form import CURRENT_VERSION, render_consent_form
+from .consent_pdf import render_consent_pdf
 from .models import GuardianConsent, GuardianConsentRequest, StudentProfile
+
+logger = logging.getLogger(__name__)
 
 LINK_LIFETIME = timedelta(days=14)
 # The drawn signature, as a PNG data URL from the page's canvas.
@@ -220,6 +226,8 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             },
         )
 
+    pdf = render_consent_pdf(consent)
+    store_record_pdf(consent, pdf)
     send_system_email(
         "guardian_consent_confirmation",
         [consent.guardian_email],
@@ -231,8 +239,45 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             "CONSENT_REFERENCE": consent.reference,
         },
         background=True,
+        files=[(record_pdf_filename(consent), pdf, "application/pdf")],
     )
     return consent
+
+
+def record_pdf_filename(consent: GuardianConsent) -> str:
+    # The reference alone: plain ASCII whatever the student's name is written in.
+    return f"{consent.reference}-consent-record.pdf"
+
+
+def store_record_pdf(consent: GuardianConsent, pdf: bytes) -> bool:
+    """Keep the signed record in the consents container. A failure is logged,
+    not raised: the consent is already recorded and the PDF can be rebuilt
+    from it whenever it's next asked for."""
+    try:
+        key = get_consent_storage().save(f"{consent.student_id}/{consent.reference}.pdf", ContentFile(pdf))
+    except Exception as exc:
+        logger.error("guardian_consent.record_store_failed consent=%s error=%s", consent.pk, type(exc).__name__)
+        return False
+    consent.record_pdf_key = key
+    consent.save(update_fields=["record_pdf_key"])
+    return True
+
+
+def record_pdf_bytes(consent: GuardianConsent) -> bytes:
+    """The signed record's PDF: the stored copy, or a rebuilt one (stored for
+    next time) if it was never stored or has gone missing."""
+    storage = get_consent_storage()
+    if consent.record_pdf_key:
+        try:
+            with storage.open(consent.record_pdf_key) as stored:
+                return stored.read()
+        except Exception as exc:
+            logger.warning(
+                "guardian_consent.record_open_failed consent=%s error=%s", consent.pk, type(exc).__name__,
+            )
+    pdf = render_consent_pdf(consent)
+    store_record_pdf(consent, pdf)
+    return pdf
 
 
 def withdraw(profile: StudentProfile, *, media_only: bool, initiated_by=None) -> None:

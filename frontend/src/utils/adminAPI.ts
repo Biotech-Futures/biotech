@@ -400,6 +400,31 @@ export const fetchGuardianConsents = (userId: string | number) =>
     (env) => env.data || []
   )
 
+/** Download a signed consent's PDF record, sent with the admin's session like any admin call. */
+export const downloadGuardianConsentRecord = async (
+  userId: string | number,
+  consent: Pick<AdminGuardianConsent, 'id' | 'reference'>
+) => {
+  const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: 'application/pdf' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`${ADMIN_API_BASE}/user/${userId}/guardian-consents/${consent.id}/record/`, {
+    credentials: 'include',
+    headers
+  })
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Could not download the consent record.')
+
+  const blobUrl = window.URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = `${consent.reference}-consent-record.pdf`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}
+
 export const withdrawGuardianConsent = (userId: string | number, mediaOnly: boolean) =>
   adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-withdrawal/`, { mediaOnly }).then(
     (env) => ({ msg: env.msg, data: env.data })

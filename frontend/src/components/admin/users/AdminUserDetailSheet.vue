@@ -192,6 +192,15 @@
               Media consent: {{ consent.mediaConsent ? 'Yes' : 'No' }}<template v-if="consent.mediaWithdrawnAt">, withdrawn {{ formatFullDate(consent.mediaWithdrawnAt) }}</template>
             </p>
             <img :src="consent.signature" :alt="`Signature of ${consent.guardianFullName}`" class="admin-users-detail__signature" />
+            <button
+              type="button"
+              class="btn btn-outline btn-sm admin-users-detail__record"
+              data-test="admin-download-record"
+              :disabled="downloadingId === consent.id"
+              @click="downloadRecord(consent)"
+            >
+              {{ downloadingId === consent.id ? 'Downloading…' : 'Download PDF' }}
+            </button>
           </li>
         </ul>
       </section>
@@ -282,7 +291,12 @@
 import { computed, ref, watch } from 'vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
-import { fetchGuardianConsents, sendGuardianConsentRequest, withdrawGuardianConsent } from '@/utils/adminAPI'
+import {
+  downloadGuardianConsentRecord,
+  fetchGuardianConsents,
+  sendGuardianConsentRequest,
+  withdrawGuardianConsent
+} from '@/utils/adminAPI'
 import type { AdminGuardianConsent, AdminUser } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
@@ -388,6 +402,21 @@ const toggleConsents = async () => {
     showConsentsMessage(apiErrorFromUnknown(error, 'Could not load the signed form.').message, true)
   } finally {
     consentsLoading.value = false
+  }
+}
+
+const downloadingId = ref<number | null>(null)
+
+const downloadRecord = async (consent: AdminGuardianConsent) => {
+  const user = props.user
+  if (!user || downloadingId.value !== null) return
+  downloadingId.value = consent.id
+  try {
+    await downloadGuardianConsentRecord(user.id, consent)
+  } catch (error) {
+    showConsentsMessage(apiErrorFromUnknown(error, 'Could not download the consent record.').message, true)
+  } finally {
+    downloadingId.value = null
   }
 }
 
@@ -601,6 +630,10 @@ const onDismiss = () => {
   background: var(--white, #ffffff);
   border: 1px solid var(--border-light);
   border-radius: 6px;
+}
+
+.admin-users-detail__record {
+  margin-top: 0.5rem;
 }
 
 .admin-users-detail__supervisees {

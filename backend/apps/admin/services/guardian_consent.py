@@ -16,7 +16,7 @@ from apps.admin.services.user import fetch_user_by_id
 from apps.audit.services import log_audit_event
 from apps.services.system_email import FAILED, SKIPPED, send_system_email
 from apps.users import guardian_consent as consent
-from apps.users.models import GuardianConsentRequest, StudentProfile
+from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 EMAIL_KEY = "guardian_consent_request"
 
@@ -132,6 +132,19 @@ def list_guardian_consents(user_id: int) -> Dict[str, Any]:
         for c in profile.consents.order_by("-signed_at")
     ]
     return {"msg": "Consents retrieved successfully", "data": items}
+
+
+def guardian_consent_record(user_id: int, consent_id: int):
+    """The signed record PDF for one of student ``user_id``'s consents, as
+    (filename, bytes), or None if there's no such consent."""
+    record = (
+        GuardianConsent.objects.select_related("student__user")
+        .filter(pk=consent_id, student__user_id=user_id)
+        .first()
+    )
+    if record is None:
+        return None
+    return consent.record_pdf_filename(record), consent.record_pdf_bytes(record)
 
 
 def withdraw_guardian_consent(user_id: int, *, media_only: bool, initiated_by=None) -> Dict[str, Any]:

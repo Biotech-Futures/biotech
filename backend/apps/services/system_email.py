@@ -399,8 +399,10 @@ def send_system_email(
     background: bool = False,
     connection=None,
     from_email: Optional[str] = None,
+    files=(),
 ) -> str:
-    """Check, render and send email ``key`` to one recipient.
+    """Check, render and send email ``key`` to one recipient, with ``files``
+    ((filename, content, mimetype) each) attached if given.
 
     Returns ``SENT``, ``SKIPPED`` (type switched off) or ``FAILED``. Never raises
     for send errors. With ``background=True`` the message is handed to the mail
@@ -416,7 +418,7 @@ def send_system_email(
         # From the mailbox picked for it on System Emails, signed in as it.
         sender = sender_for(key)
         from_email, connection = sender.from_email, sender_connection(sender)
-    message = build_message(rendered, to, from_email=from_email, connection=connection)
+    message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
 
     if background:
         send_async(message, kind=key)

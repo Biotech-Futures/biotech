@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AdminUserFormSheet from '../AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
 import {
+  downloadGuardianConsentRecord,
   fetchGuardianConsents,
   sendGuardianConsentRequest,
   updateAdminUser,
@@ -17,7 +18,8 @@ vi.mock('@/utils/adminAPI', () => ({
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),
   fetchGuardianConsents: vi.fn(),
-  withdrawGuardianConsent: vi.fn()
+  withdrawGuardianConsent: vi.fn(),
+  downloadGuardianConsentRecord: vi.fn()
 }))
 
 const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -314,6 +316,10 @@ describe('admin user detail: signed consent and withdrawal', () => {
     const list = wrapper.find('[data-test="admin-signed-consents"]')
     expect(list.text()).toContain('Signed by Pat Parent')
     expect(list.find('img').attributes('src')).toBe('data:image/png;base64,AAAA')
+
+    await list.find('[data-test="admin-download-record"]').trigger('click')
+    await flushPromises()
+    expect(downloadGuardianConsentRecord).toHaveBeenCalledWith(7, expect.objectContaining({ id: 3, reference: 'BTF-3' }))
   })
 
   it('hides the media withdrawal once media consent is already no', () => {
