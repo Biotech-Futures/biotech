@@ -10,7 +10,7 @@
 {% block footer_reason %}emails about your registration{% endblock %}
 
 {% block content %}
-              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
                 Hi {{ STUDENT_FIRST_NAME|default:"there" }},
               </p>
 
@@ -18,14 +18,14 @@
                 Your parent/guardian information is required for <span style="color:#307054;">{{ BRAND_NAME }}</span>.
               </h1>
 
-              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 A supervisor or peer has registered you for {{ BRAND_NAME }} without your parent/guardian contact information. Please complete this brief form so we can send them a permission form and complete your registration. Should you have any questions please don't hesitate to reach out to our team at <a href="mailto:{{ SENDER_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ SENDER_EMAIL }}</a>
               </p>
 
               <!-- CTA: bulletproof button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
                 <tr>
-                  <td align="center" style="padding:28px 0 8px 0;">
+                  <td align="center" style="padding:24px 0 24px 0;">
                     <!--[if mso]>
                     <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ DETAILS_URL }}" style="height:48px;v-text-anchor:middle;width:300px;" arcsize="12%" strokecolor="#007253" fillcolor="#C3EBCA">
                       <w:anchorlock/>

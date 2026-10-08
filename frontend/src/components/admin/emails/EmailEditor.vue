@@ -453,46 +453,15 @@ const insertIntoSubject = (token: string) => {
   color: var(--info);
 }
 
-:root[data-theme='dark'] .email-editor :deep(.raw-html-textarea),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h1),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h2),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h3),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror h4) {
+:root[data-theme='dark'] .email-editor :deep(.raw-html-textarea) {
   color: var(--charcoal);
 }
 
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror blockquote) {
-  color: var(--text-muted);
-  border-left-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror a) {
-  color: var(--info);
-}
-
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror code),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th) {
-  background-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror th),
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror td) {
-  border-color: var(--border-light);
-}
-
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror hr) {
-  border-top-color: var(--border-light);
-}
-
-/* The email's own boxes keep their light backgrounds, so their text stays
-   dark and their links blue. */
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box) {
-  color: #1f2937;
-}
-
-:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror .email-box a:not([style])) {
-  color: #2563eb;
+/* The writing area stays white, like the email itself, so the template's own
+   text colours read as they will in the inbox. */
+:root[data-theme='dark'] .email-editor :deep(.rich-editor-content-area),
+:root[data-theme='dark'] .email-editor :deep(.tiptap.ProseMirror) {
+  background-color: #ffffff;
 }
 </style>
 

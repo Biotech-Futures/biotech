@@ -7,6 +7,16 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
 import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import {
+  EmailTextStyle,
+  EmailTextStyles,
+  TEXT_COLOURS,
+  TEXT_GAPS,
+  TEXT_SIZES,
+  gapBelowSelection,
+  hasGapTarget,
+  styleValue
+} from './emailTextStyle'
 import LinkDialog from './LinkDialog.vue'
 
 interface Props {
@@ -84,7 +94,9 @@ const editor = useEditor({
     }),
     // Emails keep the boxes and buttons of their built-in design; announcements
     // can have them too.
-    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : [])
+    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : []),
+    // Emails also keep their text's colours, sizes and spacing.
+    ...(props.emailMode ? [EmailTextStyle, EmailTextStyles] : [])
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -204,7 +216,7 @@ function removeLink() {
 
 // -- Email boxes and buttons (email mode) ------------------------------------
 
-const emailMenu = ref<'box' | 'button' | null>(null)
+const emailMenu = ref<'box' | 'button' | 'colour' | 'size' | 'gap' | null>(null)
 const emailMenuOnRight = ref(false)
 
 /** The look of the box or button the cursor is in, if it's one of the offered looks. */
@@ -220,7 +232,56 @@ const buttonLook = computed(() => {
   return lookOf(BUTTON_LOOKS, editor.value.getAttributes('emailButton').style ?? '')?.id ?? null
 })
 
-function toggleEmailMenu(menu: 'box' | 'button', event: MouseEvent) {
+/** The colour and size on the selected text, if it has its own. */
+const textColour = computed(() => {
+  void updateTick.value
+  return styleValue(editor.value?.getAttributes('emailTextStyle').style, 'color')
+})
+
+const textSize = computed(() => {
+  void updateTick.value
+  return styleValue(editor.value?.getAttributes('emailTextStyle').style, 'font-size')
+})
+
+/** Colour the selected text, or (null) take its colour off. */
+function chooseTextColour(colour: string | null) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setTextColour(colour).run()
+}
+
+/** Resize the selected text, or (null) take its size off. */
+function chooseTextSize(size: string | null) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setTextSize(size).run()
+}
+
+/** The gap below the selected paragraph, e.g. "24px", if it's set. */
+const gapBelow = computed(() => {
+  void updateTick.value
+  return editor.value ? gapBelowSelection(editor.value.state) : null
+})
+
+/** Whether the cursor is somewhere a gap can be set: text, a box or a button. */
+const canSetGap = computed(() => {
+  void updateTick.value
+  return !!editor.value && hasGapTarget(editor.value.state)
+})
+
+/** The gap now, when it isn't one of the offered gaps: "Now: 16px", or
+ *  "Now: default" when none is set (the email app's usual space). */
+const gapNote = computed(() => {
+  if (!canSetGap.value) return 'Click in text, a box or a button first'
+  if (TEXT_GAPS.some((gap) => gap.value === gapBelow.value)) return null
+  return gapBelow.value ? `Now: ${gapBelow.value}` : 'Now: default'
+})
+
+/** Set the gap below the selected paragraphs and headings. */
+function chooseGap(gap: string) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setGapBelow(gap).run()
+}
+
+function toggleEmailMenu(menu: 'box' | 'button' | 'colour' | 'size' | 'gap', event: MouseEvent) {
   if (emailMenu.value === menu) {
     emailMenu.value = null
     return
@@ -436,6 +497,123 @@ defineExpose({ insertText })
               </button>
             </div>
           </div>
+
+          <!-- Text colour and size, kept on save (email mode) -->
+          <template v-if="emailMode">
+            <div class="toolbar-sep"></div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: !!textColour }"
+                title="Colour the selected text"
+                data-test="text-colour"
+                @mousedown.prevent="toggleEmailMenu('colour', $event)"
+              >
+                <i class="fas fa-palette"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'colour'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <button
+                  v-for="colour in TEXT_COLOURS"
+                  :key="colour.value"
+                  type="button"
+                  class="dropdown-item email-look-item"
+                  :class="{ active: textColour?.toLowerCase() === colour.value }"
+                  @mousedown.prevent="chooseTextColour(colour.value)"
+                >
+                  <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
+                  {{ colour.label }}
+                </button>
+                <template v-if="textColour">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
+                    No colour
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: !!textSize }"
+                title="Resize the selected text"
+                data-test="text-size"
+                @mousedown.prevent="toggleEmailMenu('size', $event)"
+              >
+                <i class="fas fa-text-height"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'size'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <button
+                  v-for="size in TEXT_SIZES"
+                  :key="size.value"
+                  type="button"
+                  class="dropdown-item"
+                  :class="{ active: textSize === size.value }"
+                  :style="{ fontSize: size.value }"
+                  @mousedown.prevent="chooseTextSize(size.value)"
+                >
+                  {{ size.label }}
+                </button>
+                <template v-if="textSize">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
+                    Normal size
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                title="Gap below the selected paragraphs, box or button"
+                data-test="text-gap"
+                @mousedown.prevent="toggleEmailMenu('gap', $event)"
+              >
+                <i class="fas fa-arrows-up-down"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'gap'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <template v-if="gapNote">
+                  <div
+                    class="dropdown-item gap-now"
+                    :class="{ active: canSetGap }"
+                    data-test="gap-now"
+                    :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
+                  >
+                    {{ gapNote }}
+                  </div>
+                  <div class="email-look-sep"></div>
+                </template>
+                <button
+                  v-for="gap in TEXT_GAPS"
+                  :key="gap.value"
+                  type="button"
+                  class="dropdown-item"
+                  :class="{ active: gapBelow === gap.value }"
+                  :disabled="!canSetGap"
+                  @mousedown.prevent="chooseGap(gap.value)"
+                >
+                  {{ gap.label }} ({{ gap.value }})
+                </button>
+              </div>
+            </div>
+          </template>
 
           <div class="toolbar-sep"></div>
 
@@ -995,6 +1173,11 @@ defineExpose({ insertText })
   background-color: #eff6ff;
   color: #2563eb;
   font-weight: 600;
+}
+
+/* The gap now, when it isn't one on offer: shown, not picked. */
+.dropdown-item.gap-now {
+  cursor: default;
 }
 
 .email-look-menu {

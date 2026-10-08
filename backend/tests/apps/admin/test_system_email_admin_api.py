@@ -191,7 +191,7 @@ class SystemEmailAdminServiceTests(TestCase):
         '<a class="cta-link sneaky" href="{{ reset_link }}" onclick="steal()" '
         'style="display: inline-block; background-color: rgb(1, 113, 81); color: rgb(255, 255, 255);">'
         "Reset</a></div>"
-        '<p style="color: red;">Plain text stays plain.</p>'
+        '<p style="color: red; position: fixed;">Text keeps its colour.</p>'
     )
 
     def assertKeepsBoxAndButton(self, html):
@@ -201,7 +201,7 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn('class="email-button"', html)
         self.assertIn('class="cta-link"', html)
         self.assertIn("background-color:rgb(1, 113, 81)", html)
-        self.assertIn("<p>Plain text stays plain.</p>", html)
+        self.assertIn('<p style="color:red">Text keeps its colour.</p>', html)
         for gone in ("position", "url(", "tracker", "onclick", "sneaky"):
             self.assertNotIn(gone, html)
 
@@ -529,6 +529,25 @@ class SystemEmailAdminApiTests(TestCase):
         body = response.json()["data"]["body"]
         self.assertIn("background-color:rgb(233, 246, 241)", body)
         self.assertIn('class="cta-link"', body)
+        self.assertNotIn("position", body)
+        self.assertNotIn("url(", body)
+
+    def test_patch_keeps_text_colours_and_sizes(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/",
+            {"body": (
+                '<p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; position:fixed">Hi Pat,</p>'
+                '<h1 style="font-size:26px">Your action is required for a recent '
+                '<span style="color:#307054; background-image:url(x)">BIOTech Futures</span> registration.</h1>'
+                '<p><strong style="color:#017151">You will not be able to participate.</strong></p>'
+                '<hr style="border:none; height:1px">'
+            )},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()["data"]["body"]
+        for kept in ("color:#6d7a72", "font-size:14px", "font-size:26px", "color:#307054", "color:#017151", "height:1px"):
+            self.assertIn(kept, body)
         self.assertNotIn("position", body)
         self.assertNotIn("url(", body)
 
