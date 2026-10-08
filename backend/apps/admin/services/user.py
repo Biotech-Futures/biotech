@@ -4,7 +4,7 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, OuterRef, Q, ProtectedError
+from django.db.models import Exists, Max, OuterRef, Q, ProtectedError
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -416,10 +416,20 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
             sp.joinperm_granted_at.isoformat() if sp and sp.joinperm_granted_at else None
         ),
         "pendingGuardian": pending,
-        "consentRequestSentAt": (
-            sp.guardian_request_sent_at.isoformat() if sp and sp.guardian_request_sent_at else None
-        ),
+        "mediaConsent": sp.media_consent if sp else None,
+        # Only on profiles loaded with_consent_request_sent_at().
+        "consentRequestSentAt": _iso(getattr(sp, "last_consent_request_at", None)),
     }
+
+
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def with_consent_request_sent_at(queryset):
+    """Student profiles with when a consent request was last sent, in the same
+    query, for the admin payload."""
+    return queryset.annotate(last_consent_request_at=Max("consent_requests__created_at"))
 
 
 GUARDIAN_AUDIT_KEYS = (
@@ -521,7 +531,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     except User.DoesNotExist:
         return None
 
-    student_profile = StudentProfile.objects.filter(user_id=user_id).first()
+    student_profile = with_consent_request_sent_at(StudentProfile.objects.filter(user_id=user_id)).first()
     supervisor_profile = SupervisorProfile.objects.filter(user_id=user_id).first()
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
     user_is_admin = is_admin_user(user_id)
@@ -701,7 +711,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     }
 
     student_profiles = {
-        sp.user_id: sp for sp in StudentProfile.objects.filter(user_id__in=user_ids)
+        sp.user_id: sp
+        for sp in with_consent_request_sent_at(StudentProfile.objects.filter(user_id__in=user_ids))
     }
     supervisor_profiles = {
         sp.user_id: sp for sp in SupervisorProfile.objects.filter(user_id__in=user_ids)

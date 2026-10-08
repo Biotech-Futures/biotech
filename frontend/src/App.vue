@@ -396,7 +396,8 @@ const toggleTheme = () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
+  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path) ||
+  route.meta.public === true,
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(

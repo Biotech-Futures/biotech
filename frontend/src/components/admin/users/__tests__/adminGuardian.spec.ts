@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AdminUserFormSheet from '../AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
-import { sendGuardianConsentRequest, updateAdminUser } from '@/utils/adminAPI'
+import {
+  fetchGuardianConsents,
+  sendGuardianConsentRequest,
+  updateAdminUser,
+  withdrawGuardianConsent
+} from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 import type { AdminUser } from '@/utils/adminAPI'
 
@@ -10,7 +15,9 @@ vi.mock('@/utils/adminAPI', () => ({
   createAdminUser: vi.fn(),
   updateAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
   setAdminUserActive: vi.fn(),
-  sendGuardianConsentRequest: vi.fn()
+  sendGuardianConsentRequest: vi.fn(),
+  fetchGuardianConsents: vi.fn(),
+  withdrawGuardianConsent: vi.fn()
 }))
 
 const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -36,6 +43,7 @@ const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
   joinpermResponseId: null,
   joinPermissionGrantedAt: null,
   pendingGuardian: null,
+  mediaConsent: null,
   consentRequestSentAt: null,
   interests: ['Biomedical Innovations'],
   isAdmin: false,
@@ -257,5 +265,72 @@ describe('admin user detail: consent request', () => {
     expect(message.text()).toBe('A consent request was just sent. Try again in 9 minutes.')
     expect(message.classes()).toContain('admin-users-detail__consent-message--error')
     expect(wrapper.emitted('updated')).toBeUndefined()
+  })
+})
+
+describe('admin user detail: signed consent and withdrawal', () => {
+  const openDetail = (user: AdminUser) =>
+    mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
+  const consented = (overrides: Partial<AdminUser> = {}) =>
+    student({ joinPermissionReceived: true, joinpermResponseId: 'BTF-3', mediaConsent: true, ...overrides })
+
+  beforeEach(() => {
+    vi.mocked(fetchGuardianConsents).mockReset()
+    vi.mocked(withdrawGuardianConsent).mockReset()
+  })
+
+  it('shows the media consent answer', () => {
+    expect(openDetail(consented()).find('[data-test="admin-media-consent"]').text()).toContain('Yes')
+    expect(openDetail(consented({ mediaConsent: false })).find('[data-test="admin-media-consent"]').text())
+      .toContain('not permitted at in-person events')
+    expect(openDetail(consented({ joinpermResponseId: 'R_1', mediaConsent: null })).find('[data-test="admin-media-consent"]').text())
+      .toContain('Not recorded')
+  })
+
+  it('shows the signed form only for consent signed on the platform', () => {
+    expect(openDetail(consented()).find('[data-test="admin-view-consent"]').exists()).toBe(true)
+    expect(openDetail(consented({ joinpermResponseId: 'R_1' })).find('[data-test="admin-view-consent"]').exists()).toBe(false)
+  })
+
+  it('loads the signed form with its signature', async () => {
+    vi.mocked(fetchGuardianConsents).mockResolvedValue([{
+      id: 3,
+      reference: 'BTF-3',
+      guardianFullName: 'Pat Parent',
+      guardianEmail: 'pat@example.com',
+      mediaConsent: true,
+      consentVersion: '2026-09-16',
+      signedAt: '2026-10-08T03:00:00Z',
+      withdrawnAt: null,
+      mediaWithdrawnAt: null,
+      signature: 'data:image/png;base64,AAAA'
+    }])
+    const wrapper = openDetail(consented())
+
+    await wrapper.find('[data-test="admin-view-consent"]').trigger('click')
+    await flushPromises()
+
+    expect(fetchGuardianConsents).toHaveBeenCalledWith(7)
+    const list = wrapper.find('[data-test="admin-signed-consents"]')
+    expect(list.text()).toContain('Signed by Pat Parent')
+    expect(list.find('img').attributes('src')).toBe('data:image/png;base64,AAAA')
+  })
+
+  it('hides the media withdrawal once media consent is already no', () => {
+    expect(openDetail(consented({ mediaConsent: false })).find('[data-test="admin-withdraw-media"]').exists()).toBe(false)
+  })
+
+  it('records a withdrawal after confirming and passes the updated user up', async () => {
+    const updated = consented({ mediaConsent: false })
+    vi.mocked(withdrawGuardianConsent).mockResolvedValue({ msg: 'Media consent withdrawn.', data: updated })
+    const wrapper = openDetail(consented())
+
+    await wrapper.find('[data-test="admin-withdraw-media"]').trigger('click')
+    wrapper.findComponent({ name: 'ConfirmDialog' }).vm.$emit('confirm')
+    await flushPromises()
+
+    expect(withdrawGuardianConsent).toHaveBeenCalledWith(7, true)
+    expect(wrapper.emitted('updated')?.[0]).toEqual([updated])
+    expect(wrapper.find('[data-test="admin-consent-message"]').text()).toBe('Media consent withdrawn.')
   })
 })

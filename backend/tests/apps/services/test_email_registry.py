@@ -31,6 +31,7 @@ EXPECTED_KEYS = {
     "results_team",
     "results_supervisor",
     "guardian_consent_request",
+    "guardian_consent_confirmation",
 }
 
 

@@ -1,4 +1,5 @@
 from django.urls import path
+from .consent_views import GuardianConsentView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -37,6 +38,7 @@ urlpatterns = [
     path("users/", UserListHTMLView.as_view(), name="UserListHTMLView"),
     path('registration', UserRegisterView.as_view(), name = "registration"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
+    path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),
     path("admin/summary/", AdminOperationalSummaryView.as_view(), name="admin-summary"),
     path("admin/users/bulk-status/", BulkUserStatusView.as_view(), name="admin-bulk-user-status"),
 ]

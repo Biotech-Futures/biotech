@@ -106,6 +106,10 @@
             <dt>Recorded</dt>
             <dd>{{ formatFullDate(user.joinPermissionGrantedAt) }}</dd>
           </div>
+          <div v-if="user.joinPermissionReceived" class="admin-users-detail__item" data-test="admin-media-consent">
+            <dt>Media consent</dt>
+            <dd :class="{ 'admin-users-detail__flag': user.mediaConsent === false }">{{ mediaConsentLabel }}</dd>
+          </div>
           <div v-if="user.pendingGuardian" class="admin-users-detail__item" data-test="admin-pending-guardian">
             <dt>Requested change</dt>
             <dd>
@@ -139,6 +143,57 @@
           </p>
           <p v-else class="admin-users-detail__consent-hint">Emails the consent form to {{ consentRequestTo }}.</p>
         </div>
+
+        <div v-if="user.joinPermissionReceived" class="admin-users-detail__consent-actions">
+          <button
+            v-if="signedOnPlatform"
+            type="button"
+            class="btn btn-outline btn-sm"
+            data-test="admin-view-consent"
+            :disabled="consentsLoading"
+            @click="toggleConsents"
+          >
+            {{ consentsOpen ? 'Hide signed form' : 'View signed form' }}
+          </button>
+          <button
+            v-if="user.mediaConsent !== false"
+            type="button"
+            class="btn btn-outline btn-sm"
+            data-test="admin-withdraw-media"
+            @click="askWithdraw(true)"
+          >
+            Record media withdrawal
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" data-test="admin-withdraw-consent" @click="askWithdraw(false)">
+            Record consent withdrawal
+          </button>
+        </div>
+        <p
+          v-if="consentsMessage"
+          class="admin-users-detail__consent-message"
+          :class="{ 'admin-users-detail__consent-message--error': consentsFailed }"
+          role="status"
+          data-test="admin-consent-message"
+        >
+          {{ consentsMessage }}
+        </p>
+
+        <ul v-if="consentsOpen && consents.length" class="admin-users-detail__consents" data-test="admin-signed-consents">
+          <li v-for="consent in consents" :key="consent.id" class="admin-users-detail__consent">
+            <p class="admin-users-detail__consent-head">
+              <strong>{{ consent.reference }}</strong>
+              <span v-if="consent.withdrawnAt" class="admin-users-detail__flag">Withdrawn {{ formatFullDate(consent.withdrawnAt) }}</span>
+            </p>
+            <p>
+              Signed by {{ consent.guardianFullName }} ({{ consent.guardianEmail }}) on
+              {{ formatFullDate(consent.signedAt) }}, form version {{ consent.consentVersion }}.
+            </p>
+            <p>
+              Media consent: {{ consent.mediaConsent ? 'Yes' : 'No' }}<template v-if="consent.mediaWithdrawnAt">, withdrawn {{ formatFullDate(consent.mediaWithdrawnAt) }}</template>
+            </p>
+            <img :src="consent.signature" :alt="`Signature of ${consent.guardianFullName}`" class="admin-users-detail__signature" />
+          </li>
+        </ul>
       </section>
 
       <section v-if="user?.role === 'mentor'" class="admin-users-detail__section">
@@ -203,6 +258,19 @@
       </section>
     </div>
 
+    <ConfirmDialog
+      v-model="withdrawDialog.open"
+      :title="withdrawDialog.mediaOnly ? 'Record media consent withdrawal?' : 'Record consent withdrawal?'"
+      :message="withdrawDialog.mediaOnly
+        ? 'Do this when the guardian has asked to withdraw media consent. The student stays consented to take part, but will be flagged on in-person events.'
+        : 'Do this when the guardian has asked to withdraw consent. The student will no longer be recorded as consented, and a new consent request can be sent.'"
+      :confirm-label="withdrawDialog.mediaOnly ? 'Record media withdrawal' : 'Record withdrawal'"
+      busy-label="Saving..."
+      variant="danger"
+      :busy="withdrawing"
+      @confirm="confirmWithdraw"
+    />
+
     <div class="admin-users-detail__footer">
       <button type="button" class="btn btn-outline" @click="onDismiss">Close</button>
       <button v-if="user" type="button" class="btn btn-primary" @click="emit('edit', user)">Edit</button>
@@ -212,9 +280,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
-import { sendGuardianConsentRequest } from '@/utils/adminAPI'
-import type { AdminUser } from '@/utils/adminAPI'
+import { fetchGuardianConsents, sendGuardianConsentRequest, withdrawGuardianConsent } from '@/utils/adminAPI'
+import type { AdminGuardianConsent, AdminUser } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
@@ -275,7 +344,77 @@ const requestFailed = ref(false)
 watch(() => props.user?.id, () => {
   requestMessage.value = ''
   requestFailed.value = false
+  consents.value = []
+  consentsOpen.value = false
+  consentsMessage.value = ''
+  consentsFailed.value = false
 })
+
+const mediaConsentLabel = computed(() => {
+  const media = props.user?.mediaConsent
+  if (media === true) return 'Yes'
+  if (media === false) return 'No: not permitted at in-person events'
+  return 'Not recorded'
+})
+
+// Consents signed on the platform carry a BTF- reference; old Qualtrics ones don't.
+const signedOnPlatform = computed(() => (props.user?.joinpermResponseId || '').startsWith('BTF-'))
+
+const consents = ref<AdminGuardianConsent[]>([])
+const consentsOpen = ref(false)
+const consentsLoading = ref(false)
+// The outcome of loading the signed form or recording a withdrawal.
+const consentsMessage = ref('')
+const consentsFailed = ref(false)
+
+const showConsentsMessage = (message: string, failed: boolean) => {
+  consentsMessage.value = message
+  consentsFailed.value = failed
+}
+
+const toggleConsents = async () => {
+  const user = props.user
+  if (!user) return
+  if (consentsOpen.value) {
+    consentsOpen.value = false
+    return
+  }
+  consentsLoading.value = true
+  consentsMessage.value = ''
+  try {
+    consents.value = await fetchGuardianConsents(user.id)
+    consentsOpen.value = true
+  } catch (error) {
+    showConsentsMessage(apiErrorFromUnknown(error, 'Could not load the signed form.').message, true)
+  } finally {
+    consentsLoading.value = false
+  }
+}
+
+const withdrawDialog = ref({ open: false, mediaOnly: false })
+const withdrawing = ref(false)
+
+const askWithdraw = (mediaOnly: boolean) => {
+  withdrawDialog.value = { open: true, mediaOnly }
+}
+
+const confirmWithdraw = async () => {
+  const user = props.user
+  if (!user || withdrawing.value) return
+  withdrawing.value = true
+  try {
+    const result = await withdrawGuardianConsent(user.id, withdrawDialog.value.mediaOnly)
+    withdrawDialog.value.open = false
+    consentsOpen.value = false
+    showConsentsMessage(result.msg, false)
+    if (result.data) emit('updated', result.data)
+  } catch (error) {
+    withdrawDialog.value.open = false
+    showConsentsMessage(apiErrorFromUnknown(error, 'Could not record the withdrawal.').message, true)
+  } finally {
+    withdrawing.value = false
+  }
+}
 
 const sendConsentRequest = async () => {
   const user = props.user
@@ -410,6 +549,58 @@ const onDismiss = () => {
 
 .admin-users-detail__consent-message--error {
   color: var(--danger);
+}
+
+.admin-users-detail__flag {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.admin-users-detail__consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.admin-users-detail__consents {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-users-detail__consent {
+  padding: 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--charcoal);
+}
+
+.admin-users-detail__consent + .admin-users-detail__consent {
+  margin-top: 0.5rem;
+}
+
+.admin-users-detail__consent p {
+  margin: 0 0 0.35rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-users-detail__consent-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.admin-users-detail__signature {
+  display: block;
+  max-width: 100%;
+  max-height: 120px;
+  margin-top: 0.5rem;
+  background: var(--white, #ffffff);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
 }
 
 .admin-users-detail__supervisees {

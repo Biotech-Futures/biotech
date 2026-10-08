@@ -166,23 +166,46 @@ class UserStatusUpdateView(APIView):
         return Response(result, status=code)
 
 
+GUARDIAN_CONSENT_STATUS_CODES = {
+    guardian_consent.SENT: status.HTTP_200_OK,
+    guardian_consent.OK: status.HTTP_200_OK,
+    guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
+    guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
+    guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
+    guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
+}
+
+
 class UserGuardianConsentRequestView(APIView):
     """POST: email the student's guardian the consent form."""
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
-    STATUS_CODES = {
-        guardian_consent.SENT: status.HTTP_200_OK,
-        guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
-        guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
-        guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
-        guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
-        guardian_consent.NOT_CONFIGURED: status.HTTP_503_SERVICE_UNAVAILABLE,
-        guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
-    }
-
     def post(self, request, user_id):
         result = guardian_consent.send_guardian_consent_request(int(user_id), initiated_by=request.user)
-        return Response(result, status=self.STATUS_CODES[result["status"]])
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
+
+
+class UserGuardianConsentsView(APIView):
+    """GET: the consents signed on the platform for a student, with signatures."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id):
+        result = guardian_consent.list_guardian_consents(int(user_id))
+        code = status.HTTP_200_OK if result["data"] is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class UserGuardianConsentWithdrawView(APIView):
+    """POST {mediaOnly}: record that the guardian withdrew consent, or only
+    media consent."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.withdraw_guardian_consent(
+            int(user_id), media_only=request.data.get("mediaOnly") is True, initiated_by=request.user,
+        )
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
 
 
 class UserBulkStatusUpdateView(APIView):

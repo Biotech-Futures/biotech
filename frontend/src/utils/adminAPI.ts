@@ -233,6 +233,8 @@ export interface AdminUser {
   joinpermResponseId: string | null
   joinPermissionGrantedAt: string | null
   pendingGuardian: AdminPendingGuardian | null
+  /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
+  mediaConsent: boolean | null
   consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
@@ -378,6 +380,30 @@ export const sendGuardianConsentRequest = (userId: string | number) =>
     msg: env.msg,
     data: env.data
   }))
+
+export interface AdminGuardianConsent {
+  id: number
+  reference: string
+  guardianFullName: string
+  guardianEmail: string
+  mediaConsent: boolean
+  consentVersion: string
+  signedAt: string
+  withdrawnAt: string | null
+  mediaWithdrawnAt: string | null
+  /** The drawn signature as a PNG data URL. */
+  signature: string
+}
+
+export const fetchGuardianConsents = (userId: string | number) =>
+  adminGet<AdminEnvelope<AdminGuardianConsent[]>>(`/user/${userId}/guardian-consents/`).then(
+    (env) => env.data || []
+  )
+
+export const withdrawGuardianConsent = (userId: string | number, mediaOnly: boolean) =>
+  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-withdrawal/`, { mediaOnly }).then(
+    (env) => ({ msg: env.msg, data: env.data })
+  )
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
@@ -674,6 +700,8 @@ export interface AdminEventRsvpItem {
   lastName?: string
   rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
   respondedAt: string | null
+  /** A student without media consent, on an event with an in-person part. */
+  noMediaConsent?: boolean
 }
 
 export interface AdminEventDetail {

@@ -776,11 +776,7 @@ class ReceiveJoinPermissionView(APIView):
         if sp.has_join_permission and sp.has_pending_guardian:
             # Consent after a guardian change comes from the new guardian:
             # they replace the old one, and consent dates from now.
-            sp.pg_first_name = sp.pending_pg_first_name
-            sp.pg_last_name = sp.pending_pg_last_name
-            sp.pg_email = sp.pending_pg_email
-            sp.parent_guardian_flag = True
-            sp.clear_pending_guardian()
+            sp.promote_pending_guardian()
             sp.joinperm_granted_at = timezone.now()
         # Consent comes from a guardian, so one is on file. Students who
         # registered before the flag was set at registration still have it

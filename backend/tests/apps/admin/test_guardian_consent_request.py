@@ -1,9 +1,11 @@
 """Tests for the admin "Send consent request" button.
 
 Pins who the email goes to (a requested guardian change before the guardian on
-file), when it refuses (consent already in, no address, no form link, switched
-off, sent moments ago), and that a failed send isn't recorded as sent.
+file), when it refuses (consent already in, no address, the student's own
+address, switched off, sent moments ago), that the emailed link opens the
+platform's consent page, and that a failed send leaves no working link.
 """
+import re
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -15,14 +17,15 @@ from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
 from apps.services.models import SystemEmailTemplate
-from apps.users.models import StudentProfile, User
+from apps.users.models import GuardianConsentRequest, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
-FORM_URL = "https://forms.example.com/consent"
+FRONTEND = "https://connect.example.com"
+LINK_RE = re.compile(re.escape(FRONTEND) + r"/#/consent/([A-Za-z0-9_-]+)")
 
 
-@override_settings(EMAIL_BACKEND=LOCMEM, GUARDIAN_CONSENT_FORM_URL=FORM_URL)
+@override_settings(EMAIL_BACKEND=LOCMEM, FRONTEND_BASE_URL=FRONTEND)
 class GuardianConsentRequestTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -50,7 +53,12 @@ class GuardianConsentRequestTests(TestCase):
             f"/api/v1/admin/user/{user_id or self.student.id}/guardian-consent-request/"
         )
 
-    def test_sends_to_guardian_with_form_link_and_student_email(self):
+    def _link_token(self, message):
+        match = LINK_RE.search(message.alternatives[0][0])
+        self.assertIsNotNone(match, "no consent link in the email")
+        return match.group(1)
+
+    def test_sends_guardian_a_link_to_the_consent_page(self):
         response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -58,16 +66,17 @@ class GuardianConsentRequestTests(TestCase):
         message = mail.outbox[0]
         self.assertEqual(message.to, ["pat@example.com"])
         self.assertIn("Wren", message.subject)
-        html = message.alternatives[0][0]
-        self.assertIn(FORM_URL, html)
-        self.assertIn("wren@example.com", html)
-        self.assertIn("Hi Pat", html)
+        self.assertIn("Hi Pat", message.alternatives[0][0])
 
-        self.profile.refresh_from_db()
-        self.assertIsNotNone(self.profile.guardian_request_sent_at)
+        token = self._link_token(message)
+        request = GuardianConsentRequest.objects.get(student=self.profile)
+        self.assertNotEqual(request.token_hash, token)  # only a hash is stored
+        self.assertEqual(request.guardian_email, "pat@example.com")
+        self.assertEqual(request.sent_by, self.admin)
+        self.assertEqual(self.client.get(f"/api/v1/consent/{token}/").status_code, status.HTTP_200_OK)
+
         self.assertEqual(
-            response.data["data"]["consentRequestSentAt"],
-            self.profile.guardian_request_sent_at.isoformat(),
+            response.data["data"]["consentRequestSentAt"], request.created_at.isoformat(),
         )
         self.assertTrue(
             AuditLog.objects.filter(
@@ -98,6 +107,18 @@ class GuardianConsentRequestTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mail.outbox[0].to, ["sam@example.com"])
+        self.assertTrue(GuardianConsentRequest.objects.get(student=self.profile).for_pending_guardian)
+
+    def test_resending_replaces_the_earlier_link(self):
+        self._post()
+        first = self._link_token(mail.outbox[0])
+        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
+
+        self._post()
+        second = self._link_token(mail.outbox[1])
+
+        self.assertEqual(self.client.get(f"/api/v1/consent/{first}/").status_code, status.HTTP_410_GONE)
+        self.assertEqual(self.client.get(f"/api/v1/consent/{second}/").status_code, status.HTTP_200_OK)
 
     def test_refuses_when_consent_already_recorded(self):
         self.profile.has_join_permission = True
@@ -118,41 +139,45 @@ class GuardianConsentRequestTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(mail.outbox, [])
 
-    @override_settings(GUARDIAN_CONSENT_FORM_URL="")
-    def test_refuses_without_a_form_link(self):
+    def test_refuses_when_guardian_email_is_the_students_own(self):
+        self.profile.pg_email = "Wren@Example.com"
+        self.profile.save()
+
         response = self._post()
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student's own address", response.data["msg"])
         self.assertEqual(mail.outbox, [])
 
-    def test_refuses_when_switched_off(self):
+    def test_refuses_when_switched_off_and_leaves_no_link(self):
         SystemEmailTemplate.objects.create(key="guardian_consent_request", is_enabled=False)
 
         response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(mail.outbox, [])
-        self.profile.refresh_from_db()
-        self.assertIsNone(self.profile.guardian_request_sent_at)
+        self.assertFalse(GuardianConsentRequest.objects.exists())
 
     def test_resend_waits_for_cooldown(self):
         self.assertEqual(self._post().status_code, status.HTTP_200_OK)
         self.assertEqual(self._post().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(len(mail.outbox), 1)
 
-        StudentProfile.objects.filter(pk=self.profile.pk).update(
-            guardian_request_sent_at=timezone.now() - timedelta(minutes=11),
-        )
+        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
         self.assertEqual(self._post().status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 2)
 
-    def test_failed_send_is_not_recorded(self):
+    def test_failed_send_leaves_the_previous_link_working(self):
+        self._post()
+        first = self._link_token(mail.outbox[0])
+        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
+
         with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("down")):
             response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.profile.refresh_from_db()
-        self.assertIsNone(self.profile.guardian_request_sent_at)
+        self.assertEqual(GuardianConsentRequest.objects.count(), 1)
+        self.assertEqual(self.client.get(f"/api/v1/consent/{first}/").status_code, status.HTTP_200_OK)
 
     def test_unknown_student_is_404(self):
         self.assertEqual(self._post(user_id=999999).status_code, status.HTTP_404_NOT_FOUND)
