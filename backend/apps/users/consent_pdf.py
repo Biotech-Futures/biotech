@@ -1,15 +1,22 @@
-"""The signed consent record as a PDF, laid out after the "2026-09-16
-Participant Consent" Word template: who consented for whom, what they
-confirmed, their media-consent choice, and a signature block with the drawn
-signature.
+"""The signed consent record as a PDF, matching the "2026-09-16 Participant
+Consent" Word template: an A4 page with one-inch margins, the emblem and a
+green Times wordmark, green Times headings, Arial 9pt body text, dashed
+statements, and the label/value lines under the declaration, with the drawn
+signature in place of {{Signature}}. Pages after the first carry the
+template's footer line.
+
+Measurements are in points, taken from the template: page positions, sizes
+and spacing below are the Word document's own.
 
 The wording comes from the consent's own version (consent_form.py), so a
-record always shows what that guardian actually signed.
+record always shows what that guardian actually signed. Only the media
+section that applies is included; the template's red "If media consent was
+(not) provided" lines are instructions for choosing it, not record text.
 
-Text uses an embedded Unicode font when its files are present in
-assets/fonts (NotoSans-Regular.ttf and NotoSans-Bold.ttf); without them the
-PDF's built-in font is used, which writes Windows-1252: Western European
-names come through, anything else prints as "?".
+The template's fonts are Times New Roman and Arial; the PDF's built-in Times
+and Helvetica match them, but write only Windows-1252. When NotoSans-Regular
+and NotoSans-Bold are in assets/fonts, they're used for names that don't fit,
+so any script prints; without them such characters print as "?".
 """
 import io
 import os
@@ -21,166 +28,209 @@ from fpdf import FPDF
 from .consent_form import consent_wording
 
 _ASSETS = os.path.join(os.path.dirname(__file__), "assets")
+_LOGO = os.path.join(_ASSETS, "consent-logo.jpeg")
 _FONT_REGULAR = os.path.join(_ASSETS, "fonts", "NotoSans-Regular.ttf")
 _FONT_BOLD = os.path.join(_ASSETS, "fonts", "NotoSans-Bold.ttf")
-_LOGO = os.path.join(os.path.dirname(__file__), "..", "services", "assets", "btf-logo-white.png")
 
-_GREEN = (26, 79, 63)
-_INK = (26, 46, 35)
-_MUTED = (98, 112, 104)
-_RULE = (216, 225, 220)
+GREEN = (3, 114, 81)  # #037251
+INK = (29, 28, 29)  # #1D1C1D
+
+MARGIN = 72  # one inch
+BODY_SIZE = 9
+LINE = 10.35  # Arial 9pt, single spacing
+LIST_LINE = 12.25  # the template's dashed statements
+PARA_AFTER = 12
+FOOTER_TEXT = "This document is a record of consent submitted electronically to {brand}."
 
 MEDIA_GIVEN = "Yes – media consent provided"
 MEDIA_NOT_GIVEN = "No – media consent not provided"
 
 
-class _ConsentPDF(FPDF):
-    def __init__(self, footer_text: str):
-        super().__init__(format="A4")
-        self.footer_text = footer_text
-        if os.path.exists(_FONT_REGULAR) and os.path.exists(_FONT_BOLD):
-            self.add_font("Body", "", _FONT_REGULAR)
-            self.add_font("Body", "B", _FONT_BOLD)
-            self.body_family = "Body"
-            self.has_unicode_font = True
-        else:
-            self.core_fonts_encoding = "cp1252"
-            self.body_family = "Helvetica"
-            self.has_unicode_font = False
-        self.set_margins(20, 20, 20)
-        self.set_auto_page_break(auto=True, margin=22)
+def _fits_cp1252(text: str) -> bool:
+    try:
+        text.encode("cp1252")
+    except UnicodeEncodeError:
+        return False
+    return True
 
-    def text_of(self, text: str) -> str:
+
+class _ConsentPDF(FPDF):
+    def __init__(self):
+        super().__init__(unit="pt", format="A4")
+        self.core_fonts_encoding = "cp1252"
+        self.has_unicode_font = os.path.exists(_FONT_REGULAR) and os.path.exists(_FONT_BOLD)
         if self.has_unicode_font:
+            self.add_font("Unicode", "", _FONT_REGULAR)
+            self.add_font("Unicode", "B", _FONT_BOLD)
+        self.set_margins(MARGIN, MARGIN, MARGIN)
+        self.set_auto_page_break(auto=True, margin=MARGIN)
+        # Word puts text right at the margin; fpdf pads cells by default.
+        self.c_margin = 0
+        self.footer_text = FOOTER_TEXT.format(brand=settings.BRAND_NAME)
+
+    def use(self, family: str, size: float, style: str = "", colour=INK, text: str = ""):
+        """Set the font, falling back to the Unicode font for text the
+        built-in fonts can't write."""
+        if text and not _fits_cp1252(text) and self.has_unicode_font:
+            family, style = "Unicode", style.replace("I", "").replace("U", "")
+        self.set_font(family, style, size)
+        self.set_text_color(*colour)
+
+    def safe(self, text: str) -> str:
+        if self.font_family == "unicode":
             return text
         return text.encode("cp1252", "replace").decode("cp1252")
 
-    def font(self, size: float, bold: bool = False, colour=_INK):
-        self.set_font(self.body_family, "B" if bold else "", size)
-        self.set_text_color(*colour)
-
     def footer(self):
-        self.set_y(-14)
-        self.font(8, colour=_MUTED)
-        self.cell(0, 5, self.text_of(f"{self.footer_text} · Page {self.page_no()} of {{nb}}"), align="C")
+        # The template has a different first page with no footer.
+        if self.page_no() == 1:
+            return
+        self.set_y(self.h - 71 - 8)
+        self.use("Helvetica", BODY_SIZE, text=self.footer_text)
+        self.cell(0, LINE, self.safe(self.footer_text))
 
-    def paragraph(self, text: str, size: float = 10.5, bold: bool = False, colour=_INK, after: float = 3):
-        self.font(size, bold, colour)
-        self.multi_cell(0, size * 0.55, self.text_of(text), align="L", new_x="LMARGIN", new_y="NEXT")
+    # -- blocks -------------------------------------------------------------
+
+    def body(self, text: str, after: float = PARA_AFTER, line: float = LINE):
+        self.use("Helvetica", BODY_SIZE, text=text)
+        self.multi_cell(0, line, self.safe(text), align="L", new_x="LMARGIN", new_y="NEXT")
         self.ln(after)
 
-    def heading(self, text: str):
-        self.ln(3)
-        self.font(13, bold=True, colour=_GREEN)
-        self.cell(0, 8, self.text_of(text), new_x="LMARGIN", new_y="NEXT")
-        self.set_draw_color(*_RULE)
-        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
-        self.ln(3)
+    def body_with_bold(self, text: str, bold: str, after: float = PARA_AFTER):
+        """A body paragraph with each occurrence of ``bold`` in bold, as the
+        template sets the guardian's or student's name."""
+        parts = text.split(bold) if bold else [text]
+        for i, part in enumerate(parts):
+            if part:
+                self.use("Helvetica", BODY_SIZE, text=part)
+                self.write(LINE, self.safe(part))
+            if i < len(parts) - 1:
+                self.use("Helvetica", BODY_SIZE, "B", text=bold)
+                self.write(LINE, self.safe(bold))
+        self.ln(LINE)
+        self.ln(after)
 
-    def bullets(self, items):
-        self.font(10.5)
-        indent = 6
+    def body_with_link(self, text: str, address: str, after: float = PARA_AFTER):
+        """A body paragraph with ``address`` as a green, underlined mail link."""
+        before, _, rest = text.partition(address)
+        self.use("Helvetica", BODY_SIZE)
+        self.write(LINE, self.safe(before))
+        if rest or text.endswith(address):
+            self.use("Helvetica", BODY_SIZE, "U", colour=GREEN)
+            # write() would split the address mid-word; wrap it whole, as Word does.
+            if self.get_x() + self.get_string_width(address) > self.w - self.r_margin:
+                self.ln(LINE)
+            self.write(LINE, address, link=f"mailto:{address}")
+            self.use("Helvetica", BODY_SIZE)
+            self.write(LINE, self.safe(rest))
+        self.ln(LINE)
+        self.ln(after)
+
+    def keep_with_next(self, needed: float):
+        """Start a new page unless ``needed`` points fit, so a heading isn't
+        left at the foot of a page without its text."""
+        if self.get_y() + needed > self.page_break_trigger:
+            self.add_page()
+
+    def heading(self, text: str, size: float = 16, after: float = PARA_AFTER):
+        self.use("Times", size, colour=GREEN, text=text)
+        self.multi_cell(0, size * 1.15, self.safe(text), align="L", new_x="LMARGIN", new_y="NEXT")
+        self.ln(after)
+
+    def dashes(self, items):
+        """The template's statement list: a dash 18pt in, text 36pt in, no
+        space between statements."""
+        self.use("Helvetica", BODY_SIZE)
         for item in items:
+            self.use("Helvetica", BODY_SIZE, text=item)
             y = self.get_y()
-            self.set_x(self.l_margin + 1.5)
-            self.cell(indent - 1.5, 5.8, self.text_of("•"))
-            self.set_xy(self.l_margin + indent, y)
-            self.multi_cell(0, 5.8, self.text_of(item), align="L", new_x="LMARGIN", new_y="NEXT")
-            self.ln(1.5)
-        self.ln(1)
+            self.set_xy(MARGIN + 18, y)
+            self.cell(18, LIST_LINE, "-")
+            self.set_xy(MARGIN + 36, y)
+            self.multi_cell(0, LIST_LINE, self.safe(item), align="L", new_x="LMARGIN", new_y="NEXT")
+
+    def label_value(self, label: str, value: str):
+        self.use("Helvetica", BODY_SIZE, "B")
+        self.cell(0, LINE, self.safe(label), new_x="LMARGIN", new_y="NEXT")
+        self.body(value)
+
+    def label_signature(self, label: str, png: bytes):
+        self.use("Helvetica", BODY_SIZE, "B")
+        self.cell(0, LINE, self.safe(label), new_x="LMARGIN", new_y="NEXT")
+        height = 40
+        if self.get_y() + height > self.page_break_trigger:
+            self.add_page()
+        self.image(io.BytesIO(png), x=MARGIN, y=self.get_y() + 2, h=height, w=220, keep_aspect_ratio=True)
+        self.set_y(self.get_y() + height + 2)
+        self.ln(PARA_AFTER)
 
 
-def _banner(pdf: _ConsentPDF):
-    pdf.set_fill_color(*_GREEN)
-    pdf.rect(0, 0, pdf.w, 26, style="F")
+def _masthead(pdf: _ConsentPDF):
+    # The emblem image and the Times wordmark, where the template puts them.
     if os.path.exists(_LOGO):
-        pdf.image(_LOGO, x=20, y=6, h=14)
-    pdf.set_xy(37, 8)
-    pdf.font(15, bold=True, colour=(255, 255, 255))
-    pdf.cell(80, 10, pdf.text_of(settings.BRAND_NAME))
-    pdf.set_xy(pdf.w - 20 - 80, 8)
-    pdf.font(11, colour=(220, 238, 228))
-    pdf.cell(80, 10, pdf.text_of("Participant Consent Record"), align="R")
-    pdf.set_xy(pdf.l_margin, 36)
-
-
-def _signature_block(pdf: _ConsentPDF, rows, signature_png: bytes):
-    """The table at the end of the record: label on the left, value on the
-    right, with the drawn signature as the Signature row's value."""
-    label_w = 58
-    value_w = pdf.w - pdf.l_margin - pdf.r_margin - label_w
-    pdf.set_draw_color(*_RULE)
-    for label, value in rows:
-        is_signature = value is None
-        height = 26 if is_signature else 9
-        if pdf.get_y() + height > pdf.page_break_trigger:
-            pdf.add_page()
-        x, y = pdf.l_margin, pdf.get_y()
-        pdf.rect(x, y, label_w, height)
-        pdf.rect(x + label_w, y, value_w, height)
-        pdf.set_xy(x + 3, y + 2)
-        pdf.font(10, bold=True, colour=_MUTED)
-        pdf.cell(label_w - 6, 5, pdf.text_of(label))
-        if is_signature:
-            pdf.image(io.BytesIO(signature_png), x=x + label_w + 3, y=y + 2, h=height - 4, keep_aspect_ratio=True,
-                      w=value_w - 6)
-        else:
-            pdf.set_xy(x + label_w + 3, y + 2)
-            pdf.font(10.5)
-            pdf.cell(value_w - 6, 5, pdf.text_of(value))
-        pdf.set_xy(x, y + height)
+        pdf.image(_LOGO, x=MARGIN, y=41, w=81, h=66.45)
+    pdf.use("Times", 28, "B", colour=GREEN)
+    pdf.set_xy(172.3, 58)
+    pdf.cell(0, 32, pdf.safe(settings.BRAND_NAME))
+    pdf.set_xy(MARGIN, 126)
 
 
 def render_consent_pdf(consent) -> bytes:
     """The signed record for ``consent`` (a GuardianConsent) as PDF bytes."""
-    profile = consent.student
-    user = profile.user
+    user = consent.student.user
     student = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
     guardian = consent.guardian_full_name
     wording = consent_wording(student, consent.consent_version)
     record = wording["record"]
     signed = dateformat.format(timezone.localtime(consent.signed_at), "j F Y, g:i A T")
     media = MEDIA_GIVEN if consent.media_consent else MEDIA_NOT_GIVEN
+    brand = settings.BRAND_NAME
 
-    pdf = _ConsentPDF(f"{consent.reference} · Consent form version {consent.consent_version}")
-    pdf.set_title(pdf.text_of(f"{settings.BRAND_NAME} consent record {consent.reference}"))
-    pdf.set_author(pdf.text_of(settings.BRAND_NAME))
+    pdf = _ConsentPDF()
+    pdf.set_title(f"{brand} consent record {consent.reference}")
+    pdf.set_author(brand)
     pdf.add_page()
-    _banner(pdf)
+    _masthead(pdf)
 
-    pdf.paragraph("This document records the consent provided for:", colour=_MUTED, after=1)
-    pdf.paragraph(student, size=18, bold=True, after=2)
-    pdf.paragraph(
+    pdf.body("This document records the consent provided for:", after=12)
+    pdf.heading(student, size=18)
+    pdf.body(
         f"by {guardian}, who confirmed that they are the parent, guardian or other person "
-        "authorised to provide consent for the participant named above."
+        "authorised to provide consent for the participant named above.",
+        after=14,
     )
 
     pdf.heading("Participant Consent")
-    pdf.paragraph(f"By signing the {settings.BRAND_NAME} consent form, {guardian} confirmed that:")
-    pdf.bullets(wording["participation"])
+    pdf.body_with_bold(f"By signing the {brand} consent form, {guardian} confirmed that:", guardian, after=14)
+    pdf.dashes(wording["participation"])
+    pdf.ln(10)
 
     pdf.heading("Media Consent")
-    pdf.paragraph(f"Recorded selection: {media}", bold=True)
-    if consent.media_consent:
-        pdf.paragraph("Media consent was provided", bold=True, colour=_GREEN, after=2)
-        pdf.bullets(record["media_given"])
-    else:
-        pdf.paragraph("Media consent was not provided", bold=True, colour=_GREEN, after=2)
-        pdf.bullets(record["media_not_given"])
+    pdf.body(f"Recorded selection: {media}")
+    for paragraph in record["media_given" if consent.media_consent else "media_not_given"]:
+        pdf.body_with_bold(paragraph, student)
 
-    pdf.heading("Withdrawal of media consent")
-    pdf.bullets(record["media_withdrawal"])
+    pdf.ln(9)
+    pdf.keep_with_next(80)
+    pdf.use("Helvetica", 12)
+    pdf.cell(0, 14, pdf.safe("Withdrawal of media consent"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    for paragraph in record["media_withdrawal"]:
+        if settings.SUPPORT_EMAIL in paragraph:
+            pdf.body_with_link(paragraph, settings.SUPPORT_EMAIL)
+        else:
+            pdf.body(paragraph)
 
+    pdf.ln(6)
+    pdf.keep_with_next(60)
     pdf.heading("Declaration")
-    pdf.paragraph(record["declaration"], after=5)
+    pdf.body(record["declaration"])
 
-    _signature_block(pdf, [
-        ("Participant", student),
-        ("Authorised Consent Provider", guardian),
-        ("Signature", None),
-        ("Date signed", signed),
-        ("Media consent selection", media),
-        ("Reference", consent.reference),
-    ], bytes(consent.signature_png))
+    pdf.label_value("Participant", student)
+    pdf.label_value("Authorised Consent Provider", guardian)
+    pdf.label_signature("Signature", bytes(consent.signature_png))
+    pdf.label_value("Date signed", signed)
+    pdf.label_value("Media consent selection", media)
+    pdf.label_value("Reference", consent.reference)
 
     return bytes(pdf.output())
