@@ -39,17 +39,18 @@ describe('ProfilePage guardian consent', () => {
     expect(wrapper.text()).not.toContain('needs to complete the consent form')
   })
 
-  it('shows consent as outstanding, with what to do next', async () => {
-    const wrapper = await mountAs({ ...baseUser, join_perm: false })
+  it('shows permission as not received, with a link to send the email', async () => {
+    const wrapper = await mountAs({ ...baseUser, pg_email: 'pat@example.com', join_perm: false })
 
-    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Not received yet')
-    expect(wrapper.text()).toContain('needs to complete the consent form')
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Not received, click here to send email')
+    expect(wrapper.text()).toContain('Permission:')
   })
 
-  it('treats a missing flag as not received', async () => {
+  it('says why the email cannot be sent instead of the link', async () => {
     const wrapper = await mountAs({ ...baseUser, join_perm: null })
 
-    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Not received yet')
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe("Not received, add your guardian's email to send it")
+    expect(wrapper.find('[data-test="guardian-send"]').exists()).toBe(false)
   })
 
   it('is not shown to other roles', async () => {
@@ -79,7 +80,9 @@ describe('ProfilePage guardian consent', () => {
       join_perm_granted_at: '2026-09-14T03:00:00Z',
     })
 
-    expect(wrapper.find('[data-test="guardian-consent-date"]').text()).toBe('Received on 14 September 2026')
+    // DD MMM YYYY HH:mm, in the student's timezone (UTC when none is set).
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Received 14 Sep 2026 03:00')
+    expect(wrapper.find('[data-test="guardian-reminders"]').exists()).toBe(false)
   })
 
   it('treats the student\'s own name as no guardian on file', async () => {
@@ -147,6 +150,8 @@ describe('ProfilePage guardian consent', () => {
     const pending = wrapper.find('[data-test="guardian-pending"]').text()
     expect(pending).toContain('Robin Carer (robin@example.com)')
     expect(pending).toContain('Pat Fischer stays on file')
+    // The new guardian's permission, with the link to email them.
+    expect(wrapper.find('[data-test="guardian-pending-permission"]').text()).toContain('not received, click here to send email')
   })
 
   it('withdraws a pending change', async () => {

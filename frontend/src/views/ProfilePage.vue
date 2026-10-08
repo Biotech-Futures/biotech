@@ -287,6 +287,21 @@
               {{ user.guardian.pending.name }} ({{ user.guardian.pending.email }}).
               Waiting for their consent — until then {{ user.guardian.consentingName }} stays on file.
             </p>
+            <p data-test="guardian-pending-permission">
+              <strong>Their permission:</strong> not received,
+              <button
+                v-if="guardianSend.canSend"
+                type="button"
+                class="consent-send-link"
+                data-test="guardian-send"
+                :disabled="guardianSending"
+                @click="sendGuardianInvitation"
+              >
+                {{ guardianSending ? 'sending…' : 'click here to send email' }}
+              </button>
+              <span v-else data-test="guardian-send-blocked">{{ guardianSend.reason }}</span>
+              <span v-if="reminderLine" class="consent-hint" data-test="guardian-reminders">{{ reminderLine }}</span>
+            </p>
             <button
               class="btn btn-outline"
               type="button"
@@ -315,30 +330,46 @@
               <span v-else>{{ unsetLabel }}</span>
             </span>
           </div>
+          <!-- As slide 14 has it: "Received DD MMM YYYY HH:mm" or "Not received, click here to send email". -->
           <div class="profile-field consent-field">
-            <span class="profile-field-label">Consent:</span>
+            <span class="profile-field-label">Permission:</span>
             <span class="profile-field-value">
-              <span
-                class="consent-status"
-                :class="user.guardian.consentReceived ? 'consent-status--received' : 'consent-status--pending'"
-                data-test="guardian-consent"
-              >
-                {{ user.guardian.consentReceived ? 'Received' : 'Not received yet' }}
+              <span data-test="guardian-consent">
+                <template v-if="user.guardian.consentReceived">
+                  <span class="permission-status received">Received</span>
+                  {{ user.guardian.consentReceivedAt }}
+                </template>
+                <template v-else>
+                  <span class="permission-status">Not received</span>,
+                  <button
+                    v-if="guardianSend.canSend"
+                    type="button"
+                    class="consent-send-link"
+                    data-test="guardian-send"
+                    :disabled="guardianSending"
+                    @click="sendGuardianInvitation"
+                  >
+                    {{ guardianSending ? 'sending…' : 'click here to send email' }}
+                  </button>
+                  <span v-else data-test="guardian-send-blocked">{{ guardianSend.reason }}</span>
+                </template>
               </span>
-              <span v-if="user.guardian.consentReceivedOn" class="consent-hint" data-test="guardian-consent-date">
-                Received on {{ user.guardian.consentReceivedOn }}
-              </span>
-              <span v-if="!user.guardian.consentReceived" class="consent-hint">
-                Your parent or guardian needs to complete the consent form. Ask your supervisor if you're not sure how.
+              <span v-if="reminderLine && !user.guardian.pending" class="consent-hint" data-test="guardian-reminders">
+                {{ reminderLine }}
               </span>
             </span>
           </div>
-          <div class="profile-field"><span class="profile-field-label">Last reminder email sent:</span><span class="profile-field-value">{{ formatPermissionReceivedAt(auth.user.guardian_reminder?.last_sent_at) || 'Not recorded' }}</span></div>
-          <div class="profile-field"><span class="profile-field-label">Next reminder due:</span><span class="profile-field-value">{{ user.guardian.consentReceived && !user.guardian.pending ? 'No further reminder required' : formatPermissionReceivedAt(auth.user.guardian_reminder?.next_due_at) || 'No automatic reminder scheduled' }}</span></div>
-          <template v-if="!user.guardian.consentReceived || user.guardian.pending">
-            <button class="btn btn-outline" type="button" :disabled="guardianSending || !auth.user.guardian_reminder?.can_send" @click="sendGuardianInvitation">{{ guardianSending ? 'Sending…' : 'Resend guardian invitation' }}</button>
-            <p v-if="auth.user.guardian_reminder?.unavailable_reason" class="profile-note">{{ auth.user.guardian_reminder.unavailable_reason }}</p>
-          </template>
+
+          <!-- What a guardian action did, at the bottom of the section it's about. -->
+          <p
+            v-if="guardianNotice"
+            class="guardian-notice"
+            :class="guardianNotice.ok ? 'guardian-notice--ok' : 'guardian-notice--error'"
+            :role="guardianNotice.ok ? 'status' : 'alert'"
+            data-test="guardian-notice"
+          >
+            {{ guardianNotice.text }}
+          </p>
         </div>
 
         <div v-if="user.mentor.hasDetails" class="profile-section">
@@ -386,14 +417,21 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { routeLocationKey } from 'vue-router'
 
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
-import { formatLongDateAU, formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
+import {
+  formatDayMonthYear,
+  formatDayMonthYearTime,
+  formatTimeZoneLabel,
+  getBrowserTimeZone,
+  getTimeZoneDateParts,
+  isValidTimeZone,
+} from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -420,6 +458,26 @@ const studentDraft = ref({
 const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
 const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
 const guardianSending = ref(false)
+// Ticks so "send again in N minutes" counts down.
+const now = ref(Date.now())
+let clock = null
+onMounted(() => {
+  clock = window.setInterval(() => { now.value = Date.now() }, 30000)
+})
+onUnmounted(() => window.clearInterval(clock))
+
+// Messages about the guardian, shown at the bottom of Guardian Details: an
+// error stays until the next guardian action, a confirmation fades.
+const guardianNotice = ref(null)
+let guardianNoticeTimer = null
+const noteGuardian = (ok, text) => {
+  window.clearTimeout(guardianNoticeTimer)
+  guardianNotice.value = text ? { ok, text } : null
+  if (ok && text) guardianNoticeTimer = window.setTimeout(() => { guardianNotice.value = null }, 5000)
+}
+onUnmounted(() => window.clearTimeout(guardianNoticeTimer))
+// Matches the server's wait between two consent emails.
+const RESEND_WAIT_MS = 10 * 60 * 1000
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
 const teamMembers = ref([])
@@ -568,7 +626,7 @@ const cancelStudentEdit = () => {
 
 const sendGuardianInvitation = async () => {
   guardianSending.value = true
-  error.value = ''
+  noteGuardian(false, '')
   try {
     if (!await ensureCsrfCookie(API_BASE_URL)) throw new Error('Please refresh and try again.')
     const response = await fetch(`${API_BASE_URL}/api/v1/users/me/guardian-invitation/`, {
@@ -579,9 +637,9 @@ const sendGuardianInvitation = async () => {
     const refreshed = await fetch(`${API_BASE_URL}/api/v1/users/me/`, { credentials: 'include', headers: buildSessionHeaders() })
     if (!refreshed.ok) throw new Error('Invitation sent, but your profile could not be refreshed. Please reload the page.')
     auth.loginWithUser(await refreshed.json())
-    showTemporaryStatus('Guardian invitation sent.')
+    noteGuardian(true, 'The consent form has been emailed to your guardian.')
   } catch (sendError) {
-    error.value = sendError instanceof Error ? sendError.message : 'The invitation could not be sent.'
+    noteGuardian(false, sendError instanceof Error ? sendError.message : 'The consent form could not be sent.')
   } finally { guardianSending.value = false }
 }
 
@@ -674,19 +732,6 @@ const valueOrFallback = (value, fallback = 'Not provided') => {
   return text || fallback
 }
 
-const formatPermissionReceivedAt = (value) => {
-  if (!value) return ''
-  const receivedAt = new Date(value)
-  if (Number.isNaN(receivedAt.getTime())) return ''
-  return receivedAt.toLocaleString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: auth.timeZone || 'Australia/Sydney',
-  })
-}
 
 const listOrEmpty = (value) => {
   if (!Array.isArray(value)) return []
@@ -731,8 +776,6 @@ const user = computed(() => {
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
-  const permissionReceived = Boolean(source?.join_perm)
-  const permissionReceivedAt = formatPermissionReceivedAt(source?.joinperm_granted_at)
 
   return {
     name: fullName,
@@ -753,10 +796,6 @@ const user = computed(() => {
       guardianFirstName: valueOrFallback(source?.pg_firstname, unsetLabel),
       guardianLastName: valueOrFallback(source?.pg_lastname, unsetLabel),
       guardianEmail: valueOrFallback(source?.pg_email, unsetLabel),
-      permissionReceived,
-      permissionStatus: permissionReceived
-        ? `Received${permissionReceivedAt ? ` on ${permissionReceivedAt}` : ''}`
-        : 'Not received'
     },
     guardian: {
       hasDetails: hasStudentDetails,
@@ -765,8 +804,9 @@ const user = computed(() => {
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
-      consentReceivedOn: consentReceived && source?.join_perm_granted_at
-        ? formatLongDateAU(source.join_perm_granted_at)
+      // "14 Sep 2026 15:30", in the student's own timezone.
+      consentReceivedAt: consentReceived && source?.join_perm_granted_at
+        ? formatDayMonthYearTime(source.join_perm_granted_at, auth.timeZone)
         : '',
       pending: source?.pending_guardian
         ? {
@@ -804,6 +844,52 @@ const guardianForm = ref({ first_name: '', last_name: '', email: '' })
 const guardianErrors = ref({})
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// The guardian waiting on consent: a requested new one, else the one on file.
+const guardianToAsk = computed(() => user.value?.guardian?.pending?.email || user.value?.guardian?.emailAddress || '')
+
+/** Whether "click here to send email" can send now, else why not. */
+const guardianSend = computed(() => {
+  const to = guardianToAsk.value
+  if (!to) return { canSend: false, reason: "add your guardian's email to send it" }
+  if (to.toLowerCase() === String(auth.user?.email || '').toLowerCase()) {
+    return { canSend: false, reason: "use your guardian's email, not your own" }
+  }
+  const reminder = auth.user?.guardian_reminder
+  const lastSent = reminder?.last_sent_at ? new Date(reminder.last_sent_at).getTime() : 0
+  const minutesLeft = Math.ceil((lastSent + RESEND_WAIT_MS - now.value) / 60000)
+  if (minutesLeft > 0) {
+    return {
+      canSend: false,
+      reason: `emailed ${to}, you can send it again in ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'}`,
+    }
+  }
+  if (reminder && !reminder.can_send) return { canSend: false, reason: reminder.unavailable_reason }
+  return { canSend: true, reason: '' }
+})
+
+/** When the guardian was last emailed the consent form, and when they will be next. */
+const reminderLine = computed(() => {
+  const reminder = auth.user?.guardian_reminder
+  if (!reminder || !guardianToAsk.value) return ''
+  const guardian = user.value?.guardian
+  if (guardian?.consentReceived && !guardian?.pending) return ''
+  const last = reminder.last_sent_at
+    ? `Last emailed ${formatDayMonthYearTime(reminder.last_sent_at, auth.timeZone)}.`
+    : 'Not emailed yet.'
+  if (!reminder.next_due_at) return last
+  const today = getTimeZoneDateParts(new Date(now.value), auth.timeZone)
+  const due = getTimeZoneDateParts(reminder.next_due_at, auth.timeZone)
+  const days = today && due
+    ? Math.round((Date.UTC(due.year, due.month - 1, due.day) - Date.UTC(today.year, today.month - 1, today.day)) / 86400000)
+    : null
+  const when = days !== null && days <= 0
+    ? 'today'
+    : days === 1
+      ? 'tomorrow'
+      : `on ${formatDayMonthYear(reminder.next_due_at, auth.timeZone)}`
+  return `${last} They'll be emailed again ${when}.`
+})
+
 const startGuardianEdit = () => {
   const { guardian } = user.value
   // Editing a pending change picks up where the student left off.
@@ -836,26 +922,17 @@ const validateGuardianForm = () => {
   return Object.keys(errors).length === 0
 }
 
-const showStatus = (message) => {
-  clearStatusMessageTimer()
-  statusMessage.value = message
-  statusMessageTimer = window.setTimeout(() => {
-    statusMessage.value = ''
-    statusMessageTimer = null
-  }, 3200)
-}
-
 const saveGuardian = async () => {
   if (!validateGuardianForm()) return
 
   guardianSaving.value = true
-  error.value = ''
+  noteGuardian(false, '')
   const hadConsent = user.value.guardian.consentReceived
 
   try {
     await auth.updateGuardian({ ...guardianForm.value })
     guardianEditing.value = false
-    showStatus(hadConsent && user.value.guardian.pending
+    noteGuardian(true, hadConsent && user.value.guardian.pending
       ? 'Saved. Your new guardian needs to complete the consent form.'
       : 'Your guardian details have been updated.')
   } catch (saveError) {
@@ -864,9 +941,9 @@ const saveGuardian = async () => {
       Object.entries(fields).map(([key, messages]) => [key, [].concat(messages)[0]])
     )
     if (!Object.keys(guardianErrors.value).length) {
-      error.value = saveError instanceof Error
+      noteGuardian(false, saveError instanceof Error
         ? saveError.message
-        : 'Your guardian details could not be updated right now.'
+        : 'Your guardian details could not be updated right now.')
     }
   } finally {
     guardianSaving.value = false
@@ -875,15 +952,15 @@ const saveGuardian = async () => {
 
 const withdrawGuardianChange = async () => {
   guardianSaving.value = true
-  error.value = ''
+  noteGuardian(false, '')
 
   try {
     await auth.withdrawGuardianChange()
-    showStatus('The guardian change has been withdrawn.')
+    noteGuardian(true, 'The guardian change has been withdrawn.')
   } catch (withdrawError) {
-    error.value = withdrawError instanceof Error
+    noteGuardian(false, withdrawError instanceof Error
       ? withdrawError.message
-      : 'The guardian change could not be withdrawn right now.'
+      : 'The guardian change could not be withdrawn right now.')
   } finally {
     guardianSaving.value = false
   }
@@ -1114,24 +1191,33 @@ onMounted(async () => {
   align-items: flex-start;
 }
 
-.consent-status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.75rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.9rem;
-  line-height: 1.2;
-}
-
-.consent-status--received {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-}
-
-.consent-status--pending {
-  border: 1px solid var(--warning);
+.guardian-notice {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-left: 4px solid var(--dark-green);
+  border-radius: 6px;
+  background: var(--bg-light);
   color: var(--charcoal);
+}
+
+.guardian-notice--error {
+  border-left-color: var(--danger);
+}
+
+/* "click here to send email": a button that reads as a link. */
+.consent-send-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dark-green);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.consent-send-link:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .consent-hint {

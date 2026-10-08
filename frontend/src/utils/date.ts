@@ -202,6 +202,39 @@ export function getTimeZoneDateParts(
   return { year, month, day }
 }
 
+// Spelled out: browsers differ on "Sep" and "Sept".
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const dayMonthYearParts = (value: string | Date | null | undefined, timeZone: string) => {
+  const date = toValidDate(value)
+  if (!date) return null
+  const parts = getFormatter('en-GB', {
+    timeZone: normalizeTimeZone(timeZone),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const part = new Map(parts.map((item) => [item.type, item.value]))
+  const month = SHORT_MONTHS[Number(part.get('month')) - 1]
+  if (!month) return null
+  return { day: part.get('day'), month, year: part.get('year'), hour: part.get('hour'), minute: part.get('minute') }
+}
+
+/** "14 Sep 2026" in ``timeZone``. */
+export function formatDayMonthYear(value: string | Date | null | undefined, timeZone = DEFAULT_TIME_ZONE): string {
+  const parts = dayMonthYearParts(value, timeZone)
+  return parts ? `${parts.day} ${parts.month} ${parts.year}` : ''
+}
+
+/** "14 Sep 2026 15:30" (DD MMM YYYY HH:mm, 24-hour) in ``timeZone``. */
+export function formatDayMonthYearTime(value: string | Date | null | undefined, timeZone = DEFAULT_TIME_ZONE): string {
+  const parts = dayMonthYearParts(value, timeZone)
+  return parts ? `${parts.day} ${parts.month} ${parts.year} ${parts.hour}:${parts.minute}` : ''
+}
+
 export function formatEventDate(
   value: string | Date | null | undefined,
   timeZone = DEFAULT_TIME_ZONE,
