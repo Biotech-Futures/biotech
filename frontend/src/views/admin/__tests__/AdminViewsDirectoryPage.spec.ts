@@ -518,21 +518,15 @@ describe('AdminViewsDirectoryPage', () => {
     expect(wrapper.text()).not.toContain('view selected')
   })
 
-  it('renders an "All roles" badge for a view with no specific target roles', async () => {
-    mockViews([allRolesView])
-    wrapper = mountPage()
-    await flushPromises()
-
-    expect(wrapper.find('.admin-views-table__badge').text()).toBe('All roles')
-  })
-
-  it('renders one badge per targeted role for a multi-role view', async () => {
+  it('renders only the View Name and Actions columns', async () => {
     mockViews([multiRoleView])
     wrapper = mountPage()
     await flushPromises()
 
-    const badges = wrapper.findAll('.admin-views-table__badge').map((badge) => badge.text())
-    expect(badges).toEqual(['Mentor', 'Student'])
+    const headers = wrapper.findAll('.admin-table__head').map((th) => th.text().trim())
+    expect(headers).toContain('View Name & Description')
+    expect(headers).toContain('Actions')
+    expect(headers).not.toContain('Filter Summary / Roles')
   })
 
   it('navigates to the executed view when View is clicked on a default view', async () => {

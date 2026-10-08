@@ -22,18 +22,6 @@
         </div>
       </template>
 
-      <template #cell-roles="{ row }">
-        <div class="admin-views-table__badges">
-          <span
-            v-for="role in rolesFor(toView(row))"
-            :key="role"
-            class="admin-views-table__badge"
-          >
-            {{ role }}
-          </span>
-        </div>
-      </template>
-
       <template #cell-actions="{ row }">
         <div class="admin-views-table__actions">
           <template v-if="toView(row).isDefault">
@@ -93,7 +81,6 @@ import AdminDataTable, { type AdminColumn } from '@/components/admin/AdminDataTa
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { deleteAdminView, getAdminViewExportUrl, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { roleLabel } from '@/utils/userFormat'
 
 const props = withDefaults(
   defineProps<{
@@ -117,18 +104,11 @@ const router = useRouter()
 
 const columns: AdminColumn[] = [
   { key: 'name', label: 'View Name & Description' },
-  { key: 'roles', label: 'Filter Summary / Roles' },
   { key: 'actions', label: 'Actions', align: 'right' }
 ]
 
 const tableRows = computed(() => props.views as unknown as Record<string, unknown>[])
 const toView = (row: Record<string, unknown>) => row as unknown as AdminView
-
-const rolesFor = (view: AdminView): string[] => {
-  const roles = view.targetRoles || []
-  if (!roles.length || roles.includes('all')) return ['All roles']
-  return roles.map((role) => roleLabel(role))
-}
 
 const onSelectedChange = (value: Array<string | number>) => emit('update:selected', value)
 
@@ -201,25 +181,6 @@ const confirmDelete = async () => {
 
 .admin-views-table__muted {
   color: var(--text-muted);
-}
-
-.admin-views-table__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.admin-views-table__badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background-color: var(--bg-light);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
 }
 
 .admin-views-table__actions {
