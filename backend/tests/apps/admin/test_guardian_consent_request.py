@@ -65,8 +65,14 @@ class GuardianConsentRequestTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         message = mail.outbox[0]
         self.assertEqual(message.to, ["pat@example.com"])
-        self.assertIn("Wren", message.subject)
-        self.assertIn("Hi Pat", message.alternatives[0][0])
+        # The client's wording: subject, student named in the body, its button.
+        self.assertEqual(message.subject, "Action Required: Sign parent/guardian permission form")
+        html = message.alternatives[0][0]
+        self.assertIn("Hi Pat", html)
+        self.assertIn("Wren Ward recently registered for the BIOTech Futures Challenge", html)
+        self.assertIn("to enable Wren to participate", html)
+        self.assertIn("Action Permission Request", html)
+        self.assertIn("mailto:info@biotechfutures.org", html)
 
         token = self._link_token(message)
         request = GuardianConsentRequest.objects.get(student=self.profile)

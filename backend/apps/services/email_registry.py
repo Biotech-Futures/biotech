@@ -305,7 +305,7 @@ EMAIL_TYPES = (
         key="guardian_consent_request",
         name="Guardian consent request",
         description="Sent to a student's parent or guardian when an admin asks them to sign the consent form.",
-        default_subject="{{ brand_name }}: Permission for {{ student_first_name }} to take part",
+        default_subject="Action Required: Sign parent/guardian permission form",
         default_template="emails/guardian_consent_request.html",
         merge_tags=(
             MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
