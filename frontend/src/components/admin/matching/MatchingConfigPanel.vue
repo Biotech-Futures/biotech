@@ -21,28 +21,6 @@
     </p>
 
     <form v-else class="matching-config__form" novalidate @submit.prevent="onSave">
-      <!-- First save: what is in force now, and what saving will change. -->
-      <div v-if="isFirstConfig" class="matching-config__builtin" role="note">
-        <p class="matching-config__builtin-title">
-          <i class="fas fa-circle-info" aria-hidden="true"></i>
-          No saved weights yet — student matching is using its built-in weighting.
-        </p>
-        <p class="matching-config__muted">
-          Currently applied built-in values (score points, not percentages, so they do not total
-          100):
-        </p>
-        <dl class="matching-config__builtin-values">
-          <div v-for="field in fields" :key="field.key" class="matching-config__builtin-value">
-            <dt>{{ field.label }}</dt>
-            <dd>{{ active?.appliedWeights[field.key] }}</dd>
-          </div>
-        </dl>
-        <p class="matching-config__warning">
-          Saving a configuration replaces the built-in weighting and may change student matching
-          results. The form below starts from the suggested defaults.
-        </p>
-      </div>
-
       <div class="form-field">
         <label class="form-label" for="matching-config-name">Configuration name</label>
         <input
@@ -100,7 +78,7 @@
               inputmode="decimal"
               min="0"
               max="100"
-              step="0.01"
+              step="1"
               class="form-input"
               :aria-invalid="Boolean(weightError(field.key))"
               :aria-describedby="describedBy(field.key)"
