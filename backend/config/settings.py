@@ -634,11 +634,12 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # /api/v1/chat/admin/send-unread-digest/,
 # /api/v1/admin/send-guardian-details-reminders/ and
 # /api/v1/admin/send-guardian-consent-reminders/. Each workflow sends it in the
-# X-Email-Jobs-Token header. Until EMAIL_JOBS_TOKEN is set, the RSVP reminders'
-# existing RSVP_REMINDER_TOKEN stands in, as the workflows' secret does. Unset
-# means the endpoints answer 503, so a misconfigured deploy fails loud instead
-# of exposing unauthenticated triggers.
-EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="") or config("RSVP_REMINDER_TOKEN", default="")
+# X-Email-Jobs-Token header. Unset means the endpoints answer 503, so a
+# misconfigured deploy fails loud instead of exposing unauthenticated triggers.
+EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
+# The token the workflows send until EMAIL_JOBS_TOKEN is set on both GitHub and
+# Azure. Accepted alongside it while the jobs move over; removed after.
+RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
