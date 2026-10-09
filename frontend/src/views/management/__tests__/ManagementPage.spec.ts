@@ -25,7 +25,7 @@ const mountPage = () =>
   })
 
 describe('the management shell', () => {
-  it('offers only the seven live sections as tabs', () => {
+  it('offers every section as a tab', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map((t) => t.text())).toEqual([
@@ -35,15 +35,15 @@ describe('the management shell', () => {
       'Notify Nonfinalist',
       'Finalist Presentation',
       'Release Results',
-      'Document Setup'
+      'Document Setup',
+      'New Year'
     ])
     expect(tabs[2]!.attributes('href')).toBe('/management/notify-finalists')
     expect(tabs[3]!.attributes('href')).toBe('/management/email-nonfinalist')
     expect(tabs[4]!.attributes('href')).toBe('/management/finalist-presentation')
     expect(tabs[5]!.attributes('href')).toBe('/management/release-results')
     expect(tabs[6]!.attributes('href')).toBe('/management/document-setup')
-    // The parked section stays routed but must not be offered.
-    expect(wrapper.text()).not.toContain('New Year')
+    expect(tabs[7]!.attributes('href')).toBe('/management/new-year')
   })
 
   it('marks the tab for the current route as selected', () => {

@@ -39,9 +39,8 @@ const tabs = [
   { label: 'Notify Nonfinalist', to: '/management/email-nonfinalist' },
   { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
   { label: 'Release Results', to: '/management/release-results' },
-  { label: 'Document Setup', to: '/management/document-setup' }
-  // Hidden for now — the page still exists at its URL; restore by uncommenting.
-  // { label: 'New Year', to: '/management/new-year' }
+  { label: 'Document Setup', to: '/management/document-setup' },
+  { label: 'New Year', to: '/management/new-year' }
 ]
 </script>
 
