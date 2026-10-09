@@ -1,0 +1,354 @@
+<template>
+  <div class="content-area admin-emails">
+    <div class="admin-emails__header">
+      <div>
+        <h1 class="admin-emails__title">System Emails</h1>
+        <p class="admin-emails__subtitle">
+          Edit the wording of the emails the platform sends, preview them with sample data and
+          pause the ones you do not want going out.
+        </p>
+      </div>
+
+      <label class="admin-emails__global">
+        <input
+          type="checkbox"
+          class="sr-only"
+          role="switch"
+          :checked="emailsEnabled"
+          :disabled="loading || togglingGlobal"
+          aria-label="Send system emails"
+          @change="onGlobalSwitch"
+        />
+        <span class="admin-emails__global-track" aria-hidden="true">
+          <span class="admin-emails__global-knob"></span>
+        </span>
+        <span class="admin-emails__global-label">
+          {{ emailsEnabled ? 'Emails on' : 'Emails paused' }}
+        </span>
+      </label>
+    </div>
+
+    <p v-if="!emailsEnabled && !loading" class="admin-emails__banner" role="status">
+      <i class="fas fa-circle-pause" aria-hidden="true"></i>
+      <span>
+        All system emails are paused, except sign-in, password reset and password change emails,
+        which always send. Turn the switch back on to resume them.
+      </span>
+    </p>
+
+    <p v-if="error" class="admin-emails__error" role="alert">
+      <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+      <span>{{ error }}</span>
+    </p>
+
+    <p v-if="notice" class="admin-emails__notice" role="status">
+      <i class="fas fa-circle-check" aria-hidden="true"></i>
+      <span>{{ notice }}</span>
+    </p>
+
+    <div v-if="loading" class="admin-emails__state" role="status">
+      <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+      <span>Loading system emails…</span>
+    </div>
+
+    <div v-else-if="!templates.length" class="admin-emails__state">
+      <i class="fas fa-inbox" aria-hidden="true"></i>
+      <span>No system emails are registered.</span>
+    </div>
+
+    <div v-else class="admin-emails__layout">
+      <aside class="admin-emails__sidebar">
+        <EmailTypeList
+          :templates="templates"
+          :selected-key="selectedKey"
+          @select="onSelect"
+        />
+      </aside>
+
+      <div class="admin-emails__main" v-if="selected">
+        <EmailEditor
+          :email-template="selected"
+          :subject="draft.subject"
+          :body="draft.body"
+          :dirty="dirty"
+          :busy="busy"
+          :saving="saving"
+          :testing="testing"
+          :test-result="testResult"
+          v-model:test-of="testOf"
+          :test-recipients="testRecipients"
+          :test-recipients-loading="testRecipientsLoading"
+          :test-recipients-failed="testRecipientsFailed"
+          :restoring="restoring"
+          @update:subject="setSubject"
+          @update:body="setBody"
+          @toggle-enabled="onToggleEnabled"
+          @change-sender="onChangeSender"
+          @save="save"
+          @restore="restoreConfirmOpen = true"
+          @test-send="testSend"
+        />
+
+        <EmailPreview :preview="preview" :loading="previewing" />
+      </div>
+    </div>
+
+    <ConfirmDialog
+      v-model="restoreConfirmOpen"
+      title="Restore default wording?"
+      :message="`This removes your edits to ${selected?.name ?? 'this email'} and uses the built-in design again. Its on/off setting is kept.`"
+      confirm-label="Restore default"
+      variant="warning"
+      :busy="restoring"
+      @confirm="onRestoreConfirmed"
+    />
+
+    <ConfirmDialog
+      v-model="pauseConfirmOpen"
+      title="Pause all system emails?"
+      message="Every system email (except sign-in, password reset and password change emails) stops going out until you turn this back on. Emails due while paused, like reminders and announcement notices, aren't sent later."
+      confirm-label="Pause emails"
+      busy-label="Pausing..."
+      variant="danger"
+      :busy="togglingGlobal"
+      @confirm="onPauseConfirmed"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
+import EmailPreview from '@/components/admin/emails/EmailPreview.vue'
+import EmailTypeList from '@/components/admin/emails/EmailTypeList.vue'
+import { useSystemEmails } from '@/composables/admin/useSystemEmails'
+
+const {
+  loading,
+  error,
+  notice,
+  saving,
+  previewing,
+  testing,
+  restoring,
+  togglingGlobal,
+  templates,
+  selectedKey,
+  draft,
+  preview,
+  selected,
+  dirty,
+  busy,
+  emailsEnabled,
+  load,
+  select,
+  setSubject,
+  setBody,
+  testSend,
+  testResult,
+  testRecipients,
+  testRecipientsLoading,
+  testRecipientsFailed,
+  testOf,
+  save,
+  restore,
+  toggleEnabled,
+  changeSender,
+  toggleGlobal
+} = useSystemEmails()
+
+const restoreConfirmOpen = ref(false)
+const pauseConfirmOpen = ref(false)
+
+/** Turning emails back on is immediate; pausing them all asks first. */
+const onGlobalSwitch = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (input.checked) {
+    void toggleGlobal(true)
+    return
+  }
+  // The switch stays on until the pause is confirmed.
+  input.checked = true
+  pauseConfirmOpen.value = true
+}
+
+const onPauseConfirmed = async () => {
+  await toggleGlobal(false)
+  pauseConfirmOpen.value = false
+}
+
+const onSelect = (key: string) => {
+  select(key)
+}
+
+const onToggleEnabled = (enabled: boolean) => {
+  if (selected.value) void toggleEnabled(selected.value, enabled)
+}
+
+const onChangeSender = (sender: string) => {
+  if (selected.value) void changeSender(selected.value, sender)
+}
+
+const onRestoreConfirmed = async () => {
+  await restore()
+  restoreConfirmOpen.value = false
+}
+
+onMounted(async () => {
+  await load()
+})
+</script>
+
+<style scoped>
+.admin-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  /* The two columns stack by the page's own width (see the @container rule). */
+  container: admin-emails / inline-size;
+}
+
+.admin-emails__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/* Title and subtitle as on the Grading page. */
+.admin-emails__title {
+  margin-bottom: 0.25rem;
+}
+
+.admin-emails__subtitle {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.admin-emails__global {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.admin-emails__global input:disabled + .admin-emails__global-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-emails__global-track {
+  position: relative;
+  display: inline-block;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: #d1d5db;
+  transition: background-color 0.15s ease;
+}
+
+.admin-emails__global input:checked + .admin-emails__global-track {
+  background: var(--dark-green);
+}
+
+.admin-emails__global-knob {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.15s ease;
+}
+
+.admin-emails__global input:checked + .admin-emails__global-track .admin-emails__global-knob {
+  transform: translateX(1.25rem);
+}
+
+.admin-emails__global-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.admin-emails__banner,
+.admin-emails__error,
+.admin-emails__notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.admin-emails__banner {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.admin-emails__error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.admin-emails__notice {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.admin-emails__state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 16rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 0.5rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+/* The right side never gets narrower than an email at full size (its 600px
+   card and the gap around it), so the preview never squeezes it. */
+.admin-emails__layout {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(640px, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.admin-emails__sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.admin-emails__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+/* Too narrow for the list beside a full size right side (15rem + 1.5rem +
+   640px): the list moves above it instead. */
+@container admin-emails (max-width: 904px) {
+  .admin-emails__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-emails__sidebar {
+    position: static;
+  }
+}
+
+/* Dark theme: the switch's label reads on the dark page. */
+:root[data-theme='dark'] .admin-emails__global-label {
+  color: var(--charcoal);
+}
+</style>

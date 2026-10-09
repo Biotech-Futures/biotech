@@ -7,7 +7,7 @@ export const createEventSchema = z
   .object({
     hostUserId: z.coerce.number().int().positive().optional().nullable(),
     eventName: z.string().trim().min(1, "Event name is required").max(255),
-    description: z.string().trim().max(255).optional().nullable(),
+    description: z.string().trim().optional().nullable(),
     eventImage: z.preprocess(
       (v) => (v === "" ? null : v),
       z.string().url("Must be a valid URL").max(255).nullable().optional(),
@@ -18,7 +18,6 @@ export const createEventSchema = z
     eventTimezone: z.string().optional(),
     startAt: dateTimeInput,
     endsAt: dateTimeInput,
-    targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
     targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
@@ -30,7 +29,7 @@ export const updateEventSchema = z
   .object({
     hostUserId: z.coerce.number().int().positive().optional().nullable(),
     eventName: z.string().trim().min(1).max(255).optional(),
-    description: z.string().trim().max(255).optional().nullable(),
+    description: z.string().trim().optional().nullable(),
     eventImage: z.preprocess(
       (v) => (v === "" ? null : v),
       z.string().url("Must be a valid URL").max(255).nullable().optional(),
@@ -41,7 +40,6 @@ export const updateEventSchema = z
     eventTimezone: z.string().optional(),
     startAt: dateTimeInput.optional(),
     endsAt: dateTimeInput.optional(),
-    targetGroupIds: z.array(z.number().int().positive()).optional(),
     targetRoleIds: z.array(z.number().int().positive()).optional(),
   })
   .refine(

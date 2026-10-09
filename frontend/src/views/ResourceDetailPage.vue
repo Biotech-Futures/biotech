@@ -101,6 +101,13 @@
           ></iframe>
 
           <iframe
+            v-else-if="previewMode === 'pdf' && previewUrl"
+            class="preview-frame"
+            title="PDF preview"
+            :src="previewUrl"
+          ></iframe>
+
+          <iframe
             v-else-if="previewMode === 'frame' && previewUrl"
             class="preview-frame"
             title="Resource preview"
@@ -160,7 +167,7 @@ import {
   type ResourceAccess
 } from '../utils/resourcesAPI'
 
-type PreviewMode = 'none' | 'html' | 'frame' | 'image' | 'video' | 'audio' | 'text'
+type PreviewMode = 'none' | 'html' | 'frame' | 'pdf' | 'image' | 'video' | 'audio' | 'text'
 type ResourceAccessMode =
   | 'inline_html'
   | 'external_page'
@@ -261,6 +268,10 @@ const isTextLike = computed(() => {
   return mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('csv')
 })
 
+const isOfficeDocument = computed(() =>
+  mimeType.value.includes('officedocument') || mimeType.value.includes('opendocument'),
+)
+
 const canFrameMime = computed(() => {
   const mime = mimeType.value
   return mime === 'text/html'
@@ -310,14 +321,15 @@ const preparePreview = async (): Promise<void> => {
 
   if (accessMode.value === 'external_file' && access.value.external_url) {
     if (isPdfResource.value) {
-      previewError.value = 'Preview this PDF in a new window.'
+      previewUrl.value = pdfPreviewTarget.value || ''
+      previewMode.value = 'pdf'
       return
     }
     previewUrl.value = buildResourceUrl(access.value.external_url)
     if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
     else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
     else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
-    else if (canFrameMime.value || isTextLike.value) previewMode.value = 'frame'
+    else if (!isOfficeDocument.value && (canFrameMime.value || isTextLike.value)) previewMode.value = 'frame'
     else previewError.value = 'This file type cannot be displayed in the browser.'
     return
   }
@@ -334,11 +346,20 @@ const preparePreview = async (): Promise<void> => {
   }
 
   if (isPdfResource.value) {
-    previewError.value = 'Preview this PDF in a new window.'
+    previewUrl.value = pdfPreviewTarget.value || ''
+    previewMode.value = 'pdf'
     return
   }
 
-  previewError.value = 'Open or download this file to view it.'
+  previewUrl.value = buildResourceUrl(`${target}${target.includes('?') ? '&' : '?'}inline=1`)
+  if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
+  else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
+  else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
+  else if (!isOfficeDocument.value && (canFrameMime.value || isTextLike.value)) previewMode.value = 'frame'
+  else {
+    previewUrl.value = ''
+    previewError.value = 'Open or download this file to view it.'
+  }
 }
 
 const loadResource = async (): Promise<void> => {

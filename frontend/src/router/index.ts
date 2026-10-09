@@ -59,6 +59,7 @@ const router = createRouter({
 })
 
 import { useAuthStore } from '../stores/auth'
+import { rememberReturnTo } from '../utils/postLoginRedirect'
 
 router.beforeEach((to, from, next) => {
 
@@ -67,21 +68,29 @@ router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
+  const requiresAdmin = to.meta.requiresAdmin === true
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (to.meta.public === true) {
+    // Open to anyone, signed in or not, and never redirected away.
+    next()
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/login' : '/dashboard')
+    next('/dashboard')
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
+    // Signing in brings them back here, e.g. to the page an email linked to.
+    rememberReturnTo(to.fullPath)
     next('/login')
 
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
-    next('/login')
+  } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {
+    // Admin-only routes are off-limits to non-admins; send members home.
+    next('/dashboard')
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
@@ -89,12 +98,7 @@ router.beforeEach((to, from, next) => {
       return
     }
 
-    if (auth.isAdmin) {
-      next()
-      return
-    }
-
-    next('/dashboard')
+    next(auth.isAdmin ? '/admin' : '/dashboard')
   } else {
     next()
   }

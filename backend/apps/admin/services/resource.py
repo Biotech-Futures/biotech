@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
-from apps.resources.services.storage import RESOURCE_FILE_SERVICE
+from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
 from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -702,18 +702,15 @@ def replace_resource_file(
     resource = Resources.objects.get(id=resource_id)
     next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
     
-    # Upload new file
+    # Upload new file via the shared ManagedContainerStorage, so replaced
+    # files land in the same AZURE_RESOURCE_CONTAINER that the resources
+    # app reads from — azure_blob_utils.upload_file() was writing to
+    # AZURE_CONTAINER instead, a different container, which made replaced
+    # files silently unreachable on download.
     file_bytes = payload.get('file_bytes', b'')
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        if isinstance(file_bytes, bytes):
-            tmp.write(file_bytes)
-        else:
-            tmp.write(bytes(file_bytes))
-        tmp.flush()
-        try:
-            upload_file(tmp.name, next_storage_key)
-        finally:
-            os.unlink(tmp.name)
+    if not isinstance(file_bytes, bytes):
+        file_bytes = bytes(file_bytes)
+    get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
     
     resource.storage_key = next_storage_key
     resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
@@ -740,19 +737,27 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
         }
 
     try:
+        content = None
         try:
-            content = download_file_bytes(resource.storage_key)
+            with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+                content = fp.read()
         except Exception:
-            content = None
-            for blob_client in iter_resource_blob_clients(resource.storage_key):
-                try:
-                    if blob_client.exists():
-                        content = blob_client.download_blob().readall()
-                        break
-                except Exception:
-                    continue
-            if content is None:
-                raise
+            pass
+
+        if content is None:
+            try:
+                content = download_file_bytes(resource.storage_key)
+            except Exception:
+                for blob_client in iter_resource_blob_clients(resource.storage_key):
+                    try:
+                        if blob_client.exists():
+                            content = blob_client.download_blob().readall()
+                            break
+                    except Exception:
+                        continue
+
+        if content is None:
+            raise ValueError("File not found in storage")
 
         return {
             'msg': 'Resource download ready',
@@ -788,6 +793,32 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
     file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
 
     try:
+        try:
+            file_handle = RESOURCE_FILE_SERVICE.open(resource.storage_key)
+            def file_chunk_generator(handle, chunk_size=64 * 1024):
+                try:
+                    while True:
+                        chunk = handle.read(chunk_size)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    handle.close()
+
+            return {
+                'msg': 'Resource stream ready',
+                'data': {
+                    'resource_id': resource.id,
+                    'access_type': 'stream',
+                    'file_name': file_name,
+                    'mime_type': resource.file_mime_type or 'application/octet-stream',
+                    'file_size': resource.file_size,
+                    'stream': file_chunk_generator(file_handle),
+                },
+            }
+        except Exception:
+            pass
+
         for blob_client in iter_resource_blob_clients(resource.storage_key):
             try:
                 if blob_client.exists():

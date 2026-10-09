@@ -5,17 +5,13 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils import timezone
+from django.utils import dateformat, timezone
 
 from apps.users.models import User
-from apps.common.rbac import is_admin
 from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
-from .email_branding import attach_inline_logo, brand_context
-from .mailer import send_async
 from .models import LOGIN_OTP_EXPIRY_MINUTES, LoginToken, PasswordResetToken
+from .system_email import send_system_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,32 +49,27 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     }
     magic_link = f"{backend_url}/services/magic/?{urlencode(query_params)}"
 
-    # Render HTML email
-    html_content = render_to_string("emails/login.html", {
-        **brand_context(),
-        "MAGIC_LINK": magic_link,
-        "OTP_CODE": token,
-        "EXPIRY_MINUTES": LOGIN_OTP_EXPIRY_MINUTES,
-        "First_Name": user.first_name,
-    })
-
-    # Plaintext fallback
+    # Plaintext fallback, used unless an admin has rewritten the email.
     text_content = (
         f"Use this link to log in: {magic_link}\n"
         f"Or enter code: {token} (expires in {LOGIN_OTP_EXPIRY_MINUTES} mins).\n"
         "If you asked for more than one code, they are all the same code."
     )
 
-    msg = EmailMultiAlternatives(
-        subject=f"{settings.BRAND_NAME}: Log in securely",
-        body=text_content,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+    # login_code is locked in the email registry, so no toggle can stop it.
+    # Rendered synchronously, sent off-thread: the worker must do no ORM work.
+    send_system_email(
+        "login_code",
+        user.email,
+        {
+            "MAGIC_LINK": magic_link,
+            "OTP_CODE": token,
+            "EXPIRY_MINUTES": LOGIN_OTP_EXPIRY_MINUTES,
+            "First_Name": user.first_name,
+        },
+        default_text=text_content,
+        background=True,
     )
-    msg.attach_alternative(html_content, "text/html")
-    attach_inline_logo(msg)
-    # Built synchronously, sent off-thread: the worker must do no ORM work.
-    send_async(msg, kind="login_code")
     return True
 
 
@@ -110,12 +101,21 @@ def send_password_reset(email: str, *, ip: str = None, user_agent: str = "") -> 
 
 def confirm_password_reset(*, token: str, new_password: str) -> User:
     """Verify token, set new password, invalidate other tokens, terminate sessions, notify."""
-    reset_row = PasswordResetToken.consume(token)
+    # Checked without consuming, so a password the validators reject leaves the
+    # link usable for another try — the confirm endpoint already rate-limits
+    # attempts per token and per IP, so this can't be used to grind passwords.
+    reset_row = PasswordResetToken.peek(token)
     if reset_row is None:
         raise InvalidOrExpiredResetToken()
 
     user = reset_row.user
     _validate_or_raise(new_password, user)
+
+    # Password is good: claim the token now. A concurrent confirm that got there
+    # first leaves nothing to claim, and this one is rejected.
+    reset_row = PasswordResetToken.consume(token)
+    if reset_row is None:
+        raise InvalidOrExpiredResetToken()
 
     user.set_password(new_password)
     user.save(update_fields=['password'])
@@ -152,42 +152,34 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     known-email request into a 500 — that would let an attacker enumerate users
     by comparing responses against the silent 200 returned for unknown emails.
     """
-    # Admins reset their password on the admin portal; everyone else on the
-    # user app. Both settings are defined unconditionally in config/settings.py
-    # (env-driven, fail-loud in prod via ImproperlyConfigured) so a misconfigured
-    # deploy can't silently email reset links pointing at http://localhost:5173.
-    base = (
-        settings.ADMIN_PASSWORD_RESET_REDIRECT_URL
-        if is_admin(user)
-        else settings.PASSWORD_RESET_REDIRECT_URL
-    )
-    reset_link = f"{base}?token={token}"
+    # One destination for everyone, including admins: since the interface merge
+    # admins sign in to the same app as students and mentors, so sending them to
+    # the old standalone admin portal would be a dead end. The setting is
+    # env-driven and fails loud in prod (config/settings.py), so a misconfigured
+    # deploy can't silently email links pointing at http://localhost:5173.
+    reset_link = f"{settings.PASSWORD_RESET_REDIRECT_URL}?token={token}"
 
     ctx = {
-        **brand_context(),
         "RESET_PASSWORD_LINK": reset_link,
         "EXPIRY_MINUTES": expiry_minutes,
         "First_Name": user.first_name,
     }
+    text_content = (
+        f"Update your {settings.BRAND_NAME} password: {reset_link}\n"
+        f"This link expires in {expiry_minutes} minutes.\n"
+        f"If you didn't request this, ignore this email."
+    )
     try:
-        html_content = render_to_string("emails/password_reset.html", ctx)
-        text_content = (
-            f"Update your {settings.BRAND_NAME} password: {reset_link}\n"
-            f"This link expires in {expiry_minutes} minutes.\n"
-            f"If you didn't request this, ignore this email."
-        )
-
-        msg = EmailMultiAlternatives(
-            subject=f"{settings.BRAND_NAME}: Update your password",
-            body=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[user.email],
-        )
-        msg.attach_alternative(html_content, "text/html")
-        attach_inline_logo(msg)
         # Off-thread like the login code: this flow got the same 60s client
         # cooldown, so a blocking send would leave the user waiting with no retry.
-        send_async(msg, kind="password_reset")
+        # Skipped (not an error) when an admin has switched this email off.
+        send_system_email(
+            "password_reset",
+            user.email,
+            ctx,
+            default_text=text_content,
+            background=True,
+        )
     except Exception:
         logger.exception("password_reset.render_failed", extra={"user_id": user.id})
 
@@ -210,26 +202,24 @@ def _invalidate_outstanding_tokens(user) -> None:
 def _send_password_changed_notification(user, *, ip: str = None) -> None:
     """Best-effort 'your password was changed' email. Never raises — password is already updated."""
     ctx = {
-        **brand_context(),
         "First_Name": user.first_name,
-        "CHANGED_AT": timezone.now(),
+        # Pre-formatted (the template appends "UTC") so the {{ changed_at }} tag
+        # and the built-in template show the same text.
+        "CHANGED_AT": dateformat.format(timezone.localtime(timezone.now()), "j M Y, H:i"),
         "REQUEST_IP": ip or "unknown",
     }
+    text_content = (
+        f"Hi {user.first_name or 'there'},\n\n"
+        f"Your {settings.BRAND_NAME} password was just changed.\n"
+        f"If this wasn't you, contact {settings.SUPPORT_EMAIL} immediately."
+    )
     try:
-        html_content = render_to_string("emails/password_changed.html", ctx)
-        text_content = (
-            f"Hi {user.first_name or 'there'},\n\n"
-            f"Your {settings.BRAND_NAME} password was just changed.\n"
-            f"If this wasn't you, contact {settings.SUPPORT_EMAIL} immediately."
+        send_system_email(
+            "password_changed",
+            user.email,
+            ctx,
+            default_text=text_content,
+            background=True,
         )
-        msg = EmailMultiAlternatives(
-            subject=f"{settings.BRAND_NAME}: Your password was changed",
-            body=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[user.email],
-        )
-        msg.attach_alternative(html_content, "text/html")
-        attach_inline_logo(msg)
-        send_async(msg, kind="password_changed")
     except Exception:
         logger.exception("password_reset.notification_failed", extra={"user_id": user.id})

@@ -45,7 +45,7 @@ def _make_user(email="audit22@example.com"):
 
 # --- Finding 1: no account-existence leak via status code -------------------
 
-@patch("apps.services.auth_service.EmailMultiAlternatives")
+@patch("apps.services.system_email.EmailMultiAlternatives")
 class SendLoginCodeNoEnumerationTest(TestCase):
     """The endpoint MUST return the same shape (200 + generic message) for
     known and unknown emails. The previous OpenAPI contract advertised 404
@@ -102,8 +102,8 @@ class MagicLinkBackendUrlTest(TestCase):
         self.user = _make_user(email="magic_url@example.com")
 
     @override_settings(BACKEND_URL="https://api.biotechfutures.org")
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_magic_link_uses_configured_backend_url(self, _mock_email, mock_render):
         mock_render.return_value = "<html>ignored</html>"
         self.assertTrue(send_login_code(self.user.email))
@@ -122,8 +122,8 @@ class MagicLinkBackendUrlTest(TestCase):
         self.assertEqual(parsed.hostname, "api.biotechfutures.org")
 
     @override_settings(BACKEND_URL="https://api.biotechfutures.org/")
-    @patch("apps.services.auth_service.render_to_string")
-    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    @patch("apps.services.system_email.render_to_string")
+    @patch("apps.services.system_email.EmailMultiAlternatives")
     def test_backend_url_trailing_slash_is_normalized(self, _mock_email, mock_render):
         # Tolerant of an env var with a trailing slash — must not produce a
         # double slash like https://host//services/magic/.

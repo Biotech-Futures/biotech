@@ -4,6 +4,7 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
+from rest_framework.permissions import BasePermission
 
 from apps.common.role_names import ROLE_ADMIN
 
@@ -132,3 +133,14 @@ def users_with_role(role_name: str, *, assignable_only: bool = True):
     # `id__in` against a User queryset collapses duplicate assignment rows, so
     # overlapping grants of the same role still yield each user once.
     return accounts.filter(id__in=assigned_user_ids)
+
+
+class IsStaffOrAdmin(BasePermission):
+    """Staff, a superuser, or a platform admin (an AdminScope row): who marks
+    and runs Management. Broader than ``is_admin``, the admin row alone."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return user.is_staff or user.is_superuser or is_admin(user)

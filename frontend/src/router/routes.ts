@@ -56,19 +56,22 @@
 
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
+import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
 // /groups has no id of its own — resolve the user's first group from the
-// store and forward there. Falls back to /dashboard when the user has no
-// groups, instead of rendering a half-loaded placeholder.
+// store and forward there (an admin's list is every group). Falls back to
+// /dashboard when the user has no groups, instead of rendering a
+// half-loaded placeholder; an admin goes to Admin > Groups to make one.
 const resolveGroupsLanding = async () => {
   const store = useGroupsStore();
   await store.ensureLoaded();
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
+  if (useAuthStore().isAdmin) return { name: 'admin-groups', replace: true };
   window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
 };
@@ -80,17 +83,71 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
+  // Guardians open this from the consent email; no account needed.
+  { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/finalist', name: 'group-finalist', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/results', name: 'group-results', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
   { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
-  { path: '/admin', redirect: '/dashboard' },
+  { path: '/admin', name: 'admin', component: () => import('@/views/admin/AdminDashboardPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminPeoplePage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  {
+    path: '/admin/views',
+    name: 'admin-views',
+    component: () => import('@/views/admin/AdminViewsDirectoryPage.vue'),
+    meta: { requiresAdmin: true }
+  },
+  { path: '/admin/views/:id(\\d+)', name: 'admin-view-detail', component: () => import('@/views/admin/AdminViewExecutedPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  {
+    // Admin-only grading section. meta.adminOnly is merged into every child
+    // route's meta by Vue Router, so the global guard covers the whole tree.
+    path: '/grading',
+    component: () => import('@/views/grading/GradingPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/grading/components/SAQ' },
+      { path: 'by-group', name: 'grading-by-group', component: () => import('@/views/grading/ByGroupPage.vue') },
+      { path: 'components/:code', name: 'grading-component', component: () => import('@/views/grading/ComponentTablePage.vue') },
+      // Both marking routes render the same page — the route name decides the
+      // chrome (jump card, Download all, tab navigation). They hide the app's
+      // side navigation (meta.hideSidebar): the preview/rubric split wants
+      // the full width.
+      { path: 'components/:code/:groupId(\\d+)', name: 'grading-component-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'groups/:groupId(\\d+)', name: 'grading-group', component: () => import('@/views/grading/GroupMarkingPage.vue'), meta: { hideSidebar: true } },
+      { path: 'finalists', name: 'grading-finalists', component: () => import('@/views/grading/FinalistsPage.vue') }
+    ]
+  },
+  {
+    // Admin-only management section — the run-the-competition levers. Same
+    // adminOnly meta merge as /grading above.
+    path: '/management',
+    component: () => import('@/views/management/ManagementPage.vue'),
+    meta: { adminOnly: true },
+    children: [
+      { path: '', redirect: '/management/submission-deadline' },
+      { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
+      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
+      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
+      { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
+      { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
+      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
+      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') }
+    ]
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

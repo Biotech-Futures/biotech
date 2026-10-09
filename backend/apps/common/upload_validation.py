@@ -74,6 +74,44 @@ def _has_executable_signature(uploaded_file) -> bool:
     return any(head.startswith(prefix) for prefix in _EXECUTABLE_MAGIC_PREFIXES)
 
 
+def validate_unrestricted_upload(uploaded_file, *, max_size: int, field_label: str):
+    """Size and safety checks only, with no allow-list of types.
+
+    For uploads that are genuinely open-ended — a competition prototype may be
+    a CAD file, a notebook, an archive, a video — an allow-list would reject
+    legitimate work for no better reason than being unusual. The dangerous
+    checks are kept: anything whose name or contents looks like a program is
+    still refused, since these files are downloaded by mentors and judges.
+
+    Prefer :func:`validate_uploaded_file` wherever the acceptable types are
+    actually known; this is the deliberate exception, not the default.
+    """
+    if uploaded_file is None:
+        return uploaded_file
+
+    file_size = getattr(uploaded_file, "size", None)
+    if file_size is not None and file_size > max_size:
+        raise serializers.ValidationError(
+            f"{field_label} exceeds the maximum allowed size of {_format_bytes(max_size)}."
+        )
+
+    name = getattr(uploaded_file, "name", "") or ""
+    suffixes = [s.lower().lstrip(".") for s in Path(name).suffixes]
+    # Every dotted segment is checked, not just the last, so `demo.exe.zip` is
+    # caught the same way `invoice.exe.pdf` is.
+    if any(seg in _DANGEROUS_INNER_EXTENSIONS for seg in suffixes):
+        raise serializers.ValidationError(
+            f"{field_label} must not be an executable file."
+        )
+
+    if _has_executable_signature(uploaded_file):
+        raise serializers.ValidationError(
+            f"{field_label} content matches an executable signature."
+        )
+
+    return uploaded_file
+
+
 def validate_uploaded_file(
     uploaded_file,
     *,

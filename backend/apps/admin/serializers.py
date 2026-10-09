@@ -2,6 +2,12 @@
 from rest_framework import serializers
 
 from apps.admin.services.user import ROLES
+from apps.services.email_registry import (
+    get_email_type,
+    is_known_email_type,
+    unknown_merge_tags,
+)
+from apps.services.system_email import clean_email_body, senders
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -49,3 +55,105 @@ def _format_row(row_errors) -> str:
         f"{field} - {' '.join(str(m) for m in messages)}"
         for field, messages in row_errors.items()
     )
+
+
+class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
+    """PATCH /api/v1/admin/email-template/<key>/ body.
+
+    Every field is optional (PATCH semantics) so toggling an email does not
+    disturb its wording and vice versa. The serializer rejects wording that
+    references a merge tag the email type cannot fill, refuses to switch off a
+    locked type, and sanitises the body before it is ever stored.
+    """
+
+    subject = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=255
+    )
+    body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    enabled = serializers.BooleanField(required=False)
+    # Which mailbox it goes from: a key of settings.EMAIL_SENDERS.
+    sender = serializers.CharField(required=False, max_length=32)
+
+    def validate_sender(self, value: str) -> str:
+        if value not in {sender.key for sender in senders()}:
+            raise serializers.ValidationError("It can only go from one of the mailboxes listed.")
+        return value
+
+    def validate(self, attrs):
+        key = self.context.get("key", "")
+        if not is_known_email_type(key):
+            # Leave the 404 decision to the service/view; validating tags or
+            # locked state against a non-existent type would raise KeyError.
+            return attrs
+
+        email_type = get_email_type(key)
+        if attrs.get("enabled") is False and email_type.locked:
+            raise serializers.ValidationError(
+                {
+                    "enabled": [
+                        f"The '{email_type.name}' email is required for signing "
+                        "in and cannot be switched off."
+                    ]
+                }
+            )
+
+        for field in ("subject", "body"):
+            value = attrs.get(field)
+            if value is None:
+                continue
+            unknown = unknown_merge_tags(key, value)
+            if unknown:
+                raise serializers.ValidationError(
+                    {
+                        field: [
+                            "Unsupported merge tag(s): "
+                            f"'{', '.join(sorted(unknown))}'"
+                        ]
+                    }
+                )
+
+        # Keeps the formatting an admin can produce in the editor, boxes and
+        # buttons included, and strips scripts, event handlers and javascript: URLs.
+        if attrs.get("body"):
+            attrs["body"] = clean_email_body(attrs["body"])
+        return attrs
+
+
+class SystemEmailPreviewSerializer(serializers.Serializer):
+    """Optional unsaved wording, and whose details to fill in, for preview /
+    test-send.
+
+    Absent fields mean "use the saved/default wording"; an explicit empty
+    string means "clear it", which is why both are allowed and null is not
+    silently coerced to empty.
+    """
+
+    subject = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=255
+    )
+    body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Whose details it carries: one of the email's test recipients.
+    of = serializers.CharField(required=False, allow_blank=True, max_length=32)
+
+
+class SystemEmailTestSendSerializer(SystemEmailPreviewSerializer):
+    """A test send: the preview's optional unsaved wording and recipient,
+    and where it goes (the requesting admin when no address is given)."""
+
+    to = serializers.EmailField(required=False)
+
+
+class SystemEmailSettingsUpdateSerializer(serializers.Serializer):
+    """PATCH /api/v1/admin/email-settings/ body."""
+
+    enabled = serializers.BooleanField()
+
+
+def serializer_error_message(errors) -> str:
+    """Flatten DRF's error map into one human-readable message."""
+    if isinstance(errors, dict):
+        return "; ".join(
+            f"{field} - {' '.join(str(m) for m in messages)}"
+            for field, messages in errors.items()
+        )
+    return " ".join(str(error) for error in errors)

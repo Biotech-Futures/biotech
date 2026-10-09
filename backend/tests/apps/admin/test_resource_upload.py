@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from apps.resources.models import ResourceAudience, Resources, ResourceType, Roles
 from apps.users.models import AdminScope
+from apps.common.storage import get_resource_storage
 
 
 class AdminResourceUploadTests(TestCase):
@@ -474,3 +475,83 @@ class AdminResourceUploadTests(TestCase):
             response.data["data"]["items"][0]["id"],
             matching_resource.id,
         )
+
+    @patch("apps.admin.services.resource.get_resource_storage")
+    def test_admin_can_replace_resource_file_with_new_content(self, get_resource_storage_mock):
+        # Regression test for two bugs: (1) replacing a resource's file
+        # silently uploaded an empty file, because the view read `file_bytes`
+        # from request.data (which never contains the raw multipart file)
+        # instead of request.FILES; (2) the replace path uploaded to
+        # AZURE_CONTAINER via azure_blob_utils, a different container than
+        # AZURE_RESOURCE_CONTAINER which the resources app reads from,
+        # making replaced files silently unreachable on download.
+        captured_content = {}
+
+        mock_storage = Mock()
+
+        def fake_save(name, content):
+            captured_content["bytes"] = content.read()
+            return name
+
+        mock_storage.save.side_effect = fake_save
+        get_resource_storage_mock.return_value = mock_storage
+
+        original_upload = SimpleUploadedFile(
+            "original.pdf",
+            b"original content",
+            content_type="application/pdf",
+        )
+        create_response = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": original_upload,
+                "resource_name": "Replaceable Resource",
+                "resource_description": "Will be replaced",
+            },
+            format="multipart",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        resource_id = create_response.data["data"]["id"]
+
+        replacement_upload = SimpleUploadedFile(
+            "replaced.pdf",
+            b"replaced content",
+            content_type="application/pdf",
+        )
+        replace_response = self.client.post(
+            reverse("admin_api:resource-file-replace", args=[resource_id]),
+            {"file": replacement_upload},
+            format="multipart",
+        )
+
+        self.assertEqual(replace_response.status_code, status.HTTP_200_OK)
+
+        resource = Resources.objects.get(id=resource_id)
+        self.assertEqual(resource.file_size, len(b"replaced content"))
+        self.assertEqual(resource.file_mime_type, "application/pdf")
+
+        # The bug we're guarding against: file_bytes must be the real
+        # replacement content, not an empty default.
+        self.assertEqual(captured_content["bytes"], b"replaced content")
+
+    def test_replace_resource_file_without_file_returns_400(self):
+        create_response = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": SimpleUploadedFile(
+                    "original.pdf", b"original content", content_type="application/pdf"
+                ),
+                "resource_name": "No Replacement File",
+            },
+            format="multipart",
+        )
+        resource_id = create_response.data["data"]["id"]
+
+        response = self.client.post(
+            reverse("admin_api:resource-file-replace", args=[resource_id]),
+            {},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["msg"], "No file was uploaded.")
