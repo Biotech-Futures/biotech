@@ -76,10 +76,6 @@ class SlidesAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_SLIDES_CONTAINER"
 
 
-class ConsentAzureStorage(_BaseAzureContainerStorage):
-    container_setting_name = "AZURE_CONSENT_CONTAINER"
-
-
 class LocalContainerStorage(FileSystemStorage):
     def __init__(self, namespace: str):
         media_root = Path(getattr(settings, "MEDIA_ROOT", Path(settings.BASE_DIR) / "media"))
@@ -347,11 +343,6 @@ def get_slides_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("slides", SlidesAzureStorage)
 
 
-@lru_cache(maxsize=2)
-def get_consent_storage() -> ManagedContainerStorage:
-    return ManagedContainerStorage("guardian-consent-forms", ConsentAzureStorage)
-
-
 def reset_managed_storage_caches() -> None:
     # Developer note: prod never flips USE_AZURE_BLOB_STORAGE at runtime, but tests
     # do. Exposing an explicit cache reset keeps override_settings-based storage
@@ -363,4 +354,3 @@ def reset_managed_storage_caches() -> None:
     get_prototype_storage.cache_clear()
     get_profile_image_storage.cache_clear()
     get_slides_storage.cache_clear()
-    get_consent_storage.cache_clear()

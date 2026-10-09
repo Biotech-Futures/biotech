@@ -81,9 +81,6 @@ AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototy
 AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 # Finalists' presentation slides for the Symposium, apart from their entries.
 AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
-# Signed guardian consent records (PDF), private: only admins read them, through
-# the backend.
-AZURE_CONSENT_CONTAINER = config("AZURE_CONSENT_CONTAINER", default="guardian-consent-forms")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",

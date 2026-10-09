@@ -19,6 +19,7 @@ from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, note_send
 from apps.services.system_email import FAILED, SKIPPED, send_system_email
 from apps.users import guardian_consent as consent
+from apps.users.consent_pdf import render_consent_pdf
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 EMAIL_KEY = "guardian_consent_request"
@@ -170,7 +171,10 @@ def list_guardian_consents(user_id: int) -> Dict[str, Any]:
 
 def guardian_consent_record(user_id: int, consent_id: int):
     """The signed record PDF for one of student ``user_id``'s consents, as
-    (filename, bytes), or None if there's no such consent."""
+    (filename, bytes), or None if there's no such consent. Made from the
+    consent each time, as Mark Summaries and certificates are: no PDF is
+    stored, since the consent keeps the wording's version, the drawn
+    signature, the names, when it was signed and the media choice."""
     record = (
         GuardianConsent.objects.select_related("student__user")
         .filter(pk=consent_id, student__user_id=user_id)
@@ -178,7 +182,7 @@ def guardian_consent_record(user_id: int, consent_id: int):
     )
     if record is None:
         return None
-    return consent.record_pdf_filename(record), consent.record_pdf_bytes(record)
+    return consent.record_pdf_filename(record), render_consent_pdf(record)
 
 
 def withdraw_guardian_consent(user_id: int, *, media_only: bool, initiated_by=None) -> Dict[str, Any]:
