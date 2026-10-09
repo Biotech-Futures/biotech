@@ -21,27 +21,6 @@
     </p>
 
     <form v-else class="matching-config__form" novalidate @submit.prevent="onSave">
-      <div class="form-field">
-        <label class="form-label" for="matching-config-name">Configuration name</label>
-        <input
-          id="matching-config-name"
-          v-model="name"
-          type="text"
-          class="form-input"
-          maxlength="100"
-          placeholder="e.g. Student weights 2026"
-          :aria-invalid="Boolean(fieldErrors?.name)"
-          :aria-describedby="fieldErrors?.name ? 'matching-config-name-error' : undefined"
-        />
-        <p
-          v-if="fieldErrors?.name"
-          id="matching-config-name-error"
-          class="matching-config__field-error"
-        >
-          {{ fieldErrors.name }}
-        </p>
-      </div>
-
       <div class="matching-config__grid">
         <div v-for="(field, index) in fields" :key="field.key" class="form-field">
           <div class="matching-config__label-row">
@@ -158,15 +137,12 @@ const fields = MATCHING_WEIGHT_FIELDS
 const {
   status,
   loadError,
-  active,
-  name,
   weights,
   saving,
   saveError,
   fieldErrors,
   notice,
   requiredTotal,
-  isFirstConfig,
   totalLabel,
   totalMatches,
   canSave,
@@ -223,47 +199,6 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-}
-
-/* Built-in weighting notice (no saved config yet) */
-.matching-config__builtin {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--bg-light);
-}
-
-.matching-config__builtin-title {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0;
-  font-weight: 600;
-}
-
-.matching-config__builtin-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.25rem;
-  margin: 0;
-}
-
-.matching-config__builtin-value {
-  display: flex;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}
-
-.matching-config__builtin-value dt {
-  color: var(--text-muted);
-}
-
-.matching-config__builtin-value dd {
-  margin: 0;
-  font-weight: 600;
 }
 
 .matching-config__warning {

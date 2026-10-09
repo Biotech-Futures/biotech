@@ -80,7 +80,6 @@ export function useMatchingConfig() {
   const loadError = ref('')
   const active = ref<ActiveMatchingConfig | null>(null)
 
-  const name = ref('')
   const weights = ref<Record<MatchingWeightKey, WeightInput>>({
     yearWeight: '',
     timezoneWeight: '',
@@ -98,7 +97,6 @@ export function useMatchingConfig() {
     // With no saved config the built-in weights are not a valid percentage
     // split (they total 34), so the form starts from the suggested defaults.
     const source = state.config?.weights ?? state.defaults.weights
-    name.value = state.config?.name ?? ''
     weights.value = { ...source }
   }
 
@@ -124,7 +122,6 @@ export function useMatchingConfig() {
   // -- Derived ----------------------------------------------------------------
 
   const requiredTotal = computed(() => active.value?.defaults.requiredTotal ?? 100)
-  const isFirstConfig = computed(() => active.value?.config === null)
 
   /** Keys whose input is empty, out of range or has too many decimals. */
   const invalidWeightKeys = computed(() =>
@@ -151,7 +148,6 @@ export function useMatchingConfig() {
     () =>
       status.value === 'ready' &&
       !saving.value &&
-      name.value.trim().length > 0 &&
       totalMatches.value
   )
 
@@ -178,14 +174,6 @@ export function useMatchingConfig() {
     },
     { deep: true, flush: 'sync' }
   )
-  watch(
-    name,
-    () => {
-      notice.value = ''
-      if (fieldErrors.value) fieldErrors.value = { ...fieldErrors.value, name: undefined }
-    },
-    { flush: 'sync' }
-  )
 
   // -- Actions ----------------------------------------------------------------
 
@@ -204,17 +192,14 @@ export function useMatchingConfig() {
     try {
       const saved = existing
         ? await updateMatchingConfig(existing.id, {
-            name: name.value.trim(),
             weights: payloadWeights
           })
         : await createMatchingConfig({
-            name: name.value.trim(),
-            weights: payloadWeights,
-            isActive: true
+            weights: payloadWeights
           })
 
-      // The saved config is now the one in force: a new config is created
-      // active, and PATCH keeps the active one active.
+      // The saved config is the one in force: saving a row replaces whatever
+      // was stored before.
       active.value = {
         ...active.value,
         config: saved,
@@ -246,14 +231,12 @@ export function useMatchingConfig() {
     status,
     loadError,
     active,
-    name,
     weights,
     saving,
     saveError,
     fieldErrors,
     notice,
     requiredTotal,
-    isFirstConfig,
     totalLabel,
     totalMatches,
     canSave,

@@ -45,11 +45,9 @@ export const MATCHING_WEIGHT_KEYS: readonly MatchingWeightKey[] = [
   'sizeBonusWeight'
 ]
 
-/** A saved weight set (one `MatchingConfig` row). */
+/** A saved weight set (the one `MatchingConfig` row). */
 export interface MatchingConfig {
   id: number
-  name: string
-  isActive: boolean
   weights: MatchingWeights
   /** Server-computed sum of `weights`. */
   totalWeight: number
@@ -81,24 +79,18 @@ export interface ActiveMatchingConfig {
 }
 
 export interface CreateMatchingConfigPayload {
-  name: string
   weights: MatchingWeights
-  /** Defaults to true server-side: a new config replaces the active one. */
-  isActive?: boolean
 }
 
 export interface UpdateMatchingConfigPayload {
-  name?: string
   /** Partial is allowed; the server checks the total against stored values. */
   weights?: Partial<MatchingWeights>
-  isActive?: boolean
 }
 
 /** Validation messages from a rejected save, keyed for the form. */
 export interface MatchingConfigFieldErrors {
   /** The "must total exactly 100%" message (backend `weight_total`). */
   weightTotal?: string
-  name?: string
   /** Per-weight messages, e.g. out of range or too many decimal places. */
   weights: Partial<Record<MatchingWeightKey, string>>
   /** Anything not tied to a field the form shows (e.g. `non_field_errors`). */
@@ -164,8 +156,6 @@ const weightsSchema = (fields: Record<MatchingWeightKey, string>) =>
 const configSchema = z
   .object({
     id: z.number().int().positive(),
-    name: z.string(),
-    is_active: z.boolean(),
     total_weight: decimal,
     updated_by: z.number().int().nullable().default(null),
     created_at: z.string(),
@@ -175,8 +165,6 @@ const configSchema = z
   .transform(
     (raw): MatchingConfig => ({
       id: raw.id,
-      name: raw.name,
-      isActive: raw.is_active,
       weights: pickWeights(raw, CONFIG_FIELD),
       totalWeight: raw.total_weight,
       updatedBy: raw.updated_by,
@@ -261,15 +249,11 @@ const toConfigFields = (weights: Partial<MatchingWeights>): Record<string, numbe
 export type ConfigRequestBody = Record<string, string | number | boolean>
 
 export const toCreateConfigBody = (payload: CreateMatchingConfigPayload): ConfigRequestBody => ({
-  name: payload.name,
-  ...toConfigFields(payload.weights),
-  ...(payload.isActive !== undefined ? { is_active: payload.isActive } : {})
+  ...toConfigFields(payload.weights)
 })
 
 export const toUpdateConfigBody = (payload: UpdateMatchingConfigPayload): ConfigRequestBody => ({
-  ...(payload.name !== undefined ? { name: payload.name } : {}),
-  ...toConfigFields(payload.weights ?? {}),
-  ...(payload.isActive !== undefined ? { is_active: payload.isActive } : {})
+  ...toConfigFields(payload.weights ?? {})
 })
 
 // ---------------------------------------------------------------------------
@@ -292,7 +276,6 @@ export const matchingConfigFieldErrors = (error: unknown): MatchingConfigFieldEr
   for (const [field, messages] of Object.entries(error.fields)) {
     const message = messages.join(' ')
     if (field === 'weight_total') result.weightTotal = message
-    else if (field === 'name') result.name = message
     else if (WEIGHT_KEY_BY_FIELD[field]) result.weights[WEIGHT_KEY_BY_FIELD[field]] = message
     else result.other.push(message)
   }

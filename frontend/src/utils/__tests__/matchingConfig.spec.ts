@@ -17,8 +17,6 @@ import {
  */
 const configRow = {
   id: 3,
-  name: 'Student v2',
-  is_active: true,
   year_weight: '30.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
@@ -70,8 +68,6 @@ describe('parseMatchingConfig', () => {
   it('turns decimal strings into numbers and snake_case into the frontend shape', () => {
     expect(expectOk(parseMatchingConfig(configRow))).toEqual({
       id: 3,
-      name: 'Student v2',
-      isActive: true,
       weights: {
         yearWeight: 30,
         timezoneWeight: 15,
@@ -205,8 +201,7 @@ describe('config request bodies', () => {
   }
 
   it('builds a create body in backend field names', () => {
-    expect(toCreateConfigBody({ name: 'Student v2', weights })).toEqual({
-      name: 'Student v2',
+    expect(toCreateConfigBody({ weights })).toEqual({
       year_weight: 30,
       timezone_weight: 15,
       timezone_max_weight: 25,
@@ -214,16 +209,12 @@ describe('config request bodies', () => {
     })
   })
 
-  it('only sends is_active when it is given', () => {
-    expect(toCreateConfigBody({ name: 'Draft', weights, isActive: false })).toMatchObject({
-      is_active: false
-    })
-    expect(toCreateConfigBody({ name: 'Draft', weights })).not.toHaveProperty('is_active')
+  it('only sends weights, since a config is a singleton server-side', () => {
+    expect(toCreateConfigBody({ weights })).not.toHaveProperty('is_active')
   })
 
   it('sends weights exactly as entered, without rescaling to 100', () => {
     const body = toCreateConfigBody({
-      name: 'Off by ten',
       weights: { ...weights, yearWeight: 20, timezoneWeight: 15.555 }
     })
     // Totals 90 and has three decimal places: both are the server's to reject.
@@ -233,7 +224,7 @@ describe('config request bodies', () => {
 
   it('never sends a country weight, even if one is passed in', () => {
     const stale = { ...weights, countryMismatchWeight: 15 } as typeof weights
-    expect(toCreateConfigBody({ name: 'Student v2', weights: stale })).not.toHaveProperty(
+    expect(toCreateConfigBody({ weights: stale })).not.toHaveProperty(
       'country_mismatch_weight'
     )
     expect(toUpdateConfigBody({ weights: stale })).not.toHaveProperty('country_mismatch_weight')
@@ -243,10 +234,6 @@ describe('config request bodies', () => {
     expect(
       toUpdateConfigBody({ weights: { yearWeight: 40, timezoneWeight: 10 } })
     ).toEqual({ year_weight: 40, timezone_weight: 10 })
-    expect(toUpdateConfigBody({ name: 'Renamed', isActive: true })).toEqual({
-      name: 'Renamed',
-      is_active: true
-    })
   })
 })
 
@@ -257,21 +244,19 @@ describe('matchingConfigFieldErrors', () => {
       400
     )
 
-  it('exposes the weight total, name and per-weight messages under frontend keys', () => {
+  it('exposes the weight total and per-weight messages under frontend keys', () => {
     const totalMessage =
       'Matching weights must total exactly 100.00% (currently 90.00%, 10.00% under).'
     expect(
       matchingConfigFieldErrors(
         validationError({
           weight_total: [totalMessage],
-          name: ['matching config with this name already exists.'],
           year_weight: ['Ensure this value is less than or equal to 100.'],
           non_field_errors: ['Something else.']
         })
       )
     ).toEqual({
       weightTotal: totalMessage,
-      name: 'matching config with this name already exists.',
       weights: { yearWeight: 'Ensure this value is less than or equal to 100.' },
       other: ['Something else.']
     })

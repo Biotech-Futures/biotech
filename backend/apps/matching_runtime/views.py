@@ -103,8 +103,8 @@ class MatchingConfigViewSet(
     @extend_schema(responses={200: MatchingConfigSerializer})
     @action(detail=False, methods=["get"], url_path="active")
     def active(self, request):
-        """The config currently in force, or the built-in weights if none is."""
-        config = MatchingConfig.get_active()
+        """The stored config (or its weights) the next run will use."""
+        config = MatchingConfig.get_singleton()
         if config is None:
             return Response(
                 {

@@ -20,10 +20,10 @@ from .models import MatchingConfig
 class ResolvedScoringRules(NamedTuple):
     """The weights a run is scored with, plus the config they came from.
 
-    The two travel together so ``rules_snapshot`` can name the exact config the
-    scoring used. Re-reading the active config at save time would be wrong: an
-    admin could retire it mid-run and the snapshot would describe weights the run
-    never applied.
+    The two travel together so the run can record what it scored with even
+    though only the weights end up on ``rules_snapshot``. Re-reading the stored
+    config at save time would be wrong: an admin could change it mid-run and the
+    snapshot would describe weights the run never applied.
     """
 
     weights: ScoringWeights
@@ -32,16 +32,14 @@ class ResolvedScoringRules(NamedTuple):
     def to_snapshot(self, mode: str) -> Dict[str, Any]:
         return {
             "mode": mode,
-            "configId": self.config.id if self.config else None,
-            "configName": self.config.name if self.config else None,
             "weights": self.weights.as_dict(),
             "totalWeight": str(self.weights.total()),
         }
 
 
 def resolve_scoring_rules() -> ResolvedScoringRules:
-    """Weights for the current run: the active config, or the built-in defaults."""
-    config = MatchingConfig.get_active()
+    """Weights for the current run: the stored config, or the built-in defaults."""
+    config = MatchingConfig.get_singleton()
     if config:
         return ResolvedScoringRules(config.to_scoring_weights(), config)
     return ResolvedScoringRules(ScoringWeights(), None)

@@ -75,11 +75,12 @@ class MatchingConfig(models.Model):
     them never rewrites the rules a past run was scored under. Country is not
     among them: it stopped scoring in MA4 and only ranks ties via its count.
 
-    At most one row is active; :meth:`activate` retires the previous one.
+    There is exactly one config, ever: saving a new row replaces the stored
+    one, so :meth:`get_singleton` is never ambiguous. The run snapshot freezes
+    the weights themselves, so editing the row never rewrites what a past run
+    was scored under.
     """
 
-    name = models.CharField(max_length=100, unique=True)
-    is_active = models.BooleanField(default=True)
     year_weight = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -119,7 +120,7 @@ class MatchingConfig(models.Model):
         ordering = ["-updated_at", "-id"]
 
     def __str__(self):
-        return self.name
+        return f"Scoring config #{self.pk}"
 
     @property
     def total_weight(self) -> Decimal:
@@ -159,18 +160,15 @@ class MatchingConfig(models.Model):
     def to_scoring_weights(self) -> ScoringWeights:
         return weights_from_config(self)
 
-    def activate(self, *, commit: bool = True) -> None:
-        """Make this the single active config, retiring any previous one."""
-        now = timezone.now()
-        MatchingConfig.objects.filter(is_active=True).exclude(pk=self.pk).update(
-            is_active=False,
-            updated_at=now,
-        )
-        self.is_active = True
-        if commit:
-            self.save(update_fields=["is_active", "updated_at"])
+    def save(self, *args, **kwargs):
+        # A config is a singleton: inserting a new row replaces the previous
+        # one so ``get_singleton()`` stays unambiguous.
+        if self._state.adding:
+            type(self).objects.exclude(pk=self.pk).delete()
+        super().save(*args, **kwargs)
 
     @classmethod
-    def get_active(cls) -> Optional["MatchingConfig"]:
-        return cls.objects.filter(is_active=True).order_by("-updated_at", "-id").first()
+    def get_singleton(cls) -> Optional["MatchingConfig"]:
+        """The one stored config, or ``None`` when none has been saved yet."""
+        return cls.objects.first()
 

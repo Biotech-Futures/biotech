@@ -32,8 +32,7 @@ class MatchingConfigAdmin(admin.ModelAdmin):
     """
 
     list_display = (
-        "name",
-        "is_active",
+        "id",
         "year_weight",
         "timezone_weight",
         "timezone_max_weight",
@@ -41,7 +40,6 @@ class MatchingConfigAdmin(admin.ModelAdmin):
         "total_weight",
         "updated_by",
     )
-    list_filter = ("is_active",)
-    search_fields = ("name", "updated_by__email")
+    search_fields = ("updated_by__email",)
     readonly_fields = ("total_weight", "created_at", "updated_at")
 
