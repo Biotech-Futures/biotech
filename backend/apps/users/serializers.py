@@ -6,6 +6,7 @@ from .models import (
     SupervisorProfile,
     UserInterest,
     AreasOfInterest,
+    KnownUniversity,
 )
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
@@ -18,6 +19,22 @@ from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
 
 
+# What the form's ``RegisteredBy`` says when someone else registered the
+# student (the same answers UserRegisterView reads as peer or supervisor).
+# Their guardian can be added later. A student registering individually, or a
+# form that doesn't say who filled it in, has to name one.
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+
+
+def _has_role(user, profile_model, role_name) -> bool:
+    """Whether the account is a student or supervisor: it has that profile, or
+    has ever been given that role."""
+    return (
+        profile_model.objects.filter(user=user).exists()
+        or RoleAssignmentHistory.objects.filter(user=user, role__role_name__iexact=role_name).exists()
+    )
+
+
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
     Title = serializers.EmailField() ##"Title" as a field name (usually meaning Mr/Mrs/Dr, or a job title) being validated as an email looks like a real bug or a mislabeled field, not something you're missing.
@@ -28,9 +45,10 @@ class UserRegisterBodySerializer(serializers.Serializer):
     SupervisorEmail = serializers.EmailField()
     SupervisorFirstName = serializers.CharField(max_length=255)
     SupervisorSurname = serializers.CharField(max_length=255)
-    GuardianEmail = serializers.EmailField()
-    GuardianName = serializers.CharField(max_length=255)
-    GuardianSurname = serializers.CharField(max_length=255)
+    # Required unless a peer or supervisor is registering the student; see validate().
+    GuardianEmail = serializers.EmailField(required=False, allow_blank=True)
+    GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
     YearLevel = serializers.CharField(max_length=255)
     Areaofinterest = serializers.CharField(max_length=255)
@@ -44,9 +62,38 @@ class UserRegisterBodySerializer(serializers.Serializer):
         # `Title` is the student's own email (mislabeled field name; confirmed
         # against the real Qualtrics form). Block registration if this email
         # is already in use.
-        if User.objects.filter(email__iexact=value).exists():
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
             raise serializers.ValidationError(
-                "An account with this email address already exists."
+                "This email address already belongs to a supervisor, so it "
+                "cannot be used to register a student.",
+                code="student_email_is_supervisor",
+            )
+        raise serializers.ValidationError(
+            "An account with this email address already exists.",
+            code="email_taken",
+        )
+
+    def validate_SupervisorEmail(self, value):
+        # A nominated supervisor is either new or already a supervisor. Any
+        # other existing account is refused, so the form can't hand someone
+        # else's account the supervisor role.
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, StudentProfile, ROLE_STUDENT):
+            raise serializers.ValidationError(
+                "This email address belongs to a student, so they cannot be "
+                "nominated as a supervisor.",
+                code="supervisor_email_is_student",
+            )
+        if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+            raise serializers.ValidationError(
+                "This email address belongs to an existing account that is "
+                "not a supervisor.",
+                code="supervisor_email_in_use",
             )
         return value
 
@@ -63,9 +110,26 @@ class UserRegisterBodySerializer(serializers.Serializer):
         supervisor_first = data.get("SupervisorFirstName", "").strip().lower()
         supervisor_last = data.get("SupervisorSurname", "").strip().lower()
 
-        # Guardian can't be the same person as the student
-        if student_email == guardian_email or (
-            student_first == guardian_first and student_last == guardian_last
+        # Guardian details are required unless the student is being
+        # registered by a peer or their supervisor.
+        registered_by = data.get("RegisteredBy", "").strip().lower()
+        if registered_by not in _GUARDIAN_OPTIONAL_FOR:
+            missing = {
+                field: serializers.ValidationError(
+                    "This field is required when a student registers individually.",
+                    code="guardian_required",
+                ).detail
+                for field in ("GuardianEmail", "GuardianName", "GuardianSurname")
+                if not data.get(field, "").strip()
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        # Guardian can't be the same person as the student. Blank guardian
+        # details match no one.
+        if (guardian_email and student_email == guardian_email) or (
+            guardian_first and guardian_last
+            and student_first == guardian_first and student_last == guardian_last
         ):
             raise serializers.ValidationError(
                 "The guardian cannot be the same person as the student."
@@ -80,10 +144,12 @@ class UserRegisterBodySerializer(serializers.Serializer):
             )
 
         # School name check: soft warning, bypassable.
-        # Simple substring check per the client. The editable list of known
-        # universities (admin-only) is a separate feature, not built yet.
+        # Simple checks per the client: the word "university" anywhere in the
+        # name, or the whole name being on the list admins keep of known
+        # universities (e.g. "USYD").
         school_name = data.get("SchoolName", "").strip().lower()
-        if "university" in school_name and not data.get("ConfirmSchoolOverride"):
+        looks_like_university = "university" in school_name or KnownUniversity.matches(school_name)
+        if looks_like_university and not data.get("ConfirmSchoolOverride"):
             raise serializers.ValidationError(
                 "This looks like a university, not a school. Please confirm "
                 "if this is correct, or check ConfirmSchoolOverride to proceed."
