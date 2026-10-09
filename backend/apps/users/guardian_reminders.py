@@ -70,7 +70,7 @@ def email_new_guardian(profile) -> None:
     if profile.consent_requests.filter(guardian_email=guardian.email).exists():
         return
     try:
-        send_guardian_consent_request(profile.user_id)
+        send_guardian_consent_request(profile.user_id, details_saved=True)
     except Exception:  # noqa: BLE001
         logger.exception("guardian_reminders.new_guardian_failed student=%s", profile.user_id)
 

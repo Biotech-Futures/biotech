@@ -437,6 +437,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,
     "guardian_details_request": Recipients(_students, _guardian_details_context),
+    "guardian_details_received": Recipients(_students, _student_notice_context),
     "guardian_consent_student_notice": Recipients(_students, _student_notice_context),
     "guardian_consent_request": Recipients(_guardians, _consent_request_context),
     "guardian_consent_received": Recipients(_guardians, _consent_received_context),

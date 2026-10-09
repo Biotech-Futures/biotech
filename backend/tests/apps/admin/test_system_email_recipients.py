@@ -145,9 +145,11 @@ class SystemEmailRecipientsTests(TestCase):
         )
 
     def test_an_email_to_students_lists_students_only(self):
+        for key in ("guardian_consent_student_notice", "guardian_details_received"):
+            self.assertEqual(self._labels(key), ["(BTF2) Ben Bell", "(BTF10) Amy Chen", "(NoGroup) Nia Lone"])
         self.assertEqual(
-            self._labels("guardian_consent_student_notice"),
-            ["(BTF2) Ben Bell", "(BTF10) Amy Chen", "(NoGroup) Nia Lone"],
+            recipient_context("guardian_details_received", str(self.amy.id)),
+            {"STUDENT_FIRST_NAME": "Amy", "GUARDIAN_EMAIL": "pat@example.com"},
         )
 
     def test_an_email_to_guardians_lists_each_by_their_students_group_and_name(self):

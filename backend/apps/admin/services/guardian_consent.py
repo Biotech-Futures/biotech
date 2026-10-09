@@ -23,6 +23,8 @@ from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentPr
 
 EMAIL_KEY = "guardian_consent_request"
 STUDENT_NOTICE_KEY = "guardian_consent_student_notice"
+# The student's copy when they named the guardian themselves.
+DETAILS_RECEIVED_KEY = "guardian_details_received"
 
 # Spaces out sends to one guardian, so a double click or an impatient resend
 # doesn't fill their inbox.
@@ -42,8 +44,10 @@ def _result(outcome: str, msg: str, data=None) -> Dict[str, Any]:
     return {"status": outcome, "msg": msg, "data": data}
 
 
-def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, Any]:
-    """Email the consent form to the guardian of student ``user_id``."""
+def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_saved: bool = False) -> Dict[str, Any]:
+    """Email the consent form to the guardian of student ``user_id``.
+    ``details_saved`` when the student has just named them on their profile:
+    the student is thanked for the details instead of asked to remind them."""
     with transaction.atomic():
         profile = (
             StudentProfile.objects.select_for_update()
@@ -129,7 +133,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
     # guardian's request still stands.
     if student.email and first_to_guardian:
         send_system_email(
-            STUDENT_NOTICE_KEY,
+            DETAILS_RECEIVED_KEY if details_saved else STUDENT_NOTICE_KEY,
             [student.email],
             {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
             sent_by=initiated_by,

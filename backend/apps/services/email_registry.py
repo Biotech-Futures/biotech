@@ -137,11 +137,27 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="guardian_details_received",
+        name="Guardian details received (to student)",
+        description=(
+            "Sent to a student when they add or change their parent or guardian on their profile "
+            "and the consent form has gone to that guardian. Sent instead of Guardian consent sent."
+        ),
+        default_subject="Parent/Guardian Contact Received",
+        default_template="emails/guardian_details_received.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="guardian_consent_student_notice",
         name="Guardian consent sent (to student)",
         description=(
-            "Sent to a student when their parent or guardian is emailed the consent form, "
-            "asking them to remind their guardian."
+            "Sent to a student when their parent or guardian is first emailed the consent form "
+            "by an admin or the daily run, asking them to remind their guardian. A student who "
+            "added the guardian themselves gets Guardian details received instead."
         ),
         default_subject="Parent/Guardian Action Required - Permission Form",
         default_template="emails/guardian_consent_student_notice.html",
