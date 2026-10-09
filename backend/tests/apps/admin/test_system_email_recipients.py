@@ -153,13 +153,13 @@ class SystemEmailRecipientsTests(TestCase):
     def test_an_email_to_guardians_lists_each_by_their_students_group_and_name(self):
         self.assertEqual(
             self._labels("guardian_consent_request"),
-            ["(BTF2, guardian) Ben Bell", "(BTF10, guardian) Amy Chen", "(NoGroup, guardian) Nia Lone"],
+            ["(BTF2) guardian of Ben Bell", "(BTF10) guardian of Amy Chen", "(NoGroup) guardian of Nia Lone"],
         )
         # A guardian with no email can't be sent it.
         StudentProfile.objects.filter(user=self.amy).update(pg_email="")
         self.assertEqual(
             self._labels("guardian_consent_request"),
-            ["(BTF2, guardian) Ben Bell", "(NoGroup, guardian) Nia Lone"],
+            ["(BTF2) guardian of Ben Bell", "(NoGroup) guardian of Nia Lone"],
         )
 
     def test_a_list_of_mentors_only_shows_each_with_their_groups(self):
