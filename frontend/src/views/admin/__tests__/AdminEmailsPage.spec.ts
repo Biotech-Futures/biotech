@@ -584,6 +584,34 @@ describe('AdminEmailsPage', () => {
     expect(control.find('[data-test="test-of"]').exists()).toBe(false)
   })
 
+  it('says above Send Test that it can send someone their email directly', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue([{ value: '9', label: '(BTF2) Ben Bell' }])
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+      buildTemplate({ key: 'finalist_notification', name: 'Finalist notification' }),
+      buildTemplate({ key: 'guardian_consent_request', name: 'Guardian consent request (to guardian)' }),
+      buildTemplate({ key: 'login_code', name: 'Login code', locked: true })
+    ])
+    const wrapper = await mountPage()
+    const note = () => wrapper.find('[data-test="send-direct"]')
+    // As it reads on screen, where line breaks are single spaces.
+    const noteText = () => note().text().replace(/\s+/g, ' ')
+
+    expect(noteText()).toBe('To send a group/person email directly to a person when Needed or for Testing:')
+
+    // The consent request's link stays a sample, so it says where the real one comes from.
+    await wrapper.findAll('.email-type-list__items .email-type-list__item')[1]!.trigger('click')
+    await flushPromises()
+    expect(noteText()).toBe(
+      'Its consent link stays a sample, so send a guardian their real one from Users. ' +
+        'To send a group/person email directly to a person when Needed or for Testing:'
+    )
+
+    // A sign-in email can't be sent, only previewed for someone.
+    await wrapper.findAll('.email-type-list__items .email-type-list__item')[2]!.trigger('click')
+    await flushPromises()
+    expect(noteText()).toBe("Sign-in emails can't be sent from here, but you can preview one for any person:")
+  })
+
   it('tests an email as the group or person picked from its list', async () => {
     vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue([
       { value: '7', label: '(BTF1, mentor) Aga Smith' },

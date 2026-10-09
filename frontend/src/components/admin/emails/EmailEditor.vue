@@ -132,6 +132,20 @@
         </button>
       </div>
 
+      <!-- Send Test doubles as a way to send someone their email directly. A
+           sign-in email can't be sent, but the list still fills the preview. -->
+      <p v-if="testRecipients?.length" class="email-editor__test-note" data-test="send-direct">
+        <template v-if="emailTemplate.locked">
+          Sign-in emails can't be sent from here, but you can preview one for any person:
+        </template>
+        <template v-else>
+          <template v-if="emailTemplate.key === 'guardian_consent_request'">
+            Its consent link stays a sample, so send a guardian their real one from Users.
+          </template>
+          To send a group/person email directly to a person when Needed or for Testing:
+        </template>
+      </p>
+
       <!-- Send the email as it stands to any address, as the group or person
            picked would get it (sample values when nobody is picked). The
            preview shows the one picked too. -->
@@ -347,6 +361,14 @@ const insertIntoSubject = (token: string) => {
   grid-template-columns: auto auto minmax(13rem, max-content);
   align-items: center;
   gap: 0.5rem;
+}
+
+/* Its own line above Send Test, across the footer. */
+.email-editor__test-note {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
 }
 
 .email-editor__test-word {
