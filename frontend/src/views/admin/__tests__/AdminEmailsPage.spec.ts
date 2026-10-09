@@ -463,6 +463,32 @@ describe('AdminEmailsPage', () => {
     })
   })
 
+  it('heads each group of emails, and only the groups shown', async () => {
+    const keys = [
+      'login_code',
+      'guardian_details_request',
+      'guardian_details_received',
+      'unread_messages',
+      'rsvp_reminder',
+      'submission_reminder',
+      'finalist_notification',
+      'results_team',
+      'results_supervisor'
+    ]
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue(keys.map((key) => buildTemplate({ key, name: key })))
+    const wrapper = await mountPage()
+
+    const headings = () => wrapper.findAll('[data-test="email-group"]').map((heading) => heading.text())
+    expect(headings()).toEqual(['Sign-in', 'Guardians', 'Messages and events', 'Submissions', 'Symposium', 'Results'])
+    // Each heading sits right above its group's first email.
+    const items = wrapper.findAll('.email-type-list__items > li').map((item) => item.text().split(' ')[0])
+    expect(items.slice(0, 4)).toEqual(['Sign-in', 'login_code', 'Guardians', 'guardian_details_request'])
+
+    // A search shows only the headings of the groups it finds.
+    await wrapper.find('.email-type-list__search-input').setValue('results')
+    expect(headings()).toEqual(['Results'])
+  })
+
   it('keeps emails on when the pause is cancelled', async () => {
     const wrapper = await mountPage()
     const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')

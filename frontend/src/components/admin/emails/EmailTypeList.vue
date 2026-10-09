@@ -33,39 +33,50 @@
     </p>
 
     <ul v-else class="email-type-list__items">
-      <li v-for="template in filtered" :key="template.key">
-        <button
-          type="button"
-          class="email-type-list__item"
-          :class="{ 'is-selected': template.key === selectedKey }"
-          :aria-current="template.key === selectedKey ? 'true' : undefined"
-          @click="emit('select', template.key)"
+      <template v-for="(template, index) in filtered" :key="template.key">
+        <!-- The group's heading, above the first of its emails shown. -->
+        <li
+          v-if="index === 0 || groupOf(template.key) !== groupOf(filtered[index - 1]!.key)"
+          class="email-type-list__heading"
+          role="presentation"
+          data-test="email-group"
         >
-          <span class="email-type-list__copy">
-            <span class="email-type-list__name">
-              <span>
-                {{ nameParts(template.name).title }}
-                <span v-if="nameParts(template.name).to" class="email-type-list__to">
-                  {{ nameParts(template.name).to }}
-                </span>
-              </span>
-              <i
-                v-if="template.locked"
-                class="fas fa-lock email-type-list__lock"
-                :title="`${template.name} is required and cannot be switched off`"
-                aria-hidden="true"
-              ></i>
-            </span>
-          </span>
-          <span
-            class="email-type-list__status"
-            :class="template.enabled ? 'is-on' : 'is-off'"
-            :title="template.enabled ? 'Enabled' : 'Disabled'"
+          {{ groupOf(template.key) }}
+        </li>
+        <li>
+          <button
+            type="button"
+            class="email-type-list__item"
+            :class="{ 'is-selected': template.key === selectedKey }"
+            :aria-current="template.key === selectedKey ? 'true' : undefined"
+            @click="emit('select', template.key)"
           >
-            {{ template.enabled ? 'On' : 'Off' }}
-          </span>
-        </button>
-      </li>
+            <span class="email-type-list__copy">
+              <span class="email-type-list__name">
+                <span>
+                  {{ nameParts(template.name).title }}
+                  <span v-if="nameParts(template.name).to" class="email-type-list__to">
+                    {{ nameParts(template.name).to }}
+                  </span>
+                </span>
+                <i
+                  v-if="template.locked"
+                  class="fas fa-lock email-type-list__lock"
+                  :title="`${template.name} is required and cannot be switched off`"
+                  aria-hidden="true"
+                ></i>
+              </span>
+            </span>
+            <span
+              class="email-type-list__status"
+              :class="template.enabled ? 'is-on' : 'is-off'"
+              :title="template.enabled ? 'Enabled' : 'Disabled'"
+            >
+              {{ template.enabled ? 'On' : 'Off' }}
+            </span>
+          </button>
+        </li>
+      </template>
     </ul>
   </div>
 </template>
@@ -86,6 +97,29 @@ const emit = defineEmits<{
 }>()
 
 const query = ref('')
+
+// Each email's group, with a heading above it, in the order the list shows them.
+const GROUPS: [string, string[]][] = [
+  ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
+  [
+    'Guardians',
+    [
+      'guardian_details_request',
+      'guardian_details_received',
+      'guardian_consent_student_notice',
+      'guardian_consent_request',
+      'guardian_consent_received'
+    ]
+  ],
+  ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
+  ['Submissions', ['submission_reminder', 'submission_confirmation']],
+  ['Symposium', ['finalist_notification', 'nonfinalist_invitation', 'nonsubmission_notice']],
+  ['Results', ['results_team', 'results_supervisor']]
+]
+const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))
+// An email not placed in a group yet still gets a heading.
+const groupOf = (key: string) => GROUP_OF.get(key) ?? 'Other'
+
 
 const filtered = computed(() => {
   const term = query.value.trim().toLowerCase()
@@ -141,6 +175,20 @@ const filtered = computed(() => {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.email-type-list__heading {
+  margin: 0.25rem 0 -0.2rem;
+  padding: 0 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.email-type-list__heading:first-child {
+  margin-top: 0;
 }
 
 .email-type-list__item {
