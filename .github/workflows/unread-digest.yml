@@ -8,8 +8,6 @@ name: Unread-messages digest
 #
 # Required configuration:
 #   secret  UNREAD_DIGEST_TOKEN         must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL   shared backend base URL, e.g.
-#                                        https://biotechbe.azurewebsites.net
 #
 # Off-peak minutes (7,22,37,52) dodge GitHub's top-of-hour scheduler spike,
 # which delays :00/:15/:30/:45 crons the most. Scheduled runs can still lag a
@@ -33,13 +31,9 @@ jobs:
     steps:
       - name: Trigger unread-messages digest
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          BACKEND_URL: https://api.biotechfutures.org
           DIGEST_TOKEN: ${{ secrets.UNREAD_DIGEST_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
           if [ -z "${DIGEST_TOKEN}" ]; then
             echo "UNREAD_DIGEST_TOKEN is not set (repository secret)." >&2
             exit 1

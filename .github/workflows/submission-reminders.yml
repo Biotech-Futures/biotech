@@ -9,7 +9,6 @@ name: Daily submission reminders
 #
 # Required configuration:
 #   secret  SUBMISSION_REMINDER_TOKEN         must match backend env of same name
-#   var     SUBMISSION_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
 #
 # 07:17 UTC is late afternoon in Sydney, where most teams are: a reminder that
 # lands during the day is acted on, one that lands overnight is buried by
@@ -28,13 +27,9 @@ jobs:
     steps:
       - name: Trigger submission reminder dispatch
         env:
-          BACKEND_URL: ${{ vars.SUBMISSION_REMINDER_BACKEND_URL }}
+          BACKEND_URL: https://api.biotechfutures.org
           REMINDER_TOKEN: ${{ secrets.SUBMISSION_REMINDER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "SUBMISSION_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
           if [ -z "${REMINDER_TOKEN}" ]; then
             echo "SUBMISSION_REMINDER_TOKEN is not set (repository secret)." >&2
             exit 1

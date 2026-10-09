@@ -10,7 +10,6 @@ name: Daily guardian consent reminders
 #
 # Required configuration (shared with the guardian details reminders):
 #   secret  GUARDIAN_REMINDER_TOKEN    must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL  e.g. https://biotechbe.azurewebsites.net
 #
 # 06:47 UTC is late afternoon in Sydney, just after the guardian details
 # reminders. The odd minute avoids GitHub's top-of-hour cron congestion.
@@ -27,13 +26,9 @@ jobs:
     steps:
       - name: Trigger guardian consent reminders
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          BACKEND_URL: https://api.biotechfutures.org
           REMINDER_TOKEN: ${{ secrets.GUARDIAN_REMINDER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
           if [ -z "${REMINDER_TOKEN}" ]; then
             echo "GUARDIAN_REMINDER_TOKEN is not set (repository secret)." >&2
             exit 1

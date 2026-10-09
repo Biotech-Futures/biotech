@@ -190,8 +190,13 @@ class EmailLogTests(TestCase):
         self.assertEqual(unseen_failures(), 0)
 
     def test_only_failures_after_the_last_look_count(self):
+        # Set times: two calls can land on the same clock tick.
         note_send("password_reset", missed={"old@example.com": "address refused"})
-        mark_failures_seen()
+        log = SystemEmailLog.objects.get(key="password_reset")
+        log.missed[0]["at"] = (timezone.now() - timedelta(hours=1)).isoformat()
+        log.save()
+        SystemEmailSettings.get()
+        SystemEmailSettings.objects.update(failures_seen_at=timezone.now() - timedelta(minutes=30))
         note_send("announcement", missed={"new@example.com": "address refused"})
 
         self.assertEqual(unseen_failures(), 1)

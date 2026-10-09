@@ -6,7 +6,6 @@ name: Hourly RSVP reminders
 #
 # Required configuration:
 #   secret  RSVP_REMINDER_TOKEN         must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
 #
 # Off-peak minute (23) avoids GitHub's top-of-hour cron load spike,
 # which can otherwise drift the run by 10+ minutes and miss the window.
@@ -23,13 +22,9 @@ jobs:
     steps:
       - name: Trigger RSVP reminder dispatch
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          BACKEND_URL: https://api.biotechfutures.org
           REMINDER_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
           if [ -z "${REMINDER_TOKEN}" ]; then
             echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
             exit 1
