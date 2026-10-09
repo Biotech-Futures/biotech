@@ -250,6 +250,19 @@ def _student_notice_context(value: str) -> dict:
     return context
 
 
+def _consent_received_context(value: str) -> dict:
+    """The name the guardian last signed with, else the one on file."""
+    from apps.users.guardian_consent import is_placeholder_name, student_name
+
+    profile, guardian = _guardian_of(value)
+    if profile is None:
+        return {"STUDENT_NAME": person_name(_user(value))}
+    signed = profile.consents.order_by("-signed_at").values_list("guardian_full_name", flat=True).first()
+    on_file = " ".join(filter(None, (guardian.first_name, guardian.last_name)))
+    named = not is_placeholder_name(guardian.first_name or "", guardian.last_name, profile)
+    return {"GUARDIAN_NAME": signed or (on_file if named else ""), "STUDENT_NAME": student_name(profile)}
+
+
 def _consent_request_context(value: str) -> dict:
     from apps.users.guardian_consent import is_placeholder_name, student_name
 
@@ -426,6 +439,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "guardian_details_request": Recipients(_students, _guardian_details_context),
     "guardian_consent_student_notice": Recipients(_students, _student_notice_context),
     "guardian_consent_request": Recipients(_guardians, _consent_request_context),
+    "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),

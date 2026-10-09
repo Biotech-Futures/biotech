@@ -170,6 +170,21 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="guardian_consent_received",
+        name="Guardian permission received (to guardian)",
+        description=(
+            "Sent to a parent or guardian once they sign the consent form on the platform, "
+            "thanking them. Not sent when an admin records consent."
+        ),
+        default_subject="Parent/Guardian Permission Received",
+        default_template="emails/guardian_consent_received.html",
+        merge_tags=(
+            MergeTag("guardian_name", "Guardian's full name, as signed", "Pat Chen", "GUARDIAN_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="unread_messages",
         name="Unread messages digest",
         description="Scheduled summary of unread group chat messages.",

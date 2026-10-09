@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core import mail
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -1573,6 +1574,8 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertIs(result["data"]["mediaConsent"], False)
         audit = self._audits().get()
         self.assertIs(audit.after_state["mediaConsent"], False)
+        # Permission received only thanks a guardian who signs on the platform.
+        self.assertEqual(mail.outbox, [])
 
     def test_admin_records_media_consent_given_later(self):
         self.profile.has_join_permission = True

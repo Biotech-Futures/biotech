@@ -24,6 +24,7 @@ from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
 from apps.common.storage import get_consent_storage
+from apps.services.system_email import send_system_email
 
 from .consent_form import CURRENT_VERSION, render_consent_form
 from .consent_pdf import render_consent_pdf
@@ -228,6 +229,14 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
         )
 
     store_record_pdf(consent, render_consent_pdf(consent))
+    # Thanks the guardian; the signed record stays with the admins. From the
+    # mail pool, so the page needn't wait on the mail server.
+    send_system_email(
+        "guardian_consent_received",
+        [consent.guardian_email],
+        {"GUARDIAN_NAME": consent.guardian_full_name, "STUDENT_NAME": student_name(profile)},
+        background=True,
+    )
     return consent
 
 

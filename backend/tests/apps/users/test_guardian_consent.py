@@ -133,7 +133,7 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
     # -- signing ---------------------------------------------------------------
 
-    def test_signing_records_consent_without_emailing(self):
+    def test_signing_records_consent_and_thanks_the_guardian(self):
         response = self.sign(mediaConsent=False)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -152,9 +152,27 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertIs(self.profile.media_consent, False)
         self.assertIsNotNone(consent.request.used_at)
 
-        # No confirmation email: the spec has none.
-        self.assertEqual(mail.outbox, [])
         self.assertTrue(AuditLog.objects.filter(action="guardian_consent_signed").exists())
+
+        # Guardian permission received: a thank you, without the signed record.
+        [email] = mail.outbox
+        self.assertEqual(email.to, ["pat@example.com"])
+        self.assertEqual(email.subject, "Parent/Guardian Permission Received")
+        html = email.alternatives[0][0]
+        self.assertIn("Hi Pat Parent,", html)
+        self.assertIn("permission form has been received.", html)
+        self.assertIn("Thank you for signing the permission form for Wren Ward", html)
+        self.assertEqual(email.attachments[1:], [])  # [0] is the inline logo
+
+    def test_signing_still_works_with_the_thank_you_switched_off(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="guardian_consent_received", is_enabled=False)
+        response = self.sign()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(GuardianConsent.objects.filter(student=self.profile).exists())
+        self.assertEqual(mail.outbox, [])
 
     def test_signing_stores_the_record_pdf(self):
         self.sign()

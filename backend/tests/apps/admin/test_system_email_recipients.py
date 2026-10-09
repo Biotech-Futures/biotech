@@ -162,6 +162,28 @@ class SystemEmailRecipientsTests(TestCase):
             ["(BTF2) guardian of Ben Bell", "(NoGroup) guardian of Nia Lone"],
         )
 
+    def test_the_permission_received_email_lists_guardians_and_fills_the_name_they_signed(self):
+        from apps.users.models import GuardianConsent
+
+        self.assertEqual(
+            self._labels("guardian_consent_received"),
+            ["(BTF2) guardian of Ben Bell", "(BTF10) guardian of Amy Chen", "(NoGroup) guardian of Nia Lone"],
+        )
+        amy = StudentProfile.objects.get(user=self.amy)
+        self.assertEqual(
+            recipient_context("guardian_consent_received", str(self.amy.id)),
+            {"GUARDIAN_NAME": "Pat Parent", "STUDENT_NAME": "Amy Chen"},
+        )
+        GuardianConsent.objects.create(
+            student=amy, guardian_full_name="Patricia Parent", guardian_email="pat@example.com",
+            media_consent=True, signature_png=b"png", consent_version="2026-09-16",
+        )
+        self.assertEqual(
+            recipient_context("guardian_consent_received", str(self.amy.id))["GUARDIAN_NAME"], "Patricia Parent",
+        )
+        # Ben's guardian fields hold his own name, which isn't his guardian's.
+        self.assertEqual(recipient_context("guardian_consent_received", str(self.ben.id))["GUARDIAN_NAME"], "")
+
     def test_a_list_of_mentors_only_shows_each_with_their_groups(self):
         self.assertEqual(
             [option["label"] for option in _people("mentor")],
