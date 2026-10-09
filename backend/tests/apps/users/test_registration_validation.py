@@ -202,3 +202,64 @@ class CrossRoleEmailTests(RegistrationValidationTestCase):
         self._user_with_role("mentor@example.com", ROLE_MENTOR)
 
         self.assertRefusedOn("Title", "email_taken", Title="mentor@example.com")
+
+
+class OptionalGuardianTests(RegistrationValidationTestCase):
+    no_guardian = {"GuardianEmail": "", "GuardianName": "", "GuardianSurname": ""}
+    guardian_fields = ["GuardianEmail", "GuardianName", "GuardianSurname"]
+
+    def assertGuardianRequired(self, fields=None, **overrides):
+        errors = self.assertRefused(**overrides)
+        self.assertEqual(sorted(errors), fields or self.guardian_fields, errors)
+        for field in errors:
+            self.assertEqual(errors[field][0].code, "guardian_required")
+
+    def test_a_student_registering_individually_must_name_a_guardian(self):
+        for said in ("Self", "self", "individual", "student"):
+            with self.subTest(said=said):
+                self.assertGuardianRequired(RegisteredBy=said, **self.no_guardian)
+
+    def test_a_form_that_doesnt_say_who_registered_must_name_a_guardian(self):
+        for said in (None, "", "someone else"):
+            with self.subTest(said=said):
+                self.assertGuardianRequired(RegisteredBy=said, **self.no_guardian)
+
+    def test_guardian_fields_left_out_altogether_are_reported_too(self):
+        self.assertGuardianRequired(
+            RegisteredBy="Self", GuardianEmail=None, GuardianName=None, GuardianSurname=None,
+        )
+
+    def test_only_the_missing_guardian_fields_are_reported(self):
+        self.assertGuardianRequired(["GuardianEmail"], RegisteredBy="Self", GuardianEmail="")
+        self.assertGuardianRequired(["GuardianName"], RegisteredBy="Self", GuardianName="   ")
+
+    def test_a_peer_or_supervisor_can_register_a_student_without_a_guardian(self):
+        for said in ("Peer", "team", "Supervisor", " supervisor ", "teacher"):
+            with self.subTest(said=said):
+                self.assertAccepted(RegisteredBy=said, **self.no_guardian)
+
+    def test_a_peer_or_supervisor_can_leave_the_guardian_fields_out(self):
+        self.assertAccepted(
+            RegisteredBy="Peer", GuardianEmail=None, GuardianName=None, GuardianSurname=None,
+        )
+
+    def test_a_guardian_is_accepted_whoever_registers(self):
+        for said in ("Self", "Peer", "Supervisor", None):
+            with self.subTest(said=said):
+                self.assertAccepted(RegisteredBy=said)
+
+    def test_a_guardian_given_by_a_peer_or_supervisor_still_cannot_be_the_student(self):
+        for said in ("Peer", "Supervisor"):
+            with self.subTest(said=said):
+                self.assertRefusedWith(
+                    "guardian cannot be the same person", RegisteredBy=said, GuardianEmail="kid@example.com",
+                )
+                self.assertRefusedWith(
+                    "guardian cannot be the same person",
+                    RegisteredBy=said, GuardianName="Kid", GuardianSurname="Student",
+                )
+
+    def test_a_malformed_guardian_email_is_refused_whoever_registers(self):
+        errors = self.assertRefused(RegisteredBy="Supervisor", GuardianEmail="not-an-email")
+
+        self.assertEqual(list(errors), ["GuardianEmail"])

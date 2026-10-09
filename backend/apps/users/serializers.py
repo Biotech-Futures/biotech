@@ -18,6 +18,13 @@ from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
 
 
+# What the form's ``RegisteredBy`` says when someone else registered the
+# student (the same answers UserRegisterView reads as peer or supervisor).
+# Their guardian can be added later. A student registering individually, or a
+# form that doesn't say who filled it in, has to name one.
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+
+
 def _has_role(user, profile_model, role_name) -> bool:
     """Whether the account is a student or supervisor: it has that profile, or
     has ever been given that role."""
@@ -37,9 +44,10 @@ class UserRegisterBodySerializer(serializers.Serializer):
     SupervisorEmail = serializers.EmailField()
     SupervisorFirstName = serializers.CharField(max_length=255)
     SupervisorSurname = serializers.CharField(max_length=255)
-    GuardianEmail = serializers.EmailField()
-    GuardianName = serializers.CharField(max_length=255)
-    GuardianSurname = serializers.CharField(max_length=255)
+    # Required unless a peer or supervisor is registering the student; see validate().
+    GuardianEmail = serializers.EmailField(required=False, allow_blank=True)
+    GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
     YearLevel = serializers.CharField(max_length=255)
     Areaofinterest = serializers.CharField(max_length=255)
@@ -101,9 +109,26 @@ class UserRegisterBodySerializer(serializers.Serializer):
         supervisor_first = data.get("SupervisorFirstName", "").strip().lower()
         supervisor_last = data.get("SupervisorSurname", "").strip().lower()
 
-        # Guardian can't be the same person as the student
-        if student_email == guardian_email or (
-            student_first == guardian_first and student_last == guardian_last
+        # Guardian details are required unless the student is being
+        # registered by a peer or their supervisor.
+        registered_by = data.get("RegisteredBy", "").strip().lower()
+        if registered_by not in _GUARDIAN_OPTIONAL_FOR:
+            missing = {
+                field: serializers.ValidationError(
+                    "This field is required when a student registers individually.",
+                    code="guardian_required",
+                ).detail
+                for field in ("GuardianEmail", "GuardianName", "GuardianSurname")
+                if not data.get(field, "").strip()
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        # Guardian can't be the same person as the student. Blank guardian
+        # details match no one.
+        if (guardian_email and student_email == guardian_email) or (
+            guardian_first and guardian_last
+            and student_first == guardian_first and student_last == guardian_last
         ):
             raise serializers.ValidationError(
                 "The guardian cannot be the same person as the student."
