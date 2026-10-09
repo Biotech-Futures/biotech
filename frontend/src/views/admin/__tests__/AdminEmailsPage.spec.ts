@@ -5,6 +5,9 @@ import AdminEmailsPage from '@/views/admin/AdminEmailsPage.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import {
+  fetchSystemEmailLog,
+  fetchSystemEmailUnseenFailures,
+  markSystemEmailFailuresSeen,
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
   fetchSystemEmailTestRecipients,
@@ -14,9 +17,12 @@ import {
   updateSystemEmailSettings,
   updateSystemEmailTemplate
 } from '@/utils/adminAPI'
-import type { SystemEmailTemplate } from '@/utils/systemEmail'
+import type { SystemEmailLogEntry, SystemEmailTemplate } from '@/utils/systemEmail'
 
 vi.mock('@/utils/adminAPI', () => ({
+  fetchSystemEmailLog: vi.fn(),
+  fetchSystemEmailUnseenFailures: vi.fn(),
+  markSystemEmailFailuresSeen: vi.fn(),
   fetchSystemEmailTemplates: vi.fn(),
   fetchSystemEmailSettings: vi.fn(),
   updateSystemEmailTemplate: vi.fn(),
@@ -276,6 +282,185 @@ describe('AdminEmailsPage', () => {
 
     expect(updateSystemEmailSettings).toHaveBeenCalledWith(false)
     expect(wrapper.text()).toContain('Emails paused')
+  })
+
+  describe('the Log', () => {
+    const at = (iso: string) => {
+      const when = new Date(iso)
+      return `${when.toLocaleDateString('en-GB')} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
+    }
+    const logEntry = (overrides: Partial<SystemEmailLogEntry> = {}): SystemEmailLogEntry => ({
+      key: 'password_reset',
+      name: 'Password reset',
+      lastSentAt: null,
+      lastSentBy: '',
+      sentFrom: 'info@biotechfutures.org',
+      toGroups: false,
+      missed: [],
+      ...overrides
+    })
+    const unreachable = "couldn't reach the mail server"
+
+    beforeEach(() => {
+      vi.mocked(fetchSystemEmailUnseenFailures).mockResolvedValue(0)
+      vi.mocked(markSystemEmailFailuresSeen).mockResolvedValue(0)
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          lastSentAt: '2026-09-29T13:58:00Z',
+          missed: [
+            { at: '2026-09-29T13:58:00Z', people: [{ who: 'jin@seed.test (BTF06, Jin Fischer)', reason: unreachable }] },
+            { at: '2026-09-28T09:00:00Z', people: [{ who: 'amy@seed.test (BTF06, Amy Chen)', reason: 'address refused' }] }
+          ]
+        }),
+        logEntry({ key: 'login_code', name: 'Login code' }),
+        logEntry({
+          key: 'finalist_notification',
+          name: 'Finalist notification',
+          lastSentAt: '2026-09-29T13:58:00Z',
+          lastSentBy: 'test1 1',
+          toGroups: true,
+          missed: [
+            {
+              at: '2026-09-29T13:58:00Z',
+              people: [
+                { who: 'jin@seed.test (BTF06, Jin Fischer)', reason: unreachable },
+                { who: 'nadia@seed.test (BTF06, Nadia Kowalski)', reason: unreachable }
+              ]
+            }
+          ]
+        })
+      ])
+    })
+
+    const openLog = async () => {
+      const wrapper = await mountPage()
+      await wrapper.find('[data-test="emails-log"]').trigger('click')
+      await flushPromises()
+      return wrapper
+    }
+
+    it('is a green button that swaps the editor for the log, and back', async () => {
+      const wrapper = await mountPage()
+      const button = wrapper.find('[data-test="emails-log"]')
+      expect(button.classes()).toContain('btn-primary')
+      expect(button.text()).toBe('Failed Sending Emails')
+
+      await button.trigger('click')
+      await flushPromises()
+      expect(fetchSystemEmailLog).toHaveBeenCalledTimes(1)
+      expect(wrapper.find('[data-test="emails-log-panel"]').exists()).toBe(true)
+      expect(wrapper.findComponent(EmailEditor).exists()).toBe(false)
+      expect(button.text()).toBe('Back to emails')
+
+      await button.trigger('click')
+      expect(wrapper.find('[data-test="emails-log-panel"]').exists()).toBe(false)
+      expect(wrapper.findComponent(EmailEditor).exists()).toBe(true)
+    })
+
+    it('starts on All emails, above the same list, with each one that missed someone', async () => {
+      const wrapper = await openLog()
+      const all = wrapper.find('[data-test="all-emails"]')
+      expect(all.text()).toBe('All emails')
+      expect(all.classes()).toContain('is-selected')
+      expect(wrapper.findAll('.email-type-list__items .email-type-list__item')).toHaveLength(2)
+
+      // Where bounces go comes first here, naming no mailbox.
+      const panel = wrapper.find('[data-test="emails-log-panel"]')
+      expect(panel.find('p').attributes('data-test')).toBe('log-all-note')
+      expect(panel.find('[data-test="log-all-note"]').text()).toBe(
+        "Any that can't be delivered, such as a mistyped address or one a school's mail server refuses, come back " +
+          'to the email address they were sent from.'
+      )
+
+      const emails = wrapper.findAll('[data-test="log-email"]')
+      // Login code missed nobody, so isn't listed.
+      expect(emails).toHaveLength(2)
+      // Two sends: each its own time. One send: its time beside the name.
+      expect(emails[0].find('h3').text()).toBe('Password reset')
+      expect(emails[0].findAll('p.email-log__when').map((when) => when.text())).toEqual([
+        at('2026-09-29T13:58:00Z'),
+        at('2026-09-28T09:00:00Z')
+      ])
+      expect(emails[0].text()).toContain(`jin@seed.test (BTF06, Jin Fischer) · ${unreachable}`)
+      expect(emails[1].find('h3').text()).toBe(`Finalist notification ${at('2026-09-29T13:58:00Z')}`)
+      expect(emails[1].findAll('li')).toHaveLength(2)
+    })
+
+    it('shows one email as Notify Finalists does', async () => {
+      const wrapper = await openLog()
+      // Password reset, below All emails.
+      await wrapper.findAll('.email-type-list__items .email-type-list__item')[0].trigger('click')
+
+      const panel = wrapper.find('[data-test="emails-log-panel"]')
+      expect(panel.find('[data-test="log-last-emailed"]').text()).toBe(
+        `Last Emailed at ${at('2026-09-29T13:58:00Z')}.`
+      )
+      expect(panel.find('.email-log__note').text()).toBe(
+        "Emails can take a few minutes to arrive. Any that can't be delivered, such as a mistyped address " +
+          "or one a school's mail server refuses, come back to info@biotechfutures.org."
+      )
+      expect(panel.find('[data-test="log-missed"]').text()).toContain("Couldn't be emailed:")
+      expect(panel.findAll('[data-test="log-missed"] li')).toHaveLength(2)
+    })
+
+    it('names who last sent an email and notes a group email still reaches the rest', async () => {
+      vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+        buildTemplate({ key: 'finalist_notification', name: 'Finalist notification' })
+      ])
+      const wrapper = await openLog()
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+
+      expect(wrapper.find('[data-test="log-last-emailed"]').text()).toBe(
+        `Last Emailed at ${at('2026-09-29T13:58:00Z')} by test1 1.`
+      )
+      expect(wrapper.find('.email-log__note').text()).toMatch(/and the rest of the group still gets it\.$/)
+    })
+
+    it('shows a red count of failures nobody has seen, gone once someone looks', async () => {
+      vi.mocked(fetchSystemEmailUnseenFailures).mockResolvedValue(3)
+      const wrapper = await mountPage()
+      expect(wrapper.find('[data-test="failed-unseen"]').text()).toBe('3')
+
+      await wrapper.find('[data-test="emails-log"]').trigger('click')
+      await flushPromises()
+      expect(markSystemEmailFailuresSeen).toHaveBeenCalledTimes(1)
+      expect(wrapper.find('[data-test="failed-unseen"]').exists()).toBe(false)
+    })
+
+    it('shows no count with nothing unseen, and 99+ past 99', async () => {
+      expect((await mountPage()).find('[data-test="failed-unseen"]').exists()).toBe(false)
+
+      vi.mocked(fetchSystemEmailUnseenFailures).mockResolvedValue(140)
+      expect((await mountPage()).find('[data-test="failed-unseen"]').text()).toBe('99+')
+    })
+
+    it('counts leaving any of its pages as looking too', async () => {
+      const wrapper = await openLog()
+      expect(markSystemEmailFailuresSeen).toHaveBeenCalledTimes(1)
+
+      // All emails to one email, and back.
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      await wrapper.find('[data-test="all-emails"]').trigger('click')
+      expect(markSystemEmailFailuresSeen).toHaveBeenCalledTimes(3)
+
+      await wrapper.find('[data-test="emails-log"]').trigger('click')
+      expect(markSystemEmailFailuresSeen).toHaveBeenCalledTimes(4)
+
+      // Leaving the page with it open.
+      await wrapper.find('[data-test="emails-log"]').trigger('click')
+      wrapper.unmount()
+      expect(markSystemEmailFailuresSeen).toHaveBeenCalledTimes(6)
+    })
+
+    it('says when nothing has been sent and when nobody was missed', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([logEntry()])
+      const wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-none-missed"]').text()).toBe('Every email reached everyone it was sent to.')
+
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      expect(wrapper.find('[data-test="log-last-emailed"]').text()).toBe('Not emailed yet.')
+      expect(wrapper.find('[data-test="log-missed"]').exists()).toBe(false)
+    })
   })
 
   it('keeps emails on when the pause is cancelled', async () => {

@@ -117,6 +117,33 @@ export type SystemEmailTestRecipient = NonNullable<
   z.infer<typeof systemEmailTestRecipientsSchema>['recipients']
 >[number]
 
+// The Log: each email's last send and who sent it, where mail it can't
+// deliver comes back to, and who its latest sends couldn't reach, newest first
+// ("amy@x.com (BTF07, Amy Chen)", as Notify Finalists lists them).
+export const systemEmailLogSchema = z.array(
+  z.object({
+    key: z.string(),
+    name: z.string(),
+    lastSentAt: z.string().nullable(),
+    lastSentBy: z.string(),
+    sentFrom: z.string(),
+    // One email per group, so the rest of a group still gets it.
+    toGroups: z.boolean(),
+    missed: z.array(
+      z.object({
+        at: z.string(),
+        people: z.array(z.object({ who: z.string(), reason: z.string() }))
+      })
+    )
+  })
+)
+
+export type SystemEmailLogEntry = z.infer<typeof systemEmailLogSchema>[number]
+
+// How many people sends couldn't reach since an admin last looked at Failed
+// Sending Emails: the red count on its button.
+export const systemEmailUnseenSchema = z.object({ unseen: z.number() })
+
 // ---------------------------------------------------------------------------
 // Request payloads
 // ---------------------------------------------------------------------------

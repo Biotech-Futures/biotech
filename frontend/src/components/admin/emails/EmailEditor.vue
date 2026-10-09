@@ -407,10 +407,11 @@ const insertIntoSubject = (token: string) => {
   color: var(--danger);
 }
 
-/* The Body box stops at 670px, however wide the page is. */
+/* The Body box stops at 670px, however wide the page is, centred in it. */
 .email-editor__body-field {
   width: 100%;
   max-width: 670px;
+  margin-inline: auto;
 }
 
 .email-editor__header {

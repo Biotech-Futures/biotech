@@ -47,8 +47,8 @@ The resend button uses the same `guardian_consent_request` email service as the
 admin page, including its ten-minute cooldown and single-use consent link.
 Links use `FRONTEND_BASE_URL` and open `/#/consent/<token>`; the earlier
 `GUARDIAN_CONSENT_URL` placeholder is no longer needed. Signatures are stored
-with the consent record and PDF copies use the private `guardian-consent-forms`
-container (`AZURE_CONSENT_CONTAINER`).
+with the consent record, and its PDF is made from it whenever an admin views
+or downloads it, as Mark Summaries and certificates are; no PDF is stored.
 With `config.settings_local`, outgoing emails are saved under
 `backend/sent_emails/`, not delivered to real inboxes.
 

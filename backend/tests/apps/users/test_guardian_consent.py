@@ -7,7 +7,6 @@ on event RSVPs.
 """
 import base64
 import io
-import tempfile
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
@@ -20,10 +19,10 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.audit.models import AuditLog
-from apps.common.storage import get_consent_storage, reset_managed_storage_caches
 from apps.events.models import EventRsvp, Events
 from apps.users import guardian_consent
-from apps.users.consent_form import CURRENT_VERSION
+from apps.users.consent_form import CURRENT_VERSION, consent_wording
+from apps.users.consent_pdf import render_consent_pdf
 from apps.users.models import GuardianConsent, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
 
@@ -49,28 +48,14 @@ def make_student(email="wren@example.com", first="Wren", **profile):
     return StudentProfile.objects.create(user=user, **defaults)
 
 
-class TempMediaMixin:
-    """Signing stores a PDF; keep it in a throwaway folder."""
-
-    def use_temp_media(self):
-        media = tempfile.TemporaryDirectory()
-        self.addCleanup(media.cleanup)
-        setting = override_settings(MEDIA_ROOT=media.name)
-        setting.enable()
-        self.addCleanup(setting.disable)
-        reset_managed_storage_caches()
-        self.addCleanup(reset_managed_storage_caches)
-
-
 def issue(profile):
     _, token = guardian_consent.issue_request(profile, guardian_consent.guardian_to_ask(profile))
     return token
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
-class ConsentPageTests(TempMediaMixin, TestCase):
+class ConsentPageTests(TestCase):
     def setUp(self):
-        self.use_temp_media()
         self.client = APIClient()
         self.profile = make_student()
         self.token = issue(self.profile)
@@ -133,7 +118,7 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
     # -- signing ---------------------------------------------------------------
 
-    def test_signing_records_consent_without_emailing(self):
+    def test_signing_records_consent_and_thanks_the_guardian(self):
         response = self.sign(mediaConsent=False)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -152,30 +137,62 @@ class ConsentPageTests(TempMediaMixin, TestCase):
         self.assertIs(self.profile.media_consent, False)
         self.assertIsNotNone(consent.request.used_at)
 
-        # No confirmation email: the spec has none.
-        self.assertEqual(mail.outbox, [])
         self.assertTrue(AuditLog.objects.filter(action="guardian_consent_signed").exists())
 
-    def test_signing_stores_the_record_pdf(self):
-        self.sign()
+        # Guardian permission received: a thank you, without the signed record.
+        [email] = mail.outbox
+        self.assertEqual(email.to, ["pat@example.com"])
+        self.assertEqual(email.subject, "Parent/Guardian Permission Received")
+        html = email.alternatives[0][0]
+        self.assertIn("Hi Pat Parent,", html)
+        self.assertIn("permission form has been received.", html)
+        self.assertIn("Thank you for signing the permission form for Wren Ward", html)
+        self.assertEqual(email.attachments[1:], [])  # [0] is the inline logo
 
-        consent = GuardianConsent.objects.get()
-        # The year it was signed, the student's number, and their first consent.
-        year = timezone.localtime(consent.signed_at, ZoneInfo("Australia/Sydney")).year
-        name = f"{year}_{self.profile.user_id}_BTF_1.pdf"
-        self.assertEqual(guardian_consent.record_pdf_filename(consent), name)
-        # Stored under that name, at the top of the container.
-        self.assertEqual(consent.record_pdf_key, name)
-        with get_consent_storage().open(consent.record_pdf_key) as stored:
-            self.assertTrue(stored.read().startswith(b"%PDF"))
+    def test_signing_still_works_with_the_thank_you_switched_off(self):
+        from apps.services.models import SystemEmailTemplate
 
-    def test_storage_failure_does_not_stop_signing(self):
-        with patch("apps.common.storage.ManagedContainerStorage.save", side_effect=OSError("down")):
-            response = self.sign()
+        SystemEmailTemplate.objects.create(key="guardian_consent_received", is_enabled=False)
+        response = self.sign()
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(GuardianConsent.objects.filter(student=self.profile).exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_signing_makes_and_stores_no_pdf(self):
+        with patch("apps.common.storage.ManagedContainerStorage.save") as save:
+            self.sign()
+
+        save.assert_not_called()
         consent = GuardianConsent.objects.get()
-        self.assertEqual(consent.record_pdf_key, "")
+        # Named by the year it was signed, the student's number, and their first consent.
+        year = timezone.localtime(consent.signed_at, ZoneInfo("Australia/Sydney")).year
+        self.assertEqual(guardian_consent.record_pdf_filename(consent), f"{year}_{self.profile.user_id}_BTF_1.pdf")
+
+    def test_the_record_keeps_the_students_name_from_when_the_guardian_signed(self):
+        self.sign()
+        consent = GuardianConsent.objects.get()
+        self.assertEqual(consent.student_full_name, "Wren Ward")
+
+        # Renamed afterwards: the record still names them as signed.
+        User.objects.filter(pk=self.profile.user_id).update(last_name="Warde")
+        consent.refresh_from_db()
+        with patch("apps.users.consent_pdf.consent_wording", wraps=consent_wording) as wording:
+            self.assertTrue(render_consent_pdf(consent).startswith(b"%PDF"))
+        self.assertEqual(wording.call_args.args[0], "Wren Ward")
+
+    def test_consents_signed_before_the_name_was_kept_get_it_filled_in(self):
+        import importlib
+
+        from django.apps import apps
+
+        self.sign()
+        GuardianConsent.objects.update(student_full_name="")
+        migration = importlib.import_module("apps.users.migrations.0020_guardianconsent_student_full_name")
+
+        migration.name_signed_consents(apps, None)
+
+        self.assertEqual(GuardianConsent.objects.get().student_full_name, "Wren Ward")
 
     def test_record_renders_names_outside_western_scripts(self):
         profile = make_student(email="li@example.com", first="李", pg_email="g3@example.com")
@@ -232,9 +249,8 @@ class ConsentPageTests(TempMediaMixin, TestCase):
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
-class AdminConsentTests(TempMediaMixin, TestCase):
+class AdminConsentTests(TestCase):
     def setUp(self):
-        self.use_temp_media()
         self.admin = User.objects.create_user(email="admin@example.com", password="x")
         AdminScope.objects.create(user=self.admin)
         self.client = APIClient()
@@ -287,8 +303,9 @@ class AdminConsentTests(TempMediaMixin, TestCase):
         first, second = GuardianConsent.objects.order_by("pk")
 
         for consent, number in ((first, 1), (second, 2)):
-            self.assertTrue(consent.record_pdf_key.endswith(f"_{self.profile.user_id}_BTF_{number}.pdf"))
-            self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
+            self.assertTrue(
+                guardian_consent.record_pdf_filename(consent).endswith(f"_{self.profile.user_id}_BTF_{number}.pdf")
+            )
         # Another student starts at 1.
         other = make_student(email="other@example.com", pg_email="g9@example.com")
         guardian_consent.sign(
@@ -300,16 +317,20 @@ class AdminConsentTests(TempMediaMixin, TestCase):
             .endswith(f"_{other.user_id}_BTF_1.pdf")
         )
 
-    def test_rebuilds_a_missing_record(self):
+    def test_each_download_makes_the_record_from_the_consent(self):
         consent = GuardianConsent.objects.get()
-        get_consent_storage().delete(consent.record_pdf_key)
+        url = f"{self.base}/guardian-consents/{consent.pk}/record/"
 
-        response = self.client.get(f"{self.base}/guardian-consents/{consent.pk}/record/")
+        with patch(
+            "apps.admin.services.guardian_consent.render_consent_pdf", wraps=render_consent_pdf,
+        ) as render:
+            first = self.client.get(url)
+            second = self.client.get(url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.content.startswith(b"%PDF"))
-        consent.refresh_from_db()
-        self.assertTrue(get_consent_storage().exists(consent.record_pdf_key))
+        self.assertEqual(render.call_count, 2)
+        self.assertEqual(render.call_args.args[0], consent)
+        self.assertTrue(first.content.startswith(b"%PDF"))
+        self.assertTrue(second.content.startswith(b"%PDF"))
 
     def test_record_belongs_to_its_student(self):
         consent = GuardianConsent.objects.get()

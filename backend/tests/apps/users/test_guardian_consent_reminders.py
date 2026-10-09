@@ -32,7 +32,7 @@ def _student(email, guardian_email="pat@example.com", **user_fields):
 
 @override_settings(
     EMAIL_BACKEND=LOCMEM, FRONTEND_BASE_URL=FRONTEND,
-    GUARDIAN_REMINDER_INTERVAL_DAYS=1, GUARDIAN_REMINDER_TOKEN="secret-token",
+    GUARDIAN_REMINDER_INTERVAL_DAYS=1, EMAIL_JOBS_TOKEN="secret-token",
 )
 class GuardianConsentReminderTests(TestCase):
     def setUp(self):
@@ -58,8 +58,9 @@ class GuardianConsentReminderTests(TestCase):
         [request] = self._to("pat@example.com")
         self.assertEqual(request.subject, "Action Required: Sign parent/guardian permission form")
         self.assertIn(f"{FRONTEND}/#/consent/", request.alternatives[0][0])
-        # The student hears that it went.
-        self.assertEqual(len(self._to("amy@example.com")), 1)
+        # The student hears that it went, and is asked to remind them.
+        [notice] = self._to("amy@example.com")
+        self.assertEqual(notice.subject, "Parent/Guardian Action Required - Permission Form")
 
     def test_a_second_run_the_same_day_emails_nobody(self):
         send_due()
@@ -128,12 +129,12 @@ class GuardianConsentReminderTests(TestCase):
         client = APIClient()
         url = reverse("guardian-consent-reminders")
 
-        with self.settings(GUARDIAN_REMINDER_TOKEN=""):
+        with self.settings(EMAIL_JOBS_TOKEN=""):
             self.assertEqual(client.post(url).status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(client.post(url, HTTP_X_REMINDER_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(mail.outbox, [])
 
-        response = client.post(url, HTTP_X_REMINDER_TOKEN="secret-token")
+        response = client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["sent"], 1)
 
@@ -156,12 +157,44 @@ class GuardianConsentReminderTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(self._to("robin@example.com")), 1)
-        self.assertEqual(len(self._to("amy@example.com")), 1)
+        # Thanked for the details, not asked to remind them as well.
+        [received] = self._to("amy@example.com")
+        self.assertEqual(received.subject, "Parent/Guardian Contact Received")
+        html = received.alternatives[0][0]
+        self.assertIn("Hi Amy,", html)
+        self.assertIn("Your parent/guardian information has been received for", html)
+        self.assertIn("An email has been sent to your nominated contact with a form to sign", html)
         # Saving the same guardian again doesn't email them again.
         client.put(reverse("me-guardian"), details, format="json")
         self.assertEqual(len(mail.outbox), 2)
         # The daily run leaves them until tomorrow.
         self.assertEqual(send_due()["sent"], 0)
+
+    def test_switching_the_details_received_email_off_sends_the_student_nothing(self):
+        SystemEmailTemplate.objects.create(key="guardian_details_received", is_enabled=False)
+
+        self._as_student().put(
+            reverse("me-guardian"),
+            {"first_name": "Robin", "last_name": "Carer", "email": "robin@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(len(self._to("robin@example.com")), 1)
+        self.assertEqual(self._to("amy@example.com"), [])
+
+    def test_the_student_hears_nothing_when_the_guardian_email_fails(self):
+        from unittest.mock import patch
+
+        from apps.services.system_email import FAILED
+
+        with patch("apps.admin.services.guardian_consent.send_system_email", return_value=FAILED) as send:
+            self._as_student().put(
+                reverse("me-guardian"),
+                {"first_name": "Robin", "last_name": "Carer", "email": "robin@example.com"},
+                format="json",
+            )
+
+        self.assertEqual([call.args[0] for call in send.call_args_list], ["guardian_consent_request"])
 
     def test_a_new_guardian_named_after_consent_is_emailed_at_once(self):
         StudentProfile.objects.filter(pk=self.profile.pk).update(has_join_permission=True)

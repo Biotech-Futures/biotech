@@ -70,7 +70,10 @@ from apps.admin.services.mentor_match import (
     unassign_mentors, recommend_mentors_for_group,
 )
 from apps.admin.services.system_email import (
+    get_email_log,
     get_email_settings,
+    get_unseen_failures,
+    see_failures,
     get_email_template,
     list_email_templates,
     preview_email_template,
@@ -1675,6 +1678,30 @@ class SystemEmailTemplateRestoreView(APIView):
         result = restore_email_template(key, requested_by=request.user)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class SystemEmailLogView(APIView):
+    """GET /api/v1/admin/email-log/ — each system email's last send, who
+    sent it, and who its latest sends couldn't reach."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_email_log())
+
+
+class SystemEmailUnseenFailuresView(APIView):
+    """GET /api/v1/admin/email-log/unseen/ — how many people sends couldn't
+    reach since an admin last looked at Failed Sending Emails. POST marks
+    them seen, for every admin."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_unseen_failures())
+
+    def post(self, request):
+        return Response(see_failures())
 
 
 class SystemEmailSettingsView(APIView):

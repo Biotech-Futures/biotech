@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
+from django.db import connections
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +24,28 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="auth-mail")
 def send_async(msg, *, kind: str) -> None:
     """Hand an already-built message to the pool. Never raises to the caller.
 
-    The message must be fully rendered by the caller — the worker does no ORM
-    work, so it never opens a second DB connection that could not see the
-    uncommitted row that triggered it.
+    The message must be fully rendered by the caller — the worker reads
+    nothing from the database, as it could not see the uncommitted row that
+    triggered it. It only notes the send in the Log on System Emails.
     """
     if getattr(settings, "AUTH_EMAIL_DISPATCH_SYNC", False):
         _send(msg, kind)
         return
 
     try:
-        _EXECUTOR.submit(_send, msg, kind)
+        _EXECUTOR.submit(_send_in_pool, msg, kind)
     except RuntimeError:
         # submit() raises once the interpreter is shutting down (worker recycling).
         # Losing one email beats 500-ing a login request that already succeeded.
         logger.warning("auth_email.dispatch_unavailable kind=%s", kind)
+
+
+def _send_in_pool(msg, kind: str) -> None:
+    try:
+        _send(msg, kind)
+    finally:
+        # Noting the send opened this thread's own connection: close it.
+        connections.close_all()
 
 
 def _send(msg, kind: str) -> None:
