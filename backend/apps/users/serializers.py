@@ -6,6 +6,7 @@ from .models import (
     SupervisorProfile,
     UserInterest,
     AreasOfInterest,
+    KnownUniversity,
 )
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
@@ -143,10 +144,12 @@ class UserRegisterBodySerializer(serializers.Serializer):
             )
 
         # School name check: soft warning, bypassable.
-        # Simple substring check per the client. The editable list of known
-        # universities (admin-only) is a separate feature, not built yet.
+        # Simple checks per the client: the word "university" anywhere in the
+        # name, or the whole name being on the list admins keep of known
+        # universities (e.g. "USYD").
         school_name = data.get("SchoolName", "").strip().lower()
-        if "university" in school_name and not data.get("ConfirmSchoolOverride"):
+        looks_like_university = "university" in school_name or KnownUniversity.matches(school_name)
+        if looks_like_university and not data.get("ConfirmSchoolOverride"):
             raise serializers.ValidationError(
                 "This looks like a university, not a school. Please confirm "
                 "if this is correct, or check ConfirmSchoolOverride to proceed."

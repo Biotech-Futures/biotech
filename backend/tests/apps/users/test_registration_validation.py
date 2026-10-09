@@ -1,12 +1,13 @@
 """The rules a registration has to pass (UserRegisterBodySerializer): which
 emails are already taken, who may be named as the guardian and supervisor, and
 the warnings the person registering can confirm their way past."""
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import StudentProfile, SupervisorProfile, User
+from apps.users.models import KnownUniversity, StudentProfile, SupervisorProfile, User
 from apps.users.serializers import UserRegisterBodySerializer
 
 
@@ -263,3 +264,47 @@ class OptionalGuardianTests(RegistrationValidationTestCase):
         errors = self.assertRefused(RegisteredBy="Supervisor", GuardianEmail="not-an-email")
 
         self.assertEqual(list(errors), ["GuardianEmail"])
+
+
+class KnownUniversityTests(RegistrationValidationTestCase):
+    def setUp(self):
+        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(name="Massachusetts Institute of Technology")
+
+    def test_a_school_on_the_list_is_held_for_confirmation(self):
+        for school in ("USYD", "usyd", "  Usyd ", "massachusetts  institute of TECHNOLOGY"):
+            with self.subTest(school=school):
+                self.assertRefusedWith("looks like a university", SchoolName=school)
+
+    def test_confirming_a_listed_school_lets_it_through(self):
+        self.assertAccepted(SchoolName="USYD", ConfirmSchoolOverride=True)
+
+    def test_only_the_whole_name_is_matched(self):
+        for school in ("USYD Prep School", "Musyd High School", "Institute of Technology"):
+            with self.subTest(school=school):
+                self.assertAccepted(SchoolName=school)
+
+    def test_a_school_added_to_the_list_starts_being_held(self):
+        self.assertAccepted(SchoolName="UNSW")
+
+        KnownUniversity.objects.create(name="UNSW")
+
+        self.assertRefusedWith("looks like a university", SchoolName="unsw")
+
+    def test_a_school_taken_off_the_list_stops_being_held(self):
+        KnownUniversity.objects.filter(name="USYD").delete()
+
+        self.assertAccepted(SchoolName="USYD")
+
+    def test_the_word_university_is_still_caught_without_being_listed(self):
+        self.assertRefusedWith("looks like a university", SchoolName="Western Sydney University")
+
+    def test_names_are_stored_without_stray_spaces(self):
+        entry = KnownUniversity.objects.create(name="  Monash   Uni ")
+
+        self.assertEqual(entry.name, "Monash Uni")
+        self.assertEqual(str(entry), "Monash Uni")
+
+    def test_the_same_name_cannot_be_listed_twice_whatever_its_casing(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            KnownUniversity.objects.create(name="usyd")
