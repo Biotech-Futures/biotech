@@ -15,6 +15,8 @@ import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
 import type { MentorImportRow } from './adminMentorCsv'
 import {
+  systemEmailLogSchema,
+  systemEmailUnseenSchema,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -23,6 +25,7 @@ import {
   systemEmailTestSendSchema
 } from './systemEmail'
 import type {
+  SystemEmailLogEntry,
   SystemEmailPreview,
   SystemEmailPreviewPayload,
   SystemEmailTestSendPayload,
@@ -1465,6 +1468,16 @@ export const updateSystemEmailSettings = (enabled: boolean): Promise<SystemEmail
   adminPatch<AdminEnvelope<unknown>>('/email-settings/', { enabled }).then((env) =>
     systemEmailSettingsSchema.parse(env.data)
   )
+
+export const fetchSystemEmailLog = (): Promise<SystemEmailLogEntry[]> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/').then((env) => systemEmailLogSchema.parse(env.data))
+
+export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Seen by every admin from now on; returns the count left, normally 0. */
+export const markSystemEmailFailuresSeen = (): Promise<number> =>
+  adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
 
 // ---------------------------------------------------------------------------
 // Admin User Views

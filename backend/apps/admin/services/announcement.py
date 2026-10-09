@@ -17,6 +17,7 @@ from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
+from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
@@ -610,7 +611,7 @@ def _deliver_announcement_to_recipients(
             announcement_id,
         )
         for addr in emails:
-            failed.append({"email": addr, "error": connection_error})
+            failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
         return 0, failed, connection_error
 
     try:
@@ -623,7 +624,7 @@ def _deliver_announcement_to_recipients(
         )
         # Mark every recipient as failed since none could be attempted.
         for addr in emails:
-            failed.append({"email": addr, "error": connection_error})
+            failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
         return 0, failed, connection_error
 
     try:
@@ -638,6 +639,7 @@ def _deliver_announcement_to_recipients(
                 failed.append({
                     "email": addr,
                     "error": _sanitize_error(exc),
+                    "reason": reason_for(exc),
                 })
                 logger.warning(
                     "announcement_email.send_failed "
@@ -661,6 +663,7 @@ def _deliver_announcement_to_recipients(
                     failed.append({
                         "email": addr,
                         "error": "Mail backend reported 0 sent",
+                        "reason": NOT_SENT,
                     })
                     logger.warning(
                         "announcement_email.send_zero "
@@ -777,7 +780,13 @@ def send_announcement_email(
             announcement_id,
         )
         succeeded = 0
-        failed = [{"email": addr, "error": connection_error} for addr in emails]
+        failed = [{"email": addr, "error": connection_error, "reason": NOT_SENT} for addr in emails]
+
+    note_send(
+        "announcement",
+        missed={item["email"]: item.get("reason", NOT_SENT) for item in failed},
+        by=initiated_by,
+    )
 
     failure_count = len(failed)
     if succeeded == 0:

@@ -31,6 +31,7 @@ from django.utils.html import format_html, format_html_join
 from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
+from apps.services.email_log import UNREACHABLE, note_send, reason_for
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -313,10 +314,12 @@ def send_unread_message_digests(*, dry_run=False):
         connection.open()
     except Exception:
         logger.exception("unread_digest.connection_failed")
+        note_send("unread_messages", missed={candidate["email"]: UNREACHABLE for candidate, _ in pending})
         return considered, 0, len(pending)
 
     sent = 0
     failed = 0
+    missed = {}
     try:
         for candidate, summary in pending:
             _total, _groups, new_hwm = summary
@@ -329,6 +332,7 @@ def send_unread_message_digests(*, dry_run=False):
                 _render_and_send(connection, candidate, summary, sender)
             except Exception as exc:
                 failed += 1
+                missed[candidate["email"]] = reason_for(exc)
                 logger.warning(
                     "unread_digest.send_failed user=%s error=%s",
                     candidate["user_id"], exc,
@@ -348,6 +352,8 @@ def send_unread_message_digests(*, dry_run=False):
         except Exception:
             logger.exception("unread_digest.connection_close_failed")
 
+    if sent or missed:
+        note_send("unread_messages", missed=missed)
     return considered, sent, failed
 
 

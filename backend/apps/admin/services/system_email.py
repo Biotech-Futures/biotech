@@ -37,6 +37,7 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
+from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
 from apps.services.email_registry import (
     EMAIL_TYPES,
     get_email_type,
@@ -530,6 +531,21 @@ def send_test_email(
 # ---------------------------------------------------------------------------
 # Global settings
 # ---------------------------------------------------------------------------
+
+def get_email_log() -> dict:
+    """The Log on System Emails: each email's last send and who it missed."""
+    return {"msg": "System email log retrieved successfully", "data": email_log()}
+
+
+def get_unseen_failures() -> dict:
+    """The count on the Failed Sending Emails button."""
+    return {"msg": "Unseen failed emails counted", "data": {"unseen": unseen_failures()}}
+
+
+def see_failures() -> dict:
+    """Clear the count on the Failed Sending Emails button, for every admin."""
+    return {"msg": "Failed emails marked as seen", "data": {"unseen": mark_failures_seen()}}
+
 
 def get_email_settings() -> dict:
     """The global on/off switch, created with defaults on first read."""

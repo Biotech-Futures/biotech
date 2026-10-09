@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from apps.admin.services.user import fetch_user_by_id
 from apps.audit.services import log_audit_event
+from apps.services.email_log import NOT_SENT, note_send
 from apps.services.system_email import FAILED, SKIPPED, send_system_email
 from apps.users import guardian_consent as consent
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
@@ -97,6 +98,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
                 "CONSENT_URL": consent.consent_link(token),
                 "EXPIRY_DAYS": consent.LINK_LIFETIME.days,
             },
+            sent_by=initiated_by,
         )
         if outcome in (SKIPPED, FAILED):
             # Nobody got the link, so it must not count as sent or replace the
@@ -104,20 +106,24 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             transaction.set_rollback(True)
             if outcome == SKIPPED:
                 return _result(DISABLED, "Guardian consent request emails are switched off on System Emails.")
-            return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
+        else:
+            profile.guardian_reminder_sent_at = now
+            interval = getattr(settings, "GUARDIAN_REMINDER_INTERVAL_DAYS", 0)
+            profile.guardian_reminder_due_at = now + timedelta(days=interval) if interval > 0 else None
+            profile.save(update_fields=["guardian_reminder_sent_at", "guardian_reminder_due_at"])
 
-        profile.guardian_reminder_sent_at = now
-        interval = getattr(settings, "GUARDIAN_REMINDER_INTERVAL_DAYS", 0)
-        profile.guardian_reminder_due_at = now + timedelta(days=interval) if interval > 0 else None
-        profile.save(update_fields=["guardian_reminder_sent_at", "guardian_reminder_due_at"])
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_consent_request",
+                after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+            )
 
-        log_audit_event(
-            actor=initiated_by,
-            entity_type="user",
-            entity_id=user_id,
-            action="guardian_consent_request",
-            after_state={"guardianEmail": guardian.email, "requestId": request.pk},
-        )
+    if outcome == FAILED:
+        # The Log's note of it went with the rollback, so it's made again here.
+        note_send(EMAIL_KEY, missed={guardian.email: NOT_SENT}, by=initiated_by)
+        return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
 
     # The student's copy is an FYI: if it's switched off or doesn't go, the
     # guardian's request still stands.
@@ -126,6 +132,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             STUDENT_NOTICE_KEY,
             [student.email],
             {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
+            sent_by=initiated_by,
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
