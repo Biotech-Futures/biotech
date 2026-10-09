@@ -1,4 +1,3 @@
-import hmac
 import re
 from datetime import timezone as dt_timezone
 
@@ -18,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.services import log_audit_event
+from apps.common import email_jobs
 from apps.common.rbac import get_active_role_name
 from apps.common.role_names import (
     ROLE_MENTOR,
@@ -492,11 +492,9 @@ class RsvpReminderTriggerView(APIView):
     header rather than a user session — there is no human caller. To
     keep the surface small:
 
-    * ``RSVP_REMINDER_TOKEN`` must be set in the environment; if blank
-      the endpoint returns 503 so a misconfigured deploy fails loud
-      instead of silently exposing an unauthenticated trigger.
-    * The header value is compared with ``hmac.compare_digest`` for
-      constant-time matching.
+    * The email jobs' shared token (``apps.common.email_jobs``) must be
+      set; if blank the endpoint returns 503 so a misconfigured deploy
+      fails loud instead of silently exposing an unauthenticated trigger.
     """
 
     authentication_classes = []
@@ -504,18 +502,9 @@ class RsvpReminderTriggerView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        expected = getattr(settings, "RSVP_REMINDER_TOKEN", "") or ""
-        if not expected:
-            return Response(
-                {"detail": "RSVP reminder trigger is not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        provided = request.headers.get("X-Reminder-Token", "")
-        if not hmac.compare_digest(provided, expected):
-            return Response(
-                {"detail": "Invalid token."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+        refusal = email_jobs.refused(request)
+        if refusal:
+            return refusal
 
         events_processed, sent, failed = send_due_rsvp_reminders()
         return Response(

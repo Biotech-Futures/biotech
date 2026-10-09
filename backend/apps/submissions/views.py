@@ -1,5 +1,3 @@
-import hmac
-
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
@@ -13,6 +11,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common import email_jobs
 from apps.common.rbac import group_participant_qs, is_admin
 from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
@@ -367,21 +366,11 @@ class GroupSubmissionReopenView(APIView):
 
 
 class SendSubmissionRemindersView(APIView):
-    """Daily reminder run, called by a scheduler with a shared token."""
+    """Daily reminder run, called by a scheduler with the email jobs' token."""
 
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(exclude=True)
     def post(self, request):
-        expected = getattr(settings, "SUBMISSION_REMINDER_TOKEN", "") or ""
-        if not expected:
-            return Response(
-                {"detail": "Submission reminder trigger is not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        provided = request.headers.get("X-Reminder-Token", "")
-        if not hmac.compare_digest(provided, expected):
-            return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
-
-        return Response(send_due_reminders(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or Response(send_due_reminders(), status=status.HTTP_200_OK)

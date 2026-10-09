@@ -32,7 +32,7 @@ def _student(email, guardian_email="pat@example.com", **user_fields):
 
 @override_settings(
     EMAIL_BACKEND=LOCMEM, FRONTEND_BASE_URL=FRONTEND,
-    GUARDIAN_REMINDER_INTERVAL_DAYS=1, GUARDIAN_REMINDER_TOKEN="secret-token",
+    GUARDIAN_REMINDER_INTERVAL_DAYS=1, EMAIL_JOBS_TOKEN="secret-token",
 )
 class GuardianConsentReminderTests(TestCase):
     def setUp(self):
@@ -129,12 +129,12 @@ class GuardianConsentReminderTests(TestCase):
         client = APIClient()
         url = reverse("guardian-consent-reminders")
 
-        with self.settings(GUARDIAN_REMINDER_TOKEN=""):
+        with self.settings(EMAIL_JOBS_TOKEN=""):
             self.assertEqual(client.post(url).status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(client.post(url, HTTP_X_REMINDER_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(mail.outbox, [])
 
-        response = client.post(url, HTTP_X_REMINDER_TOKEN="secret-token")
+        response = client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["sent"], 1)
 
