@@ -1,4 +1,4 @@
-"""The Symposium emails from the Email Nonfinalist tab, to teams that
+"""The Symposium emails from the Notify Nonfinalist tab, to teams that
 submitted but weren't picked and to teams that didn't submit: who gets them,
 the client's wording with the Symposium details from Notify Finalists,
 preview, and sending in batches."""
@@ -115,7 +115,7 @@ class NonFinalistEmailTests(_GradingFixture):
         day = FinalistEmailSettings.load().symposium_date
         self.assertIn(f"Symposium on {day:%A}, {day.day} {day:%B %Y}", text)
         self.assertIn("https://events.example.com/symposium", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["emailed"], 4)
         self.assertEqual(results[-1]["teams"], {"total": 1, "emailed": 1})
@@ -402,7 +402,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         day = FinalistEmailSettings.load().symposium_date
         self.assertIn(f"University of Sydney on {day:%A}, {day.day} {day:%B %Y} (in-person only)", text)
         self.assertIn("https://events.example.com/symposium", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["teams"], {"total": 2, "emailed": 2})
         self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}})

@@ -85,10 +85,14 @@ class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
     director_1_position = models.CharField(max_length=255, blank=True)
-    director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    # Each signature image is kept here, with the name it was uploaded as
+    # (shown on Document Setup); certificates and marks sheets embed it.
+    director_1_signature_image = models.BinaryField(blank=True, null=True)
+    director_1_signature_name = models.CharField(max_length=255, blank=True, default="")
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
-    director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    director_2_signature_image = models.BinaryField(blank=True, null=True)
+    director_2_signature_name = models.CharField(max_length=255, blank=True, default="")
     marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
@@ -100,6 +104,49 @@ class GradingSettings(SingletonModel):
 
     def __str__(self):
         return "GradingSettings"
+
+
+class OutcomeAnnouncement(models.Model):
+    """The in-app announcement that goes with one of the emails telling
+    groups their Challenge outcome (finalist, non-finalist, non-submission,
+    and the results emails to groups and to supervisors), posted from that
+    email's page to whoever it has reached (see
+    ``services.outcome_announcement``). Its wording is the email's until
+    edited; the announcement it last posted is updated when it's posted
+    again."""
+
+    # Which email's: a key of ``services.outcome_announcement.KINDS``.
+    key = models.CharField(max_length=32, unique=True)
+    # The edited wording; unused until ``edited_at`` is set.
+    title = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    # Who saved the edited wording; shown as "Last edited by" in Edit.
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    announcement = models.ForeignKey(
+        "announcements.Announcement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    posted_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "outcome_announcement"
 
 
 class FinalistEmailSettings(SingletonModel):
@@ -130,6 +177,17 @@ class FinalistEmailSettings(SingletonModel):
     def dates_before(self, today) -> list[str]:
         """The date fields set to a day before ``today`` (last year's, say)."""
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
+
+
+class PresentationSettings(SingletonModel):
+    """Whether finalists see this year's presentation times to give their
+    availability. Off until the times are final, so teams only ever pick
+    from the real ones."""
+
+    times_shown = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "presentation_settings"
 
 
 class PresentationSlot(models.Model):
@@ -274,7 +332,7 @@ class EmailDelivery(models.Model):
 
 
 class EmailSendRun(models.Model):
-    """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
+    """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send queues a run on
     the server that emails everyone due, whether or not the page stays open.
     One run at a time across every email: ``held_until`` is a lease the run
@@ -394,7 +452,7 @@ class ResultsSupervisorEmail(models.Model):
 
 class NonFinalistEmail(models.Model):
     """A team that wasn't picked, emailed the invitation to the Symposium from
-    Email Nonfinalist; sending skips it after that. Only recorded once every
+    Notify Nonfinalist; sending skips it after that. Only recorded once every
     member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(
@@ -420,7 +478,7 @@ class NonFinalistEmail(models.Model):
 
 class NonSubmissionEmail(models.Model):
     """A team that didn't submit, emailed the notice (and invitation to the
-    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    Symposium) from Notify Nonfinalist; sending skips it after that. Only
     recorded once every member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(

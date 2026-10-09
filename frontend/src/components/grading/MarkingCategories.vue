@@ -176,8 +176,6 @@ const pickSolution = (option: string) => {
   flex-direction: column;
   gap: 0;
   margin-bottom: 1rem;
-  /* Same width as the rubric form below it (RubricForm's max-width). */
-  max-width: 22rem;
 }
 
 /* Both boxes read as one seamless panel, like the rubric criteria below:

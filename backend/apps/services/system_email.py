@@ -25,7 +25,7 @@ from typing import NamedTuple, Optional
 
 import nh3
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.mail.message import SafeMIMEMultipart
 from django.db import DatabaseError
 from django.template.loader import render_to_string
@@ -33,7 +33,8 @@ from django.utils import dateformat
 from django.utils.html import strip_tags
 
 from .email_branding import attach_inline_logo, brand_context
-from .email_registry import MERGE_TAG_RE, get_email_type
+from .email_log import note_send, reason_for
+from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
 
@@ -44,6 +45,71 @@ SKIPPED = "skipped"
 FAILED = "failed"
 
 WRAPPER_TEMPLATE = "emails/system_wrapper.html"
+
+
+class Sender(NamedTuple):
+    """A mailbox the site can send from (settings.EMAIL_SENDERS)."""
+
+    key: str
+    # "info@biotechfutures.org": shown on System Emails, and where mail that
+    # can't be delivered comes back to.
+    address: str
+    # The From header, e.g. "BIOTech Futures <info@biotechfutures.org>".
+    from_email: str
+    # get_connection arguments that sign in as it; empty for the default account.
+    connection: dict
+
+
+def _login(prefix: Optional[str]) -> dict:
+    """get_connection arguments for the login settings named ``prefix``, e.g.
+    EMAIL_CONNECT_HOST_USER; none for the default account."""
+    if not prefix:
+        return {}
+    return {
+        "host": getattr(settings, f"{prefix}HOST"),
+        "port": getattr(settings, f"{prefix}PORT"),
+        "username": getattr(settings, f"{prefix}HOST_USER"),
+        "password": getattr(settings, f"{prefix}HOST_PASSWORD"),
+        "use_ssl": getattr(settings, f"{prefix}USE_SSL"),
+    }
+
+
+def senders() -> list[Sender]:
+    """Every mailbox the site can send from, as System Emails offers them,
+    read from their settings when asked (see settings.EMAIL_SENDERS)."""
+    return [
+        Sender(
+            key,
+            getattr(settings, sender["address"]),
+            getattr(settings, sender["from_email"]),
+            _login(sender.get("login")),
+        )
+        for key, sender in settings.EMAIL_SENDERS.items()
+    ]
+
+
+def _sender(key: str) -> Optional[Sender]:
+    return next((sender for sender in senders() if sender.key == key), None)
+
+
+def sender_for(key: str) -> Sender:
+    """The mailbox email ``key`` goes from: the one picked on System Emails,
+    else its type's default (info@, or connect@ for the chat digest). A key
+    System Emails doesn't know goes from the first sender, info@."""
+    if not is_known_email_type(key):
+        return senders()[0]
+    row = _load_override(key)
+    return (
+        (_sender(row.sender) if row is not None and row.sender else None)
+        or _sender(get_email_type(key).default_sender)
+        or senders()[0]
+    )
+
+
+def sender_connection(sender: Sender, **kwargs):
+    """A mail connection signed in as ``sender``'s mailbox: Hostinger only
+    sends as the signed-in mailbox or its aliases."""
+    return get_connection(**{**sender.connection, **kwargs})
 
 
 class RenderedEmail(NamedTuple):
@@ -90,34 +156,88 @@ def is_email_enabled(key: str) -> bool:
 
 # --- admin-written bodies --------------------------------------------------
 
-# The editor's box and button blocks carry inline styles, since email clients
-# ignore most stylesheets. Only these properties are kept: enough to draw a
-# box or a button, and nothing that can load a URL or move content around.
+# The editor's text, box and button blocks, and its tables' cells, carry
+# inline styles, since email clients ignore most stylesheets. Only these
+# properties are kept: enough for the templates' text colours, sizes and
+# spacing, a box, a button or a table's lines, and nothing that can load a
+# URL or move content around.
 EMAIL_STYLE_PROPERTIES = frozenset({
-    "background-color", "border", "border-radius", "color", "display",
-    "font-family", "font-size", "font-weight", "letter-spacing", "line-height",
+    "background-color", "border", "border-collapse", "border-radius", "color", "display",
+    "font-family", "font-size", "font-weight", "height", "letter-spacing", "line-height",
     "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
     "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-    "text-align", "text-decoration",
+    "text-align", "text-decoration", "text-transform", "vertical-align", "width", "word-break",
 })
 
-_BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
-_BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
-_BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
+# Tags whose inline style is kept: boxes and buttons, tables' lines and cell
+# padding, and, in emails, text (so a template's colours and sizes survive).
+_BLOCK_STYLED_TAGS = ("div", "a", "table", "th", "td")
+_TEXT_STYLED_TAGS = (
+    "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "strong", "b", "em", "i", "u", "s", "code",
+    "ul", "ol", "li", "blockquote", "hr",
+)
 
 
-def clean_email_body(html: str) -> str:
+def _styled(tags) -> dict:
+    attributes = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
+    for tag in tags:
+        attributes[tag] = attributes.get(tag, set()) | {"style"}
+    return attributes
+
+
+_BODY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS + _TEXT_STYLED_TAGS)
+# An email keeps its HTML as written: class names on any tag (the layout's
+# phone styles use some, e.g. headline) and how its tables lay out.
+_BODY_ATTRIBUTES["*"] = _BODY_ATTRIBUTES.get("*", set()) | {"class"}
+for _tag in ("table", "tr", "td", "th"):
+    _BODY_ATTRIBUTES[_tag] = _BODY_ATTRIBUTES.get(_tag, set()) | {
+        "role", "width", "align", "valign", "cellpadding", "cellspacing", "border", "bgcolor",
+    }
+_BLOCK_ONLY_ATTRIBUTES = _styled(_BLOCK_STYLED_TAGS)
+
+
+_STYLE_ATTRIBUTE = re.compile(r"""(\sstyle\s*=\s*)(["'])(.*?)\2""", re.IGNORECASE | re.DOTALL)
+# `background:` set to a plain colour, as the templates write their fills.
+_PLAIN_BACKGROUND = re.compile(
+    r"(^|;)\s*background\s*:\s*(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)\s*(?=;|$)", re.IGNORECASE
+)
+
+
+def _background_colours(html: str) -> str:
+    """``background: #C3EBCA`` as ``background-color: #C3EBCA``, which is kept;
+    any other ``background`` (an image, say) is still dropped by the clean."""
+    def fill(match):
+        style = _PLAIN_BACKGROUND.sub(r"\1background-color:\2", match.group(3))
+        return f"{match.group(1)}{match.group(2)}{style}{match.group(2)}"
+
+    return _STYLE_ATTRIBUTE.sub(fill, html)
+
+
+def clean_email_body(html: str, *, site_look: bool = False) -> str:
     """Sanitise an admin-written body before it is saved or previewed.
 
-    Strips scripts, event handlers and javascript: URLs like a plain
-    ``nh3.clean``, but keeps the editor's boxes and buttons: their classes
-    (``cta-link`` also makes a button full width on phones) and their styles,
-    limited to ``EMAIL_STYLE_PROPERTIES``.
+    Strips scripts, event handlers, javascript: URLs and tags email doesn't
+    use, like a plain ``nh3.clean``, but keeps the email as written: its
+    text's colours, sizes and spacing, its boxes, buttons and tables, its class
+    names, and its comments (Outlook reads its button code from them), with
+    styles limited to ``EMAIL_STYLE_PROPERTIES``. A plain-colour
+    ``background`` is kept as ``background-color``.
+
+    With ``site_look``, for text shown on the site in its own look, only the
+    boxes' and buttons' styles and classes are kept, and comments go.
     """
+    html = _background_colours(html or "")
+    if site_look:
+        return nh3.clean(
+            html or "",
+            attributes=_BLOCK_ONLY_ATTRIBUTES,
+            allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+            filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
+        )
     return nh3.clean(
         html or "",
         attributes=_BODY_ATTRIBUTES,
-        allowed_classes={"div": {"email-box", "email-button"}, "a": {"cta-link"}},
+        strip_comments=False,
         filter_style_properties=set(EMAIL_STYLE_PROPERTIES),
     )
 
@@ -329,8 +449,12 @@ def send_system_email(
     background: bool = False,
     connection=None,
     from_email: Optional[str] = None,
+    files=(),
+    sent_by=None,
 ) -> str:
-    """Check, render and send email ``key`` to one recipient.
+    """Check, render and send email ``key`` to one recipient, with ``files``
+    ((filename, content, mimetype) each) attached if given. The send is noted
+    in the Log on System Emails, as sent by ``sent_by`` (see ``email_log``).
 
     Returns ``SENT``, ``SKIPPED`` (type switched off) or ``FAILED``. Never raises
     for send errors. With ``background=True`` the message is handed to the mail
@@ -342,10 +466,14 @@ def send_system_email(
 
     # Rendered here, not in the pool: the worker thread must do no ORM work.
     rendered = render_system_email(key, context, default_text=default_text)
-    message = build_message(rendered, to, from_email=from_email, connection=connection)
+    if from_email is None and connection is None:
+        # From the mailbox picked for it on System Emails, signed in as it.
+        sender = sender_for(key)
+        from_email, connection = sender.from_email, sender_connection(sender)
+    message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
 
     if background:
-        send_async(message, kind=key)
+        send_async(_NotedSend(message, key, sent_by), kind=key)
         return SENT
 
     try:
@@ -353,5 +481,24 @@ def send_system_email(
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
+        note_send(key, missed=dict.fromkeys(message.recipients(), reason_for(exc)), by=sent_by)
         return FAILED
+    note_send(key, by=sent_by)
     return SENT
+
+
+class _NotedSend:
+    """A message for the mail pool that notes in the Log whether it went."""
+
+    def __init__(self, message, key: str, sent_by):
+        self.message = message
+        self.key = key
+        self.sent_by = sent_by
+
+    def send(self):
+        try:
+            self.message.send(fail_silently=False)
+        except Exception as exc:
+            note_send(self.key, missed=dict.fromkeys(self.message.recipients(), reason_for(exc)), by=self.sent_by)
+            raise
+        note_send(self.key, by=self.sent_by)

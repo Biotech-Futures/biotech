@@ -438,16 +438,12 @@ const totalsByGroup = computed(
   () => new Map((candidatesResp.value?.rows ?? []).map((r) => [r.group_id, r.total]))
 )
 
-// The optional parts: one a team sent that still has unmarked criteria gets
-// an asterisk, after its mark so far or alone when nothing is marked yet; a
-// dash is left for parts never submitted.
-const OPTIONAL_PARTS = new Set(['REPORT', 'PROTOTYPE'])
-const notMarkedCompletely = (r: FinalistCandidateRow, code: string) =>
-  OPTIONAL_PARTS.has(code) && r.incomplete.includes(code)
-// The key above the table, whenever there is a column the asterisk can appear in.
-const showsIncompleteKey = computed(() =>
-  candidateComponents.value.some((c) => OPTIONAL_PARTS.has(c.code))
-)
+// A part a team sent that still has unmarked criteria gets an asterisk, after
+// its mark so far or alone when nothing is marked yet; a dash is left for
+// parts never submitted. SAQ&P. and the total never get one.
+const notMarkedCompletely = (r: FinalistCandidateRow, key: string) => r.incomplete.includes(key)
+// The key above the table, whenever a group has a part not fully marked.
+const showsIncompleteKey = computed(() => (candidatesResp.value?.rows ?? []).some((r) => r.incomplete.length))
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
 // falls back to the flat marker list when no per-criterion data exists.

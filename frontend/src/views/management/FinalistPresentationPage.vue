@@ -13,13 +13,19 @@
       </p>
       <p class="finalist-presentation__hint">
         <template v-if="symposiumDay">
-          They're on the Symposium day, {{ symposiumDay }}, set on
+          They're for the Symposium day, {{ symposiumDay }}, set on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
         <template v-else>
-          They're on the Symposium day. Set its date on
+          They're for the Symposium day. Set its date on
           <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
         </template>
+      </p>
+      <!-- Typed and shown as they are, so they never shift with anyone's own
+           time zone. -->
+      <p class="finalist-presentation__hint" data-testid="sydney-time">
+        All times are Sydney time<template v-if="sydneyClock">, {{ sydneyClock }} on that day</template>.
+        They're entered and shown in Sydney time, whatever time zone you or the finalists are in.
       </p>
 
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
@@ -108,8 +114,39 @@
       </template>
     </section>
 
+    <!-- Off until the times are final: finalists only see them once on. -->
+    <section class="card">
+      <h3 class="finalist-presentation__section-title">Show Time Slots</h3>
+      <p class="finalist-presentation__hint">
+        Finalists only see the times, to tick the ones they can make, once this is on. Turn it on
+        once the times are final.
+      </p>
+      <!-- As Release Marks: who the finalists are isn't settled until
+           every team, extensions included, is done submitting. -->
+      <p
+        v-if="data && !data.times_shown && data.submissions_open"
+        class="finalist-presentation__banner finalist-presentation__banner--warn"
+      >
+        Submissions are still open (including extensions) - time slots can be shown once the
+        window has closed.
+      </p>
+      <HideShowSwitch
+        v-if="data"
+        :on="data.times_shown"
+        :disabled="isSaving || (!data.times_shown && data.submissions_open)"
+        label="Show the times to finalists"
+        @change="setShown"
+      >
+        <template #before>
+          <span class="finalist-presentation__switch-label">
+            {{ data.times_shown ? 'Displayed to Finalists' : 'Hidden from Finalists' }}
+          </span>
+        </template>
+      </HideShowSwitch>
+    </section>
+
     <section class="card finalist-presentation__allocate">
-      <h3 class="finalist-presentation__section-title">Allocate Slot</h3>
+      <h3 class="finalist-presentation__section-title">Allocate Slots</h3>
       <p class="finalist-presentation__hint">
         Give each finalist team a time. Ticks show the times each team said it can make.
       </p>
@@ -180,7 +217,7 @@
     </section>
 
     <section class="card finalist-presentation__submissions">
-      <h3 class="finalist-presentation__section-title">Finalist Submission</h3>
+      <h3 class="finalist-presentation__section-title">Finalist Submissions</h3>
       <p class="finalist-presentation__hint">
         <template v-if="slidesDue">
           Each finalist team's presentation slides, due {{ slidesDue }}, set on
@@ -202,31 +239,44 @@
             <tr>
               <th>Group</th>
               <th>Submitted</th>
+              <th>Type</th>
               <th class="finalist-presentation__cell--right"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!slidesTeams.length">
-              <td colspan="3" class="finalist-presentation__empty">No finalist teams yet.</td>
+              <td colspan="4" class="finalist-presentation__empty">No finalist teams yet.</td>
             </tr>
             <tr v-for="team in slidesTeams" :key="team.group_id">
               <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
               <template v-if="team.submitted">
                 <td>{{ formatSubmitted(team.submitted_at) }}</td>
+                <td>{{ fileType(team.file_name) }}</td>
                 <td class="finalist-presentation__cell--right">
-                  <!-- Opens the slides in a new tab; the name is on hover. -->
-                  <a
-                    :href="presentationSlidesUrl(team.group_id)"
-                    target="_blank"
-                    rel="noopener"
-                    class="btn btn-outline btn-sm"
-                    :title="team.file_name"
-                  >
-                    Open
-                  </a>
+                  <span class="finalist-presentation__row-actions">
+                    <!-- A PDF opens in a new tab; PowerPoint can't show in the
+                         browser, so it only downloads. The name is on hover. -->
+                    <a
+                      v-if="fileType(team.file_name) === 'PDF'"
+                      :href="presentationSlidesUrl(team.group_id)"
+                      target="_blank"
+                      rel="noopener"
+                      class="btn btn-outline btn-sm"
+                      :title="team.file_name"
+                    >
+                      Open
+                    </a>
+                    <a
+                      :href="presentationSlidesDownloadUrl(team.group_id)"
+                      class="btn btn-outline btn-sm"
+                      :title="team.file_name"
+                    >
+                      Download
+                    </a>
+                  </span>
                 </td>
               </template>
-              <td v-else colspan="2" class="finalist-presentation__muted">Not submitted yet</td>
+              <td v-else colspan="3" class="finalist-presentation__muted">Not submitted yet</td>
             </tr>
           </tbody>
         </table>
@@ -244,7 +294,9 @@ import {
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
+  presentationSlidesDownloadUrl,
   presentationSlidesUrl,
+  setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
   type PresentationSlidesTeam,
@@ -252,6 +304,8 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { sydneyClockOn } from '@/utils/date'
+import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
 const isLoading = ref(false)
@@ -295,7 +349,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slot: giving a team its time.
+// Allocate Slots: giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
@@ -315,7 +369,7 @@ const allocate = async (team: PresentationResponseTeam, event: Event) => {
   }
 }
 
-// Finalist Submission: each finalist team's slides.
+// Finalist Submissions: each finalist team's slides.
 const slidesTeams = ref<PresentationSlidesTeam[]>([])
 const slidesDueOn = ref<string | null>(null)
 const isLoadingSlides = ref(false)
@@ -354,6 +408,13 @@ const longDate = (iso: string | null | undefined) => {
 }
 
 const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+// "AEDT (daylight saving, UTC+11)" on the Symposium day, once it's set.
+const sydneyClock = computed(() => {
+  const iso = data.value?.symposium_date
+  if (!iso) return ''
+  const clock = sydneyClockOn(iso)
+  return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
+})
 const slidesDue = computed(() => longDate(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
@@ -380,6 +441,9 @@ const formatSubmitted = (iso: string | null) => {
   return `${date} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
 }
 
+// "PDF", "PPTX" or "PPT", from the file's name.
+const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')
+
 // Every change answers with the whole list, which replaces the one shown.
 const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> => {
   isSaving.value = true
@@ -394,6 +458,9 @@ const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> =
     isSaving.value = false
   }
 }
+
+// Show the times to finalists once they're final, or hide them again.
+const setShown = (shown: boolean) => void run(() => setPresentationTimesShown(shown))
 
 const add = async () => {
   const fields = { starts_at: draft.starts_at, ends_at: draft.ends_at }
@@ -445,6 +512,26 @@ const remove = async (id: number) => {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
+}
+
+/* As Release Marks' notice while submissions are open. */
+.finalist-presentation__banner {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.finalist-presentation__banner--warn {
+  background: color-mix(in srgb, #ff8c00 12%, transparent);
+  color: #ff8c00;
+}
+
+/* As the switch on System Emails. */
+.finalist-presentation__switch-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal);
 }
 
 .finalist-presentation__hint a {

@@ -156,7 +156,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
         bad_connection.open.side_effect = Exception("network unreachable")
 
         with patch(
-            "apps.admin.services.announcement.get_connection",
+            "apps.services.system_email.get_connection",
             return_value=bad_connection,
         ):
             result = send_announcement_email(self.announcement.id)
@@ -263,7 +263,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
                 raise RuntimeError("simulated close failure")
 
         with patch(
-            "apps.admin.services.announcement.get_connection",
+            "apps.services.system_email.get_connection",
             return_value=FlakyConnection(real_conn),
         ):
             result = send_announcement_email(self.announcement.id)
@@ -283,7 +283,7 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
     # ------------------------------------------------------------------
     def test_uses_non_silent_smtp_connection(self):
         with patch(
-            "apps.admin.services.announcement.get_connection",
+            "apps.services.system_email.get_connection",
             wraps=_real_get_connection,
         ) as spy:
             send_announcement_email(self.announcement.id)

@@ -29,7 +29,6 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from django.conf import settings
-from django.core.mail import get_connection
 from django.db import connection as db_connection
 from django.db import transaction
 from django.db.models import F, Max, Q
@@ -38,6 +37,7 @@ from django.utils import timezone
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
+from apps.services.system_email import sender_connection, sender_for
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -70,15 +70,16 @@ def _long_time(moment: datetime) -> str:
     return f"{_long_date(local.date())}, {int(f'{local:%I}')}:{local:%M} {local:%p}"
 
 
-def submissions_open_reason() -> str:
+def submissions_open_reason(action: str = "Send this") -> str:
     """Why sending waits for submissions to close, or "" once they have: the
-    deadline, then the last of this year's extensions, grace hours included."""
+    deadline, then the last of this year's extensions, grace hours included.
+    ``action`` is what waits, e.g. "Post this" for an email's announcement."""
     now = timezone.now()
     deadline = active_deadline()
     if deadline is not None:
         until = deadline.closes_at + timedelta(hours=deadline.grace_hours)
         if now <= until:
-            return f"Submissions are open until {_long_time(until)} (Sydney time). Send this once they close."
+            return f"Submissions are open until {_long_time(until)} (Sydney time). {action} once they close."
     ends = [
         end
         for extension in GroupExtension.objects.filter(
@@ -89,7 +90,7 @@ def submissions_open_reason() -> str:
     if ends:
         return (
             f"A team's extension is open until {_long_time(max(ends))} (Sydney time). "
-            "Send this once every extension has ended."
+            f"{action} once every extension has ended."
         )
     return ""
 
@@ -319,8 +320,8 @@ def _close(connection) -> None:
 def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
     """One worker's share of a run, over one mail server connection. Who each
     item reaches counts at once; those that missed someone go on
-    ``failures`` for ``_retry``."""
-    connection = get_connection(fail_silently=False)
+    ``failures`` for ``_retry``. Signed in as ``key``'s sender."""
+    connection = sender_connection(sender_for(key), fail_silently=False)
     try:
         try:
             connection.open()
@@ -347,7 +348,7 @@ def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
     run's missed list."""
     time.sleep(settings.BULK_EMAIL_RETRY_SECONDS)
     logger.warning("email run %s: trying %s emails once more", key, len(failures))
-    connection = get_connection(fail_silently=False)
+    connection = sender_connection(sender_for(key), fail_silently=False)
     try:
         connection.open()
     except Exception as exc:  # noqa: BLE001
@@ -468,8 +469,9 @@ def run_state(key: str) -> dict:
         # Its sends waiting their turn, and the emails ahead of the first.
         "queued": len(queued),
         "ahead": _ahead(queued[0]) if queued else [],
-        # Where mail that can't be delivered comes back to: the address it's sent from.
-        "sent_from": settings.EMAIL_FROM_ADDRESS,
+        # Where mail that can't be delivered comes back to: the address it's
+        # sent from, as picked on System Emails.
+        "sent_from": sender_for(key).address,
         "run": {
             "due": run.due,
             "emailed": run.emailed,

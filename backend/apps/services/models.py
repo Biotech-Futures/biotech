@@ -221,6 +221,18 @@ class PasswordResetToken(models.Model):
         )
 
     @classmethod
+    def peek(cls, token):
+        """The usable row for ``token`` WITHOUT consuming it, else None.
+
+        Lets the caller validate the new password before the token is spent, so
+        a rejected password doesn't burn the link. ``consume`` still does the
+        atomic claim, so two concurrent confirms can't both succeed.
+        """
+        return (cls.objects
+                .filter(token=token, used=False, expires_at__gt=timezone.now())
+                .first())
+
+    @classmethod
     def consume(cls, token):
         """Atomic lookup + mark-used. Returns row on success, None otherwise."""
         from django.db import transaction
@@ -258,6 +270,9 @@ class SystemEmailTemplate(models.Model):
     body_html = models.TextField(blank=True, default="")
     body_text = models.TextField(blank=True, default="")
     is_enabled = models.BooleanField(default=True)
+    # A key of settings.EMAIL_SENDERS: the mailbox it goes from. Blank means
+    # the type's default (see ``system_email.sender_for``).
+    sender = models.CharField(max_length=32, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -288,6 +303,9 @@ class SystemEmailSettings(models.Model):
     SINGLETON_PK = 1
 
     emails_enabled = models.BooleanField(default=True)
+    # When an admin last looked at Failed Sending Emails: the failures since
+    # are the unseen count on its button. Set without touching updated_at.
+    failures_seen_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -315,3 +333,32 @@ class SystemEmailSettings(models.Model):
         """Return the settings row, creating it with defaults if missing."""
         obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
         return obj
+
+class SystemEmailLog(models.Model):
+    """When one system email last went out, who sent it, and its latest sends
+    that couldn't reach someone, for the Log on System Emails. One row per
+    email, made on its first send (see ``email_log``). The bulk emails sent
+    from Management keep their own run (``management.EmailSendRun``)."""
+
+    # Matches a key in apps.services.email_registry, e.g. "password_reset".
+    key = models.SlugField(max_length=64, unique=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    # Blank when nobody signed in sent it, e.g. a reminder or a login code.
+    last_sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    # Newest first, the last few only: {"at": ISO time, "missed":
+    # [{"address": "amy@x.com", "reason": "address refused"}]}.
+    missed = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = 'system_email_log'
+        verbose_name = "System Email Log"
+        verbose_name_plural = "System Email Logs"
+
+    def __str__(self):
+        return f"SystemEmailLog({self.key})"

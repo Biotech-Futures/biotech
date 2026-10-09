@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import re
 import unicodedata
 
@@ -68,6 +69,26 @@ def _split_extension(value: str) -> tuple[str, str]:
     stem = (match.group("stem") or "").strip(" ._-")
     extension = (match.group("extension") or "").lower()
     return stem, extension
+
+
+_UNSAFE_SEGMENT = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def safe_name(name: str) -> str:
+    """Filesystem-safe segment. Collapses runs of unsafe chars to ``_`` and
+    trims leading/trailing dots to keep Windows extractors happy."""
+    cleaned = _UNSAFE_SEGMENT.sub("_", (name or "").strip())
+    cleaned = cleaned.strip("._")
+    return cleaned or "unnamed"
+
+
+def year_file_name(year: int, owner: str, kind: str, original_filename: str | None = None) -> str:
+    """"2026_BTF01_Poster.pdf": a stored file named for its year, whose it is
+    and what it is, keeping the uploaded file's extension. The grading
+    download names its files the same way."""
+    extension = os.path.splitext(original_filename or "")[1]
+    suffix = f".{safe_name(extension[1:])}" if extension else ""
+    return f"{year}_{safe_name(owner)}_{kind}{suffix}"
 
 
 def sanitize_upload_filename(original_filename: str | None) -> str:

@@ -2,6 +2,7 @@
 The times are the Finalist Presentation tab's, each student gives their own
 availability, and the submitted slides land in that tab's table."""
 import io
+import tempfile
 import zipfile
 from datetime import time
 
@@ -14,7 +15,7 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
-from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSlot
+from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSettings, PresentationSlot
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
@@ -41,6 +42,13 @@ def _ppt(name="deck.ppt"):
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
 class FinalistTests(TestCase):
     def setUp(self):
+        # Files are stored under fixed names; keep each test's in a throwaway folder.
+        # A download a test leaves open can't be deleted on Windows; skip it.
+        media = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(media.cleanup)
+        setting = override_settings(MEDIA_ROOT=media.name)
+        setting.enable()
+        self.addCleanup(setting.disable)
         reset_managed_storage_caches()
         self.addCleanup(reset_managed_storage_caches)
 
@@ -61,6 +69,8 @@ class FinalistTests(TestCase):
         year = current_cohort()
         self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
         self.noon = PresentationSlot.objects.create(year=year, starts_at=time(11, 40), ends_at=time(12, 30))
+        # Shown to finalists, as Management turns them on once they're final.
+        PresentationSettings.objects.create(times_shown=True)
 
         self.url = reverse("finalist-entry", kwargs={"group_id": self.group.id})
         self.file_url = reverse("finalist-presentation", kwargs={"group_id": self.group.id})
@@ -232,6 +242,13 @@ class FinalistTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.data["entry"]["presentation"]["name"], upload.name)
 
+    def test_slides_are_stored_named_for_the_year_and_group(self):
+        response = self._client(self.student).post(self.file_url, {"file": _pptx("Our Deck.pptx")}, format="multipart")
+
+        self.assertEqual(response.status_code, 200)
+        entry = FinalistEntry.objects.get(group=self.group)
+        self.assertEqual(entry.presentation["storage_key"], f"{self.group.year}_BTF-FINAL_Slides.pptx")
+
     def test_other_file_types_are_refused(self):
         upload = SimpleUploadedFile("deck.docx", b"PK\x03\x04rest", content_type="application/octet-stream")
 
@@ -292,6 +309,18 @@ class FinalistTests(TestCase):
 
         self.assertEqual(response.data["code"], "availability_required")
 
+    def test_while_the_times_are_hidden_none_are_offered_or_needed(self):
+        PresentationSettings.objects.update(times_shown=False)
+        client = self._client(self.student)
+        body = client.get(self.url).json()
+        self.assertEqual((body["times_shown"], body["sessions"]), (False, []))
+        # Giving times is refused, and submitting doesn't wait for them.
+        response = client.put(self.url, {"session_ids": [self.morning.id]}, format="json")
+        self.assertEqual(response.data["code"], "times_not_shown")
+        client.post(self.file_url, {"file": _pdf()}, format="multipart")
+        response = client.post(self.submit_url, {}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+
     def test_submitting_needs_a_presentation(self):
         client = self._client(self.student)
         client.put(self.url, {"session_ids": [self.morning.id]}, format="json")
@@ -309,7 +338,7 @@ class FinalistTests(TestCase):
         entry = response.data["entry"]
         self.assertTrue(entry["is_locked"])
         self.assertEqual(entry["submitted_presentation"]["name"], "deck.pdf")
-        # The tab's Finalist Submission table has it, and its Open serves it.
+        # The tab's Finalist Submissions table has it, and its Open serves it.
         slides = FinalistSlides.objects.get(group=self.group)
         self.assertEqual((slides.file["name"], slides.submitted_by), ("deck.pdf", self.supervisor))
         opened = self._client(self.admin).get(

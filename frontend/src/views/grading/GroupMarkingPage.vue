@@ -59,14 +59,14 @@
               class="group-marking__picker"
               @select="onSearchSelect"
             />
-            <button type="submit" class="btn btn-primary btn-sm">Open</button>
+            <button type="submit" class="btn btn-outline btn-sm">Open</button>
             <p v-if="searchError" class="group-marking__search-error">{{ searchError }}</p>
           </form>
         </div>
         <div class="group-marking__header-actions">
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="prevId == null"
             @click="goto(prevId)"
           >
@@ -74,7 +74,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-outline btn-sm"
             :disabled="nextId == null"
             @click="goto(nextId)"
           >
@@ -82,7 +82,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm group-marking__nav-btn"
+            class="btn btn-primary btn-sm"
             :disabled="nextUnmarkedId == null"
             @click="goto(nextUnmarkedId)"
           >
@@ -126,7 +126,12 @@
       <!-- Combined section: SAQ answers | poster PDF | both rubrics. The
            shared "Submitted" line sits above the split so every column
            starts at the same height beneath it. -->
-      <ResizableSplit v-if="isCombined && saqBlock && posterBlock" right-max="21rem">
+      <ResizableSplit
+        v-if="isCombined && saqBlock && posterBlock"
+        ref="rubricsSplit"
+        right-max="21rem"
+        memory="combined-rubrics"
+      >
         <template #left>
           <div>
             <!-- The stamp row lives inside the left pane so its actions hug
@@ -165,9 +170,11 @@
             </p>
             <!-- Nested split: drag the divider to trade space between the
                  answers and the poster. -->
-            <ResizableSplit>
+            <ResizableSplit ref="answersPosterSplit" memory="combined-answers-poster">
               <template #left>
                 <SubmissionPreview
+                  ref="saqPreview"
+                  memory="combined:SAQ"
                   :submission="saqBlock.submission"
                   :component="saqBlock.component"
                   :last-grader-name="saqBlock.last_grader_name"
@@ -177,6 +184,8 @@
               </template>
               <template #right>
                 <SubmissionPreview
+                  ref="posterPreview"
+                  memory="combined:POSTER"
                   :submission="posterBlock.submission"
                   :component="posterBlock.component"
                   :last-grader-name="posterBlock.last_grader_name"
@@ -189,6 +198,17 @@
         </template>
         <template #right>
           <div class="group-marking__pane-offset">
+          <!-- Puts this view's dividers and heights back; on once one is moved. -->
+          <div class="group-marking__reset-row">
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="!layoutMoved"
+              @click="resetLayout"
+            >
+              <i class="fas fa-rotate-left" aria-hidden="true"></i> Reset view
+            </button>
+          </div>
           <div
             ref="rubricsEl"
             class="group-marking__combined-rubrics"
@@ -245,7 +265,13 @@
         </template>
       </ResizableSplit>
       <template v-else-if="activeBlock">
-        <ResizableSplit v-if="activeBlock.submission" right-max="21rem">
+        <ResizableSplit
+          v-if="activeBlock.submission"
+          :key="activeBlock.component.code"
+          ref="singleSplit"
+          right-max="21rem"
+          :memory="`rubrics:${activeBlock.component.code}`"
+        >
           <template #left>
             <div>
               <!-- Stamp row inside the pane: actions hug the preview's right
@@ -282,6 +308,7 @@
                 </span>
               </p>
               <SubmissionPreview
+                ref="singlePreview"
                 :submission="activeBlock.submission"
                 :component="activeBlock.component"
                 :criterion-markers="criterionMarkers"
@@ -291,6 +318,17 @@
           </template>
           <template #right>
             <div class="group-marking__pane-offset">
+              <!-- Puts this view's dividers and heights back; on once one is moved. -->
+              <div class="group-marking__reset-row">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="!layoutMoved"
+                  @click="resetLayout"
+                >
+                  <i class="fas fa-rotate-left" aria-hidden="true"></i> Reset view
+                </button>
+              </div>
               <!-- Category boxes open the SAQ rubric; its Save button stores
                    them together with the marks. -->
               <MarkingCategories
@@ -352,6 +390,7 @@ import {
   type GroupMarkingPayload
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/utils/storage'
 
 // One page serves both marking flows with the same chrome (search, prev/next,
 // Download all). The route only decides section navigation: by group
@@ -397,13 +436,22 @@ const posterBlock = computed<ComponentBlock | null>(
 )
 const combinedAvailable = computed(() => saqBlock.value != null && posterBlock.value != null)
 
+// Whether this group has the section: the combined one needs both blocks.
+const hasSection = (target: string) =>
+  target === COMBINED_CODE
+    ? combinedAvailable.value
+    : Boolean(payload.value?.components.some((b) => b.component.code === target))
+
+// By group, the section picked stays open from group to group; a group
+// without it shows its default (SAQs & Poster when it has both).
 const effectiveCode = computed(() =>
   isComponentMode.value
     ? code.value
-    : (activeCode.value ??
-      (combinedAvailable.value
+    : activeCode.value && hasSection(activeCode.value)
+      ? activeCode.value
+      : combinedAvailable.value
         ? COMBINED_CODE
-        : (payload.value?.components[0]?.component.code ?? null)))
+        : (payload.value?.components[0]?.component.code ?? null)
 )
 
 const isCombined = computed(() => effectiveCode.value === COMBINED_CODE)
@@ -664,8 +712,13 @@ const onSearchSelect = ({ id }: { id: number }) => {
 // Drag the bar under the combined rubric stack to change its height — the
 // same mechanic as the answer/PDF blocks in SubmissionPreview.
 const MIN_RUBRICS_PX = 240
+const RUBRICS_HEIGHT_KEY = 'grading-height:rubrics'
 const rubricsEl = ref<HTMLDivElement | null>(null)
-const rubricsHeight = ref<number | null>(null)
+const savedRubricsHeight = Number(safeLocalStorageGet(RUBRICS_HEIGHT_KEY))
+const rubricsHeight = ref<number | null>(savedRubricsHeight >= MIN_RUBRICS_PX ? savedRubricsHeight : null)
+watch(rubricsHeight, (px) => {
+  if (px !== null) safeLocalStorageSet(RUBRICS_HEIGHT_KEY, String(px))
+})
 
 const startRubricsDrag = (event: PointerEvent) => {
   const el = rubricsEl.value
@@ -700,6 +753,35 @@ const onRubricsKeydown = (e: KeyboardEvent) => {
   }
 }
 
+// -- Reset view: this view's dividers and heights back where they start --------
+
+type SplitView = InstanceType<typeof ResizableSplit>
+type PreviewView = InstanceType<typeof SubmissionPreview>
+const rubricsSplit = ref<SplitView | null>(null)
+const answersPosterSplit = ref<SplitView | null>(null)
+const singleSplit = ref<SplitView | null>(null)
+const saqPreview = ref<PreviewView | null>(null)
+const posterPreview = ref<PreviewView | null>(null)
+const singlePreview = ref<PreviewView | null>(null)
+
+// Only what's on screen: a view not shown has no parts here.
+const layoutParts = () =>
+  [rubricsSplit, answersPosterSplit, singleSplit, saqPreview, posterPreview, singlePreview]
+    .map((part) => part.value)
+    .filter((part): part is SplitView | PreviewView => part !== null)
+
+const layoutMoved = computed(
+  () => (isCombined.value && rubricsHeight.value !== null) || layoutParts().some((part) => part.moved)
+)
+
+const resetLayout = () => {
+  for (const part of layoutParts()) part.reset()
+  if (isCombined.value) {
+    rubricsHeight.value = null
+    safeLocalStorageRemove(RUBRICS_HEIGHT_KEY)
+  }
+}
+
 const load = async () => {
   if (!Number.isFinite(groupId.value) || groupId.value <= 0) return
   if (isComponentMode.value && !code.value) return
@@ -731,12 +813,13 @@ const load = async () => {
   }
 }
 
-// Reload when navigating between groups or sections; reset the local tab so
-// by-group mode shows its default section for the new group.
+// Reload when navigating between groups or sections. Next and prev keep the
+// by-group section open; switching between by group and by component starts
+// again from the default.
 watch(
   () => [groupId.value, code.value, isComponentMode.value] as const,
-  () => {
-    activeCode.value = null
+  (now, before) => {
+    if (!before || now[2] !== before[2]) activeCode.value = null
     saveStatus.value = 'idle'
     savedMessage.value = ''
     actionError.value = ''
@@ -934,19 +1017,6 @@ const downloadAll = async () => {
   margin-left: auto;
 }
 
-/* Soft green fill lifts Prev/Next off the page without competing with the
-   solid-green primary actions (Save). Download all stays plain outline. */
-.group-marking__nav-btn {
-  background: var(--accent-green-soft);
-  border-color: var(--dark-green);
-  color: var(--dark-green);
-}
-
-.group-marking__nav-btn:hover:not(:disabled) {
-  background: var(--dark-green);
-  color: #fff;
-}
-
 .group-marking__header-actions .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -1038,8 +1108,15 @@ const downloadAll = async () => {
 
 /* min-height + margin of the stamp row above, so the rubric column starts
    where the preview content starts. */
-.group-marking__pane-offset {
-  padding-top: 3rem;
+/* Level with the stamp row beside it (Open, Download): Reset view,
+   right-aligned, above the rubrics. */
+.group-marking__reset-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 2rem;
+  margin: 0 0 1rem;
+  padding-right: 0.8rem;
 }
 
 .group-marking__stamp-marker {

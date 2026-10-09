@@ -2,7 +2,7 @@
   <FormSheet
     v-model="open"
     :title="isEditing ? `Edit ${userNoun}` : `Add ${userNoun}`"
-    :description="isEditing ? 'Update the account details below.' : 'Manage role, state, and account status without touching other modules.'"
+    :description="isEditing ? lastEditedLabel || 'Update the account details below.' : 'Manage role, state, and account status without touching other modules.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-users-form" novalidate @submit.prevent="submitForm">
@@ -24,9 +24,14 @@
             v-model.trim="form.email"
             type="email"
             class="form-input"
-            :disabled="isEditing"
-            :readonly="isEditing"
+            :disabled="isEditing && isSupervisorMode"
+            :readonly="isEditing && isSupervisorMode"
+            :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
           />
+          <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
+            Changing this address updates the user's login and future emails. They will need to
+            request a new login code or password-reset link if they have one already.
+          </p>
         </div>
         <div v-if="!isEditing" class="form-field">
           <label class="form-label" for="f-role">Role *</label>
@@ -151,6 +156,48 @@
         </fieldset>
       </template>
 
+      <template v-if="form.role === 'student'">
+        <div class="admin-users-form__section">Guardian &amp; consent</div>
+        <p v-if="pendingGuardian" class="admin-users-form__note" data-test="form-pending-guardian">
+          The student asked to change their guardian to
+          <strong>{{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }}</strong>
+          ({{ pendingGuardian.email || 'no email' }}). They become the guardian once they sign the consent
+          form; changing the guardian below discards the request.
+        </p>
+        <div class="admin-users-form__grid">
+          <div class="form-field">
+            <label class="form-label" for="f-gfirst">Guardian first name</label>
+            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="f-glast">Guardian last name</label>
+            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
+          </div>
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-gemail">Guardian email</label>
+            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
+          </div>
+          <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
+          <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
+            <label class="admin-users-form__check">
+              <input id="f-consent-given" v-model="form.consentGiven" type="checkbox" />
+              Consent to take part
+            </label>
+            <label class="admin-users-form__check" :class="{ 'is-disabled': !form.consentGiven }">
+              <input id="f-media-given" v-model="form.mediaGiven" type="checkbox" :disabled="!form.consentGiven" />
+              Media consent
+            </label>
+            <label v-if="pendingGuardian" class="admin-users-form__check">
+              <input id="f-pending-consent" v-model="form.pendingConsentGiven" type="checkbox" />
+              {{ pendingGuardian.firstName }} {{ pendingGuardian.lastName }} (new guardian) has given consent
+            </label>
+          </div>
+          <p v-if="consentUnverified" class="admin-users-form__note form-field--full">
+            This student is marked as consented, but no signed consent form is on record.
+          </p>
+        </div>
+      </template>
+
       <div class="admin-users-form__section">Account</div>
       <div v-if="!isEditing" class="form-field">
         <label class="form-label">
@@ -189,7 +236,8 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { roleLabel, userName } from '@/utils/userFormat'
+import { isPlaceholderGuardian } from '@/utils/guardian'
+import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
 import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
 
 interface UserForm {
@@ -208,8 +256,17 @@ interface UserForm {
   mentorInstitution: string
   mentorReason: string
   mentorMaxGroupCount?: number
+  guardianFirstName: string
+  guardianLastName: string
+  guardianEmail: string
+  /** Ticked when given: ticking records consent, unticking a withdrawal. */
+  consentGiven: boolean
+  mediaGiven: boolean
+  pendingConsentGiven: boolean
   active: boolean
 }
+
+type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail'>
 
 const props = defineProps<{
   modelValue: boolean
@@ -254,13 +311,49 @@ const defaultForm = (): UserForm => ({
   mentorInstitution: '',
   mentorReason: '',
   mentorMaxGroupCount: 2,
+  guardianFirstName: '',
+  guardianLastName: '',
+  guardianEmail: '',
+  consentGiven: false,
+  mediaGiven: false,
+  pendingConsentGiven: false,
   active: true
+})
+
+const blankGuardian = (): GuardianFields => ({
+  guardianFirstName: '',
+  guardianLastName: '',
+  guardianEmail: ''
 })
 
 const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// What the guardian fields held when the form opened; only changes are sent,
+// so saving a student's year level can't discard a pending guardian change
+// or revoke consent.
+const originalGuardian = ref<GuardianFields>(blankGuardian())
+
+const pendingGuardian = computed(() => (form.role === 'student' ? props.user?.pendingGuardian ?? null : null))
+// What's on record, so only the tick boxes that changed are sent.
+const consentWas = computed(() => Boolean(isEditing.value && props.user?.joinPermissionReceived))
+const mediaWas = computed(() => consentWas.value && props.user?.mediaConsent === true)
+// Media consent goes with consent to take part.
+watch(
+  () => form.consentGiven,
+  (given) => {
+    if (!given) form.mediaGiven = false
+  }
+)
+const consentUnverified = computed(() =>
+  Boolean(props.user?.role === 'student' && props.user.joinPermissionReceived && !props.user.joinpermResponseId)
+)
+// Who last changed this user, from anywhere: an admin, the user or their supervisor.
+const lastEditedLabel = computed(() => {
+  const { lastEditedBy, lastEditedAt } = props.user ?? {}
+  return lastEditedBy && lastEditedAt ? `Last edited by ${lastEditedBy} · ${formatFullDate(lastEditedAt)}` : ''
+})
 
 const formStates = computed(() => {
   if (!form.countryId) return []
@@ -286,9 +379,19 @@ const initForm = (editingUser: AdminUser | null) => {
   if (!editingUser) {
     Object.assign(form, defaultForm())
     editingOriginalActive.value = false
+    originalGuardian.value = blankGuardian()
     return
   }
   editingOriginalActive.value = Boolean(editingUser.isActive)
+  const isStudent = editingUser.role === 'student'
+  const placeholder = isPlaceholderGuardian(
+    editingUser.guardianFirstName, editingUser.guardianLastName, editingUser.firstName, editingUser.lastName
+  )
+  originalGuardian.value = {
+    guardianFirstName: isStudent && !placeholder ? editingUser.guardianFirstName || '' : '',
+    guardianLastName: isStudent && !placeholder ? editingUser.guardianLastName || '' : '',
+    guardianEmail: isStudent ? editingUser.guardianEmail || '' : ''
+  }
   Object.assign(form, {
     firstName: editingUser.firstName || '',
     lastName: editingUser.lastName || '',
@@ -305,6 +408,10 @@ const initForm = (editingUser: AdminUser | null) => {
     mentorInstitution: editingUser.role === 'mentor' ? (editingUser.mentorInstitution || '') : '',
     mentorReason: editingUser.role === 'mentor' ? (editingUser.mentorReason || '') : '',
     mentorMaxGroupCount: editingUser.role === 'mentor' ? (editingUser.mentorMaxGroupCount ?? 2) : 2,
+    ...originalGuardian.value,
+    consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
+    mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
+    pendingConsentGiven: false,
     active: editingUser.isActive
   })
 }
@@ -353,6 +460,18 @@ const validateForm = (): boolean => {
       formError.value = 'Year level must be between 9 and 12.'
       return false
     }
+    if (guardianNamesChanged() && (!form.guardianFirstName || !form.guardianLastName)) {
+      formError.value = "Enter the guardian's first and last name."
+      return false
+    }
+    if (form.guardianEmail && !isValidEmail(form.guardianEmail)) {
+      formError.value = 'Guardian email is not a valid email address.'
+      return false
+    }
+    if (form.guardianEmail && form.guardianEmail.toLowerCase() === form.email.trim().toLowerCase()) {
+      formError.value = "Guardian email can't be the student's own email."
+      return false
+    }
   }
   if (role === 'mentor') {
     if (!form.mentorInstitution.trim()) {
@@ -373,6 +492,32 @@ const validateForm = (): boolean => {
     return false
   }
   return true
+}
+
+const guardianNamesChanged = () =>
+  form.guardianFirstName !== originalGuardian.value.guardianFirstName ||
+  form.guardianLastName !== originalGuardian.value.guardianLastName
+
+const guardianPayload = (): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {}
+  if (guardianNamesChanged()) {
+    payload.guardianFirstName = form.guardianFirstName
+    payload.guardianLastName = form.guardianLastName
+  }
+  if (form.guardianEmail !== originalGuardian.value.guardianEmail) {
+    payload.guardianEmail = form.guardianEmail
+  }
+  // Ticking records consent with the media box; unticking records a withdrawal.
+  if (pendingGuardian.value && form.pendingConsentGiven) {
+    payload.consentGiven = true
+    payload.mediaConsent = form.mediaGiven
+  } else if (form.consentGiven !== consentWas.value) {
+    payload.consentGiven = form.consentGiven
+    if (form.consentGiven) payload.mediaConsent = form.mediaGiven
+  } else if (form.consentGiven && form.mediaGiven !== mediaWas.value) {
+    payload.mediaConsent = form.mediaGiven
+  }
+  return payload
 }
 
 const submitForm = async () => {
@@ -399,11 +544,15 @@ const submitForm = async () => {
         countryId: role === 'admin' ? null : form.countryId,
         stateId: role === 'admin' ? null : form.stateId
       }
+      if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
+        payload.email = form.email.trim().toLowerCase()
+      }
       if (role === 'student') {
         payload.schoolName = form.schoolName
         payload.yearLevel = form.yearLevel
         payload.interests = form.interests
         payload.supervisorEmail = form.supervisorEmail || undefined
+        Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
@@ -437,6 +586,7 @@ const submitForm = async () => {
         payload.yearLevel = form.yearLevel
         payload.supervisorEmail = form.supervisorEmail || undefined
         payload.interests = form.interests
+        Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
@@ -500,6 +650,57 @@ const submitForm = async () => {
 .admin-users-form__interest input {
   margin-top: 0.2rem;
   accent-color: var(--dark-green);
+}
+
+.admin-users-form__note {
+  margin: 0 0 0.6rem;
+  padding: 0.6rem 0.8rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background-color: var(--bg-light);
+  color: var(--charcoal);
+  font-size: 0.85rem;
+}
+
+.admin-users-form__hint {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Consent to take part and media consent: large tick boxes. */
+.admin-users-form__consents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The form's usual label text, beside a larger tick box. */
+.admin-users-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.admin-users-form__check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--dark-green);
+  cursor: pointer;
+}
+
+.admin-users-form__check.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-users-form__check.is-disabled input {
+  cursor: not-allowed;
 }
 
 .form-field--full {

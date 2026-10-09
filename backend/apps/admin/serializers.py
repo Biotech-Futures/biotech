@@ -7,7 +7,7 @@ from apps.services.email_registry import (
     is_known_email_type,
     unknown_merge_tags,
 )
-from apps.services.system_email import clean_email_body
+from apps.services.system_email import clean_email_body, senders
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -71,6 +71,13 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
     )
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     enabled = serializers.BooleanField(required=False)
+    # Which mailbox it goes from: a key of settings.EMAIL_SENDERS.
+    sender = serializers.CharField(required=False, max_length=32)
+
+    def validate_sender(self, value: str) -> str:
+        if value not in {sender.key for sender in senders()}:
+            raise serializers.ValidationError("It can only go from one of the mailboxes listed.")
+        return value
 
     def validate(self, attrs):
         key = self.context.get("key", "")
@@ -113,7 +120,8 @@ class SystemEmailTemplateUpdateSerializer(serializers.Serializer):
 
 
 class SystemEmailPreviewSerializer(serializers.Serializer):
-    """Optional unsaved wording for preview / test-send.
+    """Optional unsaved wording, and whose details to fill in, for preview /
+    test-send.
 
     Absent fields mean "use the saved/default wording"; an explicit empty
     string means "clear it", which is why both are allowed and null is not
@@ -124,6 +132,15 @@ class SystemEmailPreviewSerializer(serializers.Serializer):
         required=False, allow_blank=True, allow_null=True, max_length=255
     )
     body = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Whose details it carries: one of the email's test recipients.
+    of = serializers.CharField(required=False, allow_blank=True, max_length=32)
+
+
+class SystemEmailTestSendSerializer(SystemEmailPreviewSerializer):
+    """A test send: the preview's optional unsaved wording and recipient,
+    and where it goes (the requesting admin when no address is given)."""
+
+    to = serializers.EmailField(required=False)
 
 
 class SystemEmailSettingsUpdateSerializer(serializers.Serializer):

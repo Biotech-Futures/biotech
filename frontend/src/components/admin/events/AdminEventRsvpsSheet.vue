@@ -126,6 +126,14 @@
                 <div class="admin-event-rsvps__attendee-info">
                   <span class="admin-event-rsvps__name">
                     {{ userName(rsvp) }}
+                    <span
+                      v-if="rsvp.noMediaConsent"
+                      class="admin-event-rsvps__media-flag"
+                      title="Their guardian didn't give media consent, which in-person events require."
+                      data-test="rsvp-no-media-consent"
+                    >
+                      No media consent
+                    </span>
                   </span>
                   <span class="admin-event-rsvps__email">
                     {{ userEmail(rsvp) }}
@@ -741,6 +749,19 @@ const sortedRsvps = computed(() => {
 .rsvp-badge-pending {
   background: #f0e6f6;
   color: #6a329f;
+}
+
+.admin-event-rsvps__media-flag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  color: var(--danger);
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .admin-event-rsvps__role-cell {

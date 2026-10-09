@@ -306,21 +306,31 @@ def send_blocked_reason(details: ResultsEmailSettings, audience: str) -> str:
 # --- the emails ------------------------------------------------------------------
 
 
-def render_team_email(group_name: str, details: ResultsEmailSettings, year: int) -> RenderedEmail:
-    """The group email: an admin's saved wording if there is some,
-    otherwise the client's template, with its plain-text twin."""
-    context = {
+def team_email_context(group_name: str, details: ResultsEmailSettings, year: int) -> dict:
+    """The values the group email's merge tags and template read."""
+    return {
         "GROUP_NAME": group_name,
         "YEAR": str(year),
         "SURVEY_URL": details.survey_url or NOT_SET,
         "SURVEY_CLOSES": _closes_text(details.survey_closes),
     }
+
+
+def supervisor_email_context(supervisor_name: str, year: int) -> dict:
+    """The values the supervisor email's merge tags and template read."""
+    return {"SUPERVISOR_NAME": supervisor_name, "YEAR": str(year)}
+
+
+def render_team_email(group_name: str, details: ResultsEmailSettings, year: int) -> RenderedEmail:
+    """The group email: an admin's saved wording if there is some,
+    otherwise the client's template, with its plain-text twin."""
+    context = team_email_context(group_name, details, year)
     default_text = render_to_string("emails/results_team.txt", {**brand_context(), **context})
     return render_system_email(EMAIL_KEYS[GROUPS], context, default_text=default_text)
 
 
 def render_supervisor_email(supervisor_name: str, year: int) -> RenderedEmail:
-    context = {"SUPERVISOR_NAME": supervisor_name, "YEAR": str(year)}
+    context = supervisor_email_context(supervisor_name, year)
     default_text = render_to_string("emails/results_supervisor.txt", {**brand_context(), **context})
     return render_system_email(EMAIL_KEYS[SUPERVISORS], context, default_text=default_text)
 
@@ -535,10 +545,16 @@ def _test_role(kind: str):
 
 
 def document_people(kind: str) -> list[dict]:
-    """Who Document Setup can test a template with: this year's students in
-    groups that submitted (the marks summary is their group's), or their
-    mentors for the mentor certificate. "(Team) Name" options, by team."""
+    """Who Document Setup can test a template with: this year's groups that
+    submitted for the marks summary (it's the group's), by name; their
+    students for the certificate, or their mentors for the mentor
+    certificate, as "(Team) Name" options, by team."""
     teams = list(_submitted_teams(current_cohort()))
+    if kind == "marks-summary":
+        return [
+            {"value": str(team.id), "label": team.group_name}
+            for team in sorted(teams, key=lambda team: natural_key(team.group_name))
+        ]
     members = team_members(teams, _test_role(kind))
     rows = sorted(
         (natural_key(team.group_name), person_name(user).lower(), f"{team.id}:{user.id}",
@@ -550,10 +566,17 @@ def document_people(kind: str) -> list[dict]:
 
 
 def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[str, bytes]:
-    """The document that person's results email carries, from the saved
-    template or ``template`` (a file picked but not saved), with its file
-    name. ValueError when they aren't on ``document_people``."""
+    """The document that group's or person's results email carries, from the
+    saved template or ``template`` (a file picked but not saved), with its
+    file name. ValueError when they aren't on ``document_people``."""
     year = current_cohort()
+    field_name = _TEMPLATE_FIELDS[kind]
+    docs = Documents(year, {field_name: template} if template else None)
+    if kind == "marks-summary":
+        team = _submitted_teams(year).filter(id=int(value)).first() if value.isdigit() else None
+        if team is None:
+            raise ValueError("Pick a group from the list.")
+        return file_name(year, "Marks", team.group_name, "docx"), docs.marks_summary(team)
     try:
         team_id, user_id = (int(part) for part in value.split(":"))
     except ValueError:
@@ -563,10 +586,6 @@ def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[
     person = next((user for user in members if user.id == user_id), None)
     if person is None:
         raise ValueError("That person isn't on this year's list.")
-    field_name = _TEMPLATE_FIELDS[kind]
-    docs = Documents(year, {field_name: template} if template else None)
-    if kind == "marks-summary":
-        return file_name(year, "Marks", team.group_name, "docx"), docs.marks_summary(team)
     if kind == "mentor-certificate":
         return (
             file_name(year, "Mentor_Certificate", person_name(person), "docx"),

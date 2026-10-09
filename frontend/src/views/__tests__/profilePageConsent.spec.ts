@@ -1,0 +1,204 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+import ProfilePage from '../ProfilePage.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const baseUser = {
+  id: 81,
+  email: 'student@example.com',
+  first_name: 'Oscar',
+  last_name: 'Fischer',
+  current_role_name: 'Student',
+  school_name: 'Westlake Secondary',
+  year_lvl: '12',
+  interests: [],
+}
+
+async function mountAs(user: Record<string, unknown>) {
+  const auth = useAuthStore()
+  auth.user = user as typeof auth.user
+  // The page refetches /users/me on mount; keep the user set above.
+  vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined as never)
+  const wrapper = mount(ProfilePage)
+  await flushPromises()
+  return wrapper
+}
+
+describe('ProfilePage guardian consent', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('shows consent as received', async () => {
+    const wrapper = await mountAs({ ...baseUser, join_perm: true })
+
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Received')
+    expect(wrapper.text()).not.toContain('needs to complete the consent form')
+  })
+
+  it('shows permission as not received, with a link to send the email', async () => {
+    const wrapper = await mountAs({ ...baseUser, pg_email: 'pat@example.com', join_perm: false })
+
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Not received, click here to send email')
+    expect(wrapper.text()).toContain('Permission:')
+  })
+
+  it('says why the email cannot be sent instead of the link', async () => {
+    const wrapper = await mountAs({ ...baseUser, join_perm: null })
+
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe("Not received, add your guardian's email to send it")
+    expect(wrapper.find('[data-test="guardian-send"]').exists()).toBe(false)
+  })
+
+  it('is not shown to other roles', async () => {
+    const wrapper = await mountAs({ ...baseUser, current_role_name: 'Mentor', join_perm: null })
+
+    expect(wrapper.find('[data-test="guardian-consent"]').exists()).toBe(false)
+  })
+
+  it('shows the guardian name and email', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Pat',
+      pg_lastname: 'Fischer',
+      pg_email: 'pat@example.com',
+      join_perm: false,
+    })
+
+    expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Pat Fischer')
+    expect(wrapper.find('[data-test="guardian-email"] a').attributes('href')).toBe('mailto:pat@example.com')
+  })
+
+  it('shows when consent was received', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      join_perm: true,
+      join_perm_granted_at: '2026-09-14T03:00:00Z',
+    })
+
+    // DD MMM YYYY HH:mm, in the student's timezone (UTC when none is set).
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Received 14 Sep 2026 03:00')
+    expect(wrapper.find('[data-test="guardian-reminders"]').exists()).toBe(false)
+  })
+
+  it('treats the student\'s own name as no guardian on file', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Oscar',
+      pg_lastname: 'Fischer',
+      pg_email: null,
+      join_perm: false,
+    })
+
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Not set')
+    expect(wrapper.find('[data-test="guardian-email"]').text()).toBe('Not set')
+    expect(wrapper.find('[data-test="guardian-consent-date"]').exists()).toBe(false)
+  })
+
+  it('hides guardian details from other roles', async () => {
+    const wrapper = await mountAs({ ...baseUser, current_role_name: 'Mentor' })
+
+    expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(false)
+  })
+
+  it('saves edited guardian details', async () => {
+    const wrapper = await mountAs({ ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: false })
+    const auth = useAuthStore()
+    const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await wrapper.find('#guardian-first-name').setValue('Robin')
+    await wrapper.find('#guardian-email').setValue('robin@example.com')
+    await wrapper.find('[data-test="guardian-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith({ first_name: 'Robin', last_name: 'Fischer', email: 'robin@example.com' })
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
+  })
+
+  it('does not submit the student\'s own email', async () => {
+    const wrapper = await mountAs({ ...baseUser, join_perm: false })
+    const auth = useAuthStore()
+    const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await wrapper.find('#guardian-first-name').setValue('Robin')
+    await wrapper.find('#guardian-last-name').setValue('Carer')
+    await wrapper.find('#guardian-email').setValue('Student@example.com')
+    await wrapper.find('[data-test="guardian-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('not your own')
+  })
+
+  it('shows a pending change alongside the consenting guardian', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      pg_firstname: 'Pat',
+      pg_lastname: 'Fischer',
+      pg_email: 'pat@example.com',
+      join_perm: true,
+      pending_guardian: { first_name: 'Robin', last_name: 'Carer', email: 'robin@example.com', requested_at: '2026-10-01T00:00:00Z' },
+    })
+
+    expect(wrapper.find('[data-test="guardian-name"]').text()).toBe('Pat Fischer')
+    const pending = wrapper.find('[data-test="guardian-pending"]').text()
+    expect(pending).toContain('Robin Carer (robin@example.com)')
+    expect(pending).toContain('Pat Fischer stays on file')
+    // The new guardian's permission, with the link to email them.
+    expect(wrapper.find('[data-test="guardian-pending-permission"]').text()).toContain('not received, click here to send email')
+  })
+
+  it('withdraws a pending change', async () => {
+    const wrapper = await mountAs({
+      ...baseUser,
+      join_perm: true,
+      pending_guardian: { first_name: 'Robin', last_name: 'Carer', email: 'robin@example.com', requested_at: '2026-10-01T00:00:00Z' },
+    })
+    const auth = useAuthStore()
+    const withdraw = vi.spyOn(auth, 'withdrawGuardianChange').mockResolvedValue(undefined as never)
+
+    await wrapper.find('[data-test="guardian-withdraw"]').trigger('click')
+    await flushPromises()
+
+    expect(withdraw).toHaveBeenCalled()
+  })
+})
+
+describe('ProfilePage opened from the guardian details email', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  async function mountAt(path: string) {
+    const auth = useAuthStore()
+    auth.user = { ...baseUser, join_perm: false } as typeof auth.user
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined as never)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/profile', component: ProfilePage }],
+    })
+    await router.push(path)
+    await router.isReady()
+    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('opens the guardian form when the link asks for it', async () => {
+    const wrapper = await mountAt('/profile?guardian=edit')
+
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(true)
+  })
+
+  it('leaves the form closed otherwise', async () => {
+    const wrapper = await mountAt('/profile')
+
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
+  })
+})

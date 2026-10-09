@@ -32,7 +32,7 @@ describe('the management shell', () => {
       'Submission Deadline',
       'Extend Deadline',
       'Notify Finalists',
-      'Email Nonfinalist',
+      'Notify Nonfinalist',
       'Finalist Presentation',
       'Release Results',
       'Document Setup',

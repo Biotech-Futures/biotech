@@ -46,20 +46,12 @@
           {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
         </p>
         <div class="component-table__actions">
-            <button
-              v-if="payload.component.code === 'SAQ'"
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="job.isBusy.value"
-              @click="startJob('xlsx')"
-            >
-              <i class="fas fa-download" aria-hidden="true"></i> XLSX
-            </button>
+            <!-- SAQ asks which format; the others download their uploads. -->
             <button
               type="button"
               class="btn btn-outline btn-sm"
               :disabled="job.isBusy.value"
-              @click="startJob('zip')"
+              @click="onDownload"
             >
               <i class="fas fa-download" aria-hidden="true"></i> Download
             </button>
@@ -181,6 +173,33 @@
       </div>
     </div>
   </div>
+
+  <!-- SAQ's answers, in the format picked. Styled as Upload marks. -->
+  <Teleport to="body">
+    <div v-if="choosingFormat" class="component-table__overlay" @click.self="choosingFormat = false">
+      <div class="component-table__dialog" role="dialog" aria-modal="true" aria-label="Download SAQs">
+        <div class="component-table__dialog-head">
+          <h3 class="component-table__dialog-title">Download Short Answer Questions</h3>
+          <button
+            type="button"
+            class="component-table__dialog-close"
+            aria-label="Close"
+            @click="choosingFormat = false"
+          >
+            &times;
+          </button>
+        </div>
+        <ul class="component-table__formats">
+          <li v-for="option in SAQ_FORMATS" :key="option.format">
+            <button type="button" class="btn btn-outline btn-sm" @click="pickFormat(option.format)">
+              <i class="fas fa-download" aria-hidden="true"></i> {{ option.label }}
+            </button>
+            <span class="component-table__format-desc">{{ option.desc }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -190,6 +209,7 @@ import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
 import {
   fetchComponentRows,
+  type ComponentDownloadFormat,
   type ComponentListPayload,
   type ComponentRow
 } from '@/utils/gradingAPI'
@@ -220,9 +240,27 @@ const searchQuery = ref('')
 const job = useJobPolling()
 const uploadMessage = ref('')
 
-const startJob = (format: 'zip' | 'xlsx') => {
+const startJob = (format: ComponentDownloadFormat) => {
   uploadMessage.value = ''
   void job.start(code.value, format)
+}
+
+// SAQ's answers come three ways; the other components' uploads one.
+const SAQ_FORMATS: { format: ComponentDownloadFormat; label: string; desc: string }[] = [
+  { format: 'xlsx', label: 'xlsx', desc: "Every group's answers and marks in one spreadsheet." },
+  { format: 'pdf', label: 'pdf', desc: "Each group's answers as its own PDF, zipped." },
+  { format: 'zip', label: 'txt', desc: "Each group's answers as its own text file, zipped." }
+]
+const choosingFormat = ref(false)
+
+const onDownload = () => {
+  if (payload.value?.component.code === 'SAQ') choosingFormat.value = true
+  else startJob('zip')
+}
+
+const pickFormat = (format: ComponentDownloadFormat) => {
+  choosingFormat.value = false
+  startJob(format)
 }
 
 const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
@@ -495,6 +533,82 @@ const displayRows = computed(() => {
   /* Auto inline margins center the stats between the search box and the
      export buttons. */
   margin: 0 auto;
+}
+
+/* The format picker, as the Upload marks dialog. */
+.component-table__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+}
+
+.component-table__dialog {
+  background: var(--surface-elevated);
+  color: var(--charcoal);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px var(--shadow);
+  width: 100%;
+  max-width: 30rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.component-table__dialog-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.component-table__dialog-close:hover {
+  color: var(--charcoal);
+}
+
+.component-table__formats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.component-table__formats li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The buttons line up, whatever their label. */
+.component-table__formats .btn {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+.component-table__format-desc {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .component-table__actions {

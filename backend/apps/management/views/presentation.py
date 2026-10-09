@@ -21,8 +21,10 @@ from ..models import (
     FinalistSlides,
     PresentationAllocation,
     PresentationAvailability,
+    PresentationSettings,
     PresentationSlot,
 )
+from ..services.deadline import submissions_still_open
 from ..services.send_guard import person_name
 
 
@@ -55,6 +57,11 @@ def _payload() -> dict:
         # The day they're on; None until it's set on Notify Finalists.
         "symposium_date": FinalistEmailSettings.load().symposium_date,
         "slots": PresentationSlotSerializer(PresentationSlot.objects.filter(year=year), many=True).data,
+        # Whether finalists see them yet.
+        "times_shown": PresentationSettings.load().times_shown,
+        # While any team can still submit (extensions and grace hours
+        # included), who the finalists are isn't settled: the times stay hidden.
+        "submissions_open": submissions_still_open(),
     }
 
 
@@ -95,6 +102,33 @@ class PresentationSlotDetailView(APIView):
 
     def delete(self, request, slot_id: int):
         self._slot(slot_id).delete()
+        return Response(_payload())
+
+
+TIMES_WAIT = (
+    "Submissions are still open (including any extensions) - "
+    "the time slots can be shown once the window has closed."
+)
+
+
+class PresentationTimesShownView(APIView):
+    """PATCH /api/v1/management/finalists/presentation-times-shown/ —
+    ``{"times_shown": true}`` shows finalists this year's times to give their
+    availability; false hides them again. Answers with the whole list.
+    Showing them is refused while submissions are still open (baseline
+    window or any extension, grace hours included); hiding is always allowed."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def patch(self, request):
+        shown = request.data.get("times_shown")
+        if not isinstance(shown, bool):
+            return Response({"detail": "times_shown must be true or false"}, status=status.HTTP_400_BAD_REQUEST)
+        if shown and submissions_still_open():
+            return Response({"detail": TIMES_WAIT}, status=status.HTTP_400_BAD_REQUEST)
+        settings = PresentationSettings.load()
+        settings.times_shown = shown
+        settings.save()
         return Response(_payload())
 
 
@@ -204,7 +238,8 @@ class PresentationSlidesView(APIView):
 class PresentationSlidesFileView(APIView):
     """GET /api/v1/management/finalists/presentation-slides/<group_id>/file/ —
     open a finalist team's slides: a PDF in the browser, anything else as a
-    download (only a PDF is safe to show inline). 404 until they're in."""
+    download (only a PDF is safe to show inline); ``?download=1`` downloads
+    even a PDF. 404 until they're in."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
@@ -222,7 +257,7 @@ class PresentationSlidesFileView(APIView):
             filename=stored.get("name") or "slides",
             mime_type=mime,
             size=stored.get("size"),
-            as_attachment=mime != "application/pdf",
+            as_attachment=mime != "application/pdf" or request.query_params.get("download") == "1",
         )
 
 

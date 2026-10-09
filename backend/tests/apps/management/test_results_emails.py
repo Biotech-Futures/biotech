@@ -143,13 +143,13 @@ class ResultsEmailTests(_GradingFixture):
         message = mail.outbox[0]
         text = " ".join(message.body.split())  # the plain text wraps its lines
         self.assertEqual(message.subject, f"Your {self.group.year} BIOTech Futures Challenge results")
-        self.assertIn(f"Dear {self.group.group_name},", text)
+        self.assertIn(f"Dear members of {self.group.group_name},", text)
         self.assertIn(f"Congratulations on your participation in the {self.group.year} BIOTech Futures Challenge!", text)
         self.assertIn("https://example.com/survey", text)
         closes = ResultsEmailSettings.load().survey_closes
         self.assertIn(f"until the {closes.day}", text)
         self.assertIn(f" of {closes:%B}.", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["emailed"], 3)
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 1})
@@ -168,7 +168,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(message.subject, f"Your students’ {self.group.year} BIOTech Futures Challenge results")
         self.assertIn("Dear Sam Lee,", message.body)
         self.assertIn("Merit certificates for each of your students", " ".join(message.body.split()))
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 1})
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
         self.assertTrue(ResultsSupervisorEmail.objects.filter(supervisor=self.supervisor).exists())
@@ -251,7 +251,8 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_run_that_cannot_reach_the_mail_server_says_so_and_frees_the_send(self):
         unreachable = mock.Mock()
         unreachable.open.side_effect = OSError("mail server down")
-        with mock.patch("apps.management.services.send_guard.get_connection", return_value=unreachable), \
+        # Connections are opened, signed in as the sender, by system_email.
+        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable), \
                 self.assertLogs("apps.management.services.send_guard", level="ERROR"):
             run = self._send_all("groups")[-1]["run"]
         self.assertEqual(
@@ -534,7 +535,7 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_switched_off_email_is_refused(self):
         SystemEmailTemplate.objects.create(key="results_supervisor", is_enabled=False)
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
-        self.assertEqual(r.json()["detail"], "Results (To supervisors) is switched off on System Emails.")
+        self.assertEqual(r.json()["detail"], "Results (to supervisors) is switched off on System Emails.")
         r = self.client.get(reverse("management:results-email"))
         self.assertEqual(r.json()["emails_on"], {"groups": True, "supervisors": False})
 
@@ -716,7 +717,8 @@ class ResultsEmailTests(_GradingFixture):
             [o["label"] for o in self._people("certificate")],
             ["(BTF-TEST-1) Stu amy", "(BTF-TEST-1) Stu ben", "(Finalist Team) Stu fin"],
         )
-        self.assertEqual(self._people("marks-summary"), self._people("certificate"))
+        # The marks summary is a group's: the groups, by name.
+        self.assertEqual([o["label"] for o in self._people("marks-summary")], ["BTF-TEST-1", "Finalist Team"])
         self.assertEqual([o["label"] for o in self._people("mentor-certificate")], ["(BTF-TEST-1) Mo Mentor"])
         self.assertEqual(
             self.client.get(reverse("management:settings-test-people", args=["nope"])).status_code,
@@ -738,9 +740,9 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn(f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx", r["Content-Disposition"])
         self.assertIn("Mo Mentor mentored BTF-TEST-1", _docx_text(r.content))
 
-        # The marks summary is the student's group's, with its real marks.
+        # The marks summary is the group's, with its real marks.
         url = reverse("management:settings-test-render", args=["marks-summary"])
-        r = self.client.get(url, {"person": self._value("marks-summary", "(BTF-TEST-1) Stu ben")})
+        r = self.client.get(url, {"person": self._value("marks-summary", "BTF-TEST-1")})
         self.assertIn(f"{year}_BTF_Marks_BTF-TEST-1.docx", r["Content-Disposition"])
         self.assertIn("Team BTF-TEST-1 S1 8", _docx_text(r.content))
 

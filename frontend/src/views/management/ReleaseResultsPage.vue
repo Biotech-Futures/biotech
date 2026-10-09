@@ -10,9 +10,10 @@
       <p class="release-results__hint">
         Releasing shows results only to students whose group made a submission.
       </p>
-      <h3 class="release-results__section-title">Email Details</h3>
+      <h3 class="release-results__section-title">Set Details</h3>
       <p class="release-results__hint">
-        The results email to groups links to the feedback survey. Set these before sending.
+        The feedback survey link and close date go in the results email and announcement to groups.
+        Set them before sending.
       </p>
       <p v-if="detailsError" class="release-results__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -112,9 +113,9 @@
     <section class="card release-results__send">
       <h3 class="release-results__section-title">Email Results</h3>
       <p class="release-results__hint">
-        Emails every group that submitted, and its students' supervisors, that their results
-        are out. Each is emailed once.
+        For groups that submitted, and their students' supervisors, once their results are out.
       </p>
+      <p class="release-results__hint">Each group and each supervisor is emailed once.</p>
       <p class="release-results__hint">
         Each group gets one email, its students and mentors in To, with every certificate in the
         group attached, so students get each other's and their mentor's certificates. Resending
@@ -200,6 +201,17 @@
             </ul>
           </div>
         </template>
+        <!-- The same news in the app, for the groups and the supervisors
+             emailed so far, each on a line of its own. -->
+        <OutcomeAnnouncement
+          v-for="audience in AUDIENCES"
+          :key="`announcement-${audience.value}`"
+          :ref="(el) => (announcements[audience.value] = el as OutcomeAnnouncementView | null)"
+          :kind="`results-${audience.value}`"
+          :label="audience.value === 'groups' ? 'Group Announcement' : 'Supervisor Announcement'"
+          @flash="flashAction"
+          @error="(text) => (actionError = text)"
+        />
       </template>
     </section>
 
@@ -295,6 +307,7 @@ import { plural } from '@/utils/string'
 import ReleaseCertificatesPage from '@/views/management/ReleaseCertificatesPage.vue'
 import ReleasePage from '@/views/management/ReleasePage.vue'
 import MissedPerson from '@/views/management/MissedPerson.vue'
+import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 // Groups (their students and mentors) and supervisors are emailed apart.
@@ -361,6 +374,8 @@ const saveDetails = async () => {
     form.value = fromDetails(saved)
     saveTried.value = false
     flashAction('Email details saved.')
+    // The group announcement's wording has the survey link and date in it.
+    void announcements.groups?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -526,6 +541,10 @@ const send = async ({ audience, missed }: ResultsSend) => {
   }
 }
 
+// Each email's announcement, reloaded once its send finishes.
+type OutcomeAnnouncementView = InstanceType<typeof OutcomeAnnouncement>
+const announcements: Partial<Record<ResultsAudience, OutcomeAnnouncementView | null>> = {}
+
 // How a run went, once this page saw it finish.
 const reportRun = (audience: ResultsAudience, run: EmailRun) => {
   const sentFrom = details.value?.runs[audience].sent_from
@@ -543,6 +562,8 @@ const reportRun = (audience: ResultsAudience, run: EmailRun) => {
   )
   if (isError) actionError.value = text
   else flashAction(text, RUN_MESSAGE_MS)
+  // More emailed: more who'd see its announcement.
+  void announcements[audience]?.reload()
 }
 for (const audience of ['groups', 'supervisors'] as const) {
   useEmailRun(() => details.value?.runs[audience], loadDetails, (run) => reportRun(audience, run))
@@ -570,7 +591,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   margin: 0 0 0.75rem;
 }
 
-/* As "Email Details" on Notify Finalists. */
+/* As "Set Details" on Notify Finalists. */
 .release-results__section-title {
   font-size: 1.05rem;
   font-weight: 600;

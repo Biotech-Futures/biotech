@@ -2,6 +2,7 @@
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
 import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
+import type { SystemEmailMergeTag } from './systemEmail'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -223,6 +224,7 @@ export function toggleRelease(release: boolean): Promise<ReleaseStatus> {
 export interface GradingSettingsDetail {
   director_1_name: string
   director_1_position: string
+  /** The name the signature image was uploaded as (it's kept in the database), or null. */
   director_1_signature: string | null
   director_2_name: string
   director_2_position: string
@@ -429,6 +431,86 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   waiting: Record<FinalistSendWhich, { teams: number; people: number; groups: string[] }>
 }
 
+/** New Announcement's categories: this year's finalist, non-finalist and
+ *  non-submission groups. */
+export interface AnnouncementCategories {
+  /** Once the submission deadline, grace hours included, has passed. */
+  available: boolean
+  /** Why not yet, or "". */
+  reason: string
+  categories: { key: string; label: string; group_ids: number[] }[]
+}
+
+// GET /api/v1/management/announcement-categories/ — each category's groups.
+export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
+  return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
+}
+
+/** The email an outcome announcement goes with: the finalist, non-finalist
+ *  and non-submission emails, and the results emails to groups and to
+ *  supervisors. */
+export type OutcomeAnnouncementKind =
+  | 'finalists'
+  | 'nonfinalists'
+  | 'nonsubmissions'
+  | 'results-groups'
+  | 'results-supervisors'
+
+/** The in-app announcement that goes with one of those emails. */
+export interface OutcomeAnnouncement {
+  /** Its wording, with merge tags such as {{ slides_due }}, for editing. */
+  title: string
+  /** HTML, as announcements keep it. */
+  body: string
+  /** The same filled in with the current dates and links, as it'd post. */
+  preview: { title: string; body: string }
+  /** The tags its wording can use, as System Emails offers them. */
+  merge_tags: SystemEmailMergeTag[]
+  /** Changed from the email's wording. */
+  edited: boolean
+  /** Who saved the edited wording and when; null until edited. */
+  edited_by: string | null
+  edited_at: string | null
+  /** The groups, or supervisors, the email has reached so far: who sees it. */
+  recipients: number
+  /** What they are, e.g. "finalist group". */
+  noun: string
+  /** Why it can't be posted yet, or "": it waits for its email to be sent. */
+  blocked: string
+  posted_at: string | null
+  posted_by: string | null
+}
+
+const outcomeAnnouncementUrl = (kind: OutcomeAnnouncementKind) =>
+  `/api/v1/management/outcome-announcements/${kind}/`
+
+// GET — its wording (the email's until edited) and when it was posted.
+export function fetchOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind))
+}
+
+// PATCH — save an edited title and body.
+export function updateOutcomeAnnouncement(
+  kind: OutcomeAnnouncementKind,
+  fields: { title: string; body: string }
+): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), {
+    method: 'PATCH',
+    body: JSON.stringify(fields)
+  })
+}
+
+// DELETE — back to the email's wording.
+export function restoreOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), { method: 'DELETE' })
+}
+
+// POST post/ — post it to whoever the email has reached so far, or update the
+// one already posted.
+export function postOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
+  return requestJson<OutcomeAnnouncement>(`${outcomeAnnouncementUrl(kind)}post/`, { method: 'POST' })
+}
+
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.
 export function fetchFinalistEmailDetails(): Promise<FinalistEmailDetails> {
   return requestJson<FinalistEmailDetails>('/api/v1/management/finalists/email/')
@@ -460,6 +542,11 @@ export interface PresentationSlots {
   symposium_date: string | null
   /** Earliest first. */
   slots: PresentationSlot[]
+  /** Whether finalists see them yet, to give their availability. */
+  times_shown: boolean
+  /** While any team can still submit (extensions and grace hours included):
+   *  the times can't be shown until then. */
+  submissions_open: boolean
 }
 
 export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_at'>
@@ -493,6 +580,15 @@ export function updatePresentationSlot(
 // DELETE {id}/ — remove a time.
 export function deletePresentationSlot(id: number): Promise<PresentationSlots> {
   return requestJson<PresentationSlots>(`${PRESENTATION_SLOTS}${id}/`, { method: 'DELETE' })
+}
+
+// PATCH /api/v1/management/finalists/presentation-times-shown/ — show the
+// times to finalists, or hide them again.
+export function setPresentationTimesShown(shown: boolean): Promise<PresentationSlots> {
+  return requestJson<PresentationSlots>('/api/v1/management/finalists/presentation-times-shown/', {
+    method: 'PATCH',
+    body: JSON.stringify({ times_shown: shown })
+  })
 }
 
 /** A finalist team and its answer: the times the whole team can make. */
@@ -548,6 +644,11 @@ export function fetchPresentationSlides(): Promise<PresentationSlides> {
 // team's slides, for a link: a PDF opens in the browser, anything else downloads.
 export function presentationSlidesUrl(groupId: number): string {
   return `${API_BASE_URL}/api/v1/management/finalists/presentation-slides/${groupId}/file/`
+}
+
+// The same, always saved as a download, even a PDF.
+export function presentationSlidesDownloadUrl(groupId: number): string {
+  return `${presentationSlidesUrl(groupId)}?download=1`
 }
 
 // GET /api/v1/management/finalists/presentation-responses/ — this year's
@@ -682,7 +783,7 @@ export function startResultsEmail(audience: ResultsAudience, which?: 'missed'): 
 // ---------------------------------------------------------------------------
 // The Symposium emails and Send Test Email
 
-/** The Symposium emails on the Email Nonfinalist tab: to teams that submitted
+/** The Symposium emails on the Notify Nonfinalist tab: to teams that submitted
  *  but weren't picked, and to teams that didn't submit. */
 export type SymposiumEmail = 'nonfinalists' | 'nonsubmissions'
 
