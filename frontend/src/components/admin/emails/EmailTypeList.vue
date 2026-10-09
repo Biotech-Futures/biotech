@@ -15,19 +15,6 @@
       />
     </div>
 
-    <!-- On the Log, every email at once, above them all. -->
-    <button
-      v-if="withAll"
-      type="button"
-      class="email-type-list__item"
-      :class="{ 'is-selected': selectedKey === '' }"
-      :aria-current="selectedKey === '' ? 'true' : undefined"
-      data-test="all-emails"
-      @click="emit('select', '')"
-    >
-      <span class="email-type-list__name">All emails</span>
-    </button>
-
     <p v-if="!filtered.length" class="email-type-list__empty">
       No emails match “{{ query }}”.
     </p>
@@ -76,9 +63,7 @@ import { nameParts, type SystemEmailTemplate } from '@/utils/systemEmail'
 
 const props = defineProps<{
   templates: SystemEmailTemplate[]
-  /** '' for All emails, when ``withAll``. */
   selectedKey: string | null
-  withAll?: boolean
 }>()
 
 const emit = defineEmits<{

@@ -81,6 +81,9 @@ AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototy
 AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 # Finalists' presentation slides for the Symposium, apart from their entries.
 AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
+# Signed guardian consent records (PDF), private: only admins read them, through
+# the backend.
+AZURE_CONSENT_CONTAINER = config("AZURE_CONSENT_CONTAINER", default="guardian-consent-forms")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
@@ -628,17 +631,23 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# Shared secret for the scheduled email jobs GitHub runs (apps.common.email_jobs):
-# POST /api/v1/events/admin/send-rsvp-reminders/ (and its legacy
-# /events/v1/... route), /api/v1/submissions/admin/send-reminders/,
-# /api/v1/chat/admin/send-unread-digest/,
-# /api/v1/admin/send-guardian-details-reminders/ and
-# /api/v1/admin/send-guardian-consent-reminders/. Each workflow sends it in the
-# X-Email-Jobs-Token header. Until EMAIL_JOBS_TOKEN is set, the RSVP reminders'
-# existing RSVP_REMINDER_TOKEN stands in, as the workflows' secret does. Unset
-# means the endpoints answer 503, so a misconfigured deploy fails loud instead
-# of exposing unauthenticated triggers.
-EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="") or config("RSVP_REMINDER_TOKEN", default="")
+# Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
+# /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
+# schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
+# fails loud instead of silently exposing an unauthenticated trigger.
+RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+
+# Shared secret for POST /api/v1/submissions/admin/send-reminders/, the daily
+# nudge to teams whose entry is still outstanding. Same fail-loud contract as
+# above: unset means the endpoint answers 503 rather than standing open.
+SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
+
+# Shared secret for the daily guardian emails: POST
+# /api/v1/admin/send-guardian-details-reminders/ (students with no
+# parent/guardian details) and /api/v1/admin/send-guardian-consent-reminders/
+# (guardians who haven't signed). Same fail-loud contract: unset means the
+# endpoints answer 503.
+GUARDIAN_REMINDER_TOKEN = config("GUARDIAN_REMINDER_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
@@ -647,7 +656,7 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as
-# ``EMAIL_JOBS_TOKEN``: empty value => 503 from the endpoint, so a
+# ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
@@ -680,13 +689,16 @@ BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5,
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# The unread messages digest, run every 15 minutes by
-# .github/workflows/unread-digest.yml (with EMAIL_JOBS_TOKEN) so the first
-# notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit every 15
+# minutes by .github/workflows/unread-digest.yml so the first notification is
+# fast. Same fail-loud contract as RSVP_REMINDER_TOKEN: empty value => 503, so
+# a misconfigured deploy can't silently expose an unauthenticated trigger.
+# MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
 # user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
 # hold all sends overnight and re-anchor them to daytime. The quiet block is
 # what makes a sub-24h interval safe — without it, delivery times walk
 # around the clock into the small hours (20h => -4h/day).
+UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
 UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
     "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=8, cast=int
 )

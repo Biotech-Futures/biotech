@@ -33,7 +33,6 @@ from django.utils import dateformat
 from django.utils.html import strip_tags
 
 from .email_branding import attach_inline_logo, brand_context
-from .email_log import note_send, reason_for
 from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
@@ -450,11 +449,9 @@ def send_system_email(
     connection=None,
     from_email: Optional[str] = None,
     files=(),
-    sent_by=None,
 ) -> str:
     """Check, render and send email ``key`` to one recipient, with ``files``
-    ((filename, content, mimetype) each) attached if given. The send is noted
-    in the Log on System Emails, as sent by ``sent_by`` (see ``email_log``).
+    ((filename, content, mimetype) each) attached if given.
 
     Returns ``SENT``, ``SKIPPED`` (type switched off) or ``FAILED``. Never raises
     for send errors. With ``background=True`` the message is handed to the mail
@@ -473,7 +470,7 @@ def send_system_email(
     message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
 
     if background:
-        send_async(_NotedSend(message, key, sent_by), kind=key)
+        send_async(message, kind=key)
         return SENT
 
     try:
@@ -481,24 +478,5 @@ def send_system_email(
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
-        note_send(key, missed=dict.fromkeys(message.recipients(), reason_for(exc)), by=sent_by)
         return FAILED
-    note_send(key, by=sent_by)
     return SENT
-
-
-class _NotedSend:
-    """A message for the mail pool that notes in the Log whether it went."""
-
-    def __init__(self, message, key: str, sent_by):
-        self.message = message
-        self.key = key
-        self.sent_by = sent_by
-
-    def send(self):
-        try:
-            self.message.send(fail_silently=False)
-        except Exception as exc:
-            note_send(self.key, missed=dict.fromkeys(self.message.recipients(), reason_for(exc)), by=self.sent_by)
-            raise
-        note_send(self.key, by=self.sent_by)

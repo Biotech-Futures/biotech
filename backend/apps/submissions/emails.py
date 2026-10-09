@@ -10,7 +10,6 @@ from django.utils.html import format_html, format_html_join
 
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
-from apps.services.email_log import UNREACHABLE, note_send, reason_for
 from apps.services.mailer import send_async
 from apps.services.system_email import (
     build_message,
@@ -148,19 +147,16 @@ def group_message(rendered, group, addresses, *, sender):
 
 def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
     """Send each message over one connection, signed in as ``sender``'s
-    mailbox; one failing doesn't stop the rest. Returns (sent, failed). Noted
-    in the Log on System Emails as a send of ``kind``."""
+    mailbox; one failing doesn't stop the rest. Returns (sent, failed)."""
     if not messages:
         return 0, 0
 
     sent = failed = 0
-    missed = {}
     connection = sender_connection(sender)
     try:
         connection.open()
     except Exception:
         logger.error("submission_email.connection_failed kind=%s", kind)
-        note_send(kind, missed={address: UNREACHABLE for message in messages for address in message.recipients()})
         return 0, len(messages)
 
     try:
@@ -170,7 +166,6 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
                 message.send()
             except Exception as exc:
                 failed += 1
-                missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
                 # Not logger.exception, which would log the recipient address.
                 logger.error(
                     "submission_email.recipient_failed kind=%s error=%s",
@@ -183,7 +178,6 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
             connection.close()
         except Exception:
             pass
-    note_send(kind, missed=missed)
     return sent, failed
 
 

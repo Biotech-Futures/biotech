@@ -177,7 +177,7 @@ class ReminderTests(TestCase):
         self.assertIn("BTF-TO", mail.outbox[0].subject)
 
 
-@override_settings(USE_AZURE_BLOB_STORAGE=False, EMAIL_JOBS_TOKEN="s3cret")
+@override_settings(USE_AZURE_BLOB_STORAGE=False, SUBMISSION_REMINDER_TOKEN="s3cret")
 class ReminderTriggerEndpointTests(TestCase):
     def setUp(self):
         from django.urls import reverse
@@ -185,22 +185,22 @@ class ReminderTriggerEndpointTests(TestCase):
         self.url = reverse("submission-send-reminders")
 
     def test_the_right_token_runs_the_job(self):
-        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret")
+        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="s3cret")
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("sent", response.data)
 
     def test_a_wrong_token_is_refused(self):
-        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="wrong")
+        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="wrong")
 
         self.assertEqual(response.status_code, 401)
 
     def test_no_token_at_all_is_refused(self):
         self.assertEqual(self.client.post(self.url).status_code, 401)
 
-    @override_settings(EMAIL_JOBS_TOKEN="")
+    @override_settings(SUBMISSION_REMINDER_TOKEN="")
     def test_an_unconfigured_trigger_refuses_rather_than_standing_open(self):
-        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="")
+        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="")
 
         self.assertEqual(response.status_code, 503)
 

@@ -9,40 +9,23 @@
         </p>
       </div>
 
-      <div class="admin-emails__header-actions">
-        <label class="admin-emails__global">
-          <input
-            type="checkbox"
-            class="sr-only"
-            role="switch"
-            :checked="emailsEnabled"
-            :disabled="loading || togglingGlobal"
-            aria-label="Send system emails"
-            @change="onGlobalSwitch"
-          />
-          <span class="admin-emails__global-track" aria-hidden="true">
-            <span class="admin-emails__global-knob"></span>
-          </span>
-          <span class="admin-emails__global-label">
-            {{ emailsEnabled ? 'Emails on' : 'Emails paused' }}
-          </span>
-        </label>
-
-        <button
-          type="button"
-          class="btn btn-primary btn-sm admin-emails__failed"
-          :aria-pressed="logOpen"
-          data-test="emails-log"
-          @click="toggleLog"
-        >
-          <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
-          {{ logOpen ? 'Back to emails' : 'Failed Sending Emails' }}
-          <!-- Who sends couldn't reach since an admin last looked. -->
-          <span v-if="unseen && !logOpen" class="admin-emails__unseen" data-test="failed-unseen">
-            {{ unseen > 99 ? '99+' : unseen }}
-          </span>
-        </button>
-      </div>
+      <label class="admin-emails__global">
+        <input
+          type="checkbox"
+          class="sr-only"
+          role="switch"
+          :checked="emailsEnabled"
+          :disabled="loading || togglingGlobal"
+          aria-label="Send system emails"
+          @change="onGlobalSwitch"
+        />
+        <span class="admin-emails__global-track" aria-hidden="true">
+          <span class="admin-emails__global-knob"></span>
+        </span>
+        <span class="admin-emails__global-label">
+          {{ emailsEnabled ? 'Emails on' : 'Emails paused' }}
+        </span>
+      </label>
     </div>
 
     <p v-if="!emailsEnabled && !loading" class="admin-emails__banner" role="status">
@@ -75,20 +58,14 @@
 
     <div v-else class="admin-emails__layout">
       <aside class="admin-emails__sidebar">
-        <!-- On the Log, the same emails with All emails above them. -->
         <EmailTypeList
           :templates="templates"
-          :selected-key="logOpen ? logKey : selectedKey"
-          :with-all="logOpen"
-          @select="logOpen ? (logKey = $event) : onSelect($event)"
+          :selected-key="selectedKey"
+          @select="onSelect"
         />
       </aside>
 
-      <div v-if="logOpen" class="admin-emails__main" data-test="emails-log-panel">
-        <EmailLog :emails="log" :selected-key="logKey" :loading="logLoading" :error="logError" />
-      </div>
-
-      <div class="admin-emails__main" v-else-if="selected">
+      <div class="admin-emails__main" v-if="selected">
         <EmailEditor
           :email-template="selected"
           :subject="draft.subject"
@@ -140,20 +117,12 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
-import EmailLog from '@/components/admin/emails/EmailLog.vue'
 import EmailPreview from '@/components/admin/emails/EmailPreview.vue'
 import EmailTypeList from '@/components/admin/emails/EmailTypeList.vue'
 import { useSystemEmails } from '@/composables/admin/useSystemEmails'
-import {
-  fetchSystemEmailLog,
-  fetchSystemEmailUnseenFailures,
-  markSystemEmailFailuresSeen
-} from '@/utils/adminAPI'
-import { apiErrorFromUnknown } from '@/utils/apiError'
-import type { SystemEmailLogEntry } from '@/utils/systemEmail'
 
 const {
   loading,
@@ -190,62 +159,6 @@ const {
 } = useSystemEmails()
 
 const restoreConfirmOpen = ref(false)
-
-// The Log, in place of the editor: '' is All emails.
-const logOpen = ref(false)
-const logKey = ref('')
-const log = ref<SystemEmailLogEntry[]>([])
-const logLoading = ref(false)
-const logError = ref('')
-
-// The red count on its button: who sends couldn't reach since an admin last
-// looked. Opening it, or leaving any of its pages, counts as looking, for
-// every admin. Only a badge, so it stays off if it can't be read.
-const unseen = ref(0)
-
-const loadUnseen = async () => {
-  try {
-    unseen.value = await fetchSystemEmailUnseenFailures()
-  } catch {
-    unseen.value = 0
-  }
-}
-
-const markSeen = async () => {
-  try {
-    unseen.value = await markSystemEmailFailuresSeen()
-  } catch {
-    // Counted again next time the page loads.
-  }
-}
-
-// Picking another email, or All emails, leaves the page shown.
-watch(logKey, () => {
-  if (logOpen.value) void markSeen()
-})
-
-onBeforeUnmount(() => {
-  if (logOpen.value) void markSeen()
-})
-
-const toggleLog = async () => {
-  logOpen.value = !logOpen.value
-  void markSeen()
-  if (!logOpen.value) {
-    logKey.value = ''
-    return
-  }
-  // Read afresh each time: emails go out while the page is open.
-  logLoading.value = true
-  logError.value = ''
-  try {
-    log.value = await fetchSystemEmailLog()
-  } catch (err) {
-    logError.value = apiErrorFromUnknown(err, "Couldn't load the log. Try again shortly.").message
-  } finally {
-    logLoading.value = false
-  }
-}
 const pauseConfirmOpen = ref(false)
 
 /** Turning emails back on is immediate; pausing them all asks first. */
@@ -283,7 +196,6 @@ const onRestoreConfirmed = async () => {
 }
 
 onMounted(async () => {
-  void loadUnseen()
   await load()
 })
 </script>
@@ -313,35 +225,6 @@ onMounted(async () => {
 .admin-emails__subtitle {
   color: var(--text-muted);
   margin: 0;
-}
-
-.admin-emails__header-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-/* Room for the red count on its corner. */
-.admin-emails__failed {
-  position: relative;
-}
-
-.admin-emails__unseen {
-  position: absolute;
-  top: -0.5rem;
-  right: -0.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.3rem;
-  border-radius: 999px;
-  background: #dc2626;
-  color: #ffffff;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  line-height: 1;
 }
 
 .admin-emails__global {

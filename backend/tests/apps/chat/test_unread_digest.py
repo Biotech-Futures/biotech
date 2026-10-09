@@ -33,7 +33,7 @@ DIGEST_SETTINGS = dict(
     EMAIL_CONNECT_HOST_PASSWORD="pw",
     CONNECT_FROM_ADDRESS="connect@biotechfutures.org",
     CONNECT_DEFAULT_FROM_EMAIL="BIOTech Connect <connect@biotechfutures.org>",
-    EMAIL_JOBS_TOKEN="secret-token",
+    UNREAD_DIGEST_TOKEN="secret-token",
     UNREAD_DIGEST_MIN_INTERVAL_HOURS=24,
     UNREAD_DIGEST_DISPATCH_SYNC=True,
     # start == end disables quiet hours so these tests never depend on the
@@ -309,16 +309,16 @@ class UnreadDigestTriggerViewTests(TestCase):
         self.url = reverse("send-unread-digest")
 
     def test_503_when_token_unset(self):
-        with override_settings(EMAIL_JOBS_TOKEN=""):
+        with override_settings(UNREAD_DIGEST_TOKEN=""):
             resp = self.client.post(self.url)
         self.assertEqual(resp.status_code, 503)
 
     def test_401_on_bad_token(self):
-        resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="wrong")
+        resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="wrong")
         self.assertEqual(resp.status_code, 401)
 
     def test_202_on_valid_token(self):
-        resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
+        resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.data["status"], "started")
 
@@ -339,7 +339,7 @@ class UnreadDigestTriggerViewTests(TestCase):
         )
         Messages.objects.create(group=group, sender_user=alice, message_text="hi")
 
-        resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
+        resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
         self.assertEqual(resp.status_code, 202)
         self.assertEqual([box.to[0] for box in mail.outbox], ["bob@t.com"])
 
@@ -349,7 +349,7 @@ class UnreadDigestTriggerViewTests(TestCase):
         self.assertTrue(digest_service._dispatch_lock.acquire(blocking=False))
         try:
             with override_settings(UNREAD_DIGEST_DISPATCH_SYNC=False):
-                resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
+                resp = self.client.post(self.url, HTTP_X_DIGEST_TOKEN="secret-token")
         finally:
             digest_service._dispatch_lock.release()
         self.assertEqual(resp.status_code, 202)

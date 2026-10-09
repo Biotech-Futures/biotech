@@ -6,7 +6,8 @@ import {
   downloadGuardianConsentRecord,
   fetchGuardianConsents,
   sendGuardianConsentRequest,
-  updateAdminUser
+  updateAdminUser,
+  withdrawGuardianConsent
 } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 import type { AdminUser } from '@/utils/adminAPI'
@@ -17,6 +18,7 @@ vi.mock('@/utils/adminAPI', () => ({
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),
   fetchGuardianConsents: vi.fn(),
+  withdrawGuardianConsent: vi.fn(),
   downloadGuardianConsentRecord: vi.fn()
 }))
 
@@ -385,7 +387,7 @@ describe('admin user detail: consent request', () => {
   })
 })
 
-describe('admin user detail: signed consent', () => {
+describe('admin user detail: signed consent and withdrawal', () => {
   const openDetail = (user: AdminUser) =>
     mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
   const consented = (overrides: Partial<AdminUser> = {}) =>
@@ -393,6 +395,7 @@ describe('admin user detail: signed consent', () => {
 
   beforeEach(() => {
     vi.mocked(fetchGuardianConsents).mockReset()
+    vi.mocked(withdrawGuardianConsent).mockReset()
   })
 
   it('shows the media consent answer', () => {
@@ -406,11 +409,6 @@ describe('admin user detail: signed consent', () => {
   it('shows the signed form only for consent signed on the platform', () => {
     expect(openDetail(consented()).find('[data-test="admin-view-consent"]').exists()).toBe(true)
     expect(openDetail(consented({ joinpermResponseId: 'R_1' })).find('[data-test="admin-view-consent"]').exists()).toBe(false)
-  })
-
-  it('leaves no empty button row when there is no signed form to view', () => {
-    const wrapper = openDetail(consented({ joinpermResponseId: 'ADMIN-20261009063000' }))
-    expect(wrapper.find('.admin-users-detail__consent-actions').exists()).toBe(false)
   })
 
   it('loads the signed form with its signature', async () => {
@@ -442,10 +440,21 @@ describe('admin user detail: signed consent', () => {
     expect(downloadGuardianConsentRecord).toHaveBeenCalledWith(7, expect.objectContaining({ id: 3, reference: 'BTF-3' }))
   })
 
-  it('has no withdrawal buttons, withdrawals are unticked on the Edit form', () => {
+  it('hides the media withdrawal once media consent is already no', () => {
+    expect(openDetail(consented({ mediaConsent: false })).find('[data-test="admin-withdraw-media"]').exists()).toBe(false)
+  })
+
+  it('records a withdrawal after confirming and passes the updated user up', async () => {
+    const updated = consented({ mediaConsent: false })
+    vi.mocked(withdrawGuardianConsent).mockResolvedValue({ msg: 'Media consent withdrawn.', data: updated })
     const wrapper = openDetail(consented())
-    expect(wrapper.find('[data-test="admin-withdraw-media"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="admin-withdraw-consent"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('withdrawal')
+
+    await wrapper.find('[data-test="admin-withdraw-media"]').trigger('click')
+    wrapper.findComponent({ name: 'ConfirmDialog' }).vm.$emit('confirm')
+    await flushPromises()
+
+    expect(withdrawGuardianConsent).toHaveBeenCalledWith(7, true)
+    expect(wrapper.emitted('updated')?.[0]).toEqual([updated])
+    expect(wrapper.find('[data-test="admin-consent-message"]').text()).toBe('Media consent withdrawn.')
   })
 })

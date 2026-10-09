@@ -122,8 +122,6 @@ urlpatterns = [
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
-    path('email-log/', views.SystemEmailLogView.as_view(), name='email-log'),
-    path('email-log/unseen/', views.SystemEmailUnseenFailuresView.as_view(), name='email-log-unseen'),
 
     # ========================================================================
     # USER VIEW ROUTES

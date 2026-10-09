@@ -26,7 +26,6 @@ from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from apps.services.email_branding import brand_context
-from apps.services.email_log import note_send, reason_for
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -673,7 +672,6 @@ def _send_audience_reminders(event, audience):
 
     sent = 0
     failed = 0
-    missed = {}
     for rsvp in rsvps:
         user = rsvp.user
         email = (getattr(user, "email", "") or "").strip()
@@ -709,16 +707,13 @@ def _send_audience_reminders(event, audience):
                 connection=connection,
             )
             sent += 1
-        except Exception as exc:
+        except Exception:
             failed += 1
-            missed[email] = reason_for(exc)
             logger.exception(
                 "Failed to send RSVP reminder for event %s to user %s",
                 event.id,
                 user.id,
             )
-    if sent or missed:
-        note_send("rsvp_reminder", missed=missed)
     return sent, failed
 
 

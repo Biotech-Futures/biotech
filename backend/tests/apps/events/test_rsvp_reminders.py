@@ -582,9 +582,9 @@ class ManagementCommandTests(TestCase):
         self.assertEqual(e_1h.reminder_1h_sent_for_start, e_1h.start_datetime)
 
 
-@override_settings(EMAIL_JOBS_TOKEN="s3cret-token")
+@override_settings(RSVP_REMINDER_TOKEN="s3cret-token")
 class RsvpReminderTriggerEndpointTests(TestCase):
-    """HTTP endpoint guarded by the X-Email-Jobs-Token header."""
+    """HTTP endpoint guarded by X-Reminder-Token header."""
 
     def setUp(self):
         self.client = APIClient()
@@ -595,7 +595,7 @@ class RsvpReminderTriggerEndpointTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_rejects_wrong_token(self):
-        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="nope")
+        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="nope")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_accepts_correct_token_and_dispatches(self):
@@ -603,7 +603,7 @@ class RsvpReminderTriggerEndpointTests(TestCase):
         user = User.objects.create_user(email="api@example.com", password="pw")
         _rsvp(event, user)
 
-        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret-token")
+        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="s3cret-token")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["events_processed"], 1)
@@ -611,7 +611,7 @@ class RsvpReminderTriggerEndpointTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
 
 
-@override_settings(EMAIL_JOBS_TOKEN="")
+@override_settings(RSVP_REMINDER_TOKEN="")
 class RsvpReminderTriggerUnconfiguredTests(TestCase):
     """If the env var is unset the endpoint must refuse — fail loud
     rather than exposing an unauthenticated trigger."""
@@ -620,7 +620,7 @@ class RsvpReminderTriggerUnconfiguredTests(TestCase):
         client = APIClient()
         response = client.post(
             reverse("rsvp-reminder-trigger"),
-            HTTP_X_EMAIL_JOBS_TOKEN="anything",
+            HTTP_X_REMINDER_TOKEN="anything",
         )
         self.assertEqual(
             response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE

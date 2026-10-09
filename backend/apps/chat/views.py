@@ -1,3 +1,5 @@
+import hmac
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
@@ -12,7 +14,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common import email_jobs
 from apps.common.storage import serve_managed_file
 from apps.audit.services import log_audit_event
 from .management.permissions import (
@@ -1177,9 +1178,10 @@ class UnreadDigestTriggerView(APIView):
     service, not here. Auth is a shared-secret header, not a user session —
     there is no human caller. Mirrors ``RsvpReminderTriggerView``:
 
-    * The email jobs' shared token (``apps.common.email_jobs``) must be set;
-      if blank the endpoint returns 503 so a misconfigured deploy fails loud
-      instead of silently exposing an unauthenticated trigger.
+    * ``UNREAD_DIGEST_TOKEN`` must be set; if blank the endpoint returns 503 so a
+      misconfigured deploy fails loud instead of silently exposing an
+      unauthenticated trigger.
+    * The header value is compared with ``hmac.compare_digest`` (constant time).
 
     Responds 202 immediately; the run itself happens on a background thread
     (it can exceed Azure's ~230s gateway cap) and logs its counts as
@@ -1193,9 +1195,18 @@ class UnreadDigestTriggerView(APIView):
     def post(self, request):
         from .services.digest import dispatch_unread_digest
 
-        refusal = email_jobs.refused(request)
-        if refusal:
-            return refusal
+        expected = getattr(settings, "UNREAD_DIGEST_TOKEN", "") or ""
+        if not expected:
+            return Response(
+                {"detail": "Unread digest trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-Digest-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response(
+                {"detail": "Invalid token."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         return Response(
             {"status": dispatch_unread_digest()},

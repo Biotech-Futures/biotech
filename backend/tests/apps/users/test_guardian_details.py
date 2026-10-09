@@ -136,21 +136,21 @@ class GuardianDetailsTriggerTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    @override_settings(EMAIL_JOBS_TOKEN="")
+    @override_settings(GUARDIAN_REMINDER_TOKEN="")
     def test_unconfigured_trigger_is_503(self):
-        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="anything")
+        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="anything")
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    @override_settings(EMAIL_JOBS_TOKEN="secret")
+    @override_settings(GUARDIAN_REMINDER_TOKEN="secret")
     def test_wrong_token_is_401(self):
-        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="wrong")
+        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="wrong")
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @override_settings(EMAIL_JOBS_TOKEN="secret")
+    @override_settings(GUARDIAN_REMINDER_TOKEN="secret")
     def test_right_token_runs_the_emails(self):
-        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="secret")
+        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="secret")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, {"sent": 0, "failed": 0})

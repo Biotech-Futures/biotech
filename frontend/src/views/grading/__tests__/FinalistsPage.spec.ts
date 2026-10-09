@@ -100,7 +100,7 @@ beforeEach(() => {
 })
 
 describe('the group marks ranking', () => {
-  it('stars any part not marked completely, but not SAQ&P. or the total, with the reason on hover', async () => {
+  it('stars a report or prototype not marked completely, with the reason on hover', async () => {
     candidatesMock.mockResolvedValue({
       components: ['SAQ', 'POSTER', 'REPORT', 'PROTOTYPE'].map((code) => ({ code, name: code })),
       rows: [
@@ -116,20 +116,12 @@ describe('the group marks ranking', () => {
           marks: { SAQ: '10.00', POSTER: '6.00', REPORT: '3.00', PROTOTYPE: null },
           incomplete: ['PROTOTYPE']
         }),
-        // SAQ half marked, poster sent but not marked: both starred, SAQ&P. not.
+        // Only SAQ/poster incomplete: those columns are left as they are.
         candidate({
           group_id: 4,
           group_name: 'BTF-4',
           marks: { SAQ: '4.00', POSTER: null, REPORT: null, PROTOTYPE: null },
-          total: '4.00',
           incomplete: ['SAQ', 'POSTER']
-        }),
-        // Everything sent fully marked: no asterisk anywhere.
-        candidate({
-          group_id: 5,
-          group_name: 'BTF-5',
-          marks: { SAQ: '10.00', POSTER: '6.00', REPORT: null, PROTOTYPE: null },
-          total: '16.00'
         })
       ]
     })
@@ -139,7 +131,7 @@ describe('the group marks ranking', () => {
         .findAll('tbody tr')
         .find((r) => r.text().includes(name))!
         .findAll('td')
-        .slice(2, 8) // SAQ, POSTER, SAQ&P., REPORT, PRO., Total
+        .slice(2, 7) // SAQ, POSTER, SAQ&P., REPORT, PRO.
     const hover = (cell: ReturnType<typeof cells>[number]) =>
       cell.find('[title]').exists() ? cell.find('[title]').attributes('title') : null
 
@@ -154,14 +146,9 @@ describe('the group marks ranking', () => {
     expect(prototype3!.text()).toBe('*')
     expect(hover(prototype3!)).toBe('Not Marked Completely')
 
-    const [saq4, poster4, saqPoster4, , , total4] = cells('BTF-4')
-    expect(saq4!.text()).toBe('4.00*')
-    expect(poster4!.text()).toBe('*')
-    expect(hover(poster4!)).toBe('Not Marked Completely')
-    expect(saqPoster4!.text()).toBe('4.00')
-    expect(total4!.text()).toBe('4.00')
-    expect(cells('BTF-1')[5]!.text()).toBe('19.50')
-    expect(cells('BTF-5').map((cell) => cell.text())).toEqual(['10.00', '6.00', '16.00', '—', '—', '16.00'])
+    const [saq4, poster4] = cells('BTF-4')
+    expect(saq4!.text()).toBe('4.00')
+    expect(poster4!.text()).toBe('—')
 
     // The key above the table explains the asterisk.
     expect(wrapper.find('.finalists__legend').text()).toBe('* Not Marked Completely')
@@ -227,8 +214,8 @@ describe('the group marks ranking', () => {
     expect(wrapper.find('.finalists__stats').text()).toBe('1/2 Fully Marked · 1 Added as Finalist')
   })
 
-  it('leaves out the asterisk key when every group is fully marked', async () => {
-    const wrapper = await mountPage() // every part fully marked
+  it('leaves out the asterisk key when there is no report or prototype column', async () => {
+    const wrapper = await mountPage() // SAQ and POSTER columns only
     expect(wrapper.find('.finalists__legend').exists()).toBe(false)
   })
 

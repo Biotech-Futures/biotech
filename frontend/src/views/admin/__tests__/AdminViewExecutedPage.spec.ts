@@ -84,10 +84,10 @@ const fetchMockFor = (users: unknown[], view: Record<string, unknown>) =>
       )
     }
     if (u.includes('/status/')) return Promise.resolve(envelope(buildUser()))
-    if (u.includes('/guardian-consent-request/')) {
-      // The student as the server returns them after the request goes out.
+    if (u.includes('/guardian-consent-withdrawal/')) {
+      // The student as the server returns them after a withdrawal.
       return Promise.resolve(
-        envelope(buildUser({ guardianEmail: 'pat@example.com', consentRequestSentAt: '2026-10-08T03:00:00Z' }))
+        envelope(buildUser({ joinPermissionReceived: false, joinpermResponseId: null, mediaConsent: null }))
       )
     }
     if (u.match(/\/user\/\d+\/$/) && String(init?.method).toUpperCase() === 'DELETE') {
@@ -179,19 +179,23 @@ describe('AdminViewExecutedPage', () => {
     expect((editor!.querySelector('#f-first') as HTMLInputElement).value).toBe('Ada')
   })
 
-  it('shows a sent consent request on the open sheet and reloads the results', async () => {
-    const result = await mountPage([buildUser({ guardianEmail: 'pat@example.com' })], buildView())
+  it('shows a consent withdrawal on the open sheet and reloads the results', async () => {
+    const consented = buildUser({ joinPermissionReceived: true, joinpermResponseId: 'BTF-1', mediaConsent: true })
+    const result = await mountPage([consented], buildView())
     wrapper = result.wrapper
     await wrapper.find('.admin-view-table__name-btn').trigger('click')
     await flushPromises()
     const sheet = () => dialogs().find((d) => d.textContent!.includes('Account'))!
-    expect(sheet().querySelector('[data-test="admin-consent-request-sent"]')).toBeNull()
+    expect(sheet().querySelector('[data-test="admin-consent"]')!.textContent!.trim()).toBe('Received')
     const runsBefore = result.fetchMock.mock.calls.filter(([url]) => String(url).includes('/run/')).length
 
-    ;(sheet().querySelector('[data-test="admin-send-consent-request"]') as HTMLButtonElement).click()
+    ;(sheet().querySelector('[data-test="admin-withdraw-consent"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const confirm = dialogs().find((d) => d.textContent!.includes('Record consent withdrawal?'))!
+    Array.from(confirm.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Record withdrawal')!.click()
     await flushPromises()
 
-    expect(sheet().querySelector('[data-test="admin-consent-request-sent"]')).not.toBeNull()
+    expect(sheet().querySelector('[data-test="admin-consent"]')!.textContent!.trim()).toBe('Not received')
     expect(result.fetchMock.mock.calls.filter(([url]) => String(url).includes('/run/')).length).toBeGreaterThan(runsBefore)
   })
 

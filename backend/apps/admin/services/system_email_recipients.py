@@ -3,7 +3,7 @@ the page's "of" list shows them, and the merge values that recipient's own
 email carries. An email for a whole group lists groups ("BTF01"). An email to
 people lists only the roles it goes to: students by this year's groups
 ("(BTF01) Pat Lee"), mentors with their role too ("(BTF01, mentor) Aga
-Smith"), guardians by their student ("(BTF01) guardian of Pat Lee"), and
+Smith"), guardians by their student ("(BTF01, guardian) Pat Lee"), and
 supervisors and admins by their role alone ("(supervisor) Sam Lee", "(admin)
 Ada Lin"). A student or mentor with no group this year shows as "NoGroup"
 ("(NoGroup) Pat Lee", "(NoGroup, mentor) Aga Smith").
@@ -33,8 +33,6 @@ _ROLES = GroupMembership.MembershipRoleChoices
 _ADMIN = "admin"
 # Where a student or mentor with no group this year shows.
 _NO_GROUP = "NoGroup"
-# Listed by their student's name and group.
-_GUARDIAN = "guardian"
 # Roles shown without groups, listed after students and mentors in this order.
 _ROLE_ONLY = (_ROLES.SUPERVISOR, _ADMIN)
 # Accounts the platform no longer emails.
@@ -53,10 +51,9 @@ def _this_year():
 
 def _person_option(user, role: str, groups=()) -> dict:
     """"(BTF01) Pat Lee" for a student, "(BTF01, mentor) Aga Smith" for a
-    mentor, "(BTF01) guardian of Pat Lee" for Pat's guardian, "(supervisor)
-    Sam Lee" for a supervisor and "(admin) Ada Lin" for an admin. With no
-    group, "(NoGroup) Pat Lee", "(NoGroup, mentor) Aga Smith" and "(NoGroup)
-    guardian of Pat Lee". Those in groups
+    mentor, "(BTF01, guardian) Pat Lee" for Pat's guardian, "(supervisor) Sam
+    Lee" for a supervisor and "(admin) Ada Lin" for an admin. With no group,
+    "(NoGroup) Pat Lee" and "(NoGroup, mentor) Aga Smith". Those in groups
     come first in group order, then those with none, then supervisors, then
     admins."""
     name = person_name(user)
@@ -67,13 +64,10 @@ def _person_option(user, role: str, groups=()) -> dict:
             "order": (2 + _ROLE_ONLY.index(role), (), name.lower()),
         }
     groups = sorted(groups, key=natural_key) or [_NO_GROUP]
-    if role == _GUARDIAN:
-        label = f"({', '.join(groups)}) guardian of {name}"
-    else:
-        label = f"({', '.join(groups + ([] if role == _ROLES.STUDENT else [role]))}) {name}"
+    parts = groups + ([] if role == _ROLES.STUDENT else [role])
     return {
         "value": str(user.id),
-        "label": label,
+        "label": f"({', '.join(parts)}) {name}",
         "order": (1, (), name.lower()) if groups == [_NO_GROUP] else (0, natural_key(groups[0]), name.lower()),
     }
 
@@ -226,8 +220,8 @@ def _guardian_of(value: str):
 
 
 def _guardians() -> list[dict]:
-    """Each student's guardian, named by their student: "(BTF01) guardian of
-    Pat Lee" is Pat's guardian, and "(NoGroup) guardian of Pat Lee" when Pat
+    """Each student's guardian, named by their student: "(BTF01, guardian)
+    Pat Lee" is Pat's guardian, and "(NoGroup, guardian) Pat Lee" when Pat
     has no group. A guardian with no email can't be sent it, so isn't
     listed."""
     students: dict[int, set] = {}
@@ -238,7 +232,7 @@ def _guardians() -> list[dict]:
     options = []
     for profile in StudentProfile.objects.filter(user_id__in=list(students)).select_related("user"):
         if _guardian(profile).email:
-            options.append(_person_option(profile.user, _GUARDIAN, students[profile.user_id]))
+            options.append(_person_option(profile.user, "guardian", students[profile.user_id]))
     return _sorted(options)
 
 
@@ -248,19 +242,6 @@ def _student_notice_context(value: str) -> dict:
     if guardian and guardian.email:
         context["GUARDIAN_EMAIL"] = guardian.email
     return context
-
-
-def _consent_received_context(value: str) -> dict:
-    """The name the guardian last signed with, else the one on file."""
-    from apps.users.guardian_consent import is_placeholder_name, student_name
-
-    profile, guardian = _guardian_of(value)
-    if profile is None:
-        return {"STUDENT_NAME": person_name(_user(value))}
-    signed = profile.consents.order_by("-signed_at").values_list("guardian_full_name", flat=True).first()
-    on_file = " ".join(filter(None, (guardian.first_name, guardian.last_name)))
-    named = not is_placeholder_name(guardian.first_name or "", guardian.last_name, profile)
-    return {"GUARDIAN_NAME": signed or (on_file if named else ""), "STUDENT_NAME": student_name(profile)}
 
 
 def _consent_request_context(value: str) -> dict:
@@ -437,10 +418,8 @@ RECIPIENTS: dict[str, Recipients] = {
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,
     "guardian_details_request": Recipients(_students, _guardian_details_context),
-    "guardian_details_received": Recipients(_students, _student_notice_context),
     "guardian_consent_student_notice": Recipients(_students, _student_notice_context),
     "guardian_consent_request": Recipients(_guardians, _consent_request_context),
-    "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
