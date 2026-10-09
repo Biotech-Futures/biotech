@@ -21,6 +21,7 @@ from apps.groups.models import (
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
+from apps.services.models import LoginToken, PasswordResetToken
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 
@@ -1432,11 +1433,29 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     )
     next_role = input_data.get("role") or current_role or "student"
     
-    # Check email change
+    new_email = user.email
     if "email" in input_data:
+        if not isinstance(input_data["email"], str):
+            return {"msg": "Email is not a valid email address", "data": None}
         new_email = input_data["email"].strip().lower()
-        if new_email != user.email.lower():
-            return {"msg": "Email cannot be changed", "data": None}
+        try:
+            User._meta.get_field("email").clean(new_email, user)
+        except DjangoValidationError:
+            return {"msg": "Email is not a valid email address", "data": None}
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
+            return {"msg": "Account email already exists", "data": None}
+    email_changed = new_email != user.email.strip().lower()
+
+    if email_changed:
+        # A student's login must remain separate from either guardian address.
+        profile = StudentProfile.objects.filter(user_id=user_id).first()
+        if profile:
+            guardian_emails = (
+                input_data.get("guardianEmail", profile.pg_email),
+                profile.pending_pg_email,
+            )
+            if any(new_email == str(value or "").strip().lower() for value in guardian_emails):
+                return {"msg": "Student email cannot be the guardian's email", "data": None}
     
     # Validate role-specific requirements
     next_interests = input_data.get("interests") or (
@@ -1471,7 +1490,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     validate_email(guardian_email)
                 except DjangoValidationError:
                     return {"msg": "Guardian email is not a valid email address", "data": None}
-                if guardian_email == user.email.strip().lower():
+                if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
     
     if next_role in ["student", "mentor"] and not next_interests:
@@ -1544,12 +1563,19 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     try:
         with transaction.atomic():
             # Update basic user fields
+            if "email" in input_data:
+                user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName"]):
+            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName", "email"]):
                 user.save()
+
+            if email_changed:
+                # These credentials were delivered to the previous mailbox.
+                LoginToken.objects.filter(user=user, used=False).update(used=True)
+                PasswordResetToken.objects.filter(user=user, used=False).update(used=True, used_at=now)
             
             # Handle role change
             if "role" in input_data and input_data["role"] != current_role:
@@ -1608,7 +1634,9 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             if next_role == "supervisor":
                 upsert_supervisor_profile(
                     user_id,
-                    (input_data.get("supervisorSchoolName") or "").strip()
+                    input_data.get("supervisorSchoolName", SupervisorProfile.objects.filter(
+                        user_id=user_id
+                    ).values_list("school_name", flat=True).first())
                 )
             elif next_role != "supervisor":
                 SupervisorProfile.objects.filter(user_id=user_id).delete()
@@ -1616,10 +1644,12 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             if next_role == "mentor":
                 upsert_mentor_profile(
                     user_id,
-                    background=input_data.get("mentorBackground"),
-                    institution=input_data.get("mentorInstitution"),
-                    mentor_reason=input_data.get("mentorReason"),
-                    max_group_count=input_data.get("mentorMaxGroupCount")
+                    background=input_data.get("mentorBackground", MentorProfile.objects.filter(
+                        user_id=user_id
+                    ).values_list("background", flat=True).first()),
+                    institution=next_institution,
+                    mentor_reason=next_reason,
+                    max_group_count=next_max_count
                 )
             elif next_role != "mentor":
                 MentorProfile.objects.filter(user_id=user_id).delete()
@@ -1630,6 +1660,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             else:
                 delete_user_interests(user_id)
     
+    except IntegrityError:
+        # Another request may have claimed the address after the first check.
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
+            return {"msg": "Account email already exists", "data": None}
+        return {"msg": "Unable to update user: conflicting account details", "data": None}
     except Exception as e:
         return {
             "msg": f"Unable to update user: {str(e)}",

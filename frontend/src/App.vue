@@ -1,5 +1,8 @@
 <template>
-  <div class="app-container">
+  <div
+    class="app-container"
+    :class="{ 'student-dashboard-colours': auth.isStudent && ['/dashboard', '/profile'].includes(route.path) }"
+  >
     <!-- Hidden on the marking pages, so the preview and rubric get the
          height; the arrow below brings it back. -->
     <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
@@ -766,6 +769,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* BTF light green, matching the brand email buttons. Keep the change within
+   student dashboard/profile pages, including their navigation and account panel. */
+.student-dashboard-colours {
+  --light-green: #c3ebca;
+  --accent-green-soft: #c3ebca;
+}
+
+:global(html[data-theme="dark"] .student-dashboard-colours) {
+  --light-green: rgba(1, 113, 81, 0.18);
+  --accent-green-soft: rgba(1, 113, 81, 0.18);
+}
+
 :global(html),
 :global(body),
 :global(#app) {
