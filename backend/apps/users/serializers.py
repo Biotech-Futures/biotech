@@ -16,7 +16,7 @@ from zoneinfo import available_timezones
 
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
-    Title = serializers.EmailField()
+    Title = serializers.EmailField() ##"Title" as a field name (usually meaning Mr/Mrs/Dr, or a job title) being validated as an email looks like a real bug or a mislabeled field, not something you're missing.
     FirstName = serializers.CharField(max_length=255)
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
@@ -30,6 +30,76 @@ class UserRegisterBodySerializer(serializers.Serializer):
     SchoolName = serializers.CharField(max_length=255)
     YearLevel = serializers.CharField(max_length=255)
     Areaofinterest = serializers.CharField(max_length=255)
+    ConfirmSchoolOverride = serializers.BooleanField(required=False, default=False)
+    ConfirmNameEmailOverride = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, data):
+        student_email = data.get("Title", "").strip().lower()
+        student_first = data.get("FirstName", "").strip().lower()
+        student_last = data.get("Surname", "").strip().lower()
+
+        guardian_email = data.get("GuardianEmail", "").strip().lower()
+        guardian_first = data.get("GuardianName", "").strip().lower()
+        guardian_last = data.get("GuardianSurname", "").strip().lower()
+
+        supervisor_email = data.get("SupervisorEmail", "").strip().lower()
+        supervisor_first = data.get("SupervisorFirstName", "").strip().lower()
+        supervisor_last = data.get("SupervisorSurname", "").strip().lower()
+
+        # Guardian can't be the same person as the student
+        if student_email == guardian_email or (
+            student_first == guardian_first and student_last == guardian_last
+        ):
+            raise serializers.ValidationError(
+                "The guardian cannot be the same person as the student."
+            )
+
+        # Supervisor can't be the same person as the student
+        if student_email == supervisor_email or (
+            student_first == supervisor_first and student_last == supervisor_last
+        ):
+            raise serializers.ValidationError(
+                "The supervisor cannot be the same person as the student."
+            )
+
+        # School name check: soft warning, bypassable.
+        # Simple substring check per the client. The editable list of known
+        # universities (admin-only) is a separate feature, not built yet.
+        school_name = data.get("SchoolName", "").strip().lower()
+        if "university" in school_name and not data.get("ConfirmSchoolOverride"):
+            raise serializers.ValidationError(
+                "This looks like a university, not a school. Please confirm "
+                "if this is correct, or check ConfirmSchoolOverride to proceed."
+            )
+
+        # Name/email consistency check: soft warning, bypassable.
+        # Edit distance of 1-2 means a likely typo (e.g. "wiliam.nixon" for
+        # William Nixon). Exact matches and totally different emails pass.
+        def _edit_distance(a, b):
+            if len(a) < len(b):
+                a, b = b, a
+            previous_row = list(range(len(b) + 1))
+            for i, ca in enumerate(a):
+                current_row = [i + 1]
+                for j, cb in enumerate(b):
+                    insertions = previous_row[j + 1] + 1
+                    deletions = current_row[j] + 1
+                    substitutions = previous_row[j] + (ca != cb)
+                    current_row.append(min(insertions, deletions, substitutions))
+                previous_row = current_row
+            return previous_row[-1]
+
+        student_name_compact = (student_first + student_last).replace(" ", "")
+        email_local_part = student_email.split("@")[0].replace(".", "").replace("_", "")
+        distance = _edit_distance(student_name_compact, email_local_part)
+        if 1 <= distance <= 2 and not data.get("ConfirmNameEmailOverride"):
+            raise serializers.ValidationError(
+                "This email looks like it might have a typo compared to the "
+                "student's name. Please confirm if this is correct, or check "
+                "ConfirmNameEmailOverride to proceed."
+            )
+
+        return data
 
 # Registration Wrapper
 class UserRegisterRequestSerializer(serializers.Serializer):
