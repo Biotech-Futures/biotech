@@ -88,3 +88,7 @@ npm run type-check
 - Work on feature branches; merge to `main` via Pull Request.
 - Pre-commit hooks type-check `frontend/` and `adminweb/` when files in those trees are staged.
 - Backend deploys are gated on the test suite in `.github/workflows/main_biotechbe.yml`.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.md) for details.

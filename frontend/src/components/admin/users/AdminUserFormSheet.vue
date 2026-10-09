@@ -24,9 +24,14 @@
             v-model.trim="form.email"
             type="email"
             class="form-input"
-            :disabled="isEditing"
-            :readonly="isEditing"
+            :disabled="isEditing && isSupervisorMode"
+            :readonly="isEditing && isSupervisorMode"
+            :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
           />
+          <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
+            Changing this address updates the user's login and future emails. They will need to
+            request a new login code or password-reset link if they have one already.
+          </p>
         </div>
         <div v-if="!isEditing" class="form-field">
           <label class="form-label" for="f-role">Role *</label>
@@ -539,6 +544,9 @@ const submitForm = async () => {
         countryId: role === 'admin' ? null : form.countryId,
         stateId: role === 'admin' ? null : form.stateId
       }
+      if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
+        payload.email = form.email.trim().toLowerCase()
+      }
       if (role === 'student') {
         payload.schoolName = form.schoolName
         payload.yearLevel = form.yearLevel
@@ -651,6 +659,12 @@ const submitForm = async () => {
   border-radius: 6px;
   background-color: var(--bg-light);
   color: var(--charcoal);
+  font-size: 0.85rem;
+}
+
+.admin-users-form__hint {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
