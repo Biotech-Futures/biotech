@@ -92,6 +92,43 @@ describe('admin user form: guardian & consent', () => {
     vi.mocked(updateAdminUser).mockClear()
   })
 
+  it('lets admins edit the login email and sends the normalized change', async () => {
+    const wrapper = await openForm(student())
+    expect(wrapper.find('#f-email').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('#f-email').attributes('readonly')).toBeUndefined()
+    expect(wrapper.find('#f-email-hint').text()).toContain("updates the user's login")
+    await wrapper.find('#f-email').setValue('  New.Ward@Example.COM  ')
+    expect(await save(wrapper)).toMatchObject({ email: 'new.ward@example.com' })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('does not resend an unchanged email or allow supervisor email edits', async () => {
+    const wrapper = await openForm(student())
+    expect(await save(wrapper)).not.toHaveProperty('email')
+    await wrapper.setProps({ isSupervisorMode: true })
+    expect(wrapper.find('#f-email').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#f-email-hint').exists()).toBe(false)
+    expect(await save(wrapper)).not.toHaveProperty('email')
+  })
+
+  it('rejects an invalid login email before saving', async () => {
+    const wrapper = await openForm(student())
+    await wrapper.find('#f-email').setValue('not-an-email')
+    await save(wrapper)
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').text()).toContain('Invalid email format')
+  })
+
+  it('keeps the form open and shows duplicate-email errors from the backend', async () => {
+    vi.mocked(updateAdminUser).mockRejectedValueOnce(new Error('Account email already exists'))
+    const wrapper = await openForm(student())
+    await wrapper.find('#f-email').setValue('taken@example.com')
+    await save(wrapper)
+    expect(wrapper.find('[role="alert"]').text()).toContain('Account email already exists')
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
   it('puts Guardian & consent under Interests, before Account', async () => {
     const wrapper = await openForm(student())
     const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
