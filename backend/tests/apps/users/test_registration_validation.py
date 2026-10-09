@@ -2,8 +2,11 @@
 emails are already taken, who may be named as the guardian and supervisor, and
 the warnings the person registering can confirm their way past."""
 from django.test import TestCase
+from django.utils import timezone
 
-from apps.users.models import User
+from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
+from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.users.models import StudentProfile, SupervisorProfile, User
 from apps.users.serializers import UserRegisterBodySerializer
 
 
@@ -58,6 +61,7 @@ class DuplicateEmailTests(RegistrationValidationTestCase):
 
                 self.assertEqual(list(errors), ["Title"])
                 self.assertIn("already exists", errors["Title"][0])
+                self.assertEqual(errors["Title"][0].code, "email_taken")
 
 
 class SamePersonTests(RegistrationValidationTestCase):
@@ -135,3 +139,66 @@ class NameEmailWarningTests(RegistrationValidationTestCase):
         self.assertRefusedWith(
             "might have a typo", **self._william("wiliam.nixon", ConfirmSchoolOverride=True),
         )
+
+
+class CrossRoleEmailTests(RegistrationValidationTestCase):
+    def _user_with_role(self, email, role_name):
+        user = User.objects.create_user(email=email, first_name="Robin", last_name="Existing")
+        RoleAssignmentHistory.objects.create(
+            user=user, role=Roles.objects.get_or_create(role_name=role_name)[0], valid_from=timezone.now(),
+        )
+        return user
+
+    def _student(self, email="pupil@example.com"):
+        user = User.objects.create_user(email=email, first_name="Robin", last_name="Existing")
+        return StudentProfile.objects.create(
+            user=user, pg_first_name="Pat", pg_last_name="Parent", school_name="Test High School", year_lvl="10",
+        )
+
+    def _supervisor(self, email="grace@example.com"):
+        user = User.objects.create_user(email=email, first_name="Grace", last_name="Green")
+        return SupervisorProfile.objects.create(user=user, school_name="Test High School")
+
+    def assertRefusedOn(self, field, code, **overrides):
+        errors = self.assertRefused(**overrides)
+        self.assertEqual(list(errors), [field], errors)
+        self.assertEqual(errors[field][0].code, code)
+
+    def test_a_student_cannot_be_nominated_as_a_supervisor(self):
+        self._student()
+
+        for typed in ("pupil@example.com", "Pupil@Example.com"):
+            with self.subTest(typed=typed):
+                self.assertRefusedOn("SupervisorEmail", "supervisor_email_is_student", SupervisorEmail=typed)
+
+    def test_an_account_with_only_the_student_role_cannot_be_nominated(self):
+        self._user_with_role("pupil@example.com", ROLE_STUDENT)
+
+        self.assertRefusedOn(
+            "SupervisorEmail", "supervisor_email_is_student", SupervisorEmail="pupil@example.com",
+        )
+
+    def test_another_kind_of_account_cannot_be_nominated(self):
+        self._user_with_role("mentor@example.com", ROLE_MENTOR)
+
+        self.assertRefusedOn("SupervisorEmail", "supervisor_email_in_use", SupervisorEmail="mentor@example.com")
+
+    def test_an_existing_supervisor_can_be_nominated(self):
+        self._supervisor()
+        self._user_with_role("role-only@example.com", ROLE_SUPERVISOR)
+
+        for typed in ("grace@example.com", "GRACE@example.com", "role-only@example.com"):
+            with self.subTest(typed=typed):
+                self.assertAccepted(SupervisorEmail=typed)
+
+    def test_a_supervisors_email_cannot_register_as_a_student(self):
+        self._supervisor()
+
+        for typed in ("grace@example.com", "Grace@Example.com"):
+            with self.subTest(typed=typed):
+                self.assertRefusedOn("Title", "student_email_is_supervisor", Title=typed)
+
+    def test_any_other_email_in_use_is_reported_as_taken(self):
+        self._user_with_role("mentor@example.com", ROLE_MENTOR)
+
+        self.assertRefusedOn("Title", "email_taken", Title="mentor@example.com")

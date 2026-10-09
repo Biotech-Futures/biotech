@@ -18,6 +18,15 @@ from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
 
 
+def _has_role(user, profile_model, role_name) -> bool:
+    """Whether the account is a student or supervisor: it has that profile, or
+    has ever been given that role."""
+    return (
+        profile_model.objects.filter(user=user).exists()
+        or RoleAssignmentHistory.objects.filter(user=user, role__role_name__iexact=role_name).exists()
+    )
+
+
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
     Title = serializers.EmailField() ##"Title" as a field name (usually meaning Mr/Mrs/Dr, or a job title) being validated as an email looks like a real bug or a mislabeled field, not something you're missing.
@@ -44,9 +53,38 @@ class UserRegisterBodySerializer(serializers.Serializer):
         # `Title` is the student's own email (mislabeled field name; confirmed
         # against the real Qualtrics form). Block registration if this email
         # is already in use.
-        if User.objects.filter(email__iexact=value).exists():
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
             raise serializers.ValidationError(
-                "An account with this email address already exists."
+                "This email address already belongs to a supervisor, so it "
+                "cannot be used to register a student.",
+                code="student_email_is_supervisor",
+            )
+        raise serializers.ValidationError(
+            "An account with this email address already exists.",
+            code="email_taken",
+        )
+
+    def validate_SupervisorEmail(self, value):
+        # A nominated supervisor is either new or already a supervisor. Any
+        # other existing account is refused, so the form can't hand someone
+        # else's account the supervisor role.
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, StudentProfile, ROLE_STUDENT):
+            raise serializers.ValidationError(
+                "This email address belongs to a student, so they cannot be "
+                "nominated as a supervisor.",
+                code="supervisor_email_is_student",
+            )
+        if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+            raise serializers.ValidationError(
+                "This email address belongs to an existing account that is "
+                "not a supervisor.",
+                code="supervisor_email_in_use",
             )
         return value
 
