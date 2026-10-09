@@ -82,6 +82,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
+  { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },

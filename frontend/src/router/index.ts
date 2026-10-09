@@ -62,7 +62,7 @@ import { useAuthStore } from '../stores/auth'
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password', '/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
