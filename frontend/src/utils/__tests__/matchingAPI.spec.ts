@@ -17,8 +17,6 @@ import { matchingConfigFieldErrors } from '@/utils/matchingConfig'
 
 const configRow = {
   id: 7,
-  name: 'Student v2',
-  is_active: true,
   year_weight: '30.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
@@ -140,7 +138,7 @@ describe('writes', () => {
   it('creates a config with a CSRF token and a snake_case body', async () => {
     const fetchMock = stubFetch(() => jsonResponse(configRow, 201))
 
-    const created = await createMatchingConfig({ name: 'Student v2', weights })
+    const created = await createMatchingConfig({ weights })
 
     const { url, init, headers, body } = apiCall(fetchMock)
     expect(url).toMatch(/\/matching\/configs\/$/)
@@ -150,14 +148,13 @@ describe('writes', () => {
     expect(headers.get('Content-Type')).toBe('application/json')
     expect(csrfFetches(fetchMock)).toBe(1)
     expect(body).toEqual({
-      name: 'Student v2',
       year_weight: 30,
       timezone_weight: 15,
       timezone_max_weight: 25,
       size_bonus_weight: 30
     })
 
-    expect(created).toMatchObject({ id: 7, isActive: true, totalWeight: 100, weights })
+    expect(created).toMatchObject({ id: 7, totalWeight: 100, weights })
   })
 
   it('updates a config with PATCH, sending only the given fields', async () => {
@@ -180,7 +177,7 @@ describe('writes', () => {
   it('does not send the write when no CSRF token can be obtained', async () => {
     const fetchMock = stubFetch(() => jsonResponse(configRow, 201), 503)
 
-    await expect(createMatchingConfig({ name: 'Student v2', weights })).rejects.toThrow(
+    await expect(createMatchingConfig({ weights })).rejects.toThrow(
       /secure session/
     )
     expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/services/csrf/'))).toBe(
@@ -202,7 +199,6 @@ describe('validation errors', () => {
     stubFetch(rejected({ weight_total: [message] }))
 
     const error = await createMatchingConfig({
-      name: 'Off by ten',
       weights: { ...weights, yearWeight: 20 }
     }).catch((caught: unknown) => caught)
 
@@ -210,17 +206,5 @@ describe('validation errors', () => {
     expect((error as ApiError).status).toBe(400)
     expect((error as ApiError).message).toBe(message)
     expect(matchingConfigFieldErrors(error)?.weightTotal).toBe(message)
-  })
-
-  it('surfaces a duplicate-name message from a rejected update', async () => {
-    stubFetch(rejected({ name: ['matching config with this name already exists.'] }))
-
-    const error = await updateMatchingConfig(7, { name: 'Taken' }).catch(
-      (caught: unknown) => caught
-    )
-
-    expect(matchingConfigFieldErrors(error)).toMatchObject({
-      name: 'matching config with this name already exists.'
-    })
   })
 })

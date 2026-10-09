@@ -36,11 +36,12 @@ def create_config(**overrides):
 
 
 class MatchingConfigModelTests(TestCase):
-    def test_config_is_named_in_its_admin_list(self):
-        self.assertEqual(str(create_config(name="Student v2")), "Student v2")
+    def test_config_identifies_itself_by_id_in_the_admin_list(self):
+        config = create_config()
+        self.assertEqual(str(config), f"Scoring config #{config.id}")
 
     def test_weights_must_total_exactly_one_hundred_percent(self):
-        config = MatchingConfig(name="Too low", **{**VALID_WEIGHTS, "year_weight": "20.00"})
+        config = MatchingConfig(**{**VALID_WEIGHTS, "year_weight": "20.00"})
 
         with self.assertRaises(ValidationError) as raised:
             config.full_clean()
@@ -48,7 +49,7 @@ class MatchingConfigModelTests(TestCase):
         self.assertIn("weight_total", raised.exception.message_dict)
 
     def test_weight_total_error_reports_the_shortfall(self):
-        config = MatchingConfig(name="Over", **{**VALID_WEIGHTS, "year_weight": "40.00"})
+        config = MatchingConfig(**{**VALID_WEIGHTS, "year_weight": "40.00"})
 
         error = config.weight_total_error()
 
@@ -56,7 +57,7 @@ class MatchingConfigModelTests(TestCase):
         self.assertIn("10.00% over", error)
 
     def test_valid_weights_pass_clean_and_report_no_error(self):
-        config = MatchingConfig(name="Valid", **VALID_WEIGHTS)
+        config = MatchingConfig(**VALID_WEIGHTS)
 
         config.full_clean()
 
@@ -78,17 +79,13 @@ class MatchingConfigModelTests(TestCase):
             ),
         )
 
-    def test_activating_a_config_retires_the_previous_one(self):
-        first = create_config(name="First")
-        second = create_config(name="Second")
+    def test_saving_a_second_config_replaces_the_stored_one(self):
+        first = create_config()
+        second = create_config()
 
-        second.activate()
-
-        first.refresh_from_db()
-        second.refresh_from_db()
-        self.assertFalse(first.is_active)
-        self.assertTrue(second.is_active)
-        self.assertEqual(MatchingConfig.get_active(), second)
+        self.assertEqual(MatchingConfig.objects.count(), 1)
+        self.assertEqual(MatchingConfig.get_singleton(), second)
+        self.assertNotEqual(first.pk, second.pk)
 
     def test_resolve_scoring_rules_falls_back_to_defaults_without_a_config(self):
         rules = resolve_scoring_rules()
@@ -97,7 +94,7 @@ class MatchingConfigModelTests(TestCase):
         self.assertEqual(rules.weights, ScoringWeights())
         self.assertEqual(rules.weights.total(), 34.0)
 
-    def test_resolve_scoring_rules_reads_the_active_config(self):
+    def test_resolve_scoring_rules_reads_the_stored_config(self):
         config = create_config()
 
         rules = resolve_scoring_rules()
@@ -107,14 +104,14 @@ class MatchingConfigModelTests(TestCase):
         self.assertEqual(resolve_scoring_weights().size_bonus_weight, 30.0)
 
     def test_snapshot_records_the_weights_actually_applied(self):
-        config = create_config()
+        create_config()
         rules = resolve_scoring_rules()
 
         snapshot = build_scoring_rules_snapshot("coverage", rules)
 
         self.assertEqual(snapshot["mode"], "coverage")
-        self.assertEqual(snapshot["configId"], config.id)
-        self.assertEqual(snapshot["configName"], config.name)
+        self.assertNotIn("configId", snapshot)
+        self.assertNotIn("configName", snapshot)
         self.assertEqual(snapshot["totalWeight"], "100.0")
         self.assertEqual(snapshot["weights"]["yearWeight"], 30.0)
         self.assertEqual(snapshot["weights"]["timezoneWeight"], 20.0)
@@ -137,7 +134,7 @@ class MatchingConfigModelTests(TestCase):
     def test_shipped_defaults_can_be_saved_as_a_config(self):
         defaults = matching_config_defaults()["defaults"]
 
-        config = MatchingConfig(name="Shipped", **{key: str(value) for key, value in defaults.items()})
+        config = MatchingConfig(**{key: str(value) for key, value in defaults.items()})
         config.full_clean()
 
         config.save()
@@ -147,7 +144,7 @@ class MatchingConfigModelTests(TestCase):
 class MatchingConfigSerializerTests(TestCase):
     def test_serializer_rejects_weights_that_do_not_total_one_hundred(self):
         serializer = MatchingConfigSerializer(
-            data={"name": "Bad", **{**VALID_WEIGHTS, "size_bonus_weight": "40.00"}}
+            data={**VALID_WEIGHTS, "size_bonus_weight": "40.00"}
         )
 
         self.assertFalse(serializer.is_valid())
@@ -196,13 +193,12 @@ class MatchingConfigApiTests(TestCase):
     def test_admin_can_create_a_config(self):
         response = self.client.post(
             "/matching/configs/",
-            {"name": "Student v2", **VALID_WEIGHTS},
+            VALID_WEIGHTS,
             format="json",
         )
 
         self.assertEqual(response.status_code, 201)
-        config = MatchingConfig.objects.get(name="Student v2")
-        self.assertTrue(config.is_active)
+        config = MatchingConfig.objects.get()
         self.assertEqual(config.updated_by, self.admin)
 
     def test_non_staff_cannot_manage_configs(self):
@@ -212,7 +208,7 @@ class MatchingConfigApiTests(TestCase):
 
         response = self.client.post(
             "/matching/configs/",
-            {"name": "Nope", **VALID_WEIGHTS},
+            VALID_WEIGHTS,
             format="json",
         )
 
@@ -221,7 +217,7 @@ class MatchingConfigApiTests(TestCase):
     def test_invalid_total_is_rejected_with_the_field_error(self):
         response = self.client.post(
             "/matching/configs/",
-            {"name": "Bad", **{**VALID_WEIGHTS, "year_weight": "10.00"}},
+            {**VALID_WEIGHTS, "year_weight": "10.00"},
             format="json",
         )
 
@@ -230,7 +226,7 @@ class MatchingConfigApiTests(TestCase):
         self.assertEqual(MatchingConfig.objects.count(), 0)
 
     def test_patch_updates_the_config_and_keeps_the_total_valid(self):
-        create_config(name="Current")
+        create_config()
 
         response = self.client.patch(
             "/matching/configs/1/",
@@ -239,12 +235,12 @@ class MatchingConfigApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        config = MatchingConfig.objects.get(name="Current")
+        config = MatchingConfig.objects.get(pk=1)
         self.assertEqual(config.year_weight, Decimal("40.00"))
         self.assertEqual(config.total_weight, Decimal("100.00"))
 
     def test_patch_that_breaks_the_total_is_rejected(self):
-        create_config(name="Current")
+        create_config()
 
         response = self.client.patch(
             "/matching/configs/1/",
@@ -254,30 +250,29 @@ class MatchingConfigApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("weight_total", response.json()["fields"])
-        self.assertEqual(MatchingConfig.objects.get(name="Current").year_weight, Decimal("30.00"))
+        self.assertEqual(MatchingConfig.objects.get(pk=1).year_weight, Decimal("30.00"))
 
     def test_delete_removes_the_config(self):
-        create_config(name="Doomed")
+        create_config()
 
         response = self.client.delete("/matching/configs/1/")
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(MatchingConfig.objects.count(), 0)
 
-    def test_creating_a_config_retires_the_previous_active_one(self):
-        create_config(name="First")
+    def test_creating_another_config_replaces_the_stored_one(self):
+        create_config()
 
         self.client.post(
             "/matching/configs/",
-            {"name": "Second", **VALID_WEIGHTS},
+            VALID_WEIGHTS,
             format="json",
         )
 
-        self.assertFalse(MatchingConfig.objects.get(name="First").is_active)
-        self.assertTrue(MatchingConfig.objects.get(name="Second").is_active)
+        self.assertEqual(MatchingConfig.objects.count(), 1)
 
     def test_active_endpoint_returns_the_config_actually_in_use(self):
-        config = create_config(name="Current")
+        config = create_config()
 
         response = self.client.get("/matching/configs/active/")
 
@@ -306,7 +301,6 @@ class MatchingConfigApiTests(TestCase):
         self.client.post(
             "/matching/configs/",
             {
-                "name": "Heavy year",
                 "year_weight": "40.00",
                 "timezone_weight": "20.00",
                 "timezone_max_weight": "15.00",

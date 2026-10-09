@@ -43,15 +43,15 @@ class StudentMatchRunSnapshotTests(TestCase):
             )
             UserInterest.objects.create(user=user, interest=interest)
 
-    def test_snapshot_names_the_active_config_and_mode(self):
-        config = MatchingConfig.objects.create(name="Student v2", **WEIGHTS)
+    def test_snapshot_records_the_mode_and_applied_weights(self):
+        MatchingConfig.objects.create(**WEIGHTS)
 
         match_student(str(self.admin.id), mode="coverage")
 
         snapshot = MatchRun.objects.get(run_type="student-match").rules_snapshot
         self.assertEqual(snapshot["mode"], "coverage")
-        self.assertEqual(snapshot["configId"], config.id)
-        self.assertEqual(snapshot["configName"], "Student v2")
+        self.assertNotIn("configId", snapshot)
+        self.assertNotIn("configName", snapshot)
         self.assertEqual(snapshot["totalWeight"], "100.0")
         self.assertEqual(snapshot["weights"]["yearWeight"], 30.0)
         # The existing payload is preserved alongside the rules block.
@@ -62,7 +62,6 @@ class StudentMatchRunSnapshotTests(TestCase):
 
         snapshot = MatchRun.objects.get(run_type="student-match").rules_snapshot
         self.assertEqual(snapshot["mode"], "balanced")
-        self.assertIsNone(snapshot["configId"])
         self.assertEqual(snapshot["weights"]["yearWeight"], 8.0)
 
     def _isolate_student_pair(self):
@@ -81,7 +80,6 @@ class StudentMatchRunSnapshotTests(TestCase):
         # where the legacy constant would only have cost 16 points.
         self._isolate_student_pair()
         MatchingConfig.objects.create(
-            name="Heavy year",
             year_weight="60.00",
             timezone_weight="15.00",
             timezone_max_weight="15.00",

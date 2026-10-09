@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from django.db import transaction
 
 from apps.common.matching_weights import WEIGHT_FIELDS
 
@@ -35,8 +34,6 @@ class MatchingConfigSerializer(serializers.ModelSerializer):
         model = MatchingConfig
         fields = [
             "id",
-            "name",
-            "is_active",
             "year_weight",
             "timezone_weight",
             "timezone_max_weight",
@@ -73,18 +70,9 @@ class MatchingConfigSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         self._record_editor(validated_data)
-        with transaction.atomic():
-            config = MatchingConfig(**validated_data)
-            # Only one config can be in force, so retire the previous one in the
-            # same transaction a matching run could read from.
-            if config.is_active:
-                config.activate(commit=False)
-            config.save()
-        return config
+        # ``save()`` replaces any previous row: there is only ever one config.
+        return MatchingConfig.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         self._record_editor(validated_data)
-        with transaction.atomic():
-            if validated_data.get("is_active", instance.is_active):
-                instance.activate(commit=False)
-            return super().update(instance, validated_data)
+        return super().update(instance, validated_data)

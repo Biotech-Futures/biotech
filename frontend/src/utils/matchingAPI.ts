@@ -73,8 +73,8 @@ export const fetchMatchingConfigDefaults = async (): Promise<MatchingConfigDefau
   unwrap(parseMatchingConfigDefaults(await requestJson(`${CONFIGS_PATH}/defaults/`)))
 
 /**
- * Save a new config. Unless `isActive` is false it becomes the active one and
- * the previous active config is retired.
+ * Save a config. A config is a singleton, so the new row replaces whatever was
+ * stored before.
  */
 export const createMatchingConfig = async (
   payload: CreateMatchingConfigPayload

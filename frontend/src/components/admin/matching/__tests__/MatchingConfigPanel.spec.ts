@@ -11,8 +11,6 @@ import { resetCsrfToken } from '@/utils/csrf'
 
 const savedRow = {
   id: 7,
-  name: 'Student v2',
-  is_active: true,
   year_weight: '30.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
@@ -195,9 +193,6 @@ describe('MatchingConfigPanel', () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
 
-      expect(wrapper.find<HTMLInputElement>('#matching-config-name').element.value).toBe(
-        'Student v2'
-      )
       expect(weightInput(wrapper, 'yearWeight').element.value).toBe('30')
       expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('15')
       expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
@@ -209,31 +204,10 @@ describe('MatchingConfigPanel', () => {
       stubFetch({})
       wrapper = await mountPanel()
 
-      expect(wrapper.find<HTMLInputElement>('#matching-config-name').element.value).toBe('')
       expect(weightInput(wrapper, 'yearWeight').element.value).toBe('20')
       expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('30')
       expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
       expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('25')
-    })
-
-    it('shows the built-in values in force separately, not as percentages', async () => {
-      stubFetch({})
-      wrapper = await mountPanel()
-
-      const builtin = wrapper.find('.matching-config__builtin')
-      expect(builtin.text()).toContain('using its built-in weighting')
-      expect(builtin.text()).toContain('not percentages')
-      const values = builtin.findAll('.matching-config__builtin-value').map((row) => row.text())
-      expect(values).toEqual([
-        'Year8',
-        'Timezone2',
-        'Timezone cap18',
-        'Group size bonus6'
-      ])
-      expect(builtin.text()).toContain(
-        'Saving a configuration replaces the built-in weighting and may change student ' +
-          'matching results.'
-      )
     })
 
     it('shows a general error with a retry when loading fails', async () => {
@@ -350,23 +324,22 @@ describe('MatchingConfigPanel', () => {
   })
 
   describe('saving', () => {
-    it('requires a name before the first config can be saved', async () => {
+    it('saves a first config straight away, with no name to supply', async () => {
       stubFetch({})
       wrapper = await mountPanel()
-      expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
 
-      await wrapper.find('#matching-config-name').setValue('Student weights 2026')
+      // A config has no display name: the form starts on a valid defaults split
+      // and can be saved immediately.
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
-    it('POSTs a new active config the first time, with the values as entered', async () => {
+    it('POSTs a new config the first time, with the values as entered', async () => {
       const fetchMock = stubFetch({
         create: () =>
           jsonResponse(
             {
               ...savedRow,
               id: 9,
-              name: 'Student weights 2026',
               year_weight: '20.00',
               timezone_weight: '30.00',
               timezone_max_weight: '25.00',
@@ -377,19 +350,16 @@ describe('MatchingConfigPanel', () => {
       })
       wrapper = await mountPanel()
 
-      await wrapper.find('#matching-config-name').setValue('Student weights 2026')
       await submit(wrapper)
 
       const request = sent(fetchMock, 'POST')
       expect(request.url).toMatch(/\/matching\/configs\/$/)
       expect(request.headers.get('X-CSRFToken')).toBe('csrf-test')
       expect(request.body).toEqual({
-        name: 'Student weights 2026',
         year_weight: 20,
         timezone_weight: 30,
         timezone_max_weight: 25,
-        size_bonus_weight: 25,
-        is_active: true
+        size_bonus_weight: 25
       })
 
       // The saved config is now the one in force.
@@ -413,7 +383,6 @@ describe('MatchingConfigPanel', () => {
       expect(request.url).toMatch(/\/matching\/configs\/7\/$/)
       expect(request.headers.get('X-CSRFToken')).toBe('csrf-test')
       expect(request.body).toEqual({
-        name: 'Student v2',
         year_weight: 33.33,
         timezone_weight: 15,
         timezone_max_weight: 25,
@@ -432,19 +401,6 @@ describe('MatchingConfigPanel', () => {
       wrapper = await mountPanel()
       await submit(wrapper)
     }
-
-    it('shows a name error beside the name field', async () => {
-      await saveWith(() =>
-        validationError({ name: ['matching config with this name already exists.'] })
-      )
-
-      const nameInput = wrapper!.find('#matching-config-name')
-      expect(nameInput.attributes('aria-invalid')).toBe('true')
-      expect(nameInput.attributes('aria-describedby')).toBe('matching-config-name-error')
-      expect(wrapper!.find('#matching-config-name-error').text()).toBe(
-        'matching config with this name already exists.'
-      )
-    })
 
     it('shows a total error beside the total', async () => {
       const message =
