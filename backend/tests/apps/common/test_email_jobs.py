@@ -1,6 +1,7 @@
-"""The scheduled email jobs share one token: EMAIL_JOBS_TOKEN, sent in the
-X-Email-Jobs-Token header, opens every job's endpoint, and nothing else
-does. Unset, every job answers 503 rather than standing open."""
+"""The scheduled email jobs share one token, sent in the X-Email-Jobs-Token
+header: it opens every job's endpoint, and nothing else does. While the jobs
+move from RSVP_REMINDER_TOKEN to EMAIL_JOBS_TOKEN, either is accepted. With
+neither set, every job answers 503 rather than standing open."""
 from contextlib import ExitStack
 from unittest.mock import patch
 
@@ -46,7 +47,24 @@ class EmailJobsTokenTests(TestCase):
                         self.client.post(url, **{old: "one-token"}).status_code, status.HTTP_401_UNAUTHORIZED,
                     )
 
-    @override_settings(EMAIL_JOBS_TOKEN="")
+    @override_settings(EMAIL_JOBS_TOKEN="", RSVP_REMINDER_TOKEN="old-token")
+    def test_the_old_token_still_runs_every_job_while_the_new_one_is_unset(self):
+        for url in JOBS:
+            with self.subTest(url):
+                response = self.client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="old-token")
+                self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_202_ACCEPTED))
+
+    @override_settings(RSVP_REMINDER_TOKEN="old-token")
+    def test_with_both_set_either_token_runs_the_jobs(self):
+        for token in ("one-token", "old-token"):
+            with self.subTest(token):
+                response = self.client.post(JOBS[0], HTTP_X_EMAIL_JOBS_TOKEN=token)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.post(JOBS[0], HTTP_X_EMAIL_JOBS_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED,
+        )
+
+    @override_settings(EMAIL_JOBS_TOKEN="", RSVP_REMINDER_TOKEN="")
     def test_with_no_token_set_every_job_refuses(self):
         for url in JOBS:
             with self.subTest(url):
