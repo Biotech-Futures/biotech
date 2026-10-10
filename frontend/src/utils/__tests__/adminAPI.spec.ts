@@ -30,6 +30,7 @@ import {
   bulkDeleteAdminViews,
   runAdminView,
   getAdminViewExportUrl,
+  fetchStudentMatch,
   fetchSystemEmailTemplates,
   updateSystemEmailTemplate,
   restoreSystemEmailTemplate,
@@ -747,6 +748,36 @@ describe('removeGroupMember', () => {
     ]
     expect(init!.method).toBe('DELETE')
     expect(result).toBe('Member removed successfully')
+  })
+})
+
+describe('fetchStudentMatch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const stubFetch = () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ msg: 'ok', data: { recommendations: [] } }), { status: 200 })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('runs in balanced mode by default and unwraps the envelope', async () => {
+    const fetchMock = stubFetch()
+
+    await expect(fetchStudentMatch()).resolves.toEqual({ recommendations: [] })
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/match/student/?mode=balanced')
+  })
+
+  it.each(['strict', 'coverage'] as const)('sends ?mode=%s', async (mode) => {
+    const fetchMock = stubFetch()
+
+    await fetchStudentMatch(mode)
+    expect(String(fetchMock.mock.calls[0][0])).toContain(`/match/student/?mode=${mode}`)
   })
 })
 

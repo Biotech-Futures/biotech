@@ -126,7 +126,6 @@ const scoreBreakdownSchema = z
   .object({
     baseScore: z.number(),
     yearPenalty: z.number(),
-    countryPenalty: z.number(),
     timezonePenalty: z.number(),
     sizeBonus: z.number(),
     totalPenalty: z.number(),

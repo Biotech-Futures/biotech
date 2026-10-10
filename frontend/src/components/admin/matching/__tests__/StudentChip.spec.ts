@@ -18,8 +18,7 @@ const entry: RecommendedStudent = {
   scoreBreakdown: {
     baseScore: 100,
     yearPenalty: 0,
-    countryPenalty: 12,
-    timezonePenalty: 0,
+    timezonePenalty: 12,
     sizeBonus: 3,
     totalPenalty: 12,
     objectiveScore: 91
@@ -42,7 +41,7 @@ describe('StudentChip', () => {
     expect(wrapper.classes()).toContain('student-chip')
   })
 
-  // The algorithm returns `score` (88 here: base 100 minus a 12 location
+  // The algorithm returns `score` (88 here: base 100 minus a 12 timezone
   // penalty) and `objectiveScore` (91: score plus the +3 size bonus). The
   // matcher ranks by objectiveScore and the card's breakdown totals to it, so
   // showing `score` made the badge disagree with its own breakdown.

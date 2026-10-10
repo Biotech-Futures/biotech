@@ -1,17 +1,23 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from rest_framework import mixins, permissions, status, viewsets
+from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer
 
 from apps.audit.services import log_audit_event
 from apps.groups.services import assign_mentor_to_group
 from apps.common.rbac import is_admin
 
-from .models import MatchRecommendation, MatchRun
-from .serializers import BulkRecommendationAcceptSerializer, MatchRecommendationSerializer, MatchRunSerializer
+from .models import MatchRecommendation, MatchRun, MatchingConfig
+from .serializers import (
+    BulkRecommendationAcceptSerializer,
+    MatchRecommendationSerializer,
+    MatchRunSerializer,
+    MatchingConfigSerializer,
+)
+from .services import matching_config_defaults, resolve_scoring_weights
 
 
 class MatchRunViewSet(
@@ -34,6 +40,101 @@ class MatchRunViewSet(
             action="create",
             after_state=MatchRunSerializer(match_run).data,
         )
+
+
+class MatchingConfigViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Admin CRUD for the matching scoring weights.
+
+    Weights are percentages that must total exactly 100; the serializer rejects
+    anything else rather than normalising it. ``active`` and ``defaults`` are
+    read-only shortcuts for the admin panel.
+    """
+
+    queryset = MatchingConfig.objects.select_related("updated_by").all()
+    serializer_class = MatchingConfigSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def perform_create(self, serializer):
+        config = serializer.save()
+        self._log_config_change(action="create", after_state=config)
+
+    def perform_update(self, serializer):
+        # Snapshot first: ``serializer.instance`` is the same object ``save()``
+        # mutates, so reading it afterwards would record no change at all.
+        before_state = MatchingConfigSerializer(serializer.instance).data
+        config = serializer.save()
+        self._log_config_change(
+            action="update",
+            before_state=before_state,
+            after_state=config,
+        )
+
+    def perform_destroy(self, instance):
+        # Capture the state before the row is gone, so the audit trail of a
+        # deleted weight set stays readable.
+        before_state = MatchingConfigSerializer(instance).data
+        entity_id = instance.id
+        instance.delete()
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="matching_config",
+            entity_id=entity_id,
+            action="delete",
+            before_state=before_state,
+        )
+
+    def _log_config_change(self, *, action, after_state, before_state=None):
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="matching_config",
+            entity_id=after_state.id,
+            action=action,
+            before_state=before_state,
+            after_state=MatchingConfigSerializer(after_state).data,
+        )
+
+    @extend_schema(responses={200: MatchingConfigSerializer})
+    @action(detail=False, methods=["get"], url_path="active")
+    def active(self, request):
+        """The stored config (or its weights) the next run will use."""
+        config = MatchingConfig.get_singleton()
+        if config is None:
+            return Response(
+                {
+                    "data": None,
+                    "weights": resolve_scoring_weights().as_dict(),
+                    **matching_config_defaults(),
+                }
+            )
+
+        return Response(
+            {
+                "data": MatchingConfigSerializer(config).data,
+                "weights": config.to_scoring_weights().as_dict(),
+                **matching_config_defaults(),
+            }
+        )
+
+    @extend_schema(
+        responses={200: inline_serializer(
+            name="MatchingConfigDefaults",
+            fields={
+                "requiredTotal": serializers.CharField(),
+                "defaults": serializers.DictField(child=serializers.DecimalField(max_digits=5, decimal_places=2)),
+            },
+        )}
+    )
+    @action(detail=False, methods=["get"], url_path="defaults")
+    def defaults(self, request):
+        """A complete, valid weight split for an admin form to start from."""
+        return Response({"data": matching_config_defaults()})
 
 
 class MatchRecommendationViewSet(

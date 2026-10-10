@@ -1,15 +1,45 @@
 <template>
   <div class="student-matching">
-    <!-- Toolbar -->
+    <!-- Heading, then the mode selector and actions — same layout as the
+         Mentor Matching tab's "Mentor Assignment". -->
     <div class="student-matching__header">
-      <div class="student-matching__title">
-        <h2>Student Matching</h2>
-        <span v-if="hasRun" class="student-matching__badge">
-          {{ assignmentCount }} proposed
-        </span>
+      <div class="student-matching__head">
+        <div class="student-matching__title">
+          <h2>Student Grouping</h2>
+          <span v-if="hasRun" class="student-matching__badge">
+            {{ assignmentCount }} proposed
+          </span>
+        </div>
+        <p class="student-matching__subtitle">
+          Run the algorithm, review suggested groups, then confirm assignments.
+        </p>
       </div>
 
       <div class="student-matching__actions">
+        <div class="student-matching__modes" role="radiogroup" aria-label="Matching mode">
+          <span v-for="entry in modes" :key="entry.value" class="student-matching__mode-wrap">
+            <button
+              type="button"
+              role="radio"
+              :aria-checked="mode === entry.value"
+              :aria-describedby="`student-mode-desc-${entry.value}`"
+              class="student-matching__mode"
+              :class="{ 'student-matching__mode--active': mode === entry.value }"
+              :disabled="loading"
+              @click="setMode(entry.value)"
+            >
+              {{ entry.label }}
+            </button>
+            <span
+              :id="`student-mode-desc-${entry.value}`"
+              class="student-matching__mode-tip"
+              role="tooltip"
+            >
+              {{ entry.description }}
+            </span>
+          </span>
+        </div>
+
         <button type="button" class="btn btn-sm btn-primary" :disabled="loading" @click="run">
           <i class="fas fa-shuffle" aria-hidden="true"></i>
           <span>{{ loading ? 'Matching...' : 'Run match' }}</span>
@@ -32,27 +62,22 @@
           <i class="fas fa-rotate-left" aria-hidden="true"></i>
           <span>Reset board</span>
         </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline"
+          :aria-expanded="showWeights"
+          aria-controls="student-matching-weights"
+          @click="toggleWeights"
+        >
+          <i class="fas fa-sliders" aria-hidden="true"></i>
+          <span>Scoring weights</span>
+        </button>
       </div>
     </div>
 
-    <!-- Stat tiles -->
-    <div v-if="hasRun" class="student-matching__stats">
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Total groups</p>
-        <p class="student-matching__stat-value">{{ totalGroups }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Visible groups</p>
-        <p class="student-matching__stat-value">{{ visibleGroupCount }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Open seats</p>
-        <p class="student-matching__stat-value">{{ totalOpenSeats }}</p>
-      </div>
-      <div class="student-matching__stat">
-        <p class="student-matching__stat-label">Waiting students</p>
-        <p class="student-matching__stat-value">{{ waitingCount }}</p>
-      </div>
+    <!-- Mounted on first open, then only hidden, so collapsing keeps edits. -->
+    <div id="student-matching-weights" :hidden="!showWeights">
+      <MatchingConfigPanel v-if="weightsOpened" />
     </div>
 
     <p v-if="error" class="student-matching__error" role="alert">
@@ -213,14 +238,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import draggable from 'vuedraggable'
-import { GROUP_FILTERS, useStudentMatching } from '@/composables/admin/useStudentMatching'
+import {
+  GROUP_FILTERS,
+  STUDENT_MATCH_MODES,
+  useStudentMatching
+} from '@/composables/admin/useStudentMatching'
 import StudentChip from '@/components/admin/matching/StudentChip.vue'
+import MatchingConfigPanel from '@/components/admin/matching/MatchingConfigPanel.vue'
 import type { RecommendedStudent } from '@/utils/adminMatching'
 
 // Shared name means students can move between any bucket and the waiting area.
 const DRAG_GROUP = { name: 'matching-students' }
 
 const groupFilters = GROUP_FILTERS
+const modes = STUDENT_MATCH_MODES
 
 const studentKey = (entry: RecommendedStudent) => String(entry.student.id)
 
@@ -228,19 +259,26 @@ const studentKey = (entry: RecommendedStudent) => String(entry.student.id)
 // aiming at (the reference app does the same via `suppressTooltip`).
 const isDragging = ref(false)
 
+// The weights editor loads only when first opened, so admins who never open
+// it don't pay for the request.
+const showWeights = ref(false)
+const weightsOpened = ref(false)
+const toggleWeights = () => {
+  showWeights.value = !showWeights.value
+  weightsOpened.value = true
+}
+
 const {
   loading,
   confirming,
   error,
   hasRun,
+  mode,
   buckets,
   waiting,
   search,
   groupFilter,
   visibleGroups,
-  totalGroups,
-  visibleGroupCount,
-  totalOpenSeats,
   waitingCount,
   assignmentCount,
   isEmpty,
@@ -248,6 +286,7 @@ const {
   recommendedGroupOf,
   isInRecommendedGroup,
   run,
+  setMode,
   reset,
   confirm
 } = useStudentMatching()
@@ -264,12 +303,18 @@ const onConfirm = () => {
   gap: 1rem;
 }
 
+/* Heading on top, controls below it, as on the Mentor Matching tab. */
 .student-matching__header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.75rem;
+}
+
+.student-matching__subtitle {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .student-matching__title {
@@ -295,6 +340,67 @@ const onConfirm = () => {
   gap: 0.45rem;
 }
 
+/* Segmented mode pills — same look as the Mentor Matching tab. */
+.student-matching__modes {
+  display: inline-flex;
+  padding: 0.15rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--bg-light);
+}
+
+.student-matching__mode {
+  padding: 0.3rem 0.85rem;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.student-matching__mode--active {
+  background-color: var(--charcoal);
+  color: var(--white);
+}
+
+.student-matching__mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mode description tooltip */
+.student-matching__mode-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.student-matching__mode-tip {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 30;
+  display: none;
+  width: 17rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--surface-elevated);
+  box-shadow: 0 8px 24px var(--shadow);
+  color: var(--charcoal);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.student-matching__mode-wrap:hover .student-matching__mode-tip,
+.student-matching__mode-wrap:focus-within .student-matching__mode-tip {
+  display: block;
+}
+
 .student-matching__badge {
   padding: 0.15rem 0.6rem;
   border: 1px solid var(--border-light);
@@ -302,32 +408,6 @@ const onConfirm = () => {
   color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 600;
-}
-
-/* Stats */
-.student-matching__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.6rem;
-}
-
-.student-matching__stat {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--bg-light);
-}
-
-.student-matching__stat-label {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.student-matching__stat-value {
-  margin: 0.15rem 0 0;
-  font-size: 1.1rem;
-  font-weight: 700;
 }
 
 /* Filters */

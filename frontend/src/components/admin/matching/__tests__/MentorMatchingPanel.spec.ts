@@ -200,6 +200,28 @@ describe('MentorMatchingPanel', () => {
     expect(body.assignments).toEqual([{ groupId: 11, mentorUserId: 4 }])
   })
 
+  it('lists the modes Strict, Balanced, Coverage, with Balanced the default', async () => {
+    const fetch = fetchMock()
+    vi.stubGlobal('fetch', fetch)
+    wrapper = mount(MentorMatchingPanel)
+    await flushPromises()
+
+    const radios = wrapper.findAll('[role="radio"]')
+    expect(radios.map((radio) => radio.text().trim())).toEqual(['Strict', 'Balanced', 'Coverage'])
+    expect(radios.map((radio) => radio.attributes('aria-checked'))).toEqual([
+      'false',
+      'true',
+      'false'
+    ])
+
+    // Listed second, but still what the first run asks for.
+    await runMatch(wrapper)
+    const runUrls = fetch.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes('/mentor-match/recommend/'))
+    expect(runUrls).toEqual([expect.stringContaining('/mentor-match/recommend/?mode=balanced')])
+  })
+
   it('clears the board when the matching mode changes', async () => {
     vi.stubGlobal('fetch', fetchMock())
     wrapper = mount(MentorMatchingPanel)

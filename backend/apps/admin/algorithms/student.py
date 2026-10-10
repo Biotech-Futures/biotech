@@ -1,21 +1,17 @@
-from typing import TypedDict, Optional, Union, Literal, Set, List, Dict, Any
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, TypedDict, Union
 from itertools import combinations as itertools_combinations
 from functools import cmp_to_key
 import math
 
+from apps.common.matching_modes import MatchMode, resolve_match_mode
+from apps.common.matching_weights import BASE_SCORE, ScoringWeights
+
 # ── Constants ──────────────────────────────────────────────────────────────
 
-BASE_SCORE = 100
-YEAR_WEIGHT = 8
-COUNTRY_MISMATCH_PENALTY = 12
-TIMEZONE_WEIGHT = 2
-TIMEZONE_MAX_PENALTY = 18
-SIZE_BONUS = {
-    2: 0,
-    3: 3,
-    4: 5,
-    5: 6,
-}
+# The scoring magnitudes (year/country/timezone/size) used to be module-level
+# constants here; they now live in ``ScoringWeights`` so an admin can retune them
+# through the matching config without a deploy (MA1). Their default values are the
+# constants this module used to hardcode.
 
 # ── Type Definitions ───────────────────────────────────────────────────────
 
@@ -42,7 +38,6 @@ class ExistingGroupMemberInput(TypedDict, total=False):
 class GroupScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     totalPenalty: float
     sizeBonus: float
@@ -60,7 +55,6 @@ class MatchGroup(TypedDict):
 class StudentScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     totalPenalty: float
 
@@ -90,7 +84,6 @@ class StudentGroupRecommendation(TypedDict):
 class RecommendationScoreBreakdown(TypedDict):
     baseScore: float
     yearPenalty: float
-    countryPenalty: float
     timezonePenalty: float
     sizeBonus: float
     totalPenalty: float
@@ -154,6 +147,11 @@ class MatchResult(TypedDict):
 
 def clamp(value: float, min_val: float, max_val: float) -> float:
     return min(max_val, max(min_val, value))
+
+
+def resolve_weights(weights: Optional[ScoringWeights] = None) -> ScoringWeights:
+    """Scoring weights for this run, defaulting to the built-in constants."""
+    return weights if weights is not None else ScoringWeights()
 
 
 def round2(value: float) -> float:
@@ -281,10 +279,6 @@ def get_pair_count(group_size: int) -> int:
     return group_size * (group_size - 1) // 2
 
 
-def get_size_bonus(group_size: int) -> float:
-    return SIZE_BONUS.get(group_size, 0)
-
-
 def get_group_max_size(group: ExistingGroupInput) -> int:
     return nullish(group.get("maxSize"), 5)
 
@@ -303,6 +297,24 @@ def get_group_country(group: List[StudentInput]) -> str:
     if not counts:
         return ""
     return max(sorted(counts.keys()), key=lambda country: counts[country])
+
+
+def is_country_compatible(country_a: str, country_b: str) -> bool:
+    """Same country, or one side unknown (unknown country acts as a wildcard)."""
+    return not country_a or not country_b or country_a == country_b
+
+
+def get_pair_country_mismatch_count(group: List[StudentInput]) -> int:
+    """Cross-country pair count — a reported tie-breaker signal, never a penalty."""
+    mismatch_count = 0
+    for i in range(len(group)):
+        for j in range(i + 1, len(group)):
+            if not is_country_compatible(
+                get_student_country(group[i]),
+                get_student_country(group[j]),
+            ):
+                mismatch_count += 1
+    return mismatch_count
 
 
 def map_source_student(student: IndividualStudentSource) -> StudentInput:
@@ -339,6 +351,10 @@ class RecommendationCandidate(TypedDict):
     score: float
     averageYearGap: float
     averageTimezoneGap: float
+    #: Peers whose country differs from the student's. MA4 ranks on this only
+    #: after every scored signal has tied, so it is a pure count with no weight
+    #: in the scoring configuration.
+    countryMismatchCount: int
     sharedInterests: List[str]
     scoreBreakdown: RecommendationScoreBreakdown
 
@@ -346,23 +362,39 @@ class RecommendationCandidate(TypedDict):
 def is_student_eligible_for_group(
     student: StudentInput,
     group: ExistingGroupInput,
+    mode: MatchMode = "balanced",
 ) -> bool:
     if is_group_full(group):
         return False
 
-    return len(get_shared_interests_with_group(student, group)) > 0
+    if len(get_shared_interests_with_group(student, group)) == 0:
+        return False
+
+    # Strict mode requires the student's country to match every group member's
+    # country. An unknown country on either side is a wildcard, mirroring
+    # mentor matching (see ``mentor.is_same_country_eligible``).
+    if mode == "strict":
+        student_country = get_student_country(student)
+        for member in group.get("groupStudent", []):
+            if not is_country_compatible(student_country, get_member_country(member)):
+                return False
+
+    return True
 
 
 def score_student_for_existing_group(
     student: StudentInput,
     group: ExistingGroupInput,
+    mode: MatchMode = "balanced",
+    weights: Optional[ScoringWeights] = None,
 ) -> Optional[RecommendationCandidate]:
-    if not is_student_eligible_for_group(student, group):
+    if not is_student_eligible_for_group(student, group, mode):
         return None
 
+    scoring = resolve_weights(weights)
     shared_interests = get_shared_interests_with_group(student, group)
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
+    country_mismatch_count = 0
     timezone_penalty_sum = 0.0
     timezone_gap_sum = 0.0
 
@@ -372,26 +404,28 @@ def score_student_for_existing_group(
 
     for member in group_students:
         year_gap = abs(get_student_year_level(student) - get_member_year_level(member))
-        year_penalty_sum += year_gap * YEAR_WEIGHT
+        year_penalty_sum += year_gap * scoring.year_weight
 
         timezone_gap = abs(get_student_timezone(student) - get_member_timezone(member))
         if get_student_country(student) != get_member_country(member):
-            country_penalty_sum += COUNTRY_MISMATCH_PENALTY
-            timezone_penalty_sum += min(
-                TIMEZONE_MAX_PENALTY,
-                timezone_gap * TIMEZONE_WEIGHT,
-            )
+            country_mismatch_count += 1
+        timezone_penalty_sum += min(
+            scoring.timezone_max_penalty,
+            timezone_gap * scoring.timezone_weight,
+        )
         timezone_gap_sum += timezone_gap
 
     peer_count = len(group_students)
     year_penalty = round2(year_penalty_sum / peer_count)
-    country_penalty = round2(country_penalty_sum / peer_count)
     timezone_penalty = round2(timezone_penalty_sum / peer_count)
-    total_penalty = round2(year_penalty + country_penalty + timezone_penalty)
+    # MA4: the timezone penalty is earned by a real time gap whether or not a
+    # border is crossed. Country does not score at all - it only breaks an
+    # otherwise exact tie, via the count below, and is never part of this.
+    total_penalty = round2(year_penalty + timezone_penalty)
     score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
     resulting_group_size = len(group_students) + 1
-    size_bonus = get_size_bonus(resulting_group_size)
-    objective_score = round2(clamp(score + size_bonus, 0, 106))
+    size_bonus = scoring.size_bonus(resulting_group_size)
+    objective_score = round2(clamp(score + size_bonus, 0, scoring.max_objective_score()))
 
     return {
         "group": group,
@@ -404,11 +438,11 @@ def score_student_for_existing_group(
             / peer_count
         ),
         "averageTimezoneGap": round2(timezone_gap_sum / peer_count),
+        "countryMismatchCount": country_mismatch_count,
         "sharedInterests": shared_interests,
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "sizeBonus": size_bonus,
             "totalPenalty": total_penalty,
@@ -431,6 +465,12 @@ def compare_recommendation_candidate(
         return -1 if a["averageYearGap"] < b["averageYearGap"] else 1
     if a["averageTimezoneGap"] != b["averageTimezoneGap"]:
         return -1 if a["averageTimezoneGap"] < b["averageTimezoneGap"] else 1
+    # MA4: country never scores, so it can only break an otherwise exact tie —
+    # reached only when year and timezone distance have both been found equal.
+    a_country_mismatch = a["countryMismatchCount"] > 0
+    b_country_mismatch = b["countryMismatchCount"] > 0
+    if a_country_mismatch != b_country_mismatch:
+        return -1 if b_country_mismatch else 1
     a_id = stringify_id(a["group"]["id"])
     b_id = stringify_id(b["group"]["id"])
     return (a_id > b_id) - (a_id < b_id)
@@ -439,7 +479,7 @@ def compare_recommendation_candidate(
 def build_matched_recommendation_reason(candidate: RecommendationCandidate) -> str:
     shared_interest = candidate["sharedInterests"][0]
 
-    if candidate["scoreBreakdown"]["countryPenalty"] == 0:
+    if candidate["countryMismatchCount"] == 0:
         return f"Shares interest '{shared_interest}' with the group and matches the same country."
 
     if candidate["scoreBreakdown"]["timezonePenalty"] == 0:
@@ -474,7 +514,6 @@ def build_unmatched_recommendation(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": 0,
-            "countryPenalty": 0,
             "timezonePenalty": 0,
             "sizeBonus": 0,
             "totalPenalty": BASE_SCORE,
@@ -485,16 +524,19 @@ def build_unmatched_recommendation(
 
 # ── Main Scoring Functions ────────────────────────────────────────────────
 
-def score_group(group: List[StudentInput]) -> Optional[GroupScoreResult]:
+def score_group(
+    group: List[StudentInput],
+    weights: Optional[ScoringWeights] = None,
+) -> Optional[GroupScoreResult]:
     if len(group) < 2 or len(group) > 5:
         return None
 
     if not group_has_mandatory_interest_overlap(group):
         return None
 
+    scoring = resolve_weights(weights)
     pair_count = get_pair_count(len(group))
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
     timezone_penalty_sum = 0.0
 
     for i in range(len(group)):
@@ -502,20 +544,22 @@ def score_group(group: List[StudentInput]) -> Optional[GroupScoreResult]:
             a = group[i]
             b = group[j]
             year_gap = abs(get_student_year_level(a) - get_student_year_level(b))
-            year_penalty_sum += year_gap * YEAR_WEIGHT
+            year_penalty_sum += year_gap * scoring.year_weight
 
-            if get_student_country(a) != get_student_country(b):
-                country_penalty_sum += COUNTRY_MISMATCH_PENALTY
-                timezone_gap = abs(get_student_timezone(a) - get_student_timezone(b))
-                timezone_penalty_sum += min(TIMEZONE_MAX_PENALTY, timezone_gap * TIMEZONE_WEIGHT)
+            timezone_gap = abs(get_student_timezone(a) - get_student_timezone(b))
+            timezone_penalty_sum += min(
+                scoring.timezone_max_penalty,
+                timezone_gap * scoring.timezone_weight,
+            )
 
     year_penalty = round2(year_penalty_sum / pair_count)
-    country_penalty = round2(country_penalty_sum / pair_count)
     timezone_penalty = round2(timezone_penalty_sum / pair_count)
-    total_penalty = round2(year_penalty + country_penalty + timezone_penalty)
+    # MA4: the timezone penalty is earned by a real time gap whether or not the
+    # pair crosses a border. Country never scores - it only decides ties later.
+    total_penalty = round2(year_penalty + timezone_penalty)
     quality_score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
-    size_bonus = get_size_bonus(len(group))
-    objective_score = round2(clamp(quality_score + size_bonus, 0, 106))
+    size_bonus = scoring.size_bonus(len(group))
+    objective_score = round2(clamp(quality_score + size_bonus, 0, scoring.max_objective_score()))
 
     return {
         "qualityScore": quality_score,
@@ -523,7 +567,6 @@ def score_group(group: List[StudentInput]) -> Optional[GroupScoreResult]:
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "totalPenalty": total_penalty,
             "sizeBonus": size_bonus,
@@ -533,7 +576,9 @@ def score_group(group: List[StudentInput]) -> Optional[GroupScoreResult]:
 
 
 def score_student_in_group(
-    student: StudentInput, group: List[StudentInput]
+    student: StudentInput,
+    group: List[StudentInput],
+    weights: Optional[ScoringWeights] = None,
 ) -> Optional[StudentScore]:
     if len(group) < 2 or len(group) > 5:
         return None
@@ -548,23 +593,25 @@ def score_student_in_group(
     if not peers:
         return None
 
+    scoring = resolve_weights(weights)
     year_penalty_sum = 0.0
-    country_penalty_sum = 0.0
     timezone_penalty_sum = 0.0
 
     for peer in peers:
         year_gap = abs(get_student_year_level(student) - get_student_year_level(peer))
-        year_penalty_sum += year_gap * YEAR_WEIGHT
+        year_penalty_sum += year_gap * scoring.year_weight
 
-        if get_student_country(student) != get_student_country(peer):
-            country_penalty_sum += COUNTRY_MISMATCH_PENALTY
-            timezone_gap = abs(get_student_timezone(student) - get_student_timezone(peer))
-            timezone_penalty_sum += min(TIMEZONE_MAX_PENALTY, timezone_gap * TIMEZONE_WEIGHT)
+        timezone_gap = abs(get_student_timezone(student) - get_student_timezone(peer))
+        timezone_penalty_sum += min(
+            scoring.timezone_max_penalty,
+            timezone_gap * scoring.timezone_weight,
+        )
 
     year_penalty = round2(year_penalty_sum / len(peers))
-    country_penalty = round2(country_penalty_sum / len(peers))
     timezone_penalty = round2(timezone_penalty_sum / len(peers))
-    total_penalty = round2(year_penalty + country_penalty + timezone_penalty)
+    # MA4: timezone distance is scored on its own for every pair, country or
+    # not. Country is never part of this score.
+    total_penalty = round2(year_penalty + timezone_penalty)
     score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
 
     return {
@@ -577,7 +624,6 @@ def score_student_in_group(
         "scoreBreakdown": {
             "baseScore": BASE_SCORE,
             "yearPenalty": year_penalty,
-            "countryPenalty": country_penalty,
             "timezonePenalty": timezone_penalty,
             "totalPenalty": total_penalty,
         },
@@ -614,6 +660,70 @@ def compute_interest_cohesion(group: List[StudentInput]) -> float:
     return round2(shared_interest_pair_count / get_pair_count(len(group)))
 
 
+def compute_average_pair_gap(
+    group: List[StudentInput],
+    value_of: Callable[[StudentInput], float],
+) -> float:
+    """Mean absolute difference of ``value_of`` across every pair in the group."""
+    if len(group) < 2:
+        return 0.0
+    gap_sum = 0.0
+    for i in range(len(group)):
+        for j in range(i + 1, len(group)):
+            gap_sum += abs(value_of(group[i]) - value_of(group[j]))
+    return round2(gap_sum / get_pair_count(len(group)))
+
+
+class CandidateSortKey(TypedDict):
+    objectiveScore: float
+    qualityScore: float
+    memberCount: int
+    interestCohesion: float
+    yearSpread: int
+    strandedStudentCount: int
+    averageTimezoneGap: float
+    averageYearGap: float
+    countryMismatchCount: int
+    memberIds: List[str]
+
+
+def candidate_sort_key(
+    candidate: CandidateSortKey,
+    mode: MatchMode = "balanced",
+) -> Tuple[Any, ...]:
+    """Rank formed-group candidates.
+
+    ``balanced`` optimises group quality: score first, then cohesion, then the
+    smallest year spread. ``coverage`` optimises the number of students placed:
+    a candidate that leaves a student with no interest-compatible peer left is
+    ranked behind one that does not, so capacity is spent only when the pool has
+    nothing safer to spend it on. Both modes end on the same tie-breaker tail,
+    which is where country acts (MA4): it separates candidates only once
+    timezone distance and year spread are equally close, so fewer cross-country
+    pairs wins any remaining exact tie instead of outranking a real time gap.
+    """
+    if mode == "coverage":
+        primary_key: Tuple[Any, ...] = (
+            candidate["strandedStudentCount"],
+            -candidate["memberCount"],
+            -candidate["objectiveScore"],
+        )
+    else:
+        primary_key = (
+            -candidate["objectiveScore"],
+            -candidate["qualityScore"],
+            -candidate["interestCohesion"],
+            candidate["yearSpread"],
+        )
+
+    return primary_key + (
+        candidate["averageTimezoneGap"],
+        candidate["averageYearGap"],
+        candidate["countryMismatchCount"],
+        "|".join(candidate["memberIds"]),
+    )
+
+
 # Exhaustive C(n, 2..5) enumeration is only tractable for small pools. When a
 # single country bucket is larger than this, generate_scored_candidates
 # considers just a sorted window of this many students per pass — the greedy
@@ -629,17 +739,44 @@ def combinations(items: List[Any], choose: int):
     yield from (list(combo) for combo in itertools_combinations(items, choose))
 
 
-class ScoredCandidate(TypedDict):
+class ScoredCandidate(CandidateSortKey):
     members: List[StudentInput]
-    memberIds: List[str]
-    qualityScore: float
-    objectiveScore: float
-    interestCohesion: float
-    yearSpread: int
     scoreBreakdown: GroupScoreBreakdown
 
 
-def generate_scored_candidates(students: List[StudentInput]) -> List[ScoredCandidate]:
+def build_interest_peers_by_id(students: List[StudentInput]) -> Dict[str, Set[str]]:
+    """id -> ids of pool peers that share at least one interest."""
+    interest_sets = {stringify_id(s["id"]): to_interest_set(s) for s in students}
+    return {
+        student_id: {
+            other_id
+            for other_id, other_interests in interest_sets.items()
+            if other_id != student_id and other_interests & interest_sets[student_id]
+        }
+        for student_id, interests in interest_sets.items()
+    }
+
+
+def count_stranded_students(
+    peers_by_id: Dict[str, Set[str]],
+    member_id_set: Set[str],
+) -> int:
+    """Pool students left with no interest-compatible peer once the group is taken."""
+    stranded = 0
+    for student_id, peers in peers_by_id.items():
+        if student_id in member_id_set:
+            continue
+        if not peers - member_id_set:
+            stranded += 1
+    return stranded
+
+
+def generate_scored_candidates(
+    students: List[StudentInput],
+    mode: MatchMode = "balanced",
+    weights: Optional[ScoringWeights] = None,
+) -> List[ScoredCandidate]:
+    scoring = resolve_weights(weights)
     candidates: List[ScoredCandidate] = []
     # Bound the exhaustive enumeration: a huge single-country bucket would
     # otherwise build C(n, 5) combinations and hang/OOM. The caller's greedy
@@ -647,35 +784,42 @@ def generate_scored_candidates(students: List[StudentInput]) -> List[ScoredCandi
     # (deterministically sorted) pool still lets every student be grouped.
     pool = students if len(students) <= CANDIDATE_POOL_CAP else students[:CANDIDATE_POOL_CAP]
     max_size = min(5, len(pool))
+    # Only coverage mode ranks on stranding, so only it pays for the peer index.
+    peers_by_id = build_interest_peers_by_id(pool) if mode == "coverage" else {}
 
     for size in range(2, max_size + 1):
         combos = combinations(pool, size)
         for combo in combos:
-            scored = score_group(combo)
+            scored = score_group(combo, scoring)
             if not scored:
+                continue
+
+            # Strict mode keeps every group inside one country bucket; unknown
+            # country stays a wildcard, exactly like mentor strict matching.
+            if mode == "strict" and get_pair_country_mismatch_count(combo) > 0:
                 continue
 
             member_ids = sorted([stringify_id(s["id"]) for s in combo])
             candidates.append({
                 "members": combo,
                 "memberIds": member_ids,
+                "memberCount": len(member_ids),
                 "qualityScore": scored["qualityScore"],
                 "objectiveScore": scored["scoreBreakdown"]["objectiveScore"],
                 "interestCohesion": compute_interest_cohesion(combo),
                 "yearSpread": scored["yearSpread"],
+                "strandedStudentCount": (
+                    count_stranded_students(peers_by_id, set(member_ids))
+                    if peers_by_id
+                    else 0
+                ),
+                "averageYearGap": compute_average_pair_gap(combo, get_student_year_level),
+                "averageTimezoneGap": compute_average_pair_gap(combo, get_student_timezone),
+                "countryMismatchCount": get_pair_country_mismatch_count(combo),
                 "scoreBreakdown": scored["scoreBreakdown"],
             })
 
-    return sorted(
-        candidates,
-        key=lambda c: (
-            -c["objectiveScore"],
-            -c["qualityScore"],
-            -c["interestCohesion"],
-            c["yearSpread"],
-            "|".join(c["memberIds"]),
-        ),
-    )
+    return sorted(candidates, key=lambda c: candidate_sort_key(c, mode))
 
 
 def build_unmatched_reason(
@@ -707,6 +851,8 @@ def build_unmatched_reason(
 
 def build_groups_for_country(
     students: List[StudentInput],
+    mode: MatchMode = "balanced",
+    weights: Optional[ScoringWeights] = None,
 ) -> Dict[str, Any]:
     groups: List[MatchGroup] = []
     student_scores: List[StudentScore] = []
@@ -715,7 +861,7 @@ def build_groups_for_country(
     remaining = sorted(students, key=lambda s: stringify_id(s["id"]))
 
     while len(remaining) >= 2:
-        candidates = generate_scored_candidates(remaining)
+        candidates = generate_scored_candidates(remaining, mode, weights)
         if not candidates:
             unmatched_student_ids.extend([s["id"] for s in remaining])
             remaining = []
@@ -733,7 +879,7 @@ def build_groups_for_country(
         })
 
         for member in best["members"]:
-            score = score_student_in_group(member, best["members"])
+            score = score_student_in_group(member, best["members"], weights)
             if score:
                 student_scores.append(score)
 
@@ -751,7 +897,30 @@ def build_groups_for_country(
     }
 
 
-def build_groups(students: List[StudentInput]) -> MatchResult:
+def build_groups(
+    students: List[StudentInput],
+    mode: Union[MatchMode, str] = "balanced",
+    weights: Optional[ScoringWeights] = None,
+) -> MatchResult:
+    """Form new groups from standalone students.
+
+    Mirrors the three mentor matching levels rather than redefining them for
+    students:
+
+    - ``balanced`` (default) groups within a country first, then fills the
+      remaining seats cross-country.
+    - ``strict`` only forms groups whose members share a country (an unknown
+      country on any member is a wildcard), so cross-country students stay
+      unmatched instead of being dropped into a weaker group.
+    - ``coverage`` runs the same two phases as ``balanced`` but prefers the
+      group that places the most students, so leftovers are used as capacity
+      allows.
+
+    An unknown ``mode`` is normalised to ``balanced`` on entry, matching
+    ``match_mentors``.
+    """
+    mode = resolve_match_mode(mode)
+
     groups: List[MatchGroup] = []
     student_scores: List[StudentScore] = []
 
@@ -766,7 +935,7 @@ def build_groups(students: List[StudentInput]) -> MatchResult:
     leftover_students: List[StudentInput] = []
     for country in sorted(students_by_country.keys()):
         members = students_by_country[country]
-        result = build_groups_for_country(members)
+        result = build_groups_for_country(members, mode, weights)
         groups.extend(result["groups"])
         student_scores.extend(result["studentScores"])
 
@@ -775,8 +944,10 @@ def build_groups(students: List[StudentInput]) -> MatchResult:
             m for m in members if stringify_id(m["id"]) in unmatched_ids
         )
 
-    # Second pass: cross-country grouping for students with no same-country peers.
-    final_result = build_groups_for_country(leftover_students)
+    # Second pass: cross-country grouping for students with no same-country
+    # peers. Strict mode keeps the country gate here too, so the only pairs it
+    # still allows are the ones an unknown country makes compatible.
+    final_result = build_groups_for_country(leftover_students, mode, weights)
     groups.extend(final_result["groups"])
     student_scores.extend(final_result["studentScores"])
     unmatched_student_ids: List[Union[str, int]] = list(final_result["unmatchedStudentIds"])
@@ -859,7 +1030,16 @@ def format_recommendation_input(
 
 def recommend_groups_by_country(
     input_by_country: RecommendationInputByCountry,
+    mode: Union[MatchMode, str] = "balanced",
+    weights: Optional[ScoringWeights] = None,
 ) -> List[StudentGroupRecommendation]:
+    """Rank existing groups for each student.
+
+    ``mode`` is normalised on entry, so an unknown value behaves as
+    ``balanced`` rather than silently taking the permissive path.
+    """
+    mode = resolve_match_mode(mode)
+
     recommendations: List[StudentGroupRecommendation] = []
 
     for _, bucket in input_by_country.items():
@@ -867,7 +1047,7 @@ def recommend_groups_by_country(
             candidates = [
                 candidate
                 for group in bucket["groups"]
-                for candidate in [score_student_for_existing_group(student, group)]
+                for candidate in [score_student_for_existing_group(student, group, mode, weights)]
                 if candidate is not None
             ]
             candidates.sort(key=cmp_to_key(compare_recommendation_candidate))

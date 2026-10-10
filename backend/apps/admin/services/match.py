@@ -10,12 +10,16 @@ from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
+from apps.matching_runtime.services import (
+    build_scoring_rules_snapshot,
+    resolve_scoring_rules,
+)
 from apps.groups.models import Countries, CountryStates
+from apps.common.matching_modes import resolve_match_mode
 from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.student import (
     build_groups,
     format_recommendation_input,
-    recommend_groups_by_country,
     score_student_for_existing_group,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
@@ -217,7 +221,6 @@ def _build_form_recommendations(
                 'scoreBreakdown': {
                     'baseScore': 100,
                     'yearPenalty': 0,
-                    'countryPenalty': 0,
                     'timezonePenalty': 0,
                     'sizeBonus': 0,
                     'totalPenalty': 100,
@@ -243,7 +246,6 @@ def _build_form_recommendations(
             'scoreBreakdown': {
                 'baseScore': student_score['scoreBreakdown']['baseScore'] if student_score else 100,
                 'yearPenalty': student_score['scoreBreakdown']['yearPenalty'] if student_score else 0,
-                'countryPenalty': student_score['scoreBreakdown']['countryPenalty'] if student_score else 0,
                 'timezonePenalty': student_score['scoreBreakdown']['timezonePenalty'] if student_score else 0,
                 'sizeBonus': matched_group['scoreBreakdown']['sizeBonus'],
                 'totalPenalty': student_score['scoreBreakdown']['totalPenalty'] if student_score else 100,
@@ -255,13 +257,19 @@ def _build_form_recommendations(
     return recommendations, objective_by_student_id
 
 
-def match_student(uid: str) -> MatchStudentResult:
+def match_student(uid: str, mode: str = 'balanced') -> MatchStudentResult:
     """
-    Run student matching algorithm combining join-or-form strategy.
-    
+    Form new groups out of every standalone student.
+
+    Standalone students are only ever formed into brand new groups: groups that
+    already have members are off-limits to automatic matching (MA3), so there is
+    no join-or-form decision to make. not_full_groups is still reported so
+    admins can see where seats exist and fill them by hand.
+
     Args:
         uid: Admin user ID initiating the match
-        
+        mode: Matching mode ('balanced', 'strict', 'coverage')
+
     Returns:
         MatchStudentResult with recommendations, unmatched students, and available groups
     """
@@ -403,7 +411,10 @@ def match_student(uid: str) -> MatchStudentResult:
         if student.get('user_id') is not None
     ]
 
-    join_input = format_recommendation_input(
+    # Kept only for the match-run snapshot: it records the groups that existed
+    # at the time, which is still useful when reviewing a past run even though
+    # no student is ever recommended into them (MA3).
+    groups_at_run_time = format_recommendation_input(
         [
             {
                 'userId': student['user_id'],
@@ -433,82 +444,25 @@ def match_student(uid: str) -> MatchStudentResult:
             for student in formatted_individual_students
         ],
     )
-    join_recommendations = recommend_groups_by_country(join_input)
+    student_mode = resolve_match_mode(mode)
+    scoring_rules = resolve_scoring_rules()
+    scoring_weights = scoring_rules.weights
 
-    baseline_form = build_groups(ungrouped_students)
-    _, baseline_objective_by_student_id = _build_form_recommendations(
+    # MA3: standalone students are only ever formed into new groups. Any group
+    # with an active membership is off-limits to automatic matching, whether it
+    # came from an import, an admin, or an earlier matching run - so there is no
+    # join-vs-form comparison to make any more. Admins can still add members by
+    # hand through the groups app, which is a separate code path.
+    final_form = build_groups(
+        ungrouped_students, mode=student_mode, weights=scoring_weights,
+    )
+    final_form_recommendations, _ = _build_form_recommendations(
         ungrouped_students,
-        baseline_form,
+        final_form,
     )
 
-    available_seats_by_group_id = {}
-    for recommendation in join_recommendations:
-        group = recommendation.get('recommendGroup')
-        if not group:
-            continue
-
-        group_key = str(group['id'])
-        if group_key in available_seats_by_group_id:
-            continue
-
-        max_size = group.get('maxSize') or DEFAULT_GROUP_MAX_SIZE
-        existing_count = len(group.get('groupStudent', []))
-        available_seats_by_group_id[group_key] = max(0, max_size - existing_count)
-
-    join_candidates = []
-    for recommendation in join_recommendations:
-        group = recommendation.get('recommendGroup')
-        if not group:
-            continue
-
-        student_id = str(recommendation['student']['id'])
-        join_objective = recommendation['scoreBreakdown']['objectiveScore']
-        form_objective = baseline_objective_by_student_id.get(student_id, 0)
-        join_candidates.append({
-            'recommendation': recommendation,
-            'student_id': student_id,
-            'group_id': str(group['id']),
-            'join_objective': join_objective,
-            'form_objective': form_objective,
-            'delta': join_objective - form_objective,
-        })
-
-    join_candidates.sort(
-        key=lambda item: (
-            -item['delta'],
-            -item['join_objective'],
-            item['student_id'],
-        )
-    )
-
-    selected_join_student_ids = set()
-    for candidate in join_candidates:
-        if candidate['delta'] <= 0:
-            continue
-        if candidate['student_id'] in selected_join_student_ids:
-            continue
-        remaining_seats = available_seats_by_group_id.get(candidate['group_id'], 0)
-        if remaining_seats <= 0:
-            continue
-
-        selected_join_student_ids.add(candidate['student_id'])
-        available_seats_by_group_id[candidate['group_id']] = remaining_seats - 1
-
-    form_pool = [
-        student
-        for student in ungrouped_students
-        if str(student['id']) not in selected_join_student_ids
-    ]
-    final_form = build_groups(form_pool)
-    final_form_recommendations, _ = _build_form_recommendations(form_pool, final_form)
-
-    selected_join_recommendations = [
-        candidate['recommendation']
-        for candidate in join_candidates
-        if candidate['student_id'] in selected_join_student_ids
-    ]
     flat_recommendations = sorted(
-        selected_join_recommendations + final_form_recommendations,
+        final_form_recommendations,
         key=lambda item: str(item['student']['id']),
     )
     grouped_recommendations = _group_student_recommendations(flat_recommendations)
@@ -579,12 +533,13 @@ def match_student(uid: str) -> MatchStudentResult:
         initiated_by_user_id=int(uid),
         run_type='student-match',
         rules_snapshot={
-            'strategy': 'hybrid-join-or-form',
+            'strategy': 'form-only',
+            # 'mode' plus the weights actually applied, so a run stays
+            # explainable after an admin retunes the config.
+            **build_scoring_rules_snapshot(student_mode, scoring_rules),
             'studentCount': len(ungrouped_students),
-            'joinInput': join_input,
-            'baselineForm': baseline_form,
+            'groupsAtRunTime': groups_at_run_time,
             'finalForm': final_form,
-            'selectedJoinStudentIds': list(selected_join_student_ids),
         }
     )
     
@@ -649,13 +604,25 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     Scores every student not in any active group against the target group with the
     same criteria as auto-matching (a shared interest is required; year/country/
     timezone proximity improve the score). Returns candidates best-first with their
-    score and shared interests. Empty when the group is full, has no student members
-    to compare against, or no standalone student shares an interest.
+    score and shared interests.
+
+    Returns nothing for a group that already has members: automatic matching never
+    adds a standalone student to an already-formed group (MA3). Admins can still
+    add members by hand through the groups app.
     """
     try:
         group = Groups.objects.get(id=group_id, deleted_at__isnull=True)
     except Groups.DoesNotExist:
         return {"msg": "Group not found", "data": None}
+
+    # MA3: an already-formed group is off-limits to automatic matching. Checked
+    # on every membership, not just student ones, so a group holding only a
+    # mentor or supervisor is still treated as formed.
+    if GroupMembership.objects.filter(group_id=group_id, left_at__isnull=True).exists():
+        return {
+            "msg": "This group already has members, so automatic matching cannot add students to it",
+            "data": None,
+        }
 
     member_rows = list(
         GroupMembership.objects
@@ -744,6 +711,44 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
+def _reject_assignments_into_formed_groups(assignments: List[Dict[str, Any]]) -> None:
+    """Refuse the whole confirm if any student is being placed into a group that
+    already has members (MA3).
+
+    The board is the only thing stopping this client-side, so the rule is enforced
+    here too — a hand-built request must not be able to merge a standalone student
+    into an existing group. Synthetic ``new-`` ids are the form path and are fine.
+    """
+    target_group_ids = set()
+    for item in assignments:
+        group_id = item['group_id']
+        if isinstance(group_id, str) and group_id.startswith('new-'):
+            continue
+        target_group_ids.add(group_id)
+
+    if not target_group_ids:
+        return
+
+    formed_group_ids = set(
+        GroupMembership.objects
+        .filter(group_id__in=target_group_ids, left_at__isnull=True)
+        .values_list('group_id', flat=True)
+    )
+    if not formed_group_ids:
+        return
+
+    names_by_id = dict(
+        Groups.objects.filter(id__in=formed_group_ids).values_list('id', 'group_name')
+    )
+    named = sorted(names_by_id.get(gid, str(gid)) for gid in formed_group_ids)
+    raise ValidationError({
+        "assignments": (
+            "Students cannot be matched into groups that already have members: "
+            + ", ".join(named)
+        )
+    })
+
+
 def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     """
     Confirm and finalize student assignments to groups.
@@ -770,6 +775,8 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         {'student_id': sid, 'group_id': gid}
         for sid, gid in unique_by_student.items()
     ]
+
+    _reject_assignments_into_formed_groups(assignments)
     
     student_ids = [a['student_id'] for a in assignments]
     now = timezone.now()
