@@ -18,7 +18,7 @@
     <template v-else-if="view">
       <header class="detail-header">
         <div>
-          <h1>{{ view.name }}</h1>
+          <h1 class="page-title">{{ view.name }}</h1>
           <div class="admin-view-executed__meta">
             <span
               class="admin-view-executed__badge"
@@ -429,10 +429,6 @@ onMounted(() => {
   display: flex;
   flex-shrink: 0;
   gap: 0.6rem;
-}
-
-.detail-header h1 {
-  margin-bottom: 0.35rem;
 }
 
 .admin-view-executed__meta {

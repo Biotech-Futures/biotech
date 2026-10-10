@@ -1,21 +1,21 @@
 <template>
   <div class="content-area admin-views">
-    <div class="admin-views__header">
-      <h1 class="admin-views__title">Views</h1>
-      <p class="admin-views__subtitle">
+    <div class="page-header">
+      <h1 class="page-title">Views</h1>
+      <p class="page-subtitle">
         Create and manage saved user segments, cohorts, and mini-reports.
       </p>
     </div>
 
     <div class="admin-views__main">
       <div class="admin-views__toolbar">
-        <div class="admin-views__tabs" role="tablist" aria-label="View categories">
+        <div class="tab-bar" role="tablist" aria-label="View categories">
           <button
             v-for="tab in TABS"
             :key="tab.key"
             type="button"
             role="tab"
-            class="admin-views__tab"
+            class="tab-pill"
             :class="{ active: activeTab === tab.key }"
             :aria-selected="activeTab === tab.key"
             @click="activeTab = tab.key"
@@ -255,19 +255,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-.admin-views__header {
-  margin-bottom: 1.5rem;
-}
-
-.admin-views__title {
-  margin: 0 0 0.25rem;
-}
-
-.admin-views__subtitle {
-  margin: 0;
-  color: var(--text-muted);
-}
-
 .admin-views__main {
   display: flex;
   flex-direction: column;
@@ -280,51 +267,18 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  /* With the column's 16px gap, 20px below the tabs. */
+  margin-bottom: 0.25rem;
+}
+
+.admin-views__toolbar .tab-bar {
+  margin-bottom: 0;
 }
 
 .admin-views__toolbar .btn {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.admin-views__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.admin-views__tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.admin-views__tab:hover:not(.active) {
-  color: var(--teal);
-  background: var(--light-green);
-}
-
-.admin-views__tab.active {
-  background: var(--dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.admin-views__tab:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
 }
 
 .admin-views__filters {

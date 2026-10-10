@@ -1,20 +1,18 @@
 <template>
   <div class="content-area admin-groups">
-    <div class="page-head">
-      <div>
-        <h1>Groups &amp; Matching</h1>
-        <p class="groups-subtitle">
-          Manage student groups, run matching, and review mentor assignments.
-        </p>
-      </div>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Groups &amp; Matching</h1>
+      <p class="page-subtitle">
+        Manage student groups, run matching, and review mentor assignments.
+      </p>
+    </header>
 
     <div class="admin-groups__toolbar">
-      <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
+      <div class="tab-bar" role="tablist" aria-label="Groups">
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'groups' }"
           role="tab"
           :aria-selected="activeTab === 'groups'"
           @click="activeTab = 'groups'"
@@ -23,8 +21,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'student-matching' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'student-matching' }"
           role="tab"
           :aria-selected="activeTab === 'student-matching'"
           @click="activeTab = 'student-matching'"
@@ -33,8 +31,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'mentor-matching' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'mentor-matching' }"
           role="tab"
           :aria-selected="activeTab === 'mentor-matching'"
           @click="activeTab = 'mentor-matching'"
@@ -43,8 +41,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'matched' }"
           role="tab"
           :aria-selected="activeTab === 'matched'"
           @click="activeTab = 'matched'"
@@ -715,6 +713,11 @@ const submitForm = async () => {
   gap: 0.5rem;
 }
 
+/* The toolbar leaves the 20px below the tabs, beside the buttons. */
+.admin-groups__toolbar .tab-bar {
+  margin-bottom: 0;
+}
+
 /* "Add group" action in toolbar */
 .admin-groups__actions {
   display: flex;
@@ -728,11 +731,6 @@ const submitForm = async () => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.groups-subtitle {
-  color: var(--text-muted);
-  margin: -0.5rem 0 0.5rem;
 }
 
 .admin-groups__selection-banner {
@@ -823,46 +821,6 @@ const submitForm = async () => {
   margin: 0.75rem 0 0;
   color: var(--text-muted);
   font-size: 0.8rem;
-}
-
-/* Segmented pill tabs, matching the People page. */
-.admin-groups__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.admin-groups__tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.admin-groups__tab:hover:not(.admin-groups__tab--active) {
-  color: var(--teal);
-  background: var(--light-green);
-}
-
-.admin-groups__tab--active {
-  background: var(--dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.admin-groups__tab:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
 }
 
 /* White filter panel, matching .admin-users__filters on the People page. */

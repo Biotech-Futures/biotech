@@ -1,9 +1,9 @@
 <template>
   <div class="content-area admin-tasks">
-    <div class="admin-tasks__header">
-      <h1 class="admin-tasks__title">Tasks</h1>
-      <p class="admin-tasks__subtitle">Assign and track admin-managed tasks.</p>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Tasks</h1>
+      <p class="page-subtitle">Assign and track admin-managed tasks.</p>
+    </header>
 
     <div class="admin-tasks__main">
       <div class="admin-tasks__table-toolbar">
@@ -625,19 +625,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-tasks__header {
-  margin-bottom: 1.5rem;
-}
-
-.admin-tasks__title {
-  margin: 0 0 0.25rem;
-}
-
-.admin-tasks__subtitle {
-  margin: 0;
-  color: var(--text-muted);
-}
-
 .admin-tasks__main {
   display: flex;
   flex-direction: column;

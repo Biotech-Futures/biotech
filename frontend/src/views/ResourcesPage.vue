@@ -1,9 +1,9 @@
 <template>
   <div class="content-area">
-    <div class="resource-header">
+    <div class="resource-header page-header">
       <div>
-        <h1>Resource Library</h1>
-        <p class="resource-subtitle">Browse available files and pages.</p>
+        <h1 class="page-title">Resource Library</h1>
+        <p class="page-subtitle">Browse available files and pages.</p>
       </div>
       <div v-if="isAdmin" class="resource-header__actions">
         <button
@@ -751,12 +751,6 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.resource-subtitle {
-  color: var(--text-muted);
-  margin: -0.5rem 0 0;
 }
 
 .resource-toolbar {
