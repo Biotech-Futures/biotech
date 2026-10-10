@@ -1698,7 +1698,7 @@ describe('changes made elsewhere', () => {
   const changed = (item: string) =>
     socket().onmessage?.({ data: JSON.stringify({ type: 'changed', item, user: { id: 9, name: 'Matt' } }) })
 
-  it('shows at once when a teammate submits, and says who', async () => {
+  it('shows at once when a teammate submits', async () => {
     await mountPage(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } }))
     openSocket()
     fetchSubmission.mockResolvedValue(submittedDetail())
@@ -1706,8 +1706,8 @@ describe('changes made elsewhere', () => {
     changed('submitted')
     await flushPromises()
 
-    expect(wrapper!.find('.submission-message').text()).toContain('Matt submitted the entry.')
     expect(wrapper!.find('#inspiration').attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('.submission-message').exists()).toBe(false)
   })
 
   it('opens up at once when a teammate reopens the entry', async () => {
@@ -1718,8 +1718,8 @@ describe('changes made elsewhere', () => {
     changed('reopened')
     await flushPromises()
 
-    expect(wrapper!.find('.submission-message').text()).toContain('Matt reopened the entry for editing.')
     expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('.submission-message').exists()).toBe(false)
   })
 
   it('picks up a teammate’s new poster without touching what you are typing', async () => {

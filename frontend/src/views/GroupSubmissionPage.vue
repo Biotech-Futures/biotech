@@ -685,17 +685,9 @@ live.onRemoteText((field, text) => {
 })
 
 const FILE_SLOTS: SubmissionSlot[] = ['poster', 'report', 'prototype']
-const CHANGE_MESSAGES: Record<string, string> = {
-  submitted: 'submitted the entry.',
-  reopened: 'reopened the entry for editing.'
-}
 
 // A teammate submitted, reopened or changed a file: their action shows here at once.
-live.onChanged((item, by) => {
-  void refreshFromElsewhere()
-  const message = CHANGE_MESSAGES[item]
-  if (message) setMessage(`${by ?? 'A teammate'} ${message}`)
-})
+live.onChanged(() => void refreshFromElsewhere())
 
 /** Takes the entry's latest status and files; typed text is left alone unless the entry was locked or unlocked. */
 async function refreshFromElsewhere() {
