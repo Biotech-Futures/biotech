@@ -33,11 +33,18 @@
       <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
-        :filename="section.filename"
-        :email-keys="['email', 'pgEmail']"
         :action-columns="section.rowActions.length"
-        @action="(value, rows) => onSectionAction(section.id, value, rows)"
       >
+        <template #toolbar="{ rows, pageRows, selectedRows }">
+          <SupervisorTableOptions
+            :columns="section.columns"
+            :rows="rows"
+            :page-rows="pageRows"
+            :selected-rows="selectedRows"
+            :filename="section.filename"
+            :email-keys="['email', 'pgEmail']"
+          />
+        </template>
         <template #search-side>
           <button
             v-if="section.emailAll"
@@ -131,10 +138,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppDataTable, {
-  type DataTableColumn,
-  type DataTableOption,
-} from '@/components/AppDataTable.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import SupervisorTableOptions from '@/components/supervisor/SupervisorTableOptions.vue'
 import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
@@ -197,13 +202,16 @@ const fullyRegisteredColumns: DataTableColumn[] = [
   { key: 'permissionGiven', label: 'Permission' },
 ]
 
-const pendingDetailsActions: DataTableOption[] = [
+// A button on the rows or in the selected bar, and whether it needs ticked rows.
+type StudentAction = { value: string; label: string; needsSelection?: boolean }
+
+const pendingDetailsActions: StudentAction[] = [
   { value: 'email-students', label: 'Email student', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
   { value: 'enter-guardian', label: 'Enter guardian details', needsSelection: true },
 ]
 
-const pendingPermissionActions: DataTableOption[] = [
+const pendingPermissionActions: StudentAction[] = [
   { value: 'email-guardians', label: 'Email parent/guardian', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
 ]

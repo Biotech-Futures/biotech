@@ -1,41 +1,8 @@
 <template>
   <div class="data-table">
-    <div v-if="showOptionsMenu" class="data-table-toolbar">
-      <div class="data-table-toolbar-left">
-        <label class="data-table-label">
-          Options
-          <select class="data-table-select" :value="optionChoice" @change="onOption">
-            <option value="">Select</option>
-            <optgroup label="Export">
-              <option value="csv-all">Export all matching (CSV)</option>
-              <option value="csv-page">Export this page (CSV)</option>
-              <option value="csv-selected" :disabled="!selectedCount">Export selected (CSV)</option>
-            </optgroup>
-            <optgroup label="Clipboard">
-              <option value="copy-table">Copy table</option>
-              <option value="copy-emails">Copy emails</option>
-              <option value="copy-selected" :disabled="!selectedCount">Copy selected rows</option>
-            </optgroup>
-            <optgroup label="View">
-              <option value="print">Print table</option>
-            </optgroup>
-            <optgroup
-              v-for="group in extraOptionGroups"
-              :key="group.label"
-              :label="group.label"
-            >
-              <option
-                v-for="option in group.options"
-                :key="option.value"
-                :value="option.value"
-                :disabled="option.needsSelection && !selectedCount"
-              >
-                {{ option.label }}
-              </option>
-            </optgroup>
-          </select>
-        </label>
-      </div>
+    <!-- Anything a page adds above the table, given its rows. -->
+    <div v-if="$slots.toolbar" class="data-table-toolbar">
+      <slot name="toolbar" :rows="filteredRows" :page-rows="pagedRows" :selected-rows="selectedRows" />
     </div>
 
     <div v-if="selectedCount && $slots.bulk" class="data-table-bulk">
@@ -60,6 +27,7 @@
       <div v-if="$slots.filters" class="data-table-filters">
         <slot name="filters" />
       </div>
+      <p v-if="$slots.stats" class="data-table-stats"><slot name="stats" /></p>
       <div v-if="$slots['search-side']" class="data-table-search-side">
         <slot name="search-side" />
       </div>
@@ -84,6 +52,9 @@
                   :disabled="loading || !pagedRows.length"
                   @change="togglePageSelection"
                 />
+              </th>
+              <th v-if="hasDetail" class="data-table-expand-col" scope="col">
+                <span class="sr-only">Details</span>
               </th>
               <th
                 v-for="column in columns"
@@ -126,50 +97,70 @@
             <tr v-else-if="!pagedRows.length">
               <td :colspan="emptyColspan" class="data-table-empty">{{ emptyMessage }}</td>
             </tr>
-            <tr
-              v-for="row in pagedRows"
-              :key="String(row[rowKey])"
-              class="data-table-row"
-              :class="{ 'data-table-row--clickable': clickableRows }"
-              @click="clickableRows && emit('row-click', row)"
-            >
-              <td class="data-table-check-col" @click.stop>
-                <input
-                  type="checkbox"
-                  :checked="selectedIds.has(rowId(row))"
-                  :aria-label="`Select ${displayCell(row, columns[0])}`"
-                  :disabled="loading"
-                  @change="toggleRow(row)"
-                />
-              </td>
-              <td
-                v-for="column in columns"
-                :key="column.key"
-                :class="{ 'data-table-cell--wrap': column.wrap }"
+            <template v-for="row in pagedRows" :key="String(row[rowKey])">
+              <tr
+                class="data-table-row"
+                :class="[{ 'data-table-row--clickable': clickableRows || hasDetail }, rowClass?.(row)]"
+                @click="onRowClick(row)"
               >
-                <!-- A page can draw a cell itself with a cell-<key> slot. -->
-                <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
-                  <RouterLink
-                    v-if="columnLink(row, column)"
-                    :to="columnLink(row, column)!"
-                    class="data-table-link"
-                  >
-                    {{ displayCell(row, column) }}
-                  </RouterLink>
-                  <template v-else>{{ displayCell(row, column) }}</template>
-                </slot>
-              </td>
-              <template v-if="$slots.actions">
-                <td
-                  v-for="index in actionColumns"
-                  :key="`actions-${index}`"
-                  class="data-table-actions-col"
-                  @click.stop
-                >
-                  <slot name="actions" :row="row" :column="index - 1" />
+                <td class="data-table-check-col" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="selectedIds.has(rowId(row))"
+                    :aria-label="`Select ${displayCell(row, columns[0])}`"
+                    :disabled="loading"
+                    @change="toggleRow(row)"
+                  />
                 </td>
-              </template>
-            </tr>
+                <td v-if="hasDetail" class="data-table-expand-col" @click.stop>
+                  <button
+                    type="button"
+                    class="data-table-expand-btn"
+                    :aria-expanded="expandedIds.has(rowId(row))"
+                    :aria-label="`${expandedIds.has(rowId(row)) ? 'Hide' : 'Show'} details for ${displayCell(row, columns[0])}`"
+                    @click="toggleDetail(row)"
+                  >
+                    <i
+                      class="fas"
+                      :class="expandedIds.has(rowId(row)) ? 'fa-chevron-down' : 'fa-chevron-right'"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+                </td>
+                <td
+                  v-for="column in columns"
+                  :key="column.key"
+                  :class="{ 'data-table-cell--wrap': column.wrap }"
+                >
+                  <!-- A page can draw a cell itself with a cell-<key> slot. -->
+                  <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
+                    <RouterLink
+                      v-if="columnLink(row, column)"
+                      :to="columnLink(row, column)!"
+                      class="data-table-link"
+                    >
+                      {{ displayCell(row, column) }}
+                    </RouterLink>
+                    <template v-else>{{ displayCell(row, column) }}</template>
+                  </slot>
+                </td>
+                <template v-if="$slots.actions">
+                  <td
+                    v-for="index in actionColumns"
+                    :key="`actions-${index}`"
+                    class="data-table-actions-col"
+                    @click.stop
+                  >
+                    <slot name="actions" :row="row" :column="index - 1" />
+                  </td>
+                </template>
+              </tr>
+              <tr v-if="hasDetail && expandedIds.has(rowId(row))" class="data-table-detail-row">
+                <td :colspan="emptyColspan">
+                  <slot name="row-detail" :row="row" />
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -233,8 +224,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
-import { printHtmlDocument } from '@/utils/consentDocument'
-import { DATA_TABLE_PAGE_SIZES } from '@/utils/dataTable'
+import { DATA_TABLE_PAGE_SIZES, cellText } from '@/utils/dataTable'
 
 export type DataTableColumn = {
   key: string
@@ -247,17 +237,6 @@ export type DataTableColumn = {
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
 }
 
-export type DataTableOption = {
-  value: string
-  label: string
-  needsSelection?: boolean
-}
-
-export type DataTableOptionGroup = {
-  label: string
-  options: DataTableOption[]
-}
-
 export type DataTableSort = { key: string; direction: 'asc' | 'desc' }
 
 type RowKey = string | number
@@ -267,10 +246,6 @@ const props = withDefaults(
     columns: DataTableColumn[]
     rows: Record<string, unknown>[]
     rowKey?: string
-    filename?: string
-    // Row fields Copy emails reads.
-    emailKeys?: string[]
-    extraOptionGroups?: DataTableOptionGroup[]
     // How many columns the actions slot fills; the slot is told which one.
     actionColumns?: number
     emptyMessage?: string
@@ -278,27 +253,27 @@ const props = withDefaults(
     loading?: boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
+    rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
     // Server mode: give the total and the table shows `rows` as the current
     // page, leaving search, sorting and paging to the page through the
-    // v-models below. The Options menu needs every row, so it is left out.
+    // v-models below.
     totalCount?: number
     page?: number
     pageSize?: number
     search?: string
+    // Given, the page sorts the rows itself, in either mode.
     sort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
   }>(),
   {
     rowKey: 'id',
-    filename: 'table',
-    emailKeys: () => ['email'],
-    extraOptionGroups: () => [],
     actionColumns: 1,
     emptyMessage: 'No matching entries.',
     searchPlaceholder: 'Search',
     loading: false,
     clickableRows: false,
+    rowClass: undefined,
     totalCount: undefined,
     page: undefined,
     pageSize: undefined,
@@ -309,7 +284,6 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  action: [value: string, rows: Record<string, unknown>[]]
   'row-click': [row: Record<string, unknown>]
   'update:page': [page: number]
   'update:pageSize': [size: number]
@@ -319,7 +293,7 @@ const emit = defineEmits<{
 }>()
 
 const isServer = computed(() => props.totalCount !== undefined)
-const showOptionsMenu = computed(() => !isServer.value)
+const pageSorts = computed(() => isServer.value || props.sort !== undefined)
 
 // Each of these follows its prop when the page passes one, and tells the
 // page when it changes here.
@@ -329,7 +303,6 @@ const pageSize = ref(props.pageSize ?? DATA_TABLE_PAGE_SIZES[0])
 const sortKey = ref(props.sort?.key ?? (isServer.value ? '' : props.columns[0]?.key || ''))
 const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
-const optionChoice = ref('')
 const ownSelection = ref<Set<RowKey>>(new Set())
 
 watch(() => props.search, (value) => { if (value !== undefined) search.value = value })
@@ -354,13 +327,8 @@ const columnLink = (row: Record<string, unknown>, column: DataTableColumn) => {
   return column.linkTo?.(row) ?? null
 }
 
-const displayCell = (row: Record<string, unknown>, column?: DataTableColumn) => {
-  if (!column) return '—'
-  const value = row[column.key]
-  if (Array.isArray(value)) return value.map((item) => String(item ?? '').trim()).filter(Boolean).join(', ') || '—'
-  const text = String(value ?? '').trim()
-  return text || '—'
-}
+const displayCell = (row: Record<string, unknown>, column?: DataTableColumn) =>
+  column ? cellText(row, column.key) : '—'
 
 const compare = (
   left: Record<string, unknown>,
@@ -388,6 +356,7 @@ const filteredRows = computed(() => {
         ),
       )
 
+  if (pageSorts.value) return source
   const column = props.columns.find((item) => item.key === sortKey.value)
   source.sort((left, right) => compare(left, right, column) * (sortDir.value === 'asc' ? 1 : -1))
   return source
@@ -406,10 +375,21 @@ const pagedRows = computed(() => {
 const slots = defineSlots<{
   actions?: (props: { row: Record<string, unknown>; column: number }) => unknown
   bulk?: (props: { rows: Record<string, unknown>[]; count: number }) => unknown
+  // Anything a page adds above the table, given all its rows, this page's
+  // rows and the ticked rows.
+  toolbar?: (props: {
+    rows: Record<string, unknown>[]
+    pageRows: Record<string, unknown>[]
+    selectedRows: Record<string, unknown>[]
+  }) => unknown
   // Fields beside Search, such as filters.
   filters?: () => unknown
+  // A line of counts in the middle of the search card.
+  stats?: () => unknown
   // Buttons on the right of the search card.
   'search-side'?: () => unknown
+  // A row's details, opened under it by its chevron or a click on the row.
+  'row-detail'?: (props: { row: Record<string, unknown> }) => unknown
   [cell: `cell-${string}`]: (props: { row: Record<string, unknown>; value: unknown }) => unknown
 }>()
 
@@ -436,8 +416,24 @@ const somePageSelected = computed(
   () => !allPageSelected.value && pagedRows.value.some((row) => selectedIds.value.has(rowId(row))),
 )
 
+const hasDetail = computed(() => Boolean(slots['row-detail']))
+const expandedIds = ref<Set<RowKey>>(new Set())
+
+const toggleDetail = (row: Record<string, unknown>) => {
+  const next = new Set(expandedIds.value)
+  const id = rowId(row)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedIds.value = next
+}
+
+const onRowClick = (row: Record<string, unknown>) => {
+  if (hasDetail.value) toggleDetail(row)
+  else if (props.clickableRows) emit('row-click', row)
+}
+
 const emptyColspan = computed(
-  () => props.columns.length + 1 + (slots.actions ? props.actionColumns : 0),
+  () => props.columns.length + 1 + (hasDetail.value ? 1 : 0) + (slots.actions ? props.actionColumns : 0),
 )
 
 const {
@@ -493,7 +489,7 @@ const toggleSort = (key: string) => {
   const direction = sortKey.value === key && sortDir.value === 'asc' ? 'desc' : 'asc'
   sortKey.value = key
   sortDir.value = direction
-  if (isServer.value) emit('update:sort', { key, direction })
+  if (pageSorts.value) emit('update:sort', { key, direction })
 }
 
 const onPageSizeChange = (event: Event) => {
@@ -527,121 +523,19 @@ const togglePageSelection = () => {
   }
   setSelection(next)
 }
-
-const csvEscape = (value: string) => `"${value.replace(/"/g, '""')}"`
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-
-const rowsToCsv = (rows: Record<string, unknown>[]) => {
-  const header = props.columns.map((column) => column.label).join(',')
-  const lines = rows.map((row) => props.columns.map((column) => csvEscape(displayCell(row, column))).join(','))
-  return [header, ...lines].join('\n')
-}
-
-const downloadCsv = (rows: Record<string, unknown>[], suffix = '') => {
-  const blob = new Blob([rowsToCsv(rows)], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${props.filename}${suffix}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
-const copyText = async (value: string) => {
-  await navigator.clipboard.writeText(value)
-}
-
-const rowToTsv = (row: Record<string, unknown>) =>
-  props.columns.map((column) => displayCell(row, column)).join('\t')
-
-const emailsFromRows = (rows: Record<string, unknown>[]) => {
-  const emails = rows
-    .flatMap((row) => props.emailKeys.map((key) => row[key]))
-    .map((value) => String(value ?? '').trim())
-  return [...new Set(emails.filter(Boolean))]
-}
-
-const printRows = (rows: Record<string, unknown>[]) => {
-  const header = props.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')
-  const body = rows
-    .map(
-      (row) =>
-        `<tr>${props.columns.map((column) => `<td>${escapeHtml(displayCell(row, column))}</td>`).join('')}</tr>`,
-    )
-    .join('')
-  printHtmlDocument(
-    props.filename,
-    `<style>body{font-family:Arial,sans-serif;padding:1.5rem}table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #ccc;padding:0.5rem;text-align:left}th{background:#f6f8f6}</style>
-    <h1>${escapeHtml(props.filename)}</h1>
-    <table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`,
-  )
-}
-
-const extraOptionValues = computed(
-  () => new Set(props.extraOptionGroups.flatMap((group) => group.options.map((option) => option.value))),
-)
-
-const onOption = async (event: Event) => {
-  const value = (event.target as HTMLSelectElement).value
-  optionChoice.value = ''
-  if (!value) return
-  if (value === 'csv-all') downloadCsv(filteredRows.value)
-  if (value === 'csv-page') downloadCsv(pagedRows.value, '-page')
-  if (value === 'csv-selected') downloadCsv(selectedRows.value, '-selected')
-  if (value === 'copy-table') await copyText([props.columns.map((column) => column.label).join('\t'), ...filteredRows.value.map(rowToTsv)].join('\n'))
-  if (value === 'copy-emails') await copyText(emailsFromRows(filteredRows.value).join(', '))
-  if (value === 'copy-selected') await copyText([props.columns.map((column) => column.label).join('\t'), ...selectedRows.value.map(rowToTsv)].join('\n'))
-  if (value === 'print') printRows(filteredRows.value)
-  if (extraOptionValues.value.has(value)) {
-    const option = props.extraOptionGroups
-      .flatMap((group) => group.options)
-      .find((item) => item.value === value)
-    emit('action', value, option?.needsSelection ? selectedRows.value : filteredRows.value)
-  }
-}
 </script>
 
 <style scoped>
 .data-table-toolbar,
-.data-table-toolbar-left,
 .data-table-bulk {
   display: flex;
   align-items: center;
-}
-
-.data-table-toolbar {
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.data-table-toolbar-left,
-.data-table-bulk {
   gap: 0.75rem;
 }
 
-.data-table-label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: #6c757d;
-  font-size: 0.9rem;
-}
-
-.data-table-select {
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  color: var(--teal);
-  background: var(--white);
+.data-table-toolbar {
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
 }
 
 .data-table-pager {
@@ -744,6 +638,13 @@ const onOption = async (event: Event) => {
   gap: 0.75rem 1rem;
 }
 
+/* Centred between Search and the buttons, as on Group Marks. */
+.data-table-stats {
+  margin: 0 auto;
+  color: var(--teal);
+  font-size: 0.9rem;
+}
+
 .data-table-search-side {
   display: flex;
   align-items: center;
@@ -830,6 +731,33 @@ const onOption = async (event: Event) => {
   cursor: pointer;
 }
 
+.data-table-expand-col {
+  width: 1%;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.data-table-expand-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.data-table-expand-btn:hover {
+  color: var(--dark-green);
+}
+
+/* A row's details, across the whole table under it. */
+.data-table-detail-row td {
+  padding: 1rem 1.25rem;
+  white-space: normal;
+  background: var(--bg-light);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -857,7 +785,7 @@ tbody tr:hover {
   background-color: transparent;
 }
 
-tbody tr:hover td {
+tbody tr:not(.data-table-detail-row):hover td {
   background-color: var(--light-green);
   box-shadow: 1px 0 0 var(--light-green);
 }
