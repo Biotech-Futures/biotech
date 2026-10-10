@@ -62,16 +62,24 @@ import { SUPPORT_EMAIL } from '@/constants/brand';
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
+const requireSupervisor = () => {
+  const auth = useAuthStore();
+  if (!auth.isSupervisor) return { name: 'dashboard', replace: true };
+  return true;
+};
+
 // /groups has no id of its own — resolve the user's first group from the
 // store and forward there (an admin's list is every group). Falls back to
 // /dashboard when the user has no groups, instead of rendering a
 // half-loaded placeholder; an admin goes to Admin > Groups to make one.
 const resolveGroupsLanding = async () => {
+  const auth = useAuthStore();
+  if (auth.isSupervisor) return { name: 'my-groups', replace: true };
   const store = useGroupsStore();
   await store.ensureLoaded();
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
-  if (useAuthStore().isAdmin) return { name: 'admin-groups', replace: true };
+  if (auth.isAdmin) return { name: 'admin-groups', replace: true };
   window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
 };
@@ -84,6 +92,10 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
+  { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
+  { path: '/my-students/:id(\\d+)/guardian', name: 'guardian-summary', component: () => import('@/views/SupervisorPersonSummaryPage.vue'), beforeEnter: requireSupervisor },
+  { path: '/my-students/:id(\\d+)', name: 'student-summary', component: () => import('@/views/SupervisorPersonSummaryPage.vue'), beforeEnter: requireSupervisor },
+  { path: '/my-groups', name: 'my-groups', component: () => import('@/views/SupervisorGroupsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
