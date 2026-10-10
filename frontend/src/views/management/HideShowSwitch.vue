@@ -110,7 +110,7 @@ const ask = (event: Event) => {
 
 .hide-show__text--hide {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .hide-show input:checked + .hide-show__track .hide-show__text--hide {

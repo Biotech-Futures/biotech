@@ -820,7 +820,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   display: flex;
   font: inherit;
@@ -1002,7 +1002,7 @@ onBeforeUnmount(() => {
   background: transparent;
   font-size: 0.84rem;
   font-weight: 500;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   text-align: left;
   transition: background-color 0.15s ease, color 0.15s ease;

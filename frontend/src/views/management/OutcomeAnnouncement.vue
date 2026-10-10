@@ -383,7 +383,7 @@ defineExpose({ reload: load })
 
 .outcome-announcement__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;

@@ -357,7 +357,7 @@ onMounted(async () => {
 }
 
 .by-group__stats {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
   /* Centered between the search box and the Download All button. */
   margin: 0 auto;
@@ -466,7 +466,7 @@ onMounted(async () => {
 .by-group__table td {
   padding: 0.55rem 0.85rem;
   border-bottom: 1px solid var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
   white-space: nowrap;
 }
 

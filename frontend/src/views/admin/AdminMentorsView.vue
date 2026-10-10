@@ -278,7 +278,7 @@ defineExpose({
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -353,7 +353,7 @@ defineExpose({
   padding: 0.85rem 1rem;
   text-align: center;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border-bottom: 2px solid var(--border-light);
   white-space: nowrap;

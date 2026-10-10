@@ -8,19 +8,19 @@
 :root {
   /* Primary Colors */
   --dark-green: #017151;
-  --white: #ffffff;
-  --black: #000000;
-  --charcoal: #174243;
+  --light-green: #c3ecca;
+  --teal: #174243;
 
   /* Secondary Colors */
-  --light-green: #c3ebca;
-  --air-force-blue: #39687b;
-  --mint-green: #5ea99e;
+  --air-force-blue: #26697d;
+  --mint-green: #3ead9f;
+  --yellow: #f3e69d;
 
-  /* Tertiary Colors */
+  /* Other Colors */
+  --white: #ffffff;
+  --black: #000000;
   --navy: #1a345e;
   --eucalypt: #71a399;
-  --yellow: #f1e5a6;
 
   /* UI Colors */
   --bg-light: #f8f9fa;
@@ -34,7 +34,7 @@
   /* Auxiliary tokens — light mode defaults. Dark theme overrides below. */
   --surface-elevated: #ffffff;
   --text-muted: #6c757d;
-  --accent-green-soft: #c3ebca;
+  --accent-green-soft: #c3ecca;
 }
 
 /* Dark theme — opt-in via <html data-theme="dark">. No prefers-color-scheme
@@ -44,7 +44,7 @@
   --white: #161f1d;
   --surface-elevated: #1d2826;
   --border-light: #263330;
-  --charcoal: #e6efed;
+  --teal: #e6efed;
   --text-muted: #8a9a96;
   --shadow: rgba(0, 0, 0, 0.5);
   --light-green: rgba(1, 113, 81, 0.18);
@@ -56,7 +56,7 @@
 
 body {
   font-family: Arial, sans-serif;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--bg-light);
   line-height: 1.6;
 }
@@ -68,7 +68,7 @@ h3,
 h4,
 h5,
 h6 {
-  color: var(--charcoal);
+  color: var(--teal);
   margin-bottom: 1rem;
 }
 
@@ -220,7 +220,7 @@ h5 {
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
   text-decoration: none;
-  color: var(--charcoal);
+  color: var(--teal);
   transition: all 0.2s ease;
   border-left: 3px solid transparent;
 }
@@ -278,7 +278,96 @@ h5 {
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
+}
+
+/* Page heading, tab bars and subheadings, shared by the pages.
+   The 48px above a page heading is the layout's own padding: 16px from the
+   main area and 32px from .content-area. */
+.page-header {
+  margin-bottom: 1.25rem;
+}
+
+.page-title {
+  margin: 0 0 0.25rem;
+  font-size: 2.25rem;
+  font-weight: 600;
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+/* Pill tabs on one white rail, the open one solid Dark Green. Pills are
+   34px tall; with two bars, the upper one is .tab-bar--main, 40px. The 20px
+   above a bar is the page header's, and it leaves 20px below. */
+.tab-bar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  margin-bottom: 1.25rem;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  /* Round at the ends on one row, without turning into a lozenge when the
+     bar wraps onto two. */
+  border-radius: 1.625rem;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.tab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  /* 34px tall: a 1.1rem line plus 0.5125rem above and below. */
+  padding: 0.5125rem 1.1rem;
+  line-height: 1.1rem;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+/* 40px tall: 0.7rem above and below. */
+.tab-bar--main .tab-pill {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+
+.tab-pill:hover:not(.active) {
+  color: var(--teal);
+  background: var(--accent-green-soft);
+}
+
+.tab-pill.active,
+.tab-pill.active:hover {
+  background: var(--dark-green);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+}
+
+.tab-pill:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
+}
+
+/* A section's heading within a page, with 8px under it. The 20px above is
+   left by what comes before it, such as a tab bar. */
+.subheading {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--teal);
 }
 
 /* Buttons */
@@ -357,7 +446,7 @@ h5 {
   border: 1px solid var(--border-light);
   border-radius: 4px;
   font-size: 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   transition: border-color 0.3s ease;
 }
 
@@ -403,7 +492,7 @@ h5 {
 .widget-title {
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .widget-value {
@@ -442,7 +531,7 @@ h5 {
 
 .group-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin-bottom: 0.25rem;
 }
 
@@ -483,7 +572,7 @@ h5 {
 
 .resource-title {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin-bottom: 0.5rem;
 }
 
@@ -556,7 +645,7 @@ h5 {
 
 .message-author {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .message-time {
@@ -564,7 +653,7 @@ h5 {
 }
 
 .message-text {
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.5;
 }
 
@@ -647,7 +736,7 @@ h5 {
 
 .task-label {
   flex: 1;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .task-label.completed {
@@ -716,7 +805,7 @@ h5 {
 .event-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin-bottom: 0.5rem;
 }
 
@@ -753,18 +842,51 @@ th {
   padding: 1rem;
   text-align: left;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 2px solid var(--border-light);
 }
 
 td {
   padding: 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
 }
 
 tbody tr:hover {
   background-color: var(--light-green);
+}
+
+/* A wide table's second sideways scrollbar, just under its headings
+   (see useTopScrollbar). It sits over the gap row, inside the outline. */
+.table-scroll-frame {
+  position: relative;
+}
+
+/* The table's scrolling box. Anything placed absolutely inside the table,
+   like the hidden "Actions" headings, is placed in and clipped by this box;
+   placed in the frame instead, it would stick out past the table and push
+   the whole page sideways. */
+.table-scroll-box {
+  position: relative;
+}
+
+.table-top-scroll {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--surface-elevated);
+}
+
+.table-top-scroll > div {
+  height: 1px;
+}
+
+/* Each table's own scoped cell padding would otherwise outweigh this. */
+.table-scroll-gap td {
+  padding: 0 !important;
+  border-bottom: none !important;
 }
 
 .status-badge {
@@ -892,7 +1014,7 @@ tbody tr:hover {
 .profile-section-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin-bottom: 1rem;
 }
 
@@ -910,7 +1032,7 @@ tbody tr:hover {
 
 .profile-field-value {
   flex: 1;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* Loading States */
@@ -990,7 +1112,7 @@ tbody tr:hover {
 .modal-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .modal-close {

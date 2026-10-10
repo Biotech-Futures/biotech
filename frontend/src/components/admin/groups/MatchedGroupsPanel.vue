@@ -393,7 +393,7 @@ const onBulkConfirmed = () => {
 .matched-groups__title h2 {
   margin: 0;
   font-size: 1.05rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .matched-groups__badge {
@@ -462,7 +462,7 @@ const onBulkConfirmed = () => {
   padding: 0.75rem 1rem;
   text-align: left;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border-bottom: 2px solid var(--border-light);
   white-space: nowrap;
@@ -470,7 +470,7 @@ const onBulkConfirmed = () => {
 
 .matched-groups__table td {
   padding: 0.75rem 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
   vertical-align: middle;
 }
@@ -613,7 +613,7 @@ const onBulkConfirmed = () => {
 
 .matched-groups__student-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .matched-groups__login-badge {

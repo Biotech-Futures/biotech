@@ -506,7 +506,7 @@ onMounted(() => {
 }
 
 .admin-view-executed__group-by-label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -529,7 +529,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-view-executed__force-toggle input {
@@ -573,7 +573,7 @@ onMounted(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 

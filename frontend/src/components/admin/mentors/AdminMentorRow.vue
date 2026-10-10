@@ -223,7 +223,7 @@ const emit = defineEmits<{
 
 .admin-mentors__row td {
   padding: 0.75rem 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -303,7 +303,7 @@ const emit = defineEmits<{
   border-radius: 999px;
   background-color: var(--bg-light);
   font-size: 0.8rem;
-  color: var(--charcoal);
+  color: var(--teal);
   white-space: nowrap;
 }
 

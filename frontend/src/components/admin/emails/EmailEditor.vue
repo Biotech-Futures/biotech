@@ -388,7 +388,7 @@ const insertIntoSubject = (token: string) => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* As wide as the address box, or wider when a name needs it, up to 25rem. */
@@ -561,7 +561,7 @@ const insertIntoSubject = (token: string) => {
 /* Dark theme: the subject and body editor take the grey other pages give
    their boxes, with light text. */
 :root[data-theme='dark'] .email-editor__title {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor__switch-label {
@@ -585,7 +585,7 @@ const insertIntoSubject = (token: string) => {
 :root[data-theme='dark'] .email-editor :deep(.toolbar-btn:hover:not(:disabled)),
 :root[data-theme='dark'] .email-editor :deep(.dropdown-item:hover) {
   background-color: var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor :deep(.toolbar-btn.active),
@@ -605,7 +605,7 @@ const insertIntoSubject = (token: string) => {
 }
 
 :root[data-theme='dark'] .email-editor :deep(.dropdown-item) {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor :deep(.table-context-bar) {
@@ -620,7 +620,7 @@ const insertIntoSubject = (token: string) => {
 }
 
 :root[data-theme='dark'] .email-editor :deep(.raw-html-textarea) {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* The writing area stays white, like the email itself, so the template's own

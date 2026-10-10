@@ -531,7 +531,7 @@ const remove = async (id: number) => {
 .finalist-presentation__switch-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__hint a {
@@ -641,7 +641,7 @@ const remove = async (id: number) => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__add {
@@ -670,7 +670,7 @@ const remove = async (id: number) => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__time:focus {

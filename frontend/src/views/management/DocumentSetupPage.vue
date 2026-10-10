@@ -912,7 +912,7 @@ const save = async () => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   max-width: 14rem;
 }
 
@@ -958,7 +958,7 @@ const save = async () => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .grading-settings__field input[type='text']:focus {

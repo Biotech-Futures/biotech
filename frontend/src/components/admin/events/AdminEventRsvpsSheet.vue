@@ -459,7 +459,7 @@ const sortedRsvps = computed(() => {
 
 .admin-event-rsvps__stat-val {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-event-rsvps__stat-pill--accepted {
@@ -471,16 +471,16 @@ const sortedRsvps = computed(() => {
 }
 
 .admin-event-rsvps__stat-pill--tentative {
-  background-color: rgba(241, 229, 166, 0.4);
+  background-color: rgba(243, 230, 157, 0.4);
   border-color: rgba(180, 150, 50, 0.3);
 }
 
 .admin-event-rsvps__stat-pill--waitlisted {
-  background-color: rgba(57, 104, 123, 0.1);
-  border-color: rgba(57, 104, 123, 0.25);
+  background-color: rgba(38, 105, 125, 0.1);
+  border-color: rgba(38, 105, 125, 0.25);
 }
 .admin-event-rsvps__stat-pill--waitlisted .admin-event-rsvps__stat-val {
-  color: #39687b;
+  color: #26697d;
 }
 
 .admin-event-rsvps__stat-pill--declined {
@@ -520,7 +520,7 @@ const sortedRsvps = computed(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -547,7 +547,7 @@ const sortedRsvps = computed(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
   appearance: none;
   -webkit-appearance: none;
@@ -593,7 +593,7 @@ const sortedRsvps = computed(() => {
 .admin-event-rsvps__empty-title {
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin: 0 0 0.25rem;
 }
 
@@ -632,7 +632,7 @@ const sortedRsvps = computed(() => {
 }
 
 .th-sortable:hover {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .sort-neutral {
@@ -689,7 +689,7 @@ const sortedRsvps = computed(() => {
 
 .admin-event-rsvps__name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-event-rsvps__email {
@@ -732,13 +732,13 @@ const sortedRsvps = computed(() => {
 }
 
 .rsvp-badge-tentative {
-  background: var(--warning, #f1e5a6);
-  color: var(--charcoal);
+  background: var(--warning, #f3e69d);
+  color: var(--teal);
 }
 
 .rsvp-badge-waitlisted {
-  background: rgba(57, 104, 123, 0.15);
-  color: #39687b;
+  background: rgba(38, 105, 125, 0.15);
+  color: #26697d;
 }
 
 .rsvp-badge-declined {
@@ -765,7 +765,7 @@ const sortedRsvps = computed(() => {
 }
 
 .admin-event-rsvps__role-cell {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
   white-space: nowrap;
 }

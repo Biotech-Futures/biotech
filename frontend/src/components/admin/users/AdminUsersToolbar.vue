@@ -59,7 +59,7 @@ const search = computed({
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__search-icon {

@@ -674,7 +674,7 @@ onMounted(() => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-tasks__bulk-status select {
@@ -684,7 +684,7 @@ onMounted(() => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
@@ -751,7 +751,7 @@ onMounted(() => {
   border-left: 3px solid var(--dark-green);
   border-radius: 8px;
   background-color: var(--light-green);
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 

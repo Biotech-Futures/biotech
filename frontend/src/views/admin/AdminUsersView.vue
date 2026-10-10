@@ -458,7 +458,7 @@ defineExpose({
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 8px;
   background-color: rgba(1, 113, 81, 0.06);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -483,7 +483,7 @@ defineExpose({
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__force-toggle input {
@@ -527,7 +527,7 @@ defineExpose({
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 </style>

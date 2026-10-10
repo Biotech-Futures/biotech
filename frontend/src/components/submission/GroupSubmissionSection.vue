@@ -220,7 +220,7 @@ function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
 }
 
 .group-section-btn:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--accent-green-soft);
 }
 

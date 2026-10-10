@@ -470,7 +470,7 @@ const onDismiss = () => {
 
 .admin-users__consent-badge--unverified {
   border: 1px solid var(--warning);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__consent-badge--missing {
@@ -512,7 +512,7 @@ const onDismiss = () => {
 
 .admin-users-detail__item dd {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: right;
   overflow-wrap: anywhere;
 }
@@ -562,7 +562,7 @@ const onDismiss = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users-detail__consent + .admin-users-detail__consent {

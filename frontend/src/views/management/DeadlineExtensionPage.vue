@@ -370,7 +370,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__status--active {
@@ -407,7 +407,7 @@ onMounted(() => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__input:focus {
@@ -534,7 +534,7 @@ onMounted(() => {
 .extensions__dialog-body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__dialog-actions {

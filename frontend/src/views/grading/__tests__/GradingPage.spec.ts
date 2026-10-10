@@ -26,7 +26,7 @@ describe('the grading shell', () => {
   it('offers the three marking sections, with Management moved elsewhere', () => {
     routePath.value = '/grading/components/SAQ'
     const wrapper = mountPage()
-    const tabs = wrapper.findAll('.grading__tab')
+    const tabs = wrapper.findAll('.tab-pill')
     expect(tabs.map((t) => t.text())).toEqual(['By component', 'By group', 'Select Finalists'])
     expect(wrapper.text()).not.toContain('Management')
   })
@@ -34,7 +34,7 @@ describe('the grading shell', () => {
   it('highlights the tab owning the current route', () => {
     routePath.value = '/grading/by-group'
     const wrapper = mountPage()
-    const active = wrapper.findAll('.grading__tab--active')
+    const active = wrapper.findAll('.tab-pill.active')
     expect(active).toHaveLength(1)
     expect(active[0]!.text()).toBe('By group')
   })
@@ -43,9 +43,9 @@ describe('the grading shell', () => {
     // The per-group marking detail lives under /grading/groups/…, which
     // belongs to the By group tab even though its link points elsewhere.
     routePath.value = '/grading/groups/7'
-    expect(mountPage().find('.grading__tab--active').text()).toBe('By group')
+    expect(mountPage().find('.tab-pill.active').text()).toBe('By group')
 
     routePath.value = '/grading/components/POSTER'
-    expect(mountPage().find('.grading__tab--active').text()).toBe('By component')
+    expect(mountPage().find('.tab-pill.active').text()).toBe('By component')
   })
 })

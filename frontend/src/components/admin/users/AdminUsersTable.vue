@@ -182,7 +182,7 @@ const emit = defineEmits<{
   padding: 0;
   font: inherit;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: left;
   cursor: pointer;
   transition: color 0.15s ease;

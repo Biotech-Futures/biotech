@@ -268,7 +268,7 @@ onMounted(() => void load())
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .deadline__input {
@@ -278,7 +278,7 @@ onMounted(() => void load())
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .deadline__input:focus {
@@ -339,7 +339,7 @@ onMounted(() => void load())
 .deadline__dialog-body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .deadline__dialog-actions {

@@ -1387,7 +1387,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-logo-icon {
@@ -1409,7 +1409,7 @@ onBeforeUnmount(() => {
 .legacy-info-title {
   margin: 0 0 0.75rem;
   font-size: 1.75rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-custom-content p {
@@ -1420,7 +1420,7 @@ onBeforeUnmount(() => {
 
 .legacy-info-list {
   margin: 0.75rem 0 1rem 1.25rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-info-list li + li {

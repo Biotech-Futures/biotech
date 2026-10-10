@@ -1,22 +1,22 @@
 <template>
   <div class="content-area supervisor-students-page">
-    <header class="supervisor-page-header">
-      <h1>Registered Students</h1>
-      <p>This is a list of all students registered under your supervision.</p>
+    <header class="page-header">
+      <h1 class="page-title">Registered Students</h1>
+      <p class="page-subtitle">This is a list of all students registered under your supervision.</p>
     </header>
 
     <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
     <p v-if="error" class="supervisor-error">{{ error }}</p>
     <p v-else-if="loading" class="supervisor-muted">Loading students...</p>
 
-    <nav class="supervisor-switcher" role="tablist" aria-label="Student registration">
+    <nav class="tab-bar" role="tablist" aria-label="Student registration">
       <button
         v-for="tab in sectionTabs"
         :key="tab.id"
         type="button"
         role="tab"
         :aria-selected="activeSection === tab.id"
-        class="supervisor-switch"
+        class="tab-pill"
         :class="{ active: activeSection === tab.id }"
         @click="activeSection = tab.id"
       >
@@ -29,36 +29,34 @@
       :key="section.id"
       class="supervisor-section"
     >
-      <div class="supervisor-section-head">
-        <h2>{{ section.title }}</h2>
-        <button
-          v-if="section.emailAll"
-          type="button"
-          class="btn btn-outline btn-sm"
-          :disabled="emailSending || !section.rows.length"
-          @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
-        >
-          {{ section.emailAll.label }}
-        </button>
-        <button
-          v-if="section.id === 'fullyRegistered' && section.rows.length"
-          type="button"
-          class="btn btn-outline btn-sm"
-          @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
-        >
-          Download all consent PDFs
-        </button>
-      </div>
-      <SupervisorDataTable
+      <h2 class="subheading">{{ section.title }}</h2>
+      <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
         :filename="section.filename"
-        :extra-option-groups="section.optionGroups"
-        :actions-heading="section.splitRowActions ? '' : undefined"
-        :action-columns="section.splitRowActions ? section.rowActions.length : 1"
-        @refresh="loadStudents"
+        :email-keys="['email', 'pgEmail']"
+        :action-columns="section.rowActions.length"
         @action="(value, rows) => onSectionAction(section.id, value, rows)"
       >
+        <template #search-side>
+          <button
+            v-if="section.emailAll"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="emailSending || !section.rows.length"
+            @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
+          >
+            {{ section.emailAll.label }}
+          </button>
+          <button
+            v-if="section.id === 'fullyRegistered' && section.rows.length"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
+          >
+            Download all consent PDFs
+          </button>
+        </template>
         <template #bulk="{ rows }">
           <button
             v-for="action in section.bulkActions"
@@ -70,23 +68,17 @@
             {{ action.label }}
           </button>
         </template>
+        <!-- Each row button has its own column with no heading. -->
         <template #actions="{ row, column }">
-          <div
-            class="supervisor-row-actions"
-            :class="{ 'supervisor-row-actions--split': section.splitRowActions }"
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            @click="onSectionAction(section.id, section.rowActions[column].value, [row])"
           >
-            <button
-              v-for="action in section.splitRowActions ? [section.rowActions[column]] : section.rowActions"
-              :key="action.value"
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="onSectionAction(section.id, action.value, [row])"
-            >
-              {{ action.label }}
-            </button>
-          </div>
+            {{ section.rowActions[column].label }}
+          </button>
         </template>
-      </SupervisorDataTable>
+      </AppDataTable>
     </section>
 
     <div v-if="guardianModal" class="supervisor-modal-backdrop" @click.self="closeGuardianModal">
@@ -139,11 +131,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import SupervisorDataTable, {
-  type SupervisorColumn,
-  type SupervisorTableOption,
-  type SupervisorTableOptionGroup,
-} from '@/components/supervisor/SupervisorDataTable.vue'
+import AppDataTable, {
+  type DataTableColumn,
+  type DataTableOption,
+} from '@/components/AppDataTable.vue'
 import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
@@ -186,44 +177,35 @@ const guardianLink = (row: Record<string, unknown>) => ({
   params: { id: String(row.id) },
 })
 
-const pendingColumns: SupervisorColumn[] = [
+const pendingColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student', linkTo: studentLink },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year Level', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest' },
+  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
-const registeredColumns: SupervisorColumn[] = [
+const registeredColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student', linkTo: studentLink },
   { key: 'parentGuardian', label: 'Parent/Guardian', linkTo: guardianLink },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year Level', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest' },
+  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
-const fullyRegisteredColumns: SupervisorColumn[] = [
+const fullyRegisteredColumns: DataTableColumn[] = [
   ...registeredColumns,
   { key: 'permissionGiven', label: 'Permission' },
 ]
 
-const pendingDetailsActions: SupervisorTableOption[] = [
+const pendingDetailsActions: DataTableOption[] = [
   { value: 'email-students', label: 'Email student', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
   { value: 'enter-guardian', label: 'Enter guardian details', needsSelection: true },
 ]
 
-const pendingPermissionActions: SupervisorTableOption[] = [
+const pendingPermissionActions: DataTableOption[] = [
   { value: 'email-guardians', label: 'Email parent/guardian', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
-]
-
-const fullyRegisteredActions: SupervisorTableOption[] = [
-  { value: 'view-consent-all', label: 'Download all consent PDFs' },
-  { value: 'view-consent-selected', label: 'Download selected consent PDFs', needsSelection: true },
-]
-
-const actionGroup = (options: SupervisorTableOption[]): SupervisorTableOptionGroup[] => [
-  { label: 'Student actions', options },
 ]
 
 // One table at a time, picked from the bar above it as Management's are.
@@ -240,7 +222,6 @@ const sections = computed(() => [
     title: 'Pending Parent/Guardian Details',
     filename: 'pending-guardian-details',
     columns: pendingColumns,
-    optionGroups: actionGroup(pendingDetailsActions),
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingDetailsActions,
     emailAll: { value: 'email-students-all', label: 'Email all students' },
@@ -251,7 +232,6 @@ const sections = computed(() => [
     title: 'Pending Parent/Guardian Permission',
     filename: 'pending-guardian-permission',
     columns: registeredColumns,
-    optionGroups: actionGroup(pendingPermissionActions),
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
     emailAll: { value: 'email-guardians-all', label: 'Email all parents/guardians' },
@@ -264,13 +244,10 @@ const sections = computed(() => [
     title: 'Fully Registered with Parent/Guardian Permission',
     filename: 'fully-registered-students',
     columns: fullyRegisteredColumns,
-    optionGroups: actionGroup(fullyRegisteredActions),
     rowActions: [
       { value: 'open-consent', label: 'View' },
       { value: 'view-consent', label: 'Download' },
     ],
-    // View and Download each get their own column, with no heading.
-    splitRowActions: true,
     bulkActions: [{ value: 'view-consent-selected', label: 'Download selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
@@ -482,12 +459,6 @@ onMounted(loadStudents)
 </script>
 
 <style scoped>
-.supervisor-page-header h1 {
-  margin: 0 0 0.35rem;
-  font-size: 1.85rem;
-}
-
-.supervisor-page-header p,
 .supervisor-muted,
 .supervisor-error,
 .supervisor-notice {
@@ -507,84 +478,10 @@ onMounted(loadStudents)
   margin-bottom: 2.25rem;
 }
 
-/* The same pill bar as the Management tabs in the admin portal. */
-.supervisor-switcher {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1.75rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 1.4rem;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.supervisor-switch {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.supervisor-switch:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.supervisor-switch.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.supervisor-switch:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
-}
-
-.supervisor-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0 0 0.85rem;
-}
-
-.supervisor-section h2 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
 .email-confirm-list {
   margin: 0;
   padding-left: 1.1rem;
   color: #3d4a4a;
-}
-
-.supervisor-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.supervisor-row-actions .btn {
-  min-width: 5.5rem;
-  text-align: center;
-  justify-content: center;
-}
-
-.supervisor-row-actions--split .btn {
-  min-width: 0;
 }
 
 .supervisor-modal-backdrop {
@@ -623,7 +520,7 @@ onMounted(loadStudents)
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .supervisor-modal-actions {

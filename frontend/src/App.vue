@@ -891,8 +891,8 @@ onBeforeUnmount(() => {
 /* BTF light green, matching the brand email buttons. Keep the change within
    student dashboard/profile pages, including their navigation and account panel. */
 .student-dashboard-colours {
-  --light-green: #c3ebca;
-  --accent-green-soft: #c3ebca;
+  --light-green: #c3ecca;
+  --accent-green-soft: #c3ecca;
 }
 
 :global(html[data-theme="dark"] .student-dashboard-colours) {
@@ -1093,7 +1093,7 @@ select {
   border-radius: 8px;
   padding: 0.58rem 0.9rem 0.58rem 2.35rem;
   background: rgba(255, 255, 255, 0.96);
-  color: var(--charcoal);
+  color: var(--teal);
   outline: none;
   box-shadow: 0 1px 2px rgba(7, 17, 15, 0.08);
   transition:
@@ -1124,7 +1124,7 @@ select {
 
 :root[data-theme='dark'] .search-bar::placeholder,
 :root[data-theme='dark'] .program-search i {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .theme-toggle {
@@ -1279,7 +1279,7 @@ select {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1344,7 +1344,7 @@ select {
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
   text-decoration: none;
-  color: var(--charcoal);
+  color: var(--teal);
   border-left: 3px solid transparent;
   transition:
     background-color 0.2s ease,
@@ -1418,7 +1418,7 @@ select {
   border: none;
   border-left: 1px solid var(--border-light);
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   opacity: 0.7;
   cursor: pointer;
   transition:
@@ -1470,7 +1470,7 @@ select {
   gap: 0.75rem;
   padding: 0.5rem 1.5rem 0.5rem 2.55rem;
   border-left: 3px solid transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   font-size: 0.9rem;
   transition:
@@ -1531,7 +1531,7 @@ select {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.88rem;
   font-weight: 600;

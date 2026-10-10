@@ -280,7 +280,7 @@ const signed = (value: number): string =>
 .student-chip--dragging {
   border-color: var(--border-light);
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .student-chip__score {
@@ -312,7 +312,7 @@ const signed = (value: number): string =>
   border-radius: 10px;
   background-color: var(--surface-elevated);
   box-shadow: 0 8px 24px var(--shadow);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.8rem;
   font-weight: 400;
   pointer-events: none;

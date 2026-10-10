@@ -272,6 +272,6 @@ const filtered = computed(() => {
 
 :root[data-theme='dark'] .email-type-list__search-input,
 :root[data-theme='dark'] .email-type-list__name {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

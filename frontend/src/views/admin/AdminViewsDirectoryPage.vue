@@ -312,7 +312,7 @@ onMounted(load)
 }
 
 .admin-views__tab:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--light-green);
 }
 
@@ -346,7 +346,7 @@ onMounted(load)
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   width: 100%;
 }
 
@@ -370,7 +370,7 @@ onMounted(load)
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-views__search-icon {

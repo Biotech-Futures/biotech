@@ -184,7 +184,7 @@ const openActiveImport = () => {
 }
 
 .people-tab:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--light-green);
 }
 

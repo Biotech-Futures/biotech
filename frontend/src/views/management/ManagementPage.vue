@@ -91,7 +91,7 @@ const tabs = [
 }
 
 .management__switch:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--accent-green-soft);
 }
 

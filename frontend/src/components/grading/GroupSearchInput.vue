@@ -130,7 +130,7 @@ defineExpose({ resolveId })
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-search__input:focus {
@@ -168,7 +168,7 @@ defineExpose({ resolveId })
   padding: 0.4rem 0.5rem;
   font: inherit;
   font-size: 0.88rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 

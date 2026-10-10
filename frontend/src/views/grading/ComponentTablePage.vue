@@ -1,13 +1,13 @@
 <template>
   <div>
-    <div class="component-table__switcher" role="tablist" aria-label="Component">
+    <div class="tab-bar" role="tablist" aria-label="Component">
       <button
         v-for="c in COMPONENTS"
         :key="c.code"
         type="button"
         role="tab"
         :aria-selected="c.code === code"
-        class="component-table__switch"
+        class="tab-pill"
         :class="{ active: c.code === code }"
         @click="switchComponent(c.code)"
       >
@@ -391,45 +391,6 @@ const displayRows = computed(() => {
 </script>
 
 <style scoped>
-/* Segmented pill switcher, matching the Events page view tabs. */
-.component-table__switcher {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1.75rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.component-table__switch {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.component-table__switch:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.component-table__switch.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
 .component-table__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -524,11 +485,11 @@ const displayRows = computed(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .component-table__stats {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
   /* Auto inline margins center the stats between the search box and the
      export buttons. */
@@ -549,7 +510,7 @@ const displayRows = computed(() => {
 
 .component-table__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;
@@ -582,7 +543,7 @@ const displayRows = computed(() => {
 }
 
 .component-table__dialog-close:hover {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .component-table__formats {

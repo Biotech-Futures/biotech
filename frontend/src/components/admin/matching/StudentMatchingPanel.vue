@@ -350,7 +350,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -359,7 +359,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -462,7 +462,7 @@ const onConfirm = () => {
 .student-matching__capacity {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  background-color: var(--charcoal);
+  background-color: var(--teal);
   color: var(--white);
   font-size: 0.75rem;
   font-weight: 700;

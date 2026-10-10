@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
   width: 100%;
   --calendar-text-strong: var(--text-strong, #10201b);
   --calendar-text-main: var(--text-main, #253730);
-  --calendar-text-soft: var(--charcoal);
+  --calendar-text-soft: var(--teal);
 }
 
 .app-date-picker-input {
@@ -411,12 +411,12 @@ onBeforeUnmount(() => {
 }
 
 .app-date-picker-input:hover:not(.is-disabled) {
-  border-color: #39687b;
+  border-color: #26697d;
 }
 
 .app-date-picker-input.is-focused {
-  border-color: #39687b;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18);
+  border-color: #26697d;
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.18);
   outline: none;
 }
 
@@ -427,7 +427,7 @@ onBeforeUnmount(() => {
 }
 
 .date-input-icon {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   flex-shrink: 0;
 }
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 .selected-hint {
   font-size: 0.72rem;
   font-weight: 600;
-  color: #39687b;
+  color: #26697d;
 }
 
 .mini-calendar-weekdays {
@@ -621,14 +621,14 @@ onBeforeUnmount(() => {
 }
 
 .mini-calendar-cell.is-today .cell-num {
-  background: rgba(57, 104, 123, 0.16);
-  outline: 2px solid #39687b;
-  color: #39687b;
+  background: rgba(38, 105, 125, 0.16);
+  outline: 2px solid #26697d;
+  color: #26697d;
   font-weight: 800;
 }
 
 .mini-calendar-cell.is-selected {
-  background: #39687b !important;
+  background: #26697d !important;
   color: #ffffff !important;
 }
 

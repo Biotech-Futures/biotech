@@ -690,7 +690,7 @@ const onConfirm = () => {
 }
 
 .mentor-matching__mode--active {
-  background-color: var(--charcoal);
+  background-color: var(--teal);
   color: var(--white);
 }
 
@@ -717,7 +717,7 @@ const onConfirm = () => {
   border-radius: 8px;
   background-color: var(--surface-elevated);
   box-shadow: 0 8px 24px var(--shadow);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.4;
@@ -743,7 +743,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -752,7 +752,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -889,7 +889,7 @@ const onConfirm = () => {
   padding: 0.55rem 0.85rem;
   border: none;
   background-color: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   text-align: left;
   cursor: pointer;
@@ -1128,7 +1128,7 @@ const onConfirm = () => {
 }
 
 .mentor-matching__detail-line span {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .mentor-matching__detail-card {
@@ -1159,12 +1159,12 @@ const onConfirm = () => {
 .mentor-matching__score-row--foot {
   padding-top: 0.35rem;
   border-top: 1px solid var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 700;
 }
 
 .mentor-matching__score-total {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
   font-weight: 700;
 }

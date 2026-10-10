@@ -411,7 +411,7 @@ const formatMessageTime = (value: string): string => {
 .group-detail__section h3 {
   margin: 0 0 0.6rem;
   font-size: 0.95rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__muted {
@@ -426,7 +426,7 @@ const formatMessageTime = (value: string): string => {
 
 .group-detail__mentor {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__members,
@@ -457,7 +457,7 @@ const formatMessageTime = (value: string): string => {
 
 .group-detail__member-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__member-email {
@@ -518,7 +518,7 @@ const formatMessageTime = (value: string): string => {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__members-head {

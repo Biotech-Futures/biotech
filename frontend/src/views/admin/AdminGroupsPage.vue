@@ -746,7 +746,7 @@ const submitForm = async () => {
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 8px;
   background-color: rgba(1, 113, 81, 0.06);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -771,7 +771,7 @@ const submitForm = async () => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__force-toggle input {
@@ -815,7 +815,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
@@ -850,7 +850,7 @@ const submitForm = async () => {
 }
 
 .admin-groups__tab:hover:not(.admin-groups__tab--active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--light-green);
 }
 
@@ -903,7 +903,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__filter-field {
@@ -933,7 +933,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__error {
@@ -953,7 +953,7 @@ const submitForm = async () => {
 
 .admin-groups__name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__unmatched {

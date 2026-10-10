@@ -647,12 +647,12 @@ onBeforeUnmount(() => {
 }
 
 .dot-event {
-  background: #5ea99e;
+  background: #3ead9f;
 }
 
 .dot-holiday {
-  background: #f1e5a6;
-  border: 1px solid #39687b;
+  background: #f3e69d;
+  border: 1px solid #26697d;
 }
 
 .mini-calendar-cell:not(.is-empty):hover {
@@ -670,9 +670,9 @@ onBeforeUnmount(() => {
 }
 
 .mini-calendar-cell.is-today .cell-num {
-  background: rgba(57, 104, 123, 0.16);
-  outline: 2px solid #39687b;
-  color: #39687b;
+  background: rgba(38, 105, 125, 0.16);
+  outline: 2px solid #26697d;
+  color: #26697d;
   font-weight: 800;
 }
 
@@ -698,20 +698,20 @@ onBeforeUnmount(() => {
 }
 
 .legend-today {
-  background: #39687b;
-  outline: 2px solid #39687b;
+  background: #26697d;
+  outline: 2px solid #26697d;
   outline-offset: 1px;
   width: 6px;
   height: 6px;
 }
 
 .legend-event {
-  background: #5ea99e;
+  background: #3ead9f;
 }
 
 .legend-holiday {
-  background: #f1e5a6;
-  border: 1px solid #39687b;
+  background: #f3e69d;
+  border: 1px solid #26697d;
 }
 
 .calendar-overlay {
