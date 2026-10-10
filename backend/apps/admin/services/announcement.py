@@ -21,6 +21,8 @@ from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
+    clean_email_body,
+    html_to_text,
     is_email_enabled,
     render_system_email,
     sender_connection,
@@ -745,16 +747,27 @@ def send_announcement_email(
         return _skipped_send_result("No recipients found")
 
     excerpt = _build_excerpt(row.get("body", ""))
+    # Announcement bodies are authored in the admin editor (and
+    # may be seeded/imported), so sanitise here as well as
+    # at the editor boundary before trusting the HTML.
+    body_html = clean_email_body(row.get("body", ""))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
+    # Plain text carries the whole announcement too — not a truncated excerpt.
+    body_text = html_to_text(body_html)
     text_body = (
-        f"{row.get('title')}\n\n{excerpt}\n\n"
-        f"View on the platform: {detail_url}"
+        f"{row.get('title')}\n\n{body_text}\n\n"
+        f"View this announcement on the platform: {detail_url}"
     )
     # Rendered once and reused for every recipient: nothing in it is personal.
     rendered = render_system_email(
         "announcement",
-        {"title": row.get("title", ""), "excerpt": excerpt, "detail_url": detail_url},
+        {
+            "title": row.get("title", ""),
+            "body": body_html,
+            "excerpt": excerpt,
+            "detail_url": detail_url,
+        },
         default_text=text_body,
     )
 
