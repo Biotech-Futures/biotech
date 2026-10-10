@@ -737,13 +737,6 @@ onMounted(() => {
   gap: 0.15rem;
 }
 
-.admin-tasks__primary strong,
-.admin-tasks__primary span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .admin-tasks__primary span,
 .admin-tasks__muted {
   color: var(--text-muted);

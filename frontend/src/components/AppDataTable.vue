@@ -157,16 +157,18 @@
                   ]"
                 >
                   <!-- A page can draw a cell itself with a cell-<key> slot. -->
-                  <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
-                    <RouterLink
-                      v-if="columnLink(row, column)"
-                      :to="columnLink(row, column)!"
-                      class="data-table-link"
-                    >
-                      {{ displayCell(row, column) }}
-                    </RouterLink>
-                    <template v-else>{{ displayCell(row, column) }}</template>
-                  </slot>
+                  <div class="data-table-cell">
+                    <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
+                      <RouterLink
+                        v-if="columnLink(row, column)"
+                        :to="columnLink(row, column)!"
+                        class="data-table-link"
+                      >
+                        {{ displayCell(row, column) }}
+                      </RouterLink>
+                      <template v-else>{{ displayCell(row, column) }}</template>
+                    </slot>
+                  </div>
                 </td>
                 <template v-if="$slots.actions">
                   <td
@@ -855,6 +857,21 @@ const togglePageSelection = () => {
   /* Joins the search card above it and the rows per page below it. */
   border-radius: 0;
   background: var(--surface-elevated);
+  /* Lets a cell measure itself against the table's visible width (cqw). */
+  container-type: inline-size;
+}
+
+/* A cell stays on one line until it would be wider than the table's visible
+   width, then wraps, so no cell is wider than the page shows. */
+.data-table-cell {
+  width: max-content;
+  max-width: 100cqw;
+  white-space: normal;
+}
+
+/* A column of long text wraps at its own width, as before. */
+.data-table-cell--wrap > .data-table-cell {
+  width: auto;
 }
 
 .data-table-wrap--loading {
