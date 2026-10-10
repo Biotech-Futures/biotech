@@ -597,6 +597,14 @@ class UserSerializer(serializers.ModelSerializer):
         return not obj.has_usable_password()
 
 
+class SupervisedStudentEmailSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    kind = serializers.ChoiceField(choices=["guardian_details", "guardian_consent"])
+
+
 class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
@@ -612,6 +620,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     has_join_permission = serializers.BooleanField()
     joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
     joinperm_granted_at = serializers.DateTimeField(allow_null=True)
+    signature = serializers.CharField(allow_blank=True, allow_null=True)
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
 
@@ -688,6 +697,7 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=255)
     last_name = serializers.CharField(max_length=255)
+    email = serializers.EmailField(required=False)
     school_name = serializers.CharField(max_length=255)
     year_lvl = serializers.ChoiceField(choices=[(str(year), str(year)) for year in range(9, 13)])
     interests = serializers.ListField(

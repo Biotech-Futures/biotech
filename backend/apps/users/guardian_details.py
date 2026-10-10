@@ -50,6 +50,41 @@ def students_due(now=None):
     )
 
 
+def send_to_student(profile: StudentProfile, initiated_by=None) -> dict:
+    """Email one student the guardian-details request. Used by supervisors."""
+    if not is_email_enabled(EMAIL_KEY):
+        return {
+            "status": "disabled",
+            "msg": "Guardian details emails are switched off on System Emails.",
+        }
+    if profile.has_join_permission:
+        return {"status": "invalid", "msg": "Consent is already recorded for this student."}
+    if (profile.pg_email or "").strip():
+        return {
+            "status": "invalid",
+            "msg": "This student already has a guardian email on file.",
+        }
+    email = (profile.user.email or "").strip()
+    if not email:
+        return {"status": "invalid", "msg": "This student has no email address."}
+
+    outcome = send_system_email(
+        EMAIL_KEY,
+        [email],
+        {"STUDENT_FIRST_NAME": profile.user.first_name or "", "DETAILS_URL": details_link()},
+        sent_by=initiated_by,
+    )
+    if outcome != SENT:
+        return {
+            "status": "failed",
+            "msg": "The mail server didn't accept the email. Try again shortly.",
+        }
+    StudentProfile.objects.filter(pk=profile.pk).update(
+        guardian_details_reminded_on=timezone.localdate(),
+    )
+    return {"status": "sent", "msg": f"Details request sent to {email}."}
+
+
 def send_due(now=None, *, dry_run: bool = False) -> dict:
     """Email every student due today and return counts of sent and failed.
 

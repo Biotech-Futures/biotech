@@ -54,6 +54,16 @@
           </div>
         </template>
       </SupervisorDataTable>
+      <div v-if="section.emailAll" class="supervisor-section-footer">
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="emailSending || !section.rows.length"
+          @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
+        >
+          {{ section.emailAll.label }}
+        </button>
+      </div>
     </section>
 
     <div v-if="guardianModal" class="supervisor-modal-backdrop" @click.self="closeGuardianModal">
@@ -86,17 +96,18 @@
 
     <div v-if="emailConfirm" class="supervisor-modal-backdrop" @click.self="closeEmailConfirm">
       <section class="supervisor-modal" role="dialog" aria-modal="true" aria-labelledby="email-confirm-title">
-        <h3 id="email-confirm-title">Email parent/guardian?</h3>
-        <p>
-          Open your email app to contact
-          {{ emailConfirm.names.length === 1 ? emailConfirm.names[0] : `${emailConfirm.names.length} parents/guardians` }}?
-        </p>
+        <h3 id="email-confirm-title">{{ emailConfirm.title }}</h3>
+        <p>{{ emailConfirm.copy }}</p>
         <ul v-if="emailConfirm.names.length" class="email-confirm-list">
           <li v-for="name in emailConfirm.names" :key="name">{{ name }}</li>
         </ul>
         <div class="supervisor-modal-actions">
-          <button type="button" class="btn btn-outline" @click="closeEmailConfirm">Cancel</button>
-          <button type="button" class="btn btn-primary" @click="confirmEmailGuardians">Open email</button>
+          <button type="button" class="btn btn-outline" :disabled="emailSending" @click="closeEmailConfirm">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="emailSending" @click="confirmSupervisedEmail">
+            {{ emailSending ? 'Sending…' : 'Send emails' }}
+          </button>
         </div>
       </section>
     </div>
@@ -116,7 +127,9 @@ import {
   classifyStudent,
   fetchSupervisedStudents,
   saveGuardianDetails,
+  sendSupervisedEmails,
   toStudentRow,
+  type SupervisedEmailKind,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
 
@@ -131,11 +144,13 @@ const guardianSaving = ref(false)
 const guardianError = ref('')
 const guardianModal = ref<{ studentIds: number[] } | null>(null)
 const guardianForm = ref({ firstName: '', lastName: '', email: '' })
+const emailSending = ref(false)
 const emailConfirm = ref<{
-  addresses: string[]
-  subject: string
-  body: string
+  kind: SupervisedEmailKind
+  studentIds: number[]
   names: string[]
+  title: string
+  copy: string
 } | null>(null)
 
 const studentLink = (row: Record<string, unknown>) => ({
@@ -197,6 +212,7 @@ const sections = computed(() => [
     optionGroups: actionGroup(pendingDetailsActions),
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingDetailsActions,
+    emailAll: { value: 'email-students-all', label: 'Email all students' },
     rows: students.value.filter((student) => classifyStudent(student) === 'pendingDetails').map(toStudentRow),
   },
   {
@@ -207,6 +223,7 @@ const sections = computed(() => [
     optionGroups: actionGroup(pendingPermissionActions),
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
+    emailAll: { value: 'email-guardians-all', label: 'Email all parents/guardians' },
     rows: students.value
       .filter((student) => classifyStudent(student) === 'pendingPermission')
       .map(toStudentRow),
@@ -242,8 +259,8 @@ const loadStudents = async () => {
 
 const asRows = (rows: Record<string, unknown>[]) => rows as StudentRow[]
 
-const uniqueEmails = (rows: StudentRow[], key: 'email' | 'pgEmail') =>
-  [...new Set(rows.map((row) => String(row[key] || '').trim()).filter(Boolean))]
+const studentIdsFrom = (rows: StudentRow[]) =>
+  [...new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0))]
 
 const copyText = async (value: string, success: string) => {
   if (!value.trim()) {
@@ -252,19 +269,6 @@ const copyText = async (value: string, success: string) => {
   }
   await navigator.clipboard.writeText(value)
   notice.value = success
-}
-
-const openMailto = (addresses: string[], subject: string, body: string) => {
-  if (!addresses.length) {
-    notice.value = 'No email addresses are available for the selected students.'
-    return
-  }
-  const params = new URLSearchParams({ subject, body })
-  const href =
-    addresses.length === 1
-      ? `mailto:${addresses[0]}?${params.toString()}`
-      : `mailto:?bcc=${encodeURIComponent(addresses.join(','))}&${params.toString()}`
-  window.location.href = href
 }
 
 const inviteText = (sectionId: SectionId, rows: StudentRow[]) => {
@@ -304,10 +308,51 @@ const closeEmailConfirm = () => {
   emailConfirm.value = null
 }
 
-const confirmEmailGuardians = () => {
+const askToSend = (
+  kind: SupervisedEmailKind,
+  rows: StudentRow[],
+  title: string,
+  copy: string,
+) => {
+  const studentIds = studentIdsFrom(rows)
+  if (!studentIds.length) {
+    notice.value = 'Select at least one student first.'
+    return
+  }
+  emailConfirm.value = {
+    kind,
+    studentIds,
+    names: rows.map((row) =>
+      kind === 'guardian_consent' ? row.parentGuardian || row.student : row.student,
+    ),
+    title,
+    copy,
+  }
+}
+
+const sendSelectedEmails = async (kind: SupervisedEmailKind, ids: number[]) => {
+  if (!ids.length) {
+    notice.value = 'Select at least one student first.'
+    return
+  }
+  emailSending.value = true
+  error.value = ''
+  try {
+    const result = await sendSupervisedEmails(ids, kind)
+    notice.value = result.msg
+  } catch (sendError) {
+    notice.value = ''
+    error.value = sendError instanceof Error ? sendError.message : 'Emails could not be sent.'
+  } finally {
+    emailSending.value = false
+  }
+}
+
+const confirmSupervisedEmail = async () => {
   if (!emailConfirm.value) return
-  openMailto(emailConfirm.value.addresses, emailConfirm.value.subject, emailConfirm.value.body)
+  const { kind, studentIds } = emailConfirm.value
   closeEmailConfirm()
+  await sendSelectedEmails(kind, studentIds)
 }
 
 const submitGuardianDetails = async () => {
@@ -337,27 +382,26 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     notice.value = 'Select at least one student first.'
     return
   }
-  if (value === 'email-students') {
-    openMailto(
-      uniqueEmails(rows, 'email'),
-      'Parent/guardian details needed',
-      inviteText(sectionId, rows),
+  if (value === 'email-students' || value === 'email-students-all') {
+    askToSend(
+      'guardian_details',
+      rows,
+      value === 'email-students-all' ? 'Email all students?' : 'Email student?',
+      value === 'email-students-all'
+        ? 'Send the System Email asking these students to add parent/guardian details?'
+        : 'Send the System Email asking this student to add parent/guardian details?',
     )
     return
   }
-  if (value === 'email-guardians') {
-    const addresses = uniqueEmails(rows, 'pgEmail')
-    const resolved = addresses.length ? addresses : uniqueEmails(rows, 'email')
-    if (!resolved.length) {
-      notice.value = 'No email addresses are available for the selected students.'
-      return
-    }
-    emailConfirm.value = {
-      addresses: resolved,
-      subject: 'Parent/guardian permission needed',
-      body: inviteText(sectionId, rows),
-      names: rows.map((row) => row.parentGuardian || row.student),
-    }
+  if (value === 'email-guardians' || value === 'email-guardians-all') {
+    askToSend(
+      'guardian_consent',
+      rows,
+      value === 'email-guardians-all' ? 'Email all parents/guardians?' : 'Email parent/guardian?',
+      value === 'email-guardians-all'
+        ? 'Send the consent form System Email to these parents/guardians?'
+        : 'Send the consent form System Email to this parent/guardian?',
+    )
     return
   }
   if (value === 'copy-invite') {
@@ -432,6 +476,12 @@ onMounted(loadStudents)
   margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
+}
+
+.supervisor-section-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.75rem 0 0;
 }
 
 .email-confirm-list {

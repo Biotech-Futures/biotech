@@ -3,7 +3,7 @@
     <RouterLink class="supervisor-summary-back" to="/my-students">← Back to My Students</RouterLink>
 
     <p v-if="error" class="supervisor-error">{{ error }}</p>
-    <p v-else-if="loading" class="supervisor-muted">Loading profile...</p>
+    <p v-if="loading" class="supervisor-muted">Loading profile...</p>
 
     <div v-else-if="student" class="card" style="overflow: hidden; padding: 0">
       <div class="profile-header">
@@ -13,29 +13,33 @@
       </div>
 
       <div class="profile-content">
-        <div v-if="canEdit" class="profile-edit-bar">
+        <div class="profile-edit-bar">
           <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
           <template v-if="!editing">
-            <button type="button" class="btn btn-primary btn-sm" @click="startEdit">Edit profile</button>
+            <button type="button" class="btn btn-primary btn-sm" @click="startEdit">Edit</button>
           </template>
           <template v-else>
             <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
             <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveEdit">Save</button>
           </template>
         </div>
-        <p v-else-if="!isGuardian && student && !student.has_join_permission" class="supervisor-muted">
-          Student details can be edited after parent/guardian permission is recorded.
-        </p>
         <template v-if="isGuardian">
           <section class="profile-section">
             <h3 class="profile-section-title">Parent/Guardian information</h3>
             <div class="profile-field">
-              <span class="profile-field-label">Name:</span>
-              <span class="profile-field-value">{{ guardianName }}</span>
+              <span class="profile-field-label">First name:</span>
+              <input v-if="editing" v-model="form.pgFirstName" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.pg_first_name) }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Last name:</span>
+              <input v-if="editing" v-model="form.pgLastName" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.pg_last_name) }}</span>
             </div>
             <div class="profile-field">
               <span class="profile-field-label">Email:</span>
-              <span class="profile-field-value">{{ display(student.pg_email) }}</span>
+              <input v-if="editing" v-model="form.pgEmail" type="email" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.pg_email) }}</span>
             </div>
           </section>
           <section class="profile-section">
@@ -68,17 +72,20 @@
         <template v-else>
           <section class="profile-section">
             <h3 class="profile-section-title">Personal information</h3>
-            <div v-if="editing" class="profile-field">
+            <div class="profile-field">
               <span class="profile-field-label">First name:</span>
-              <input v-model="form.firstName" class="profile-field-input" />
+              <input v-if="editing" v-model="form.firstName" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.first_name) }}</span>
             </div>
-            <div v-if="editing" class="profile-field">
+            <div class="profile-field">
               <span class="profile-field-label">Last name:</span>
-              <input v-model="form.lastName" class="profile-field-input" />
+              <input v-if="editing" v-model="form.lastName" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.last_name) }}</span>
             </div>
             <div class="profile-field">
               <span class="profile-field-label">Email:</span>
-              <span class="profile-field-value">{{ display(student.email) }}</span>
+              <input v-if="editing" v-model="form.email" type="email" class="profile-field-input" />
+              <span v-else class="profile-field-value">{{ display(student.email) }}</span>
             </div>
             <div class="profile-field">
               <span class="profile-field-label">Role:</span>
@@ -161,6 +168,7 @@ import {
   fullName,
   initials,
   registrationLabel,
+  saveGuardianDetails,
   updateSupervisedStudentProfile,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
@@ -176,9 +184,13 @@ const saving = ref(false)
 const form = ref({
   firstName: '',
   lastName: '',
+  email: '',
   schoolName: '',
   yearLevel: '11',
   interests: [] as string[],
+  pgFirstName: '',
+  pgLastName: '',
+  pgEmail: '',
 })
 
 const isGuardian = computed(() => route.name === 'guardian-summary')
@@ -205,7 +217,6 @@ const permissionGiven = computed(() =>
     ? formatDateTimeAU(student.value.joinperm_granted_at) || 'Recorded'
     : '—',
 )
-const canEdit = computed(() => !isGuardian.value && Boolean(student.value?.has_join_permission))
 const interestOptions = computed(() => {
   const extras = form.value.interests.filter(
     (item) => !DEFAULT_GROUP_INTERESTS.some((official) => official.toLowerCase() === item.toLowerCase()),
@@ -223,9 +234,13 @@ const startEdit = () => {
   form.value = {
     firstName: student.value.first_name,
     lastName: student.value.last_name,
+    email: student.value.email,
     schoolName: student.value.school_name,
     yearLevel: yearLevels.includes(student.value.year_lvl) ? student.value.year_lvl : '11',
     interests: [...student.value.interests],
+    pgFirstName: student.value.pg_first_name || '',
+    pgLastName: student.value.pg_last_name || '',
+    pgEmail: student.value.pg_email || '',
   }
   notice.value = ''
   error.value = ''
@@ -246,28 +261,47 @@ const toggleInterest = (interest: string) => {
 
 const saveEdit = async () => {
   if (!student.value) return
-  const firstName = form.value.firstName.trim()
-  const lastName = form.value.lastName.trim()
-  const schoolName = form.value.schoolName.trim()
-  if (!firstName || !lastName || !schoolName) {
-    error.value = 'First name, last name, and school are required.'
-    return
-  }
   saving.value = true
   error.value = ''
   notice.value = ''
   try {
-    student.value = await updateSupervisedStudentProfile(student.value.id, {
-      first_name: firstName,
-      last_name: lastName,
-      school_name: schoolName,
-      year_lvl: form.value.yearLevel,
-      interests: form.value.interests,
-    })
+    if (isGuardian.value) {
+      const firstName = form.value.pgFirstName.trim()
+      const lastName = form.value.pgLastName.trim()
+      if (!firstName || !lastName) {
+        error.value = 'First name and last name are required.'
+        return
+      }
+      const roster = await saveGuardianDetails({
+        student_ids: [student.value.id],
+        pg_first_name: firstName,
+        pg_last_name: lastName,
+        pg_email: form.value.pgEmail.trim(),
+      })
+      student.value = roster.find((row) => row.id === student.value?.id) ?? student.value
+      notice.value = 'Parent/guardian details saved.'
+    } else {
+      const firstName = form.value.firstName.trim()
+      const lastName = form.value.lastName.trim()
+      const email = form.value.email.trim()
+      const schoolName = form.value.schoolName.trim()
+      if (!firstName || !lastName || !email || !schoolName) {
+        error.value = 'First name, last name, email, and school are required.'
+        return
+      }
+      student.value = await updateSupervisedStudentProfile(student.value.id, {
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        school_name: schoolName,
+        year_lvl: form.value.yearLevel,
+        interests: form.value.interests,
+      })
+      notice.value = 'Student profile saved.'
+    }
     editing.value = false
-    notice.value = 'Student profile saved.'
   } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : 'Student profile could not be saved.'
+    error.value = saveError instanceof Error ? saveError.message : 'Details could not be saved.'
   } finally {
     saving.value = false
   }

@@ -17,6 +17,7 @@ export type SupervisedStudent = {
   has_join_permission: boolean
   joinperm_response_id: string | null
   joinperm_granted_at: string | null
+  signature?: string | null
   group_id: number | null
   group_name: string | null
 }
@@ -67,6 +68,7 @@ export const toStudentRow = (student: SupervisedStudent) => ({
     ? formatDateTimeAU(student.joinperm_granted_at) || 'Recorded'
     : '—',
   permissionGivenAt: student.joinperm_granted_at,
+  signature: student.signature || '',
   groupId: student.group_id,
   groupName: student.group_name,
 })
@@ -98,6 +100,7 @@ export async function updateSupervisedStudentProfile(
   payload: {
     first_name: string
     last_name: string
+    email: string
     school_name: string
     year_lvl: string
     interests: string[]
@@ -125,6 +128,46 @@ export async function fetchSupervisedStudent(
 ): Promise<SupervisedStudent | null> {
   const students = await fetchSupervisedStudents(headers)
   return students.find((student) => student.id === id) ?? null
+}
+
+export type SupervisedEmailKind = 'guardian_details' | 'guardian_consent'
+
+export type SupervisedEmailResult = {
+  sent: number
+  failed: number
+  skipped: number
+  msg: string
+  messages: string[]
+}
+
+export async function sendSupervisedEmails(
+  studentIds: number[],
+  kind: SupervisedEmailKind,
+): Promise<SupervisedEmailResult> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/email/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      includeCSRF: true,
+      headers: { Accept: 'application/json' },
+    }),
+    body: JSON.stringify({ student_ids: studentIds, kind }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as Partial<SupervisedEmailResult> & {
+    error?: string
+    msg?: string
+  }
+  if (!response.ok) {
+    throw new Error(payload.msg || payload.error || 'Emails could not be sent.')
+  }
+  return {
+    sent: payload.sent ?? 0,
+    failed: payload.failed ?? 0,
+    skipped: payload.skipped ?? 0,
+    msg: payload.msg || 'Emails sent.',
+    messages: payload.messages || [],
+  }
 }
 
 export async function fetchSupervisedStudents(headers: HeadersInit): Promise<SupervisedStudent[]> {

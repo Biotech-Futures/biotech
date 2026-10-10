@@ -41,6 +41,8 @@ const HELVETICA_EM: Record<string, number> = {
   y: 0.5, z: 0.5,
 }
 const CREST_DISPLAY_HEIGHT = 66
+const SIGNATURE_DISPLAY_HEIGHT = 40
+const SIGNATURE_MAX_WIDTH = 220
 
 type FontName = 'F1' | 'F2' | 'F3' | 'F4'
 type PdfImage = { name: string; bytes: Uint8Array; width: number; height: number }
@@ -64,6 +66,7 @@ type TextBlock =
   | { type: 'bullet'; value: string }
   | { type: 'pagebreak' }
   | { type: 'rich'; runs: StyledRun[]; indent?: number }
+  | { type: 'signature'; imageName: string; width: number; height: number }
 
 const pdfEscape = (value: unknown) =>
   String(value ?? '')
@@ -154,7 +157,7 @@ const loadImageElement = (src: string) =>
     image.src = src
   })
 
-const rasterJpeg = async (src: string, maxWidth: number): Promise<PdfImage> => {
+const rasterJpeg = async (src: string, maxWidth: number, name = src): Promise<PdfImage> => {
   const image = await loadImageElement(src)
   const scale = Math.min(1, maxWidth / Math.max(1, image.width))
   const width = Math.max(1, Math.round(image.width * scale))
@@ -174,7 +177,7 @@ const rasterJpeg = async (src: string, maxWidth: number): Promise<PdfImage> => {
       0.92,
     )
   })
-  return { name: src, bytes: new Uint8Array(await blob.arrayBuffer()), width, height }
+  return { name, bytes: new Uint8Array(await blob.arrayBuffer()), width, height }
 }
 
 const heading = (value: string, size = 16): TextBlock[] => [
@@ -239,15 +242,25 @@ const supportEmailRuns = (before: string, after: string): StyledRun[] => [
   { font: 'F1', size: 9, value: after, color: MUTED },
 ]
 
+const signatureDisplaySize = (image: PdfImage) => {
+  const height = SIGNATURE_DISPLAY_HEIGHT
+  const width = Math.min(
+    SIGNATURE_MAX_WIDTH,
+    (image.width / Math.max(1, image.height)) * height,
+  )
+  return { width, height }
+}
+
 const recordBlocks = (
   row: ConsentStudent,
   crest: { width: number; height: number },
+  signatureImage: PdfImage | null,
 ): TextBlock[] => {
   const student = personName(row.student, 'Student')
   const guardian = personName(row.parentGuardian, 'Parent/Guardian')
   const mediaChoice = resolveMediaConsent(row)
   const mediaProvided = mediaChoice === 'Provided'
-  const signature = String(row.signature || '').trim() || 'Signed electronically'
+  const signatureSize = signatureImage ? signatureDisplaySize(signatureImage) : null
   const mediaBlocks: TextBlock[] = mediaProvided
     ? [
         ...para(
@@ -332,7 +345,16 @@ const recordBlocks = (
     ),
     ...field('Participant', student),
     ...field('Authorised Consent Provider', guardian),
-    ...field('Signature', signature),
+    { type: 'text', font: 'F3', size: 9, value: 'Signature', color: MUTED },
+    ...(signatureImage && signatureSize
+      ? [{
+          type: 'signature' as const,
+          imageName: signatureImage.name,
+          width: signatureSize.width,
+          height: signatureSize.height,
+        }]
+      : []),
+    { type: 'space', height: 10 },
     ...field('Date signed', signedDate(row)),
     ...field('Media consent selection', mediaChoice),
   ]
@@ -465,6 +487,12 @@ const paginate = (blocks: TextBlock[]): PdfPage[] => {
       y -= rowHeight
       continue
     }
+    if (block.type === 'signature') {
+      if (y - block.height < footerReserve) flush()
+      ops.push(imageOps(block.imageName, MARGIN, y - block.height, block.width, block.height))
+      y -= block.height
+      continue
+    }
     if (block.type === 'rich') {
       const maxWidth = CONTENT_WIDTH - (block.indent || 0)
       for (const line of wrapRuns(block.runs, maxWidth)) {
@@ -529,13 +557,16 @@ const imageObject = (image: PdfImage) =>
     encodeAscii('\nendstream'),
   ])
 
-const buildPdf = (pages: PdfPage[], crest: PdfImage) => {
+const buildPdf = (pages: PdfPage[], images: PdfImage[]) => {
   const objects: Array<string | Uint8Array> = []
-  const firstPageObj = 8
+  const firstPageObj = 7 + images.length
   const pageObjectNumbers = pages.map((_, index) => firstPageObj + index * 2)
   const annotStart = firstPageObj + pages.length * 2
   let nextAnnot = annotStart
   const annotsByPage = pages.map((page) => page.links.map(() => nextAnnot++))
+  const xobjectDict = images
+    .map((image, index) => `/${image.name} ${7 + index} 0 R`)
+    .join(' ')
 
   objects.push('<< /Type /Catalog /Pages 2 0 R >>')
   objects.push(
@@ -545,14 +576,14 @@ const buildPdf = (pages: PdfPage[], crest: PdfImage) => {
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic /Encoding /WinAnsiEncoding >>')
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
   objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>')
-  objects.push(imageObject(crest))
+  images.forEach((image) => objects.push(imageObject(image)))
 
   pages.forEach((page, index) => {
     const contentObjectNumber = firstPageObj + index * 2 + 1
     const annotRefs = annotsByPage[index].map((n) => `${n} 0 R`).join(' ')
     const annotsEntry = annotRefs ? ` /Annots [${annotRefs}]` : ''
     objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> /XObject << /ImCrest 7 0 R >> >> /Contents ${contentObjectNumber} 0 R${annotsEntry} >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> /XObject << ${xobjectDict} >> >> /Contents ${contentObjectNumber} 0 R${annotsEntry} >>`,
     )
     objects.push(`<< /Length ${page.stream.length} >>\nstream\n${page.stream}\nendstream`)
   })
@@ -599,10 +630,24 @@ const crestDisplaySize = (image: PdfImage) => {
 
 export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
   if (!rows.length) return
-  const crest = await rasterJpeg(crestUrl, 480)
+  const crest = await rasterJpeg(crestUrl, 480, 'ImCrest')
   const display = crestDisplaySize(crest)
-  const pages = rows.flatMap((row) => paginate(recordBlocks(row, display)))
-  const pdf = buildPdf(pages, crest)
+  const images: PdfImage[] = [crest]
+  const pages: PdfPage[] = []
+  for (const [index, row] of rows.entries()) {
+    let signatureImage: PdfImage | null = null
+    const signatureSrc = String(row.signature || '').trim()
+    if (signatureSrc.startsWith('data:image/')) {
+      try {
+        signatureImage = await rasterJpeg(signatureSrc, 440, `ImSig${index}`)
+        images.push(signatureImage)
+      } catch {
+        signatureImage = null
+      }
+    }
+    pages.push(...paginate(recordBlocks(row, display, signatureImage)))
+  }
+  const pdf = buildPdf(pages, images)
   const blob = new Blob([pdf], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
