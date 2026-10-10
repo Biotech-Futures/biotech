@@ -266,8 +266,9 @@ EMAIL_TYPES = (
         default_template="emails/announcement.html",
         merge_tags=(
             MergeTag("title", "Announcement title", "Poster session scheduled", "title"),
+            MergeTag("body", "Full announcement text", "<p>The poster session will run on Friday afternoon in the Great Hall.</p>", "body", html=True),
             MergeTag("excerpt", "Short plain-text preview of the announcement", "The poster session will run on Friday afternoon in the Great Hall.", "excerpt"),
-            MergeTag("detail_url", "Link to the full announcement", "https://biotechfutures.org/#/announcements/42", "detail_url"),
+            MergeTag("detail_url", "Link to the announcement on the platform", "https://biotechfutures.org/#/announcements/42", "detail_url"),
             *_BRAND_TAGS,
         ),
     ),
