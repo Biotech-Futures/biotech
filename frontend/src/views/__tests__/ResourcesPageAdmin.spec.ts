@@ -936,17 +936,19 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(adminApi.updateAdminResource).not.toHaveBeenCalled()
     })
 
-    it('Batch Edit Access select all roles applies every role', async () => {
+    it('Batch Edit Access renders role checkboxes without a select-all control and applies selected roles', async () => {
       const { sheet, applyBtn } = await openBatchAccessSheet()
 
-      const selectAll = sheet.querySelector('#batch-roles-all') as HTMLInputElement
-      expect(selectAll).not.toBeNull()
-      selectAll.checked = true
-      selectAll.dispatchEvent(new Event('change'))
-      await flushPromises()
+      expect(sheet.querySelector('#batch-roles-all')).toBeNull()
+      expect(sheet.textContent).not.toContain('Select all roles')
 
       const roleBoxes = Array.from(sheet.querySelectorAll('fieldset input[type="checkbox"]')) as HTMLInputElement[]
-      expect(roleBoxes.every((box) => box.checked)).toBe(true)
+      expect(roleBoxes.length).toBeGreaterThan(0)
+      for (const box of roleBoxes) {
+        box.checked = true
+        box.dispatchEvent(new Event('change'))
+      }
+      await flushPromises()
 
       applyBtn.click()
       await flushPromises()

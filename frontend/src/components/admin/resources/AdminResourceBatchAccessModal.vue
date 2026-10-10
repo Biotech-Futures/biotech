@@ -20,20 +20,6 @@
             <span class="admin-batch-access-form__spinner" aria-hidden="true"></span>
             <span>Loading roles...</span>
           </div>
-          <label
-            v-if="!loadingRoles && availableRoles.length"
-            class="admin-batch-access-form__checkbox-label admin-batch-access-form__checkbox-label--all"
-          >
-            <input
-              id="batch-roles-all"
-              type="checkbox"
-              :checked="allRolesSelected"
-              :indeterminate="someRolesSelected"
-              :disabled="busy"
-              @change="toggleAllRoles"
-            />
-            <span>Select all roles</span>
-          </label>
           <fieldset v-if="!loadingRoles" class="admin-batch-access-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
@@ -52,7 +38,7 @@
             </label>
           </fieldset>
           <p class="admin-batch-access-form__hint">
-            Select at least one role. Only users assigned these roles will be able to view and access these resources. Select all roles to make them visible to everyone.
+            Select at least one role. Only users assigned these roles will be able to view and access these resources.
           </p>
         </div>
       </div>
@@ -139,18 +125,6 @@ const toggleRole = (roleId: number) => {
   }
 }
 
-// Ticking every role is how resources are made visible to everyone.
-const allRolesSelected = computed(
-  () =>
-    availableRoles.value.length > 0 &&
-    availableRoles.value.every((role) => selectedRoleIds.value.includes(role.id))
-)
-const someRolesSelected = computed(() => selectedRoleIds.value.length > 0 && !allRolesSelected.value)
-
-const toggleAllRoles = () => {
-  selectedRoleIds.value = allRolesSelected.value ? [] : availableRoles.value.map((role) => role.id)
-}
-
 const loadRoles = async () => {
   if (availableRoles.value.length > 0) return
   loadingRoles.value = true
@@ -184,7 +158,7 @@ const onCancel = () => {
 
 const onApply = () => {
   if (selectedRoleIds.value.length === 0) {
-    errorMessage.value = 'Please select at least one role. Select all roles to make them visible to everyone.'
+    errorMessage.value = 'Please select at least one role.'
     return
   }
 
@@ -295,13 +269,6 @@ const onApply = () => {
   font-size: 0.875rem;
   color: var(--charcoal);
   cursor: pointer;
-}
-
-.admin-batch-access-form__checkbox-label--all {
-  font-weight: 600;
-  padding-bottom: 0.45rem;
-  margin-bottom: 0.2rem;
-  border-bottom: 1px solid var(--border-light);
 }
 
 .admin-batch-access-form__checkbox-label input[type='checkbox'] {
