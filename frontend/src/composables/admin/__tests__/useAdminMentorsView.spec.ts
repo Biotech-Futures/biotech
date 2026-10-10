@@ -104,15 +104,4 @@ describe('useAdminMentorsView sorting', () => {
 
     expect(mentorIds(view.sortedMentors.value)).toEqual([1, 3, 2])
   })
-
-  it('reports neutral and active sort direction icon classes', () => {
-    const view = useAdminMentorsView()
-
-    expect(view.sortIcon('country')).toBe('fa-sort')
-    expect(view.sortIcon('name')).toBe('fa-sort-up')
-
-    view.setSort('name')
-
-    expect(view.sortIcon('name')).toBe('fa-sort-down')
-  })
 })

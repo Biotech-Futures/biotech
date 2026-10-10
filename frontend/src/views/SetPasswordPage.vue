@@ -228,7 +228,7 @@ onMounted(async () => {
 
 h1 {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.8rem;
   line-height: 1.2;
 }
@@ -250,7 +250,7 @@ h1 {
 }
 
 label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   font-weight: 700;
 }
@@ -269,7 +269,7 @@ label {
 
 .field-input {
   padding: 0 15px;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 
@@ -285,7 +285,7 @@ label {
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 

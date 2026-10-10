@@ -9,11 +9,11 @@
   --field-disabled-bg: var(--bg-light);
   --notice-bg: var(--bg-light);
   --muted: var(--text-muted);
-  --body-text: var(--charcoal);
+  --body-text: var(--teal);
   --accent: var(--dark-green);
   /* Muted so an over-limit warning is not signal red. */
-  --error: color-mix(in srgb, var(--danger) 70%, var(--charcoal));
-  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--charcoal));
+  --error: color-mix(in srgb, var(--danger) 70%, var(--teal));
+  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--teal));
 
   /* Tints mixed from platform colours, so they follow the dark theme. */
   --accent-soft: color-mix(in srgb, var(--dark-green) 12%, transparent);

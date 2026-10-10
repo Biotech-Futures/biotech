@@ -69,7 +69,7 @@ defineEmits<{
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .bulk-actions-bar__clear {

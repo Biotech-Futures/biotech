@@ -1,9 +1,9 @@
 <template>
   <div class="content-area admin-dashboard">
-    <div class="admin-dashboard__header">
+    <div class="admin-dashboard__header page-header">
       <div>
-        <h1 class="admin-dashboard__title">Admin Dashboard</h1>
-        <p class="admin-dashboard__subtitle">
+        <h1 class="page-title">Admin Dashboard</h1>
+        <p class="page-subtitle">
           {{ loading ? 'Loading admin data...' : 'Global overview' }}
         </p>
       </div>
@@ -193,16 +193,6 @@ onMounted(() => {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  margin-bottom: 1.5rem;
-}
-
-.admin-dashboard__title {
-  margin: 0 0 0.25rem;
-}
-
-.admin-dashboard__subtitle {
-  margin: 0;
-  color: var(--text-muted);
 }
 
 .admin-dashboard__refresh {
@@ -250,7 +240,7 @@ onMounted(() => {
   padding: 0.85rem 1rem;
   border: 1px solid var(--border-light);
   border-radius: 10px;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   font-weight: 600;
   transition:

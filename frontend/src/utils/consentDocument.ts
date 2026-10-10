@@ -628,8 +628,7 @@ const crestDisplaySize = (image: PdfImage) => {
   return { width, height }
 }
 
-export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
-  if (!rows.length) return
+const buildConsentBlob = async (rows: ConsentStudent[]) => {
   const crest = await rasterJpeg(crestUrl, 480, 'ImCrest')
   const display = crestDisplaySize(crest)
   const images: PdfImage[] = [crest]
@@ -648,8 +647,12 @@ export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
     pages.push(...paginate(recordBlocks(row, display, signatureImage)))
   }
   const pdf = buildPdf(pages, images)
-  const blob = new Blob([pdf], { type: 'application/pdf' })
-  const url = URL.createObjectURL(blob)
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
+export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
+  if (!rows.length) return
+  const url = URL.createObjectURL(await buildConsentBlob(rows))
   const link = document.createElement('a')
   link.href = url
   link.download =
@@ -658,6 +661,23 @@ export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
       : 'biotech-futures-consent-records.pdf'
   link.click()
   URL.revokeObjectURL(url)
+}
+
+// Opens the PDF in a new tab. The tab opens before the PDF is built, while the
+// click still counts, so the browser doesn't block it as a popup.
+export const viewConsentDocuments = async (rows: ConsentStudent[]) => {
+  if (!rows.length) return
+  const tab = window.open('', '_blank')
+  try {
+    const url = URL.createObjectURL(await buildConsentBlob(rows))
+    if (tab) tab.location.href = url
+    else window.open(url, '_blank')
+    // The tab needs the link while it loads the PDF.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (viewError) {
+    tab?.close()
+    throw viewError
+  }
 }
 
 export const printHtmlDocument = (title: string, bodyHtml: string) => {

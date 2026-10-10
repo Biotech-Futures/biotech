@@ -1,36 +1,6 @@
 <template>
   <div class="by-group">
     <section>
-      <div class="card by-group__search-card">
-        <div class="by-group__search-field">
-          <span class="by-group__search-label">Search</span>
-          <form class="by-group__form" @submit.prevent="open">
-            <GroupSearchInput
-              ref="picker"
-              v-model="query"
-              class="by-group__picker"
-              :show-suggestions="false"
-              @select="goTo"
-            />
-          </form>
-          <p v-if="error" class="by-group__error">{{ error }}</p>
-        </div>
-        <p class="by-group__stats">
-          {{ submittedCount }}/{{ rows.length }} Submitted ·
-          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
-        </p>
-        <div class="by-group__actions">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="job.startAll()"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> Download All
-          </button>
-        </div>
-      </div>
-
       <p v-if="job.isBusy.value" class="by-group__banner by-group__banner--ok">
         Processing files for Download
       </p>
@@ -39,103 +9,110 @@
       </p>
 
       <p v-if="isLoading" class="by-group__hint">Loading…</p>
-      <div v-else class="by-group__scroll">
-        <table class="by-group__table">
-          <thead>
-            <tr>
-              <th>
-                <button type="button" class="by-group__sort" @click="setSort('group')">
-                  Group <i :class="sortIcon('group')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>
-                <button type="button" class="by-group__sort" @click="setSort('time')">
-                  Submitted <i :class="sortIcon('time')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>Late</th>
-              <th>
-                <button type="button" class="by-group__sort" @click="setSort('progress')">
-                  Progress <i :class="sortIcon('progress')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>
-                Marker
-                <i
-                  class="fas fa-circle-info by-group__marker-info"
-                  data-tip="Hover over a marker's name to see who marked each part."
-                  aria-hidden="true"
-                ></i>
-              </th>
-              <th class="by-group__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="displayRows.length === 0">
-              <td colspan="6" class="by-group__empty">
-                {{ query.trim() ? 'No groups match your search.' : 'No groups.' }}
-              </td>
-            </tr>
-            <tr v-for="r in displayRows" :key="r.group_id">
-              <td class="by-group__cell--strong">{{ r.group_name }}</td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
-                  {{
-                    new Date(r.submitted_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hourCycle: 'h23'
-                    })
-                  }}
-                </template>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.is_late" class="by-group__late">
-                  {{ r.late_by || 'Late' }}
-                </span>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.submission_id != null" class="by-group__progress">
-                  <i
-                    :class="
-                      r.total > 0 && r.graded >= r.total
-                        ? 'fas fa-circle-check by-group__done'
-                        : 'far fa-circle by-group__pending'
-                    "
-                    aria-hidden="true"
-                  ></i>
-                  {{ r.total > 0 ? `${r.graded}/${r.total}` : '—' }}
-                </span>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.markers.length" class="by-group__marker" :title="r.markerTooltip">
-                  {{ r.markers[0] }}
-                  <i
-                    v-if="r.markers.length > 1"
-                    class="fas fa-users by-group__marker-icon"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-                <span v-else class="by-group__muted">—</span>
-              </td>
-              <td class="by-group__cell--right">
-                <RouterLink
-                  v-if="r.submission_id != null"
-                  :to="`/grading/groups/${r.group_id}`"
-                  class="btn btn-outline btn-sm"
-                >
-                  Open
-                </RouterLink>
-                <span v-else class="by-group__muted">No sub.</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Search and sort stay this page's own; the table shows every row. -->
+      <AppDataTable
+        v-else
+        v-model:search="query"
+        :columns="columns"
+        :rows="tableRows"
+        row-key="group_id"
+        :selectable="false"
+        :sort="tableSort"
+        :page-size="DATA_TABLE_ALL"
+        search-placeholder="Group name"
+        :empty-message="query.trim() ? 'No groups match your search.' : 'No groups.'"
+        @update:sort="setSort($event.key as SortKey)"
+        @search-enter="open"
+      >
+        <!-- Enter in Search opens the group it names; this says when none does. -->
+        <template v-if="error" #filters>
+          <p class="by-group__error" role="alert">{{ error }}</p>
+        </template>
+        <template #stats>
+          <span class="by-group__stats">
+            {{ submittedCount }}/{{ rows.length }} Submitted ·
+            {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+          </span>
+        </template>
+        <template #search-side>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="job.startAll()"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          </button>
+        </template>
+
+        <template #head-marker>
+          Marker
+          <i
+            class="fas fa-circle-info by-group__marker-info"
+            data-tip="Hover over a marker's name to see who marked each part."
+            aria-hidden="true"
+          ></i>
+        </template>
+
+        <template #cell-group="{ row }">
+          <span class="by-group__cell--strong">{{ groupOf(row).group_name }}</span>
+        </template>
+        <template #cell-time="{ row }">
+          <template v-if="groupOf(row).submission_id != null && groupOf(row).submitted_at">
+            {{ new Date(groupOf(row).submitted_at!).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
+            {{
+              new Date(groupOf(row).submitted_at!).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23'
+              })
+            }}
+          </template>
+          <span v-else class="by-group__muted">—</span>
+        </template>
+        <template #cell-late="{ row }">
+          <span v-if="groupOf(row).is_late" class="by-group__late">
+            {{ groupOf(row).late_by || 'Late' }}
+          </span>
+          <span v-else class="by-group__muted">—</span>
+        </template>
+        <template #cell-progress="{ row }">
+          <span v-if="groupOf(row).submission_id != null" class="by-group__progress">
+            <i
+              :class="
+                groupOf(row).total > 0 && groupOf(row).graded >= groupOf(row).total
+                  ? 'fas fa-circle-check by-group__done'
+                  : 'far fa-circle by-group__pending'
+              "
+              aria-hidden="true"
+            ></i>
+            {{ groupOf(row).total > 0 ? `${groupOf(row).graded}/${groupOf(row).total}` : '—' }}
+          </span>
+          <span v-else class="by-group__muted">—</span>
+        </template>
+        <template #cell-marker="{ row }">
+          <span v-if="groupOf(row).markers.length" class="by-group__marker" :title="groupOf(row).markerTooltip">
+            {{ groupOf(row).markers[0] }}
+            <i
+              v-if="groupOf(row).markers.length > 1"
+              class="fas fa-users by-group__marker-icon"
+              aria-hidden="true"
+            ></i>
+          </span>
+          <span v-else class="by-group__muted">—</span>
+        </template>
+
+        <template #actions="{ row }">
+          <RouterLink
+            v-if="groupOf(row).submission_id != null"
+            :to="`/grading/groups/${groupOf(row).group_id}`"
+            class="btn btn-outline btn-sm"
+          >
+            Open
+          </RouterLink>
+          <span v-else class="by-group__muted">No sub.</span>
+        </template>
+      </AppDataTable>
     </section>
   </div>
 </template>
@@ -143,23 +120,31 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 
 const router = useRouter()
-const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const query = ref('')
 const error = ref('')
 
-const goTo = ({ id }: { id: number }) => {
-  void router.push(`/grading/groups/${id}`)
+// The one group the search names: an exact name first, else the only
+// partial match.
+const resolveId = (): number | null => {
+  const lower = query.value.trim().toLowerCase()
+  if (!lower) return null
+  const exact = rows.value.filter((r) => r.group_name.toLowerCase() === lower)
+  if (exact.length === 1) return exact[0].group_id
+  const partial = rows.value.filter((r) => r.group_name.toLowerCase().includes(lower))
+  return partial.length === 1 ? partial[0].group_id : null
 }
 
+// Enter in Search opens that group.
 const open = () => {
   error.value = ''
-  const id = picker.value?.resolveId() ?? null
+  const id = resolveId()
   if (id == null) {
     error.value = 'No group matches that name.'
     return
@@ -215,12 +200,15 @@ const setSort = (key: SortKey) => {
   }
 }
 
-const sortIcon = (key: SortKey) => {
-  if (sortKey.value !== key) return 'fas fa-sort by-group__sort-icon by-group__sort-icon--idle'
-  return sortDirection.value === 'asc'
-    ? 'fas fa-sort-up by-group__sort-icon'
-    : 'fas fa-sort-down by-group__sort-icon'
-}
+const tableSort = computed(() => ({ key: sortKey.value, direction: sortDirection.value }))
+
+const columns: DataTableColumn[] = [
+  { key: 'group', label: 'Group' },
+  { key: 'time', label: 'Submitted' },
+  { key: 'late', label: 'Late', sortable: false },
+  { key: 'progress', label: 'Progress' },
+  { key: 'marker', label: 'Marker', sortable: false }
+]
 
 const sortValue = (r: GroupRow): number | string | null => {
   if (sortKey.value === 'time') return r.submitted_at
@@ -229,7 +217,7 @@ const sortValue = (r: GroupRow): number | string | null => {
 
 const displayRows = computed(() => {
   // Live-filter the table by the search text (group name), matching the
-  // By Component page; the dropdown picker still handles jump-to-group.
+  // By Component page; Enter still jumps to the group it names.
   const q = query.value.trim().toLowerCase()
   let sorted = [...rows.value]
   if (q) {
@@ -260,6 +248,9 @@ const displayRows = computed(() => {
   }
   return sorted
 })
+
+const tableRows = computed(() => displayRows.value as unknown as Record<string, unknown>[])
+const groupOf = (row: Record<string, unknown>) => row as unknown as GroupRow
 
 onMounted(async () => {
   isLoading.value = true
@@ -338,49 +329,14 @@ onMounted(async () => {
   gap: 1.25rem;
 }
 
-/* Search card sits flush on the table — same outline treatment as the
-   component table page: table border instead of the card shadow, square
-   shared edge, and the table's own top border draws the divider. */
-.by-group__search-card,
-.by-group__search-card:hover {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 1rem;
-  margin-bottom: 0;
-  border: 1px solid var(--border-light);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  box-shadow: none;
-}
-
-.by-group__stats {
-  color: var(--charcoal);
-  font-size: 0.9rem;
-  /* Centered between the search box and the Download All button. */
-  margin: 0 auto;
-}
-
-.by-group__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  /* Stays right-aligned even when the card wraps it onto its own line. */
-  margin-left: auto;
-}
-
-/* Styled like the boxes it sits between — see ComponentTablePage. */
+/* Notes above the table while a download is made or after it fails. */
 .by-group__banner {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
-  margin: 0;
+  margin: 0 0 0.75rem;
   background: var(--surface-elevated);
   border: 1px solid var(--border-light);
-  border-top: none;
-  border-bottom: none;
-  border-radius: 0;
+  border-radius: 8px;
 }
 
 .by-group__banner--info {
@@ -395,91 +351,21 @@ onMounted(async () => {
   color: var(--danger);
 }
 
-.by-group__search-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  /* Same width as the By Component page's search box; explicit floor so
-     the input's intrinsic minimum can't crowd the row. */
-  flex: 1 1 140px;
-  min-width: 155px;
-  max-width: 252px;
-}
-
-.by-group__search-field :deep(.group-search__input) {
-  min-width: 0;
-}
-
-.by-group__search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .by-group__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
 }
 
-.by-group__form {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.by-group__picker {
-  flex: 1;
-}
-
 .by-group__error {
+  align-self: center;
   color: var(--danger);
   font-size: 0.85rem;
-  margin: 0.5rem 0 0;
-}
-
-.by-group__scroll {
-  overflow-x: auto;
-  background: var(--surface-elevated);
-  border: 1px solid var(--border-light);
-  border-radius: 0 0 8px 8px;
-}
-
-.by-group__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.by-group__table th {
-  text-align: left;
-  padding: 0.6rem 0.85rem;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.by-group__table td {
-  padding: 0.55rem 0.85rem;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--charcoal);
-  white-space: nowrap;
-}
-
-.by-group__table tbody tr:last-child td {
-  border-bottom: none;
+  margin: 0;
 }
 
 .by-group__cell--strong {
   font-weight: 600;
-}
-
-.by-group__cell--right {
-  text-align: right;
 }
 
 .by-group__muted {
@@ -506,33 +392,6 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
-.by-group__sort {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  /* Buttons don't pick up the header's uppercase styling on their own. */
-  text-transform: inherit;
-  letter-spacing: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.by-group__sort:hover {
-  color: var(--dark-green);
-}
-
-.by-group__sort-icon {
-  font-size: 0.7rem;
-}
-
-.by-group__sort-icon--idle {
-  color: var(--border-light);
-}
-
 /* One name shows; the icon hints there are more markers in the tooltip. */
 .by-group__marker {
   display: inline-flex;
@@ -547,7 +406,6 @@ onMounted(async () => {
 
 .by-group__marker-info {
   font-size: 0.75rem;
-  color: var(--text-muted);
   margin-left: 0.2rem;
   position: relative;
 }
@@ -574,11 +432,5 @@ onMounted(async () => {
 
 .by-group__marker-info:hover::after {
   display: block;
-}
-
-.by-group__empty {
-  color: var(--text-muted);
-  text-align: center;
-  padding: 1rem;
 }
 </style>

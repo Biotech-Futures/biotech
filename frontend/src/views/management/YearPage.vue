@@ -192,7 +192,7 @@ onMounted(async () => {
 .year__fact-label {
   display: inline-block;
   min-width: 11rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -209,7 +209,7 @@ onMounted(async () => {
   margin: 0 0 1rem;
   padding-left: 1.2rem;
   font-size: 0.92rem;
-  color: var(--charcoal);
+  color: var(--teal);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;

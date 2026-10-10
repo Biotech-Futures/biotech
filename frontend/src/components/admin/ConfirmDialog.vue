@@ -206,7 +206,7 @@ watch(
   margin: 0;
   font-size: 1.15rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.3;
 }
 
@@ -216,7 +216,7 @@ watch(
 
 .admin-modal__message {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -253,7 +253,7 @@ watch(
 
 .btn-warning {
   background-color: var(--warning);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .btn-warning:hover {

@@ -643,7 +643,7 @@ const submitForm = async () => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -658,7 +658,7 @@ const submitForm = async () => {
   border-left: 4px solid var(--warning);
   border-radius: 6px;
   background-color: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
 }
 
@@ -682,7 +682,7 @@ const submitForm = async () => {
   gap: 0.6rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -712,7 +712,7 @@ const submitForm = async () => {
   margin-bottom: 0.3rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -721,7 +721,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 

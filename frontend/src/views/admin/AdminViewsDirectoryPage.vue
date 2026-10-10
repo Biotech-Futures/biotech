@@ -1,21 +1,21 @@
 <template>
   <div class="content-area admin-views">
-    <div class="admin-views__header">
-      <h1 class="admin-views__title">Views</h1>
-      <p class="admin-views__subtitle">
+    <div class="page-header">
+      <h1 class="page-title">Views</h1>
+      <p class="page-subtitle">
         Create and manage saved user segments, cohorts, and mini-reports.
       </p>
     </div>
 
     <div class="admin-views__main">
       <div class="admin-views__toolbar">
-        <div class="admin-views__tabs" role="tablist" aria-label="View categories">
+        <div class="tab-bar" role="tablist" aria-label="View categories">
           <button
             v-for="tab in TABS"
             :key="tab.key"
             type="button"
             role="tab"
-            class="admin-views__tab"
+            class="tab-pill"
             :class="{ active: activeTab === tab.key }"
             :aria-selected="activeTab === tab.key"
             @click="activeTab = tab.key"
@@ -28,40 +28,6 @@
           <i class="fas fa-plus" aria-hidden="true"></i>
           <span>Create View</span>
         </button>
-      </div>
-
-      <div class="admin-views__filters card">
-        <div class="admin-views__filter admin-views__filter--search">
-          <label class="admin-views__filter-label" for="view-search">Search</label>
-          <div class="admin-views__search">
-            <i class="fas fa-magnifying-glass admin-views__search-icon" aria-hidden="true"></i>
-            <input
-              id="view-search"
-              v-model="searchInput"
-              type="search"
-              class="admin-views__search-input"
-              placeholder="Search views by name, description..."
-              aria-label="Search views"
-            />
-          </div>
-        </div>
-
-        <div class="admin-views__filter">
-          <label class="admin-views__filter-label" for="view-type-filter">Type</label>
-          <select id="view-type-filter" v-model="activeTab">
-            <option value="all">All types</option>
-            <option value="default">Default</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-
-        <div class="admin-views__filter">
-          <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
-          <select id="view-role-filter" v-model="roleFilter">
-            <option value="all">All roles</option>
-            <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-          </select>
-        </div>
       </div>
 
       <p v-if="error" class="admin-views__error" role="alert">
@@ -88,9 +54,30 @@
         :views="filteredViews"
         :loading="loading"
         v-model:selected="selectedIds"
+        v-model:search="searchInput"
         @edit="openEdit"
         @changed="load"
-      />
+      >
+        <!-- Type and target role, beside Search. -->
+        <template #filters>
+          <div class="admin-views__filter">
+            <label class="admin-views__filter-label" for="view-type-filter">Type</label>
+            <select id="view-type-filter" v-model="activeTab">
+              <option value="all">All types</option>
+              <option value="default">Default</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          <div class="admin-views__filter">
+            <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
+            <select id="view-role-filter" v-model="roleFilter">
+              <option value="all">All roles</option>
+              <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
+            </select>
+          </div>
+        </template>
+      </AdminViewsDirectoryTable>
     </div>
 
     <AdminViewQueryDrawer v-model="drawerOpen" :view="editingView" @saved="onSaved" />
@@ -255,19 +242,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-.admin-views__header {
-  margin-bottom: 1.5rem;
-}
-
-.admin-views__title {
-  margin: 0 0 0.25rem;
-}
-
-.admin-views__subtitle {
-  margin: 0;
-  color: var(--text-muted);
-}
-
 .admin-views__main {
   display: flex;
   flex-direction: column;
@@ -280,6 +254,12 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  /* With the column's 16px gap, 20px below the tabs. */
+  margin-bottom: 0.25rem;
+}
+
+.admin-views__toolbar .tab-bar {
+  margin-bottom: 0;
 }
 
 .admin-views__toolbar .btn {
@@ -288,52 +268,7 @@ onMounted(load)
   gap: 0.5rem;
 }
 
-.admin-views__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.admin-views__tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.admin-views__tab:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--light-green);
-}
-
-.admin-views__tab.active {
-  background: var(--dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.admin-views__tab:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
-}
-
-.admin-views__filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-}
-
+/* Beside Search in the table's search card, and drawn like it. */
 .admin-views__filter {
   display: flex;
   flex-direction: column;
@@ -341,13 +276,19 @@ onMounted(load)
 }
 
 .admin-views__filter select {
-  height: 40px;
+  min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
-  width: 100%;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+}
+
+.admin-views__filter select:focus {
+  outline: none;
+  border-color: var(--dark-green);
 }
 
 .admin-views__filter-label {
@@ -356,31 +297,6 @@ onMounted(load)
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-views__search {
-  position: relative;
-  width: 100%;
-}
-
-.admin-views__search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
-}
-
-.admin-views__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
 }
 
 .admin-views__error {

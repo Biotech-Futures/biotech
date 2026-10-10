@@ -343,7 +343,7 @@ const runImport = async () => {
 .student-import__section-head h3 {
   margin: 0;
   font-size: 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .student-import__section-head span,

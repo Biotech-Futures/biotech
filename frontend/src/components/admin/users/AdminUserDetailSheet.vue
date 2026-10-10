@@ -421,38 +421,17 @@ const onDismiss = () => {
 </script>
 
 <style scoped>
+/* Role, status and logged in as plain text, as in the People tables;
+   inactive and never logged in are greyed. */
 .admin-users__role-badge,
-.admin-users__status-badge {
-  display: inline-block;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background-color: var(--light-green);
-  color: var(--dark-green);
-  text-transform: capitalize;
-}
-
-.admin-users__status-badge--inactive {
-  background-color: var(--bg-light);
-  color: var(--text-muted);
-}
-
+.admin-users__status-badge,
 .admin-users__logged-in-badge {
-  display: inline-block;
-  width: fit-content;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background-color: var(--bg-light);
-  color: var(--text-muted);
   text-transform: capitalize;
 }
 
-.admin-users__logged-in-badge--yes {
-  background-color: rgba(16, 185, 129, 0.12);
-  color: #047857;
+.admin-users__status-badge--inactive,
+.admin-users__logged-in-badge:not(.admin-users__logged-in-badge--yes) {
+  color: var(--text-muted);
 }
 
 .admin-users__consent-badge {
@@ -470,7 +449,7 @@ const onDismiss = () => {
 
 .admin-users__consent-badge--unverified {
   border: 1px solid var(--warning);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__consent-badge--missing {
@@ -512,7 +491,7 @@ const onDismiss = () => {
 
 .admin-users-detail__item dd {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: right;
   overflow-wrap: anywhere;
 }
@@ -562,7 +541,7 @@ const onDismiss = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users-detail__consent + .admin-users-detail__consent {

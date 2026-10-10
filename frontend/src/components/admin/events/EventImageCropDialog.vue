@@ -512,7 +512,7 @@ const onCancel = () => {
   margin: 0;
   font-size: 1.15rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.3;
 }
 
@@ -671,7 +671,7 @@ const onCancel = () => {
   flex-shrink: 0;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .crop-dialog__zoom-slider {

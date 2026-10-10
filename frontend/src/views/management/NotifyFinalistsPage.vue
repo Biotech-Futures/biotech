@@ -522,7 +522,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .notify-finalists__field input:focus {
@@ -648,7 +648,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 }
 
 .notify-finalists__newly-added {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -703,7 +703,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 
 .notify-finalists__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;
