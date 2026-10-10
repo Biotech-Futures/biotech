@@ -125,7 +125,7 @@ const send = async () => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .test-email__select {

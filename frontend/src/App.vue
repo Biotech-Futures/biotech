@@ -138,35 +138,66 @@
                 <span>Resources</span>
               </RouterLink>
             </li>
+            <!-- A supervisor's own pages, under one entry as Admin's are. -->
             <li class="sidebar-item">
-              <RouterLink
-                to="/profile"
-                class="sidebar-link"
-                :class="{ active: route.path === '/profile' }"
+              <div class="sidebar-link sidebar-link--admin">
+                <RouterLink to="/my-students" class="sidebar-link__main">
+                  <i class="fas fa-chalkboard-user sidebar-icon"></i>
+                  <span>Supervisor</span>
+                </RouterLink>
+                <button
+                  type="button"
+                  class="sidebar-subnav-toggle"
+                  :class="{ 'is-open': !isSupervisorSubnavCollapsed }"
+                  :aria-expanded="!isSupervisorSubnavCollapsed"
+                  :aria-controls="supervisorSubnavId"
+                  :aria-label="isSupervisorSubnavCollapsed ? 'Expand supervisor submenu' : 'Collapse supervisor submenu'"
+                  @click="isSupervisorSubnavCollapsed = !isSupervisorSubnavCollapsed"
+                >
+                  <i
+                    :class="isSupervisorSubnavCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+              </div>
+              <ul
+                :id="supervisorSubnavId"
+                class="sidebar-subnav"
+                v-if="!isSidebarCollapsed && !isSupervisorSubnavCollapsed"
               >
-                <i class="fas fa-user sidebar-icon"></i>
-                <span>My Profile</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-students"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/my-students') }"
-              >
-                <i class="fas fa-user-graduate sidebar-icon"></i>
-                <span>My Students</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-groups"
-                class="sidebar-link"
-                :class="{ active: route.path === '/my-groups' }"
-              >
-                <i class="fas fa-users sidebar-icon"></i>
-                <span>My Groups</span>
-              </RouterLink>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/profile"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/profile' }"
+                  >
+                    <span>My Profile</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/my-students"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/my-students') }"
+                  >
+                    <span>My Students</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/my-groups"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/my-groups' }"
+                  >
+                    <span>My Groups</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <a :href="`mailto:${SUPPORT_EMAIL}`" class="sidebar-sublink">
+                    <span>Contact Support</span>
+                  </a>
+                </li>
+              </ul>
             </li>
           </ul>
           <ul v-else class="sidebar-list">
@@ -328,13 +359,6 @@
             </li>
           </ul>
         </nav>
-
-        <section v-if="auth.isSupervisor" class="sidebar-support" aria-label="Support">
-          <a class="sidebar-link" :href="`mailto:${SUPPORT_EMAIL}`">
-            <i class="fas fa-life-ring sidebar-icon"></i>
-            <span>Contact Support</span>
-          </a>
-        </section>
 
         <button
           type="button"
@@ -552,11 +576,15 @@ const programSearchQuery = ref('')
 // with viewport changes (e.g. loading at desktop width then resizing down).
 const isAdminSubnavCollapsed = ref(false)
 const adminSubnavId = 'admin-subnav'
+// The supervisor's own pages fold the same way.
+const isSupervisorSubnavCollapsed = ref(false)
+const supervisorSubnavId = 'supervisor-subnav'
 let adminSubnavMediaQuery: MediaQueryList | null = null
 
 const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
   if (event.matches) {
     isAdminSubnavCollapsed.value = true
+    isSupervisorSubnavCollapsed.value = true
   }
 }
 
@@ -863,8 +891,8 @@ onBeforeUnmount(() => {
 /* BTF light green, matching the brand email buttons. Keep the change within
    student dashboard/profile pages, including their navigation and account panel. */
 .student-dashboard-colours {
-  --light-green: #c3ebca;
-  --accent-green-soft: #c3ebca;
+  --light-green: #c3ecca;
+  --accent-green-soft: #c3ecca;
 }
 
 :global(html[data-theme="dark"] .student-dashboard-colours) {
@@ -1065,7 +1093,7 @@ select {
   border-radius: 8px;
   padding: 0.58rem 0.9rem 0.58rem 2.35rem;
   background: rgba(255, 255, 255, 0.96);
-  color: var(--charcoal);
+  color: var(--teal);
   outline: none;
   box-shadow: 0 1px 2px rgba(7, 17, 15, 0.08);
   transition:
@@ -1096,7 +1124,7 @@ select {
 
 :root[data-theme='dark'] .search-bar::placeholder,
 :root[data-theme='dark'] .program-search i {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .theme-toggle {
@@ -1251,7 +1279,7 @@ select {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1296,13 +1324,6 @@ select {
   }
 }
 
-.sidebar-support {
-  flex: 1;
-  margin-top: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-light);
-}
-
 .sidebar-nav {
   list-style: none;
 }
@@ -1323,7 +1344,7 @@ select {
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
   text-decoration: none;
-  color: var(--charcoal);
+  color: var(--teal);
   border-left: 3px solid transparent;
   transition:
     background-color 0.2s ease,
@@ -1397,7 +1418,7 @@ select {
   border: none;
   border-left: 1px solid var(--border-light);
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   opacity: 0.7;
   cursor: pointer;
   transition:
@@ -1449,7 +1470,7 @@ select {
   gap: 0.75rem;
   padding: 0.5rem 1.5rem 0.5rem 2.55rem;
   border-left: 3px solid transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   font-size: 0.9rem;
   transition:
@@ -1510,7 +1531,7 @@ select {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.88rem;
   font-weight: 600;

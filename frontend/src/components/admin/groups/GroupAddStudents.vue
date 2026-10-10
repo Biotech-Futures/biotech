@@ -185,7 +185,7 @@ const confirm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -255,7 +255,7 @@ const confirm = async () => {
 
 .group-add__option-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-add__option-email {

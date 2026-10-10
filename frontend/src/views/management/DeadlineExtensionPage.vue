@@ -65,66 +65,54 @@
         <p>Failed to load. {{ loadError }}</p>
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
       </div>
-      <div v-else class="extensions__scroll">
-        <table class="extensions__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Extension</th>
-              <th>Added</th>
-              <th>Grace</th>
-              <th>Status</th>
-              <th>Granted by</th>
-              <th>Revoked by</th>
-              <th class="extensions__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="extensions.length === 0">
-              <td colspan="8" class="extensions__empty">No extensions granted.</td>
-            </tr>
-            <template v-for="e in extensions" :key="e.id">
-              <tr :class="{ 'extensions__row--with-reason': e.reason }">
-                <td class="extensions__cell--strong">{{ e.group_name }}</td>
-                <td>{{ `${new Date(e.extended_until).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(e.extended_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
-                <!-- Past the normal deadline, grace aside: "1d 18h". -->
-                <td>{{ e.added ?? '—' }}</td>
-                <td>{{ e.grace_hours ? `+${e.grace_hours}h` : '—' }}</td>
-                <td>
-                  <span :class="`extensions__status--${extensionStatus(e).state}`">
-                    {{ extensionStatus(e).label }}
-                  </span>
-                </td>
-                <td>{{ e.granted_by ?? '—' }}</td>
-                <td>{{ e.revoked_by ?? '—' }}</td>
-                <td class="extensions__cell--right">
-                  <span v-if="e.revoked_at" class="extensions__muted">Revoked</span>
-                  <!-- Past its grace period there's nothing left to revoke. -->
-                  <span v-else-if="extensionStatus(e).state === 'expired'" class="extensions__muted">
-                    Expired
-                  </span>
-                  <button
-                    v-else
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    :disabled="isSaving"
-                    @click="pendingRevoke = e"
-                  >
-                    Revoke
-                  </button>
-                </td>
-              </tr>
-              <!-- The reason gets a full-width row of its own so multi-line
-                   text can wrap; the pair reads as one record. -->
-              <tr v-if="e.reason" class="extensions__reason-row">
-                <td colspan="8">
-                  <span class="extensions__muted">Reason:</span> {{ e.reason }}
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+      <!-- Kept in the server's order: the page owns sorting, and sorts nothing. -->
+      <AppDataTable
+        v-else
+        :columns="extensionColumns"
+        :rows="extensionRows"
+        row-key="id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        :sort="{ key: '', direction: 'asc' }"
+        search-placeholder="Group name"
+        empty-message="No extensions granted."
+        :action-columns="1"
+        show-all-details
+        :detail-for="(row) => Boolean(row.reason)"
+        :row-class="(row) => (row.reason ? 'extensions__row--with-reason' : undefined)"
+      >
+        <template #cell-group="{ row }">
+          <span class="extensions__cell--strong">{{ row.group }}</span>
+        </template>
+        <template #cell-status="{ row }">
+          <span :class="`extensions__status--${extensionOf(row).status.state}`">
+            {{ row.status }}
+          </span>
+        </template>
+        <template #actions="{ row }">
+          <span v-if="extensionOf(row).revoked_at" class="extensions__muted">Revoked</span>
+          <!-- Past its grace period there's nothing left to revoke. -->
+          <span v-else-if="extensionOf(row).status.state === 'expired'" class="extensions__muted">
+            Expired
+          </span>
+          <button
+            v-else
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="isSaving"
+            @click="pendingRevoke = extensionOf(row)"
+          >
+            Revoke
+          </button>
+        </template>
+        <!-- The reason gets a full-width row of its own so multi-line text
+             can wrap; the pair reads as one record. -->
+        <template #row-detail="{ row }">
+          <div class="extensions__reason">
+            <span class="extensions__muted">Reason:</span> {{ row.reason }}
+          </div>
+        </template>
+      </AppDataTable>
     </section>
 
     <div v-if="overwriteWarning" class="extensions__overlay" @click.self="overwriteWarning = null">
@@ -183,7 +171,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
   fetchGroupExtensions,
@@ -193,6 +182,7 @@ import {
   type GroupExtension
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { describeBrowserTimeZone } from '@/utils/date'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
 
@@ -233,6 +223,47 @@ const extensionStatus = (e: {
   if (now <= graceEnd) return { state: 'grace', label: 'In grace' }
   return { state: 'expired', label: 'Expired' }
 }
+
+const extensionColumns: DataTableColumn[] = [
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'until', label: 'Extension', sortable: false },
+  // Past the normal deadline, grace aside: "1d 18h".
+  { key: 'added', label: 'Added', sortable: false },
+  { key: 'grace', label: 'Grace', sortable: false },
+  { key: 'status', label: 'Status', sortable: false },
+  { key: 'grantedBy', label: 'Granted by', sortable: false },
+  { key: 'revokedBy', label: 'Revoked by', sortable: false }
+]
+
+const formatUntil = (iso: string) => {
+  const at = new Date(iso)
+  const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return `${date} ${time}`
+}
+
+// Each extension as a table row: plain text for each column, so Search can
+// match it, and the extension itself for the cells drawn here.
+const extensionRows = computed(() =>
+  extensions.value.map((e) => {
+    const status = extensionStatus(e)
+    return {
+      id: e.id,
+      record: { ...e, status },
+      group: e.group_name,
+      until: formatUntil(e.extended_until),
+      added: e.added ?? '—',
+      grace: e.grace_hours ? `+${e.grace_hours}h` : '—',
+      status: status.label,
+      grantedBy: e.granted_by ?? '—',
+      revokedBy: e.revoked_by ?? '—',
+      reason: e.reason
+    }
+  })
+)
+
+const extensionOf = (row: Record<string, unknown>) =>
+  row.record as GroupExtension & { status: ReturnType<typeof extensionStatus> }
 
 // Picker floor: the calendar refuses anything at or before the current
 // deadline (an earlier "extension" would shorten the team's window). The
@@ -370,7 +401,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__status--active {
@@ -407,7 +438,7 @@ onMounted(() => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__input:focus {
@@ -444,61 +475,17 @@ onMounted(() => {
   color: var(--danger);
 }
 
-.extensions__scroll {
-  overflow-x: auto;
-}
-
-.extensions__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.extensions__table th,
-.extensions__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.extensions__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.extensions__table tbody tr:last-child td {
+/* A row followed by its reason reads as one record: no line between them. */
+:deep(.extensions__row--with-reason) td {
   border-bottom: none;
 }
 
-/* A data row followed by its reason row reads as one record: no divider
-   between the pair — the border after the reason row separates records. */
-.extensions__row--with-reason td {
-  border-bottom: none;
-}
-
-.extensions__reason-row td {
-  white-space: normal;
+.extensions__reason {
   font-size: 0.85rem;
-  padding-top: 0;
-  padding-left: 1.5rem;
-}
-
-.extensions__empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 1.5rem 0.75rem;
 }
 
 .extensions__cell--strong {
   font-weight: 600;
-}
-
-.extensions__table .extensions__cell--right {
-  text-align: right;
 }
 
 .extensions__muted {
@@ -534,7 +521,7 @@ onMounted(() => {
 .extensions__dialog-body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .extensions__dialog-actions {

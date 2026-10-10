@@ -1679,7 +1679,7 @@ onMounted(async () => {
   line-height: 0.98;
   font-weight: 850;
   letter-spacing: -0.05em;
-  color: var(--charcoal);
+  color: var(--teal);
   text-wrap: balance;
   text-shadow: none;
 }
@@ -3041,7 +3041,7 @@ onMounted(async () => {
   border-radius: 8px;
   background: var(--white);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: center;
 }
 
@@ -3057,7 +3057,7 @@ onMounted(async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #f8f9fa;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -3076,7 +3076,7 @@ onMounted(async () => {
 
 .dashboard-modal h3 {
   margin: 0 0 0.65rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.2rem;
   font-weight: 800;
 }
@@ -3554,7 +3554,7 @@ onMounted(async () => {
 
 /* Clean white/grey dashboard palette, aligned with Events and Resources pages. */
 .dashboard-page-shell {
-  --text-primary: var(--charcoal) !important;
+  --text-primary: var(--teal) !important;
   --text-secondary: #6c757d !important;
   --text-muted: #8a949e !important;
   --text-link: #4f5f6f !important;
@@ -3579,7 +3579,7 @@ onMounted(async () => {
   --page-glow-one: transparent !important;
   --page-glow-two: transparent !important;
   --page-glow-three: transparent !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: var(--bg-light) !important;
   padding: 2rem;
 }
@@ -3669,7 +3669,7 @@ onMounted(async () => {
 }
 .primary-chip:hover,
 .surface-link:hover {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: #eef1f3 !important;
   border-color: #cfd6dc !important;
 }
@@ -3682,7 +3682,7 @@ onMounted(async () => {
 .progress-value,
 .hero-meta-chip-value,
 .list-row-title {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   letter-spacing: 0 !important;
 }
 .dashboard-subtext,
@@ -3802,7 +3802,7 @@ onMounted(async () => {
 .dashboard-announcement-body :deep(h5),
 .dashboard-announcement-body :deep(h6) {
   margin: 0 0 0.28rem;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.35;
@@ -3828,7 +3828,7 @@ onMounted(async () => {
   padding: 0.04rem 0.22rem;
   background: #eef1f3;
   border-radius: 4px;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.84rem;
 }
 

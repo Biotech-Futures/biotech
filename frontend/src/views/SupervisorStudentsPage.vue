@@ -1,34 +1,69 @@
 <template>
   <div class="content-area supervisor-students-page">
-    <header class="supervisor-page-header">
-      <h1>Registered Students</h1>
-      <p>This is a list of all students registered under your supervision.</p>
+    <header class="page-header">
+      <h1 class="page-title">Registered Students</h1>
+      <p class="page-subtitle">This is a list of all students registered under your supervision.</p>
     </header>
 
     <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
     <p v-if="error" class="supervisor-error">{{ error }}</p>
     <p v-else-if="loading" class="supervisor-muted">Loading students...</p>
 
-    <section v-for="section in sections" :key="section.id" class="supervisor-section">
-      <div class="supervisor-section-head">
-        <h2>{{ section.title }}</h2>
-        <button
-          v-if="section.id === 'fullyRegistered' && section.rows.length"
-          type="button"
-          class="btn btn-outline btn-sm"
-          @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
-        >
-          Download all consent PDFs
-        </button>
-      </div>
-      <SupervisorDataTable
+    <nav class="tab-bar" role="tablist" aria-label="Student registration">
+      <button
+        v-for="tab in sectionTabs"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === tab.id"
+        class="tab-pill"
+        :class="{ active: activeSection === tab.id }"
+        @click="activeSection = tab.id"
+      >
+        {{ tab.label }}
+      </button>
+    </nav>
+
+    <section
+      v-for="section in sections.filter((item) => item.id === activeSection)"
+      :key="section.id"
+      class="supervisor-section"
+    >
+      <h2 class="subheading">{{ section.title }}</h2>
+      <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
-        :filename="section.filename"
-        :extra-option-groups="section.optionGroups"
-        @refresh="loadStudents"
-        @action="(value, rows) => onSectionAction(section.id, value, rows)"
+        :action-columns="section.rowActions.length"
       >
+        <template #toolbar="{ rows, pageRows, selectedRows }">
+          <SupervisorTableOptions
+            :columns="section.columns"
+            :rows="rows"
+            :page-rows="pageRows"
+            :selected-rows="selectedRows"
+            :filename="section.filename"
+            :email-keys="['email', 'pgEmail']"
+          />
+        </template>
+        <template #search-side>
+          <button
+            v-if="section.emailAll"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="emailSending || !section.rows.length"
+            @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
+          >
+            {{ section.emailAll.label }}
+          </button>
+          <button
+            v-if="section.id === 'fullyRegistered' && section.rows.length"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
+          >
+            Download all consent PDFs
+          </button>
+        </template>
         <template #bulk="{ rows }">
           <button
             v-for="action in section.bulkActions"
@@ -40,30 +75,17 @@
             {{ action.label }}
           </button>
         </template>
-        <template #actions="{ row }">
-          <div class="supervisor-row-actions">
-            <button
-              v-for="action in section.rowActions"
-              :key="action.value"
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="onSectionAction(section.id, action.value, [row])"
-            >
-              {{ action.label }}
-            </button>
-          </div>
+        <!-- Each row button has its own column with no heading. -->
+        <template #actions="{ row, column }">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            @click="onSectionAction(section.id, section.rowActions[column].value, [row])"
+          >
+            {{ section.rowActions[column].label }}
+          </button>
         </template>
-      </SupervisorDataTable>
-      <div v-if="section.emailAll" class="supervisor-section-footer">
-        <button
-          type="button"
-          class="btn btn-outline btn-sm"
-          :disabled="emailSending || !section.rows.length"
-          @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
-        >
-          {{ section.emailAll.label }}
-        </button>
-      </div>
+      </AppDataTable>
     </section>
 
     <div v-if="guardianModal" class="supervisor-modal-backdrop" @click.self="closeGuardianModal">
@@ -116,12 +138,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import SupervisorDataTable, {
-  type SupervisorColumn,
-  type SupervisorTableOption,
-  type SupervisorTableOptionGroup,
-} from '@/components/supervisor/SupervisorDataTable.vue'
-import { downloadConsentDocuments } from '@/utils/consentDocument'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import SupervisorTableOptions from '@/components/supervisor/SupervisorTableOptions.vue'
+import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
   classifyStudent,
@@ -163,45 +182,47 @@ const guardianLink = (row: Record<string, unknown>) => ({
   params: { id: String(row.id) },
 })
 
-const pendingColumns: SupervisorColumn[] = [
+const pendingColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student', linkTo: studentLink },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year Level', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest' },
+  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
-const registeredColumns: SupervisorColumn[] = [
+const registeredColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student', linkTo: studentLink },
   { key: 'parentGuardian', label: 'Parent/Guardian', linkTo: guardianLink },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year Level', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest' },
+  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
-const fullyRegisteredColumns: SupervisorColumn[] = [
+const fullyRegisteredColumns: DataTableColumn[] = [
   ...registeredColumns,
   { key: 'permissionGiven', label: 'Permission' },
 ]
 
-const pendingDetailsActions: SupervisorTableOption[] = [
+// A button on the rows or in the selected bar, and whether it needs ticked rows.
+type StudentAction = { value: string; label: string; needsSelection?: boolean }
+
+const pendingDetailsActions: StudentAction[] = [
   { value: 'email-students', label: 'Email student', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
   { value: 'enter-guardian', label: 'Enter guardian details', needsSelection: true },
 ]
 
-const pendingPermissionActions: SupervisorTableOption[] = [
+const pendingPermissionActions: StudentAction[] = [
   { value: 'email-guardians', label: 'Email parent/guardian', needsSelection: true },
   { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
 ]
 
-const fullyRegisteredActions: SupervisorTableOption[] = [
-  { value: 'view-consent-all', label: 'Download all consent PDFs' },
-  { value: 'view-consent-selected', label: 'Download selected consent PDFs', needsSelection: true },
-]
-
-const actionGroup = (options: SupervisorTableOption[]): SupervisorTableOptionGroup[] => [
-  { label: 'Student actions', options },
-]
+// One table at a time, picked from the bar above it as Management's are.
+const sectionTabs = [
+  { id: 'pendingDetails', label: 'Pending Details' },
+  { id: 'pendingPermission', label: 'Pending Permission' },
+  { id: 'fullyRegistered', label: 'Fully Registered' },
+] as const
+const activeSection = ref<SectionId>('pendingDetails')
 
 const sections = computed(() => [
   {
@@ -209,7 +230,6 @@ const sections = computed(() => [
     title: 'Pending Parent/Guardian Details',
     filename: 'pending-guardian-details',
     columns: pendingColumns,
-    optionGroups: actionGroup(pendingDetailsActions),
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingDetailsActions,
     emailAll: { value: 'email-students-all', label: 'Email all students' },
@@ -220,7 +240,6 @@ const sections = computed(() => [
     title: 'Pending Parent/Guardian Permission',
     filename: 'pending-guardian-permission',
     columns: registeredColumns,
-    optionGroups: actionGroup(pendingPermissionActions),
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
     emailAll: { value: 'email-guardians-all', label: 'Email all parents/guardians' },
@@ -233,8 +252,10 @@ const sections = computed(() => [
     title: 'Fully Registered with Parent/Guardian Permission',
     filename: 'fully-registered-students',
     columns: fullyRegisteredColumns,
-    optionGroups: actionGroup(fullyRegisteredActions),
-    rowActions: [{ value: 'view-consent', label: 'Download PDF' }],
+    rowActions: [
+      { value: 'open-consent', label: 'View' },
+      { value: 'view-consent', label: 'Download' },
+    ],
     bulkActions: [{ value: 'view-consent-selected', label: 'Download selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
@@ -412,6 +433,13 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     openGuardianModal(rows)
     return
   }
+  if (value === 'open-consent') {
+    viewConsentDocuments(rows).catch(() => {
+      notice.value = ''
+      error.value = 'Consent PDF could not be generated.'
+    })
+    return
+  }
   if (value === 'view-consent' || value === 'view-consent-selected' || value === 'view-consent-all') {
     const source = value === 'view-consent-all'
       ? asRows(sections.value.find((section) => section.id === 'fullyRegistered')?.rows || [])
@@ -439,12 +467,6 @@ onMounted(loadStudents)
 </script>
 
 <style scoped>
-.supervisor-page-header h1 {
-  margin: 0 0 0.35rem;
-  font-size: 1.85rem;
-}
-
-.supervisor-page-header p,
 .supervisor-muted,
 .supervisor-error,
 .supervisor-notice {
@@ -464,42 +486,10 @@ onMounted(loadStudents)
   margin-bottom: 2.25rem;
 }
 
-.supervisor-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0 0 0.85rem;
-}
-
-.supervisor-section h2 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.supervisor-section-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin: 0.75rem 0 0;
-}
-
 .email-confirm-list {
   margin: 0;
   padding-left: 1.1rem;
   color: #3d4a4a;
-}
-
-.supervisor-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.supervisor-row-actions .btn {
-  min-width: 5.5rem;
-  text-align: center;
-  justify-content: center;
 }
 
 .supervisor-modal-backdrop {
@@ -538,7 +528,7 @@ onMounted(loadStudents)
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .supervisor-modal-actions {

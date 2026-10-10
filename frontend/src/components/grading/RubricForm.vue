@@ -334,7 +334,7 @@ const handleSubmit = () => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .rubric-form__mark:focus,

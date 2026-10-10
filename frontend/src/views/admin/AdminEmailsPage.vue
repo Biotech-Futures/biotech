@@ -1,9 +1,9 @@
 <template>
   <div class="content-area admin-emails">
-    <div class="admin-emails__header">
+    <div class="admin-emails__header page-header">
       <div>
-        <h1 class="admin-emails__title">System Emails</h1>
-        <p class="admin-emails__subtitle">
+        <h1 class="page-title">System Emails</h1>
+        <p class="page-subtitle">
           Edit the wording of the emails the platform sends, preview them with sample data and
           pause the ones you do not want going out.
         </p>
@@ -303,16 +303,8 @@ onMounted(async () => {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-}
-
-/* Title and subtitle as on the Grading page. */
-.admin-emails__title {
+  /* With the page's 16px gap, 20px under the subtitle. */
   margin-bottom: 0.25rem;
-}
-
-.admin-emails__subtitle {
-  color: var(--text-muted);
-  margin: 0;
 }
 
 .admin-emails__header-actions {
@@ -466,6 +458,6 @@ onMounted(async () => {
 
 /* Dark theme: the switch's label reads on the dark page. */
 :root[data-theme='dark'] .admin-emails__global-label {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

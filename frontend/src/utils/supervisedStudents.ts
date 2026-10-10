@@ -37,9 +37,13 @@ export const fullName = (first?: string | null, last?: string | null, fallback =
   return name || fallback
 }
 
+// A guardian email is what makes a student pending permission: without one
+// there's nobody to send the consent form to. Same rule as the backend's daily
+// guardian details email (guardian_details.students_due). parent_guardian_flag
+// can't be used, as every student is saved with it on.
 export const classifyStudent = (student: SupervisedStudent): StudentRegistrationBucket => {
   if (student.has_join_permission) return 'fullyRegistered'
-  if (student.parent_guardian_flag) return 'pendingPermission'
+  if ((student.pg_email || '').trim()) return 'pendingPermission'
   return 'pendingDetails'
 }
 

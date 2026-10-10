@@ -504,7 +504,7 @@ const onImageError = (url: string) => {
 }
 
 .announcement__author-name {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   font-size: 0.92rem;
   text-overflow: ellipsis;
@@ -533,7 +533,7 @@ const onImageError = (url: string) => {
 
 .announcement__title-link {
   display: -webkit-box;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0 1px;
@@ -557,7 +557,7 @@ const onImageError = (url: string) => {
   position: relative;
   flex: 1;
   min-height: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.7;
   max-height: 6.9em;
   overflow: hidden;

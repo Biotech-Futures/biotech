@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
+import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
 import { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
 import {
   bulkDeleteUsers,
@@ -74,7 +75,6 @@ export const columnLabel = (key: string): string => {
   return COLUMN_CONFIG[canonical]?.label ?? canonical.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
 export function useAdminViewExecuted(viewId: Ref<number>) {
   const view = ref<AdminView | null>(null)
@@ -85,7 +85,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   const error = ref('')
 
   const page = ref(1)
-  const limit = ref(25)
+  const limit = ref(fitPageSize())
   const sortState = ref<SortState>({ key: 'name', direction: 'asc' })
   const groupBy = ref<GroupByOption>('none')
 
@@ -132,7 +132,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     try {
       const data = await runAdminView(viewId.value, {
         page: page.value,
-        limit: limit.value,
+        limit: serverPageLimit(limit.value),
         search: appliedSearch.value || undefined,
         sortBy: COLUMN_CONFIG[sortState.value.key]?.sortBy,
         sortOrder: sortState.value.direction,
@@ -481,7 +481,6 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     columns,
     emptyMessage,
     badgeLabel,
-    pageSizeOptions: PAGE_SIZE_OPTIONS,
     busy,
     loadResults,
     reload,

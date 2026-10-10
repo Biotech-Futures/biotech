@@ -214,7 +214,7 @@ watch(() => route.params.id, reload)
 
 .detail-empty h2 {
   margin: 0 0 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .detail-empty p {
@@ -251,7 +251,7 @@ watch(() => route.params.id, reload)
   font-size: 1.85rem;
   font-weight: 700;
   line-height: 1.25;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .detail__meta {
@@ -281,7 +281,7 @@ watch(() => route.params.id, reload)
 
 .detail__author-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.95rem;
 }
 
@@ -304,7 +304,7 @@ watch(() => route.params.id, reload)
 .detail__body {
   padding: 1.75rem 2.25rem;
   line-height: 1.75;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 

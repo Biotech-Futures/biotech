@@ -1167,7 +1167,7 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .timezone-actions {
@@ -1208,7 +1208,7 @@ onMounted(async () => {
   border-left: 4px solid var(--dark-green);
   border-radius: 6px;
   background: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-notice--error {
@@ -1275,7 +1275,7 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-error {
@@ -1305,7 +1305,7 @@ onMounted(async () => {
 
 .guardian-pending p {
   margin: 0 0 0.75rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .profile-link {
@@ -1330,7 +1330,7 @@ onMounted(async () => {
 .profile-edit-button { margin:0; font-size:.85rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
 .student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }

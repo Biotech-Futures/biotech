@@ -1190,6 +1190,7 @@ export interface AdminTaskListParams {
   page?: number
   limit?: number
   task_type?: AdminTaskType | ''
+  search?: string
   sortBy?: AdminTaskSortBy
   sortOrder?: 'asc' | 'desc'
 }

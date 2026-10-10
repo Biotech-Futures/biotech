@@ -627,7 +627,7 @@ async function handleSubmit(sendEmail: boolean) {
   align-items: center;
   gap: 0.65rem;
   font-size: 0.84rem;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 0.375rem;

@@ -627,7 +627,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .release-results__field input:focus {
@@ -683,7 +683,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   max-width: 14rem;
 }
 
@@ -791,7 +791,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 
 .release-results__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;

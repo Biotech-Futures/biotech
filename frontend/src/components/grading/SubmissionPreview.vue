@@ -308,7 +308,7 @@ const markerTooltip = computed(() => {
 }
 
 .submission-preview__marker {
-  color: var(--charcoal);
+  color: var(--teal);
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -351,7 +351,7 @@ const markerTooltip = computed(() => {
   margin: 0 0 0.4rem;
   font-size: 0.9rem;
   font-weight: 400;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* Only the answer is outlined — like the Mark/Comment inputs beside it —
@@ -364,7 +364,7 @@ const markerTooltip = computed(() => {
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
   line-height: 1.55;
-  color: var(--charcoal);
+  color: var(--teal);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -376,7 +376,7 @@ const markerTooltip = computed(() => {
   border-radius: 10px;
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -405,7 +405,7 @@ const markerTooltip = computed(() => {
   border-radius: 10px;
   padding: 0.85rem 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
   display: flex;
   align-items: center;
   justify-content: space-between;

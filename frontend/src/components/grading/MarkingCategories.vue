@@ -209,7 +209,7 @@ const pickSolution = (option: string) => {
 .marking-categories__legend {
   font-size: 0.85rem;
   font-weight: 400;
-  color: var(--charcoal);
+  color: var(--teal);
   margin: 0 0 0.5rem;
 }
 
@@ -231,7 +231,7 @@ const pickSolution = (option: string) => {
   align-items: center;
   gap: 0.35rem;
   font-size: 0.8rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -251,7 +251,7 @@ const pickSolution = (option: string) => {
   border: 1px solid var(--border-light);
   border-radius: 5px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.82rem;
   font-family: inherit;
   padding: 0.2rem 0.4rem;

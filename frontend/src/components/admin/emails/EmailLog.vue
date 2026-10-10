@@ -158,6 +158,6 @@ const lastEmailed = (item: SystemEmailLogEntry) => {
 }
 
 :root[data-theme='dark'] .email-log__name {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>
