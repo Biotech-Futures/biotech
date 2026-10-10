@@ -5,10 +5,8 @@ name: Hourly RSVP reminders
 # and the REMINDER_KINDS registry.
 #
 # Required configuration:
-#   secret  RSVP_REMINDER_TOKEN   shared by every email job for now; must
-#                                 match the backend env of the same name.
-#                                 Moves to EMAIL_JOBS_TOKEN once that's set
-#                                 on GitHub and Azure.
+#   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
+#                              backend env of the same name
 #
 # Off-peak minute (23) avoids GitHub's top-of-hour cron load spike,
 # which can otherwise drift the run by 10+ minutes and miss the window.
@@ -26,10 +24,10 @@ jobs:
       - name: Trigger RSVP reminder dispatch
         env:
           BACKEND_URL: https://api.biotechfutures.org
-          JOBS_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
         run: |
           if [ -z "${JOBS_TOKEN}" ]; then
-            echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so the workflow

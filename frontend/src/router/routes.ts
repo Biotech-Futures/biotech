@@ -74,12 +74,13 @@ const requireSupervisor = () => {
 // half-loaded placeholder; an admin goes to Admin > Groups to make one.
 const resolveGroupsLanding = async () => {
   const auth = useAuthStore();
-  if (auth.isSupervisor) return { name: 'my-groups', replace: true };
   const store = useGroupsStore();
   await store.ensureLoaded();
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
   if (auth.isAdmin) return { name: 'admin-groups', replace: true };
+  // A supervisor in no group yet has their students to place, under My Groups.
+  if (auth.isSupervisor) return { name: 'my-groups', replace: true };
   window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
 };

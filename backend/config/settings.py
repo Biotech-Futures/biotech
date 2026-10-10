@@ -626,8 +626,8 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # X-Email-Jobs-Token header. Unset means the endpoints answer 503, so a
 # misconfigured deploy fails loud instead of exposing unauthenticated triggers.
 EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
-# The token the workflows send until EMAIL_JOBS_TOKEN is set on both GitHub and
-# Azure. Accepted alongside it while the jobs move over; removed after.
+# The jobs' old token, still accepted alongside EMAIL_JOBS_TOKEN until the
+# backend stops reading it; removed after.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(

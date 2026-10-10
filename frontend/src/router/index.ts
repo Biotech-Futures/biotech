@@ -92,9 +92,6 @@ router.beforeEach((to, from, next) => {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 
-  } else if (auth.isAuthenticated && auth.isSupervisor && to.path === '/dashboard') {
-    next('/profile')
-
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
