@@ -210,6 +210,12 @@
   opacity: 1;
 }
 
+.submission-field-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
 .submission-count {
   font-size: 0.875rem;
   font-weight: 600;

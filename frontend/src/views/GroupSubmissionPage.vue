@@ -121,8 +121,20 @@
             class="form-control"
             type="text"
             :maxlength="PROJECT_TITLE_MAX_LENGTH"
-            :disabled="!isEditable"
+            v-show="!live.isLocked(TITLE_FIELD)"
+            :disabled="!isEditable || live.isLocked(TITLE_FIELD)"
+            @input="shareTyping(TITLE_FIELD, $event)"
           />
+          <LiveTextPanel
+            v-if="live.isLocked(TITLE_FIELD)"
+            class="form-control"
+            :text="projectTitle"
+            :caret="live.caretIn(TITLE_FIELD)"
+            :rows="1"
+          />
+          <div class="submission-field-meta">
+            <TypingIndicator :names="live.typingIn(TITLE_FIELD)" />
+          </div>
         </div>
 
         <p v-if="!questions.length" class="submission-muted">
@@ -141,15 +153,26 @@
             v-model="answers[question.key]"
             class="form-control submission-textarea"
             rows="5"
-            :disabled="!isEditable"
+            v-show="!live.isLocked(question.key)"
+            :disabled="!isEditable || live.isLocked(question.key)"
+            @input="shareTyping(question.key, $event)"
           ></textarea>
-          <p
-            v-if="question.max_words && wordCount(question.key) > 0"
-            class="submission-count"
-            :class="{ 'is-over-limit': wordCount(question.key) > question.max_words }"
-          >
-            {{ wordCount(question.key) }} / {{ question.max_words }} words
-          </p>
+          <LiveTextPanel
+            v-if="live.isLocked(question.key)"
+            class="submission-textarea"
+            :text="answers[question.key] ?? ''"
+            :caret="live.caretIn(question.key)"
+          />
+          <div class="submission-field-meta">
+            <p
+              v-if="question.max_words && wordCount(question.key) > 0"
+              class="submission-count"
+              :class="{ 'is-over-limit': wordCount(question.key) > question.max_words }"
+            >
+              {{ wordCount(question.key) }} / {{ question.max_words }} words
+            </p>
+            <TypingIndicator :names="live.typingIn(question.key)" />
+          </div>
         </div>
       </section>
 
@@ -514,6 +537,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
+import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import TypingIndicator from '@/components/live/TypingIndicator.vue'
+import { useLiveRoom } from '@/composables/useLiveRoom'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
@@ -576,6 +602,12 @@ const PROJECT_TITLE_MAX_LENGTH = 150
 
 /** Answers the server holds, so only changes are sent. */
 let savedAnswers: Record<string, string> = {}
+/** The title the server holds; it is only sent when changed here, so a teammate's newer title is kept. */
+let savedTitle = ''
+
+function titleIfChanged(): { project_title?: string } {
+  return projectTitle.value === savedTitle ? {} : { project_title: projectTitle.value }
+}
 
 /** Changed answers that are within their word limit. */
 function changedAnswers(): Record<string, string> {
@@ -622,6 +654,92 @@ function maxSizeLabel(slot: SubmissionSlot) {
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isLocked = computed(() => Boolean(detail.value?.submission?.is_locked))
 const isEditable = computed(() => isOpen.value && !isLocked.value)
+
+// While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
+const live = useLiveRoom(
+  'submission',
+  groupId,
+  computed(() => isOpen.value && route.name === 'group-submission')
+)
+const TITLE_FIELD = 'project-title'
+
+function shareTyping(field: string, event: Event) {
+  const input = event.target as HTMLInputElement | HTMLTextAreaElement
+  live.sendTyping(field)
+  live.sendText(field, input.value, input.selectionStart ?? input.value.length)
+}
+
+// A teammate's text is theirs to save, so it is taken as already saved here.
+live.onRemoteText((field, text) => {
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  if (field === TITLE_FIELD) {
+    projectTitle.value = text
+    savedTitle = text
+  } else if (field in answers) {
+    answers[field] = text
+    savedAnswers[field] = text
+  } else {
+    return
+  }
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
+})
+
+const FILE_SLOTS: SubmissionSlot[] = ['poster', 'report', 'prototype']
+
+// A teammate submitted, reopened or changed a file: their action shows here at once.
+live.onChanged(() => void refreshFromElsewhere())
+
+/** Takes the entry's latest status and files; typed text is left alone unless the entry was locked or unlocked. */
+async function refreshFromElsewhere() {
+  if (!detail.value || isSubmitting.value || isReopening.value) return
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    if (!detail.value) return
+    const files = (entry: typeof latest) =>
+      FILE_SLOTS.map((slot) => entry.submission?.[slot]?.storage_key ?? '').join('|')
+    const wasLocked = isLocked.value
+    const filesBefore = files(detail.value)
+    detail.value = latest
+    if (wasLocked !== isLocked.value) syncFromDetail()
+    if (filesBefore !== files(latest)) await syncPreviewForTab()
+  } catch {
+    // Best effort: the next focus or action brings the page up to date.
+  }
+}
+
+// Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
+const RESYNC_DELAY_MS = 2500
+let resyncTimer: ReturnType<typeof setTimeout> | null = null
+live.onSettled(() => {
+  if (resyncTimer) clearTimeout(resyncTimer)
+  resyncTimer = setTimeout(() => void resyncUntouchedFields(), RESYNC_DELAY_MS)
+})
+
+/** Live text can be missed, so fields not edited here are brought in line with what was saved. */
+async function resyncUntouchedFields() {
+  resyncTimer = null
+  // A save in flight is safe: its field still differs from the saved copy, so it is skipped.
+  if (!detail.value || !isEditable.value || isSubmitting.value || isReopening.value) return
+  try {
+    const latest = await fetchSubmission(groupId.value)
+    const saved = latest.submission
+    if (!saved || !isEditable.value) return
+    const wasSaved = currentSnapshot() === savedSnapshot.value
+    questions.value.forEach(({ key }) => {
+      if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
+      answers[key] = saved.answers?.[key] ?? ''
+      savedAnswers[key] = answers[key]
+    })
+    if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
+      projectTitle.value = saved.project_title ?? ''
+      savedTitle = projectTitle.value
+    }
+    if (wasSaved) savedSnapshot.value = currentSnapshot()
+  } catch {
+    // Best effort: the next release or reconnect tries again.
+  }
+}
+
 const isBusy = computed(
   () => isSaving.value || isSubmitting.value || isReopening.value || Boolean(busySlot.value)
 )
@@ -1004,6 +1122,7 @@ function syncFromDetail() {
       ? submission?.submitted_prototype_url
       : submission?.prototype_url) ?? ''
   projectTitle.value = recordedProjectTitle.value
+  savedTitle = projectTitle.value
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
@@ -1040,15 +1159,17 @@ async function persistDraft() {
 
   isSaving.value = true
   try {
+    const title = titleIfChanged()
     applyResult(
       await saveDraft(groupId.value, {
         answers: sent,
         prototype_url: prototypeUrl.value,
-        project_title: projectTitle.value
+        ...title
       })
     )
     // Only keys this save sent join the baseline, so a teammate's newer answer is kept.
     Object.assign(savedAnswers, sent)
+    if (title.project_title !== undefined) savedTitle = title.project_title
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
     saveState.value = overLimit.length ? 'unsaved' : 'idle'
@@ -1132,7 +1253,7 @@ async function onSubmit() {
       await saveDraft(groupId.value, {
         answers: sent,
         prototype_url: prototypeUrl.value,
-        project_title: projectTitle.value
+        ...titleIfChanged()
       })
     )
     Object.assign(savedAnswers, sent)
@@ -1314,6 +1435,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', onPageVisible)
   document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)
+  if (resyncTimer) clearTimeout(resyncTimer)
   if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
   clearInterval(clockTimer)
   clearPreview()

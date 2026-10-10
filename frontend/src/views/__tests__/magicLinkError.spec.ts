@@ -315,6 +315,12 @@ describe('auth redirect normalisation', () => {
     expect(window.location.hash).toBe('#/auth/callback?error=too_many_attempts')
   })
 
+  it('rewrites a legacy admin reset-password path to the hash route', () => {
+    normalizeAt('/reset-password?token=legacy-token-123')
+    expect(window.location.hash).toBe('#/auth/reset-password?token=legacy-token-123')
+    expect(window.location.search).toBe('')
+  })
+
   it('does not hijack an ordinary visit with no error param', () => {
     normalizeAt('/')
     expect(window.location.hash).toBe('')

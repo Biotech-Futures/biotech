@@ -63,7 +63,7 @@ import { rememberReturnTo } from '../utils/postLoginRedirect'
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password', '/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
@@ -81,7 +81,7 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next('/dashboard')
+    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     // Signing in brings them back here, e.g. to the page an email linked to.
@@ -92,13 +92,16 @@ router.beforeEach((to, from, next) => {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 
+  } else if (auth.isAuthenticated && auth.isSupervisor && to.path === '/dashboard') {
+    next('/profile')
+
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
       return
     }
 
-    next(auth.isAdmin ? '/admin' : '/dashboard')
+    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
   } else {
     next()
   }
