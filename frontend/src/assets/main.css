@@ -13,7 +13,7 @@
   --charcoal: #174243;
 
   /* Secondary Colors */
-  --light-green: #fcede2;
+  --light-green: #c3ebca;
   --air-force-blue: #39687b;
   --mint-green: #5ea99e;
 
@@ -34,7 +34,7 @@
   /* Auxiliary tokens — light mode defaults. Dark theme overrides below. */
   --surface-elevated: #ffffff;
   --text-muted: #6c757d;
-  --accent-green-soft: #fcede2;
+  --accent-green-soft: #c3ebca;
 }
 
 /* Dark theme — opt-in via <html data-theme="dark">. No prefers-color-scheme
