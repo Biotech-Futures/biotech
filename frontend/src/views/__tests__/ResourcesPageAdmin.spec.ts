@@ -426,7 +426,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       sheetWrapper.unmount()
     })
 
-    it('select all roles ticks and clears every visible role', async () => {
+    it('renders role checkboxes without a select-all control', async () => {
       const sheetWrapper = mount(AdminResourceFormSheet, {
         props: {
           modelValue: true,
@@ -444,21 +444,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       const roleBoxes = () =>
         sheetWrapper.findAll('fieldset input[type="checkbox"]').map((c) => c.element as HTMLInputElement)
-      const selectAll = sheetWrapper.find('#res-roles-all')
-      expect(selectAll.exists()).toBe(true)
-
-      await selectAll.setValue(true)
-      expect(roleBoxes().every((box) => box.checked)).toBe(true)
+      expect(sheetWrapper.find('#res-roles-all').exists()).toBe(false)
       expect(roleBoxes()).toHaveLength(2) // Student and Mentor; Admin is never listed
-
-      await selectAll.setValue(false)
-      expect(roleBoxes().some((box) => box.checked)).toBe(false)
-
-      // One role ticked -> select-all shows as partially selected
-      await sheetWrapper.findAll('fieldset input[type="checkbox"]')[0].setValue(true)
-      const selectAllEl = selectAll.element as HTMLInputElement
-      expect(selectAllEl.checked).toBe(false)
-      expect(selectAllEl.indeterminate).toBe(true)
 
       sheetWrapper.unmount()
     })

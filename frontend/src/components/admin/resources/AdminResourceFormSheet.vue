@@ -62,20 +62,6 @@
             <span class="admin-resource-form__spinner" aria-hidden="true"></span>
             <span>Loading roles...</span>
           </div>
-          <label
-            v-if="!loadingDetail && availableRoles.length"
-            class="admin-resource-form__checkbox-label admin-resource-form__checkbox-label--all"
-          >
-            <input
-              id="res-roles-all"
-              type="checkbox"
-              :checked="allRolesSelected"
-              :indeterminate="someRolesSelected"
-              :disabled="saving"
-              @change="toggleAllRoles"
-            />
-            <span>Select all roles</span>
-          </label>
           <fieldset v-if="!loadingDetail" class="admin-resource-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
@@ -94,7 +80,7 @@
             </label>
           </fieldset>
           <p class="admin-resource-form__hint">
-            Only users with the selected roles can view this resource. Select all roles to make it visible to everyone.
+            Only users with the selected roles can view this resource.
           </p>
         </div>
 
@@ -563,18 +549,6 @@ const toggleRole = (roleId: number) => {
   }
 }
 
-// Ticking every role is how a resource is made visible to everyone.
-const allRolesSelected = computed(
-  () =>
-    availableRoles.value.length > 0 &&
-    availableRoles.value.every((role) => form.roleIds.includes(role.id))
-)
-const someRolesSelected = computed(() => form.roleIds.length > 0 && !allRolesSelected.value)
-
-const toggleAllRoles = () => {
-  form.roleIds = allRolesSelected.value ? [] : availableRoles.value.map((role) => role.id)
-}
-
 const onCancel = () => {
   open.value = false
   emit('close')
@@ -810,13 +784,6 @@ const submitForm = async () => {
   font-size: 0.875rem;
   color: var(--charcoal);
   cursor: pointer;
-}
-
-.admin-resource-form__checkbox-label--all {
-  font-weight: 600;
-  padding-bottom: 0.45rem;
-  margin-bottom: 0.2rem;
-  border-bottom: 1px solid var(--border-light);
 }
 
 .admin-resource-form__checkbox-label input {
