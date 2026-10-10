@@ -291,6 +291,26 @@ class FinalistTests(TestCase):
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
         self.assertEqual(client.get(preview).status_code, 200)
 
+    def test_the_stored_type_comes_from_the_contents_not_the_upload(self):
+        disguised = SimpleUploadedFile(
+            "deck.pdf", b"<html><!-- %PDF- --><script></script></html>", content_type="text/html"
+        )
+
+        self._client(self.student).post(self.file_url, {"file": disguised}, format="multipart")
+
+        self.assertEqual(FinalistEntry.objects.get(group=self.group).presentation["mime"], "application/pdf")
+
+    def test_the_preview_is_always_served_as_a_pdf(self):
+        client = self._client(self.student)
+        client.post(self.file_url, {"file": _pdf()}, format="multipart")
+        entry = FinalistEntry.objects.get(group=self.group)
+        entry.presentation = {**entry.presentation, "mime": "text/html"}
+        entry.save()
+
+        response = client.get(reverse("finalist-presentation-preview", kwargs={"group_id": self.group.id}))
+
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
     def test_the_presentation_can_be_removed(self):
         client = self._client(self.student)
         client.post(self.file_url, {"file": _pdf()}, format="multipart")

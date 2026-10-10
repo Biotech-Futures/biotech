@@ -55,6 +55,11 @@ FINALIST_MAX_UPLOAD_SIZE = getattr(settings, "SUBMISSION_FINALIST_MAX_UPLOAD_SIZ
 # The file's first bytes must match its extension; the declared type is not trusted.
 _OLE_MAGIC = bytes.fromhex("D0CF11E0A1B11AE1")
 _ZIP_MAGIC = b"PK\x03\x04"
+_PRESENTATION_MIME_TYPES = {
+    "pdf": "application/pdf",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "ppt": "application/vnd.ms-powerpoint",
+}
 
 
 def _head(uploaded_file, size: int) -> bytes:
@@ -104,6 +109,8 @@ def validate_presentation_file(uploaded_file):
         raise serializers.ValidationError(
             f"The file is named like a .{extension} but its contents are not."
         )
+    # Stored as the type the content check proved, never the one the uploader declared.
+    uploaded_file.content_type = _PRESENTATION_MIME_TYPES[extension]
     return uploaded_file
 
 
