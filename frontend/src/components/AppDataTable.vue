@@ -24,6 +24,7 @@
             class="data-table-search-input"
             type="search"
             :placeholder="searchPlaceholder"
+            @keydown.enter="emit('search-enter', search)"
           />
           <!-- The placeholder, unseen, to measure how wide the box must be. -->
           <span ref="placeholderEl" class="data-table-search-measure" aria-hidden="true">
@@ -60,7 +61,7 @@
                   @change="togglePageSelection"
                 />
               </th>
-              <th v-if="hasDetail" class="data-table-expand-col" scope="col">
+              <th v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" scope="col">
                 <span class="sr-only">Details</span>
               </th>
               <th
@@ -68,6 +69,7 @@
                 :key="column.key"
                 class="data-table-head"
                 scope="col"
+                :title="column.title"
                 :aria-sort="canSort(column) ? ariaSort(column.key) : undefined"
               >
                 <button
@@ -76,9 +78,10 @@
                   class="data-table-sort-btn"
                   @click="toggleSort(column.key)"
                 >
-                  {{ column.label }} <i class="fas" :class="sortIcon(column.key)" aria-hidden="true"></i>
+                  <slot :name="`head-${column.key}`" :column="column">{{ column.label }}</slot>
+                  <i class="fas" :class="sortIcon(column.key)" aria-hidden="true"></i>
                 </button>
-                <template v-else>{{ column.label }}</template>
+                <slot v-else :name="`head-${column.key}`" :column="column">{{ column.label }}</slot>
               </th>
               <template v-if="$slots.actions">
                 <th
@@ -96,20 +99,20 @@
           <tbody>
             <!-- Room for the scrollbar laid over it, just under the headings. -->
             <tr v-if="showBar" class="table-scroll-gap" aria-hidden="true">
-              <td :colspan="emptyColspan" :style="{ height: `${barHeight}px` }"></td>
+              <td :colspan="emptyColspan()" :style="{ height: `${barHeight}px` }"></td>
             </tr>
             <tr v-if="loading && !pagedRows.length">
-              <td :colspan="emptyColspan" class="data-table-empty">Loading...</td>
+              <td :colspan="emptyColspan()" class="data-table-empty">Loading...</td>
             </tr>
             <tr v-else-if="!pagedRows.length">
-              <td :colspan="emptyColspan" class="data-table-empty">{{ emptyMessage }}</td>
+              <td :colspan="emptyColspan()" class="data-table-empty">{{ emptyMessage }}</td>
             </tr>
             <template v-for="row in pagedRows" :key="String(row[rowKey])">
               <tr
                 class="data-table-row"
                 :class="[
                   {
-                    'data-table-row--clickable': clickableRows || hasDetail,
+                    'data-table-row--clickable': clickableRows || (hasDetail() && !showAllDetails),
                     'data-table-row--two-line': twoLineRows,
                   },
                   rowClass?.(row),
@@ -125,7 +128,7 @@
                     @change="toggleRow(row)"
                   />
                 </td>
-                <td v-if="hasDetail" class="data-table-expand-col" @click.stop>
+                <td v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" @click.stop>
                   <button
                     type="button"
                     class="data-table-expand-btn"
@@ -168,8 +171,11 @@
                   </td>
                 </template>
               </tr>
-              <tr v-if="hasDetail && expandedIds.has(rowId(row))" class="data-table-detail-row">
-                <td :colspan="emptyColspan">
+              <tr
+                v-if="hasDetail() && (showAllDetails || expandedIds.has(rowId(row)))"
+                class="data-table-detail-row"
+              >
+                <td :colspan="emptyColspan()">
                   <slot name="row-detail" :row="row" />
                 </td>
               </tr>
@@ -256,6 +262,8 @@ export type DataTableColumn = {
   wrap?: boolean
   // Off by default when the server sorts; on by default otherwise.
   sortable?: boolean
+  // Shown on hovering the heading.
+  title?: string
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
 }
 
@@ -278,6 +286,8 @@ const props = withDefaults(
     loading?: boolean
     // Off: no checkbox column, for a table nothing is done to in bulk.
     selectable?: boolean
+    // On: every row's details shown under it at once, with no chevrons.
+    showAllDetails?: boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
     rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
@@ -302,6 +312,7 @@ const props = withDefaults(
     twoLineRows: false,
     loading: false,
     selectable: true,
+    showAllDetails: false,
     clickableRows: false,
     rowClass: undefined,
     totalCount: undefined,
@@ -320,6 +331,8 @@ const emit = defineEmits<{
   'update:search': [search: string]
   'update:sort': [sort: DataTableSort]
   'update:selected': [keys: RowKey[]]
+  // Enter pressed in Search, with what was typed.
+  'search-enter': [search: string]
 }>()
 
 const isServer = computed(() => props.totalCount !== undefined)
@@ -332,7 +345,11 @@ const search = ref(props.search ?? '')
 const page = ref(props.page ?? 1)
 const rowHeight = props.twoLineRows ? DATA_TABLE_TWO_LINE_ROW_HEIGHT : DATA_TABLE_ROW_HEIGHT
 const pageSize = ref(props.pageSize ?? fitPageSize(rowHeight))
-const sortKey = ref(props.sort?.key ?? (isServer.value ? '' : props.columns[0]?.key || ''))
+// With no sort given, the first column that sorts; a server sorts itself.
+const sortKey = ref(
+  props.sort?.key ??
+    (isServer.value ? '' : props.columns.find((column) => column.sortable ?? true)?.key ?? ''),
+)
 const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
 const ownSelection = ref<Set<RowKey>>(new Set())
@@ -428,6 +445,8 @@ const slots = defineSlots<{
   // A row's details, opened under it by its chevron or a click on the row.
   'row-detail'?: (props: { row: Record<string, unknown> }) => unknown
   [cell: `cell-${string}`]: (props: { row: Record<string, unknown>; value: unknown }) => unknown
+  // A heading's content, in place of its label.
+  [head: `head-${string}`]: (props: { column: DataTableColumn }) => unknown
 }>()
 
 const selectedIds = computed<Set<RowKey>>(() =>
@@ -453,7 +472,8 @@ const somePageSelected = computed(
   () => !allPageSelected.value && pagedRows.value.some((row) => selectedIds.value.has(rowId(row))),
 )
 
-const hasDetail = computed(() => Boolean(slots['row-detail']))
+// Checked on every render, as a page may add or drop its details slot.
+const hasDetail = () => Boolean(slots['row-detail'])
 const expandedIds = ref<Set<RowKey>>(new Set())
 
 const toggleDetail = (row: Record<string, unknown>) => {
@@ -465,17 +485,15 @@ const toggleDetail = (row: Record<string, unknown>) => {
 }
 
 const onRowClick = (row: Record<string, unknown>) => {
-  if (hasDetail.value) toggleDetail(row)
+  if (hasDetail() && !props.showAllDetails) toggleDetail(row)
   else if (props.clickableRows) emit('row-click', row)
 }
 
-const emptyColspan = computed(
-  () =>
-    props.columns.length +
-    (props.selectable ? 1 : 0) +
-    (hasDetail.value ? 1 : 0) +
-    (slots.actions ? props.actionColumns : 0),
-)
+const emptyColspan = () =>
+  props.columns.length +
+  (props.selectable ? 1 : 0) +
+  (hasDetail() && !props.showAllDetails ? 1 : 0) +
+  (slots.actions ? props.actionColumns : 0)
 
 const {
   wrapEl,

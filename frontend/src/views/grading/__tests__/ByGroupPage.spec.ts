@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, ref, computed } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { ref, computed } from 'vue'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ByGroupPage from '@/views/grading/ByGroupPage.vue'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { useJobPolling } from '@/composables/useJobPolling'
@@ -24,20 +24,6 @@ vi.mock('@/composables/useJobPolling', () => ({
   useJobPolling: vi.fn()
 }))
 const jobMock = vi.mocked(useJobPolling)
-
-const resolveIdMock = vi.fn<() => number | null>()
-const GroupSearchInputStub = defineComponent({
-  name: 'GroupSearchInput',
-  props: { modelValue: { type: String, default: '' }, showSuggestions: { type: Boolean, default: true } },
-  emits: ['update:modelValue', 'select'],
-  methods: {
-    resolveId(): number | null {
-      return resolveIdMock()
-    }
-  },
-  template:
-    '<input class="picker" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
-})
 
 const componentRow = (over: Record<string, unknown> = {}) => ({
   group_id: 1,
@@ -65,7 +51,6 @@ const mountPage = async () => {
   const wrapper = mount(ByGroupPage, {
     global: {
       stubs: {
-        GroupSearchInput: GroupSearchInputStub,
         RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
       }
     }
@@ -74,10 +59,17 @@ const mountPage = async () => {
   return wrapper
 }
 
+// The table's group rows, its search box, and typing into it.
+const bodyRows = (wrapper: VueWrapper) => wrapper.findAll('tbody tr.data-table-row')
+const searchBox = (wrapper: VueWrapper) => wrapper.find('.data-table-search-input')
+const search = async (wrapper: VueWrapper, text: string) => {
+  await searchBox(wrapper).setValue(text)
+  await flushPromises()
+}
+
 beforeEach(() => {
   rowsMock.mockReset()
   pushMock.mockReset()
-  resolveIdMock.mockReset()
   jobState.phase = ref('idle') as never
   jobState.error = ref('') as never
   const startAll = vi.fn()
@@ -129,7 +121,7 @@ beforeEach(() => {
 describe('the aggregated group table', () => {
   it('merges every component into one row per group with combined progress', async () => {
     const wrapper = await mountPage()
-    const row = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-1'))!
+    const row = bodyRows(wrapper).find((r) => r.text().includes('BTF-1'))!
     // 2 SAQ + 1 POSTER graded of 3 criteria across the components that loaded.
     expect(row.text()).toContain('3/3')
     expect(row.find('.by-group__done').exists()).toBe(true)
@@ -156,7 +148,7 @@ describe('the aggregated group table', () => {
     )
     const wrapper = await mountPage()
     const rowNamed = (name: string) =>
-      wrapper.findAll('tbody tr').find((r) => r.text().includes(name))!
+      bodyRows(wrapper).find((r) => r.text().includes(name))!
 
     expect(rowNamed('BTF-1').text()).toContain('7/14') // not 7/32
     // No SAQ answers, but the poster is in: submitted, fully marked, openable.
@@ -169,7 +161,7 @@ describe('the aggregated group table', () => {
   it('keeps rendering when some components have no rubric yet', async () => {
     const wrapper = await mountPage()
     // REPORT and PROTOTYPE threw — the table still shows all three groups.
-    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+    expect(bodyRows(wrapper)).toHaveLength(3)
   })
 
   it('reports the cohort stats above the table', async () => {
@@ -180,16 +172,16 @@ describe('the aggregated group table', () => {
 
   it('shows lateness by its label and dashes for unsubmitted rows', async () => {
     const wrapper = await mountPage()
-    const alphaRow = wrapper.findAll('tbody tr').find((r) => r.text().includes('Alpha Team'))!
+    const alphaRow = bodyRows(wrapper).find((r) => r.text().includes('Alpha Team'))!
     expect(alphaRow.find('.by-group__late').text()).toBe('3h 12m')
-    const unsubmitted = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-2'))!
+    const unsubmitted = bodyRows(wrapper).find((r) => r.text().includes('BTF-2'))!
     expect(unsubmitted.text()).toContain('No sub.')
     expect(unsubmitted.find('a').exists()).toBe(false)
   })
 
   it('names the first marker with a group icon when several marked, tooltip per part', async () => {
     const wrapper = await mountPage()
-    const row = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-1'))!
+    const row = bodyRows(wrapper).find((r) => r.text().includes('BTF-1'))!
     const marker = row.find('.by-group__marker')
     expect(marker.text()).toContain('Ada Grader')
     expect(row.find('.by-group__marker-icon').exists()).toBe(true) // Ada + Bob
@@ -198,7 +190,7 @@ describe('the aggregated group table', () => {
 
   it('links each submitted group to its marking page', async () => {
     const wrapper = await mountPage()
-    const row = wrapper.findAll('tbody tr').find((r) => r.text().includes('BTF-1'))!
+    const row = bodyRows(wrapper).find((r) => r.text().includes('BTF-1'))!
     expect(row.find('a').attributes('href')).toBe('/grading/groups/1')
   })
 
@@ -206,33 +198,33 @@ describe('the aggregated group table', () => {
     rowsMock.mockRejectedValue(new Error('down'))
     const wrapper = await mountPage()
     expect(wrapper.find('.by-group__error').text()).toContain('Could not load the group list.')
-    expect(wrapper.find('.by-group__empty').text()).toBe('No groups.')
+    expect(wrapper.find('.data-table-empty').text()).toBe('No groups.')
   })
 })
 
 describe('search and sorting', () => {
   it('live-filters by name, and says when nothing matches', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('.picker').setValue('alpha')
-    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
-    await wrapper.find('.picker').setValue('999')
-    expect(wrapper.find('.by-group__empty').text()).toBe('No groups match your search.')
+    await search(wrapper, 'alpha')
+    expect(bodyRows(wrapper)).toHaveLength(1)
+    await search(wrapper, '999')
+    expect(wrapper.find('.data-table-empty').text()).toBe('No groups match your search.')
   })
 
   it('defaults to newest submission first, with unsubmitted rows last', async () => {
     const wrapper = await mountPage()
-    const names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    const names = bodyRows(wrapper).map((r) => r.findAll('td')[0]!.text())
     expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
   })
 
   it('sorting by group name starts ascending and toggles', async () => {
     const wrapper = await mountPage()
-    const groupSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('Group'))!
+    const groupSort = wrapper.findAll('.data-table-sort-btn').find((b) => b.text().includes('Group'))!
     await groupSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    let names = bodyRows(wrapper).map((r) => r.findAll('td')[0]!.text())
     expect(names).toEqual(['Alpha Team', 'BTF-1', 'BTF-2'])
     await groupSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    names = bodyRows(wrapper).map((r) => r.findAll('td')[0]!.text())
     expect(names).toEqual(['BTF-2', 'BTF-1', 'Alpha Team'])
   })
 
@@ -244,36 +236,44 @@ describe('search and sorting', () => {
 
   it('sorting by progress pins unsubmitted rows to the bottom either way', async () => {
     const wrapper = await mountPage()
-    const progressSort = wrapper.findAll('.by-group__sort').find((b) => b.text().includes('Progress'))!
+    const progressSort = wrapper.findAll('.data-table-sort-btn').find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
-    let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    let names = bodyRows(wrapper).map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
     await progressSort.trigger('click')
-    names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
+    names = bodyRows(wrapper).map((r) => r.findAll('td')[0]!.text())
     expect(names[names.length - 1]).toBe('BTF-2')
   })
 })
 
 describe('jumping to a group', () => {
-  it('submitting the search opens the resolved group', async () => {
-    resolveIdMock.mockReturnValue(3)
+  it('Enter in the search opens the one group it names', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('form').trigger('submit')
+    await search(wrapper, 'alpha')
+    await searchBox(wrapper).trigger('keydown', { key: 'Enter' })
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/3')
   })
 
   it('an unresolvable query is told so instead of navigating', async () => {
-    resolveIdMock.mockReturnValue(null)
     const wrapper = await mountPage()
-    await wrapper.find('form').trigger('submit')
+    await search(wrapper, 'BTF') // BTF-1 and BTF-2: no single group
+    await searchBox(wrapper).trigger('keydown', { key: 'Enter' })
     expect(wrapper.find('.by-group__error').text()).toBe('No group matches that name.')
     expect(pushMock).not.toHaveBeenCalled()
   })
 
-  it('picking a suggestion navigates straight there', async () => {
+  it('an exact name wins over longer names that contain it', async () => {
+    rowsMock.mockImplementation(async (code: string) => {
+      if (code !== 'SAQ') throw new Error(`no rubric for ${code}`)
+      return payload('SAQ', 1, [
+        componentRow(),
+        componentRow({ group_id: 10, group_name: 'BTF-10' })
+      ]) as never
+    })
     const wrapper = await mountPage()
-    wrapper.findComponent(GroupSearchInputStub).vm.$emit('select', { id: 5, name: 'X' })
-    expect(pushMock).toHaveBeenCalledWith('/grading/groups/5')
+    await search(wrapper, 'btf-1')
+    await searchBox(wrapper).trigger('keydown', { key: 'Enter' })
+    expect(pushMock).toHaveBeenCalledWith('/grading/groups/1')
   })
 })
 
