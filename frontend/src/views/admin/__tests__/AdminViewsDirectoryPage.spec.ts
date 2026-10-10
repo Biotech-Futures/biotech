@@ -125,7 +125,7 @@ const lastButtonByText = (wrapper: VueWrapper, text: string) =>
 
 const rowButtonByText = (wrapper: VueWrapper, rowIndex: number, text: string) =>
   wrapper
-    .findAll('.admin-table__row')[rowIndex]
+    .findAll('.data-table-row')[rowIndex]
     .findAll('button')
     .find((button) => button.text().trim() === text)
 
@@ -200,7 +200,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find('#view-search').setValue('mentor')
+    await wrapper.find('.data-table-search-input').setValue('mentor')
     vi.advanceTimersByTime(300)
     await flushPromises()
 
@@ -290,7 +290,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    const rows = wrapper.findAll('.admin-table__row')
+    const rows = wrapper.findAll('.data-table-row')
     await rows[1].trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
@@ -523,7 +523,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    const headers = wrapper.findAll('.admin-table__head').map((th) => th.text().trim())
+    const headers = wrapper.findAll('.data-table-head').map((th) => th.text().trim())
     expect(headers).toContain('View Name & Description')
     expect(headers).toContain('Actions')
     expect(headers).not.toContain('Filter Summary / Roles')
@@ -559,7 +559,7 @@ describe('AdminViewsDirectoryPage', () => {
     await flushPromises()
 
     const callsBeforeTyping = vi.mocked(adminAPI.fetchAdminViews).mock.calls.length
-    const searchInput = wrapper.find('#view-search')
+    const searchInput = wrapper.find('.data-table-search-input')
     await searchInput.setValue('m')
     vi.advanceTimersByTime(100)
     await searchInput.setValue('me')
@@ -577,12 +577,12 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find('#view-search').setValue('mentor')
+    await wrapper.find('.data-table-search-input').setValue('mentor')
     vi.advanceTimersByTime(300)
     await flushPromises()
     expect(adminAPI.fetchAdminViews).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'mentor' }))
 
-    await wrapper.find('#view-search').setValue('')
+    await wrapper.find('.data-table-search-input').setValue('')
     vi.advanceTimersByTime(300)
     await flushPromises()
 

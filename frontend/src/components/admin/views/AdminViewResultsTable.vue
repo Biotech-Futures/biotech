@@ -1,26 +1,32 @@
 <template>
-  <AdminDataTable
-    :columns="columns"
+  <AppDataTable
+    :columns="tableColumns"
     :rows="tableRows"
     row-key="id"
     :loading="loading"
-    selectable
     :selected="selected"
-    :sort-state="sortState"
-    :show-pagination="true"
+    :sort="sortState"
     :page="page"
     :page-size="limit"
-    :total-count="totalCount"
-    :page-size-options="pageSizeOptions"
+    :total-count="totalCount ?? 0"
+    :search="search"
+    search-placeholder="Name or email"
     :empty-message="emptyMessage"
-    pager-label="View results pagination"
-    select-all-label="Select all users on this page"
+    :action-columns="2"
+    clickable-rows
     @update:selected="emit('update:selected', $event)"
     @update:sort="emit('update:sort', $event)"
-    @page-change="emit('page-change', $event)"
-    @page-size-change="emit('page-size-change', $event)"
+    @update:page="emit('page-change', $event)"
+    @update:page-size="emit('page-size-change', $event)"
+    @update:search="emit('update:search', $event)"
     @row-click="emit('row-click', $event)"
   >
+    <template v-if="$slots.filters" #filters>
+      <slot name="filters" />
+    </template>
+    <template v-if="$slots.stats" #stats>
+      <slot name="stats" />
+    </template>
     <template #cell-name="{ row }">
       <button type="button" class="admin-view-table__name-btn" @click.stop="emit('view', toRow(row))">
         {{ userName(toRow(row)) }}
@@ -81,28 +87,33 @@
     <template #cell-group="{ row }">
       {{ toRow(row).groupName || '—' }}
     </template>
-    <template #cell-actions="{ row }">
-      <div class="admin-view-table__row-actions" @click.stop>
-        <button type="button" class="btn btn-sm btn-outline" @click="emit('edit', toRow(row))">
-          Edit
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm admin-view-table__toggle-btn"
-          :class="toRow(row).isActive ? 'btn-outline' : 'btn-primary'"
-          :title="toRow(row).isActive ? 'Deactivate account' : 'Activate account'"
-          @click="emit('toggle-active', toRow(row))"
-        >
-          {{ toRow(row).isActive ? 'Deactivate' : 'Activate' }}
-        </button>
-      </div>
+    <template #actions="{ row, column }">
+      <button
+        v-if="column === 0"
+        type="button"
+        class="btn btn-sm btn-outline"
+        @click="emit('edit', toRow(row))"
+      >
+        Edit
+      </button>
+      <button
+        v-else
+        type="button"
+        class="btn btn-sm admin-view-table__toggle-btn"
+        :class="toRow(row).isActive ? 'btn-outline' : 'btn-primary'"
+        :title="toRow(row).isActive ? 'Deactivate account' : 'Activate account'"
+        @click="emit('toggle-active', toRow(row))"
+      >
+        {{ toRow(row).isActive ? 'Deactivate' : 'Activate' }}
+      </button>
     </template>
-  </AdminDataTable>
+  </AppDataTable>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import AdminDataTable, { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import type { AdminColumn, SortState } from '@/components/admin/AdminDataTable.vue'
 import type { ViewResultRow } from '@/composables/admin/useAdminViewExecuted'
 import {
   formatLoginDate,
@@ -123,12 +134,13 @@ const props = defineProps<{
   limit?: number
   totalCount?: number
   emptyMessage?: string
-  pageSizeOptions?: number[]
+  search?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:selected', value: Array<string | number>): void
   (e: 'update:sort', value: SortState): void
+  (e: 'update:search', value: string): void
   (e: 'page-change', page: number): void
   (e: 'page-size-change', size: number): void
   (e: 'row-click', row: Record<string, unknown>): void
@@ -140,9 +152,21 @@ const emit = defineEmits<{
 /** DataTable slots hand rows out as Record<string, unknown>. */
 const toRow = (row: Record<string, unknown>): ViewResultRow => row as unknown as ViewResultRow
 
-// AdminDataTable's `rows` prop is intentionally the loose Record<string, unknown>[]
+// AppDataTable's `rows` prop is intentionally the loose Record<string, unknown>[]
 // so it stays reusable across tables; cast back at this boundary like toRow() above.
 const tableRows = computed(() => props.rows as unknown as Record<string, unknown>[])
+
+// The row buttons get their own columns, so Actions isn't one of these.
+const tableColumns = computed<DataTableColumn[]>(() =>
+  props.columns
+    .filter((column) => column.key !== 'actions')
+    .map((column) => ({
+      key: column.key,
+      label: column.label,
+      sortable: Boolean(column.sortable),
+      wrap: column.key === 'interests'
+    }))
+)
 </script>
 
 <style scoped>
@@ -163,13 +187,6 @@ const tableRows = computed(() => props.rows as unknown as Record<string, unknown
   text-decoration: underline;
 }
 
-.admin-view-table__row-actions {
-  display: inline-flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
 .admin-view-table__toggle-btn {
   width: 5.5rem;
   min-width: 5.5rem;
@@ -182,19 +199,12 @@ const tableRows = computed(() => props.rows as unknown as Record<string, unknown
   color: var(--text-muted);
 }
 
+/* Role and status as plain text; inactive greyed. */
 .admin-view-table__badge {
-  display: inline-block;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background-color: var(--light-green);
-  color: var(--dark-green);
   text-transform: capitalize;
 }
 
 .admin-view-table__badge--muted {
-  background-color: var(--bg-light);
   color: var(--text-muted);
 }
 

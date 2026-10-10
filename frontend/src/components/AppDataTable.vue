@@ -12,7 +12,10 @@
 
     <!-- Search sits on top of the table, as on Group Marks. -->
     <div class="data-table-search-card">
-      <label class="data-table-search-field">
+      <label
+        class="data-table-search-field"
+        :style="searchWidth ? { flexBasis: searchWidth, maxWidth: searchWidth } : undefined"
+      >
         <span class="data-table-search-label">Search</span>
         <span class="data-table-search-box">
           <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
@@ -250,6 +253,8 @@ const props = withDefaults(
     actionColumns?: number
     emptyMessage?: string
     searchPlaceholder?: string
+    // Wider than the usual 252px, for a long placeholder.
+    searchWidth?: string
     loading?: boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
@@ -260,6 +265,7 @@ const props = withDefaults(
     totalCount?: number
     page?: number
     pageSize?: number
+    // Given, the page searches the rows itself, in either mode.
     search?: string
     // Given, the page sorts the rows itself, in either mode.
     sort?: DataTableSort
@@ -271,6 +277,7 @@ const props = withDefaults(
     actionColumns: 1,
     emptyMessage: 'No matching entries.',
     searchPlaceholder: 'Search',
+    searchWidth: undefined,
     loading: false,
     clickableRows: false,
     rowClass: undefined,
@@ -294,6 +301,7 @@ const emit = defineEmits<{
 
 const isServer = computed(() => props.totalCount !== undefined)
 const pageSorts = computed(() => isServer.value || props.sort !== undefined)
+const pageSearches = computed(() => isServer.value || props.search !== undefined)
 
 // Each of these follows its prop when the page passes one, and tells the
 // page when it changes here.
@@ -347,7 +355,7 @@ const compare = (
 
 const filteredRows = computed(() => {
   if (isServer.value) return props.rows
-  const query = search.value.trim().toLowerCase()
+  const query = pageSearches.value ? '' : search.value.trim().toLowerCase()
   const source = !query
     ? [...props.rows]
     : props.rows.filter((row) =>

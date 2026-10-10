@@ -30,40 +30,6 @@
         </button>
       </div>
 
-      <div class="admin-views__filters card">
-        <div class="admin-views__filter admin-views__filter--search">
-          <label class="admin-views__filter-label" for="view-search">Search</label>
-          <div class="admin-views__search">
-            <i class="fas fa-magnifying-glass admin-views__search-icon" aria-hidden="true"></i>
-            <input
-              id="view-search"
-              v-model="searchInput"
-              type="search"
-              class="admin-views__search-input"
-              placeholder="Search views by name, description..."
-              aria-label="Search views"
-            />
-          </div>
-        </div>
-
-        <div class="admin-views__filter">
-          <label class="admin-views__filter-label" for="view-type-filter">Type</label>
-          <select id="view-type-filter" v-model="activeTab">
-            <option value="all">All types</option>
-            <option value="default">Default</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-
-        <div class="admin-views__filter">
-          <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
-          <select id="view-role-filter" v-model="roleFilter">
-            <option value="all">All roles</option>
-            <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-          </select>
-        </div>
-      </div>
-
       <p v-if="error" class="admin-views__error" role="alert">
         <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
         <span>{{ error }}</span>
@@ -88,9 +54,30 @@
         :views="filteredViews"
         :loading="loading"
         v-model:selected="selectedIds"
+        v-model:search="searchInput"
         @edit="openEdit"
         @changed="load"
-      />
+      >
+        <!-- Type and target role, beside Search. -->
+        <template #filters>
+          <div class="admin-views__filter">
+            <label class="admin-views__filter-label" for="view-type-filter">Type</label>
+            <select id="view-type-filter" v-model="activeTab">
+              <option value="all">All types</option>
+              <option value="default">Default</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          <div class="admin-views__filter">
+            <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
+            <select id="view-role-filter" v-model="roleFilter">
+              <option value="all">All roles</option>
+              <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
+            </select>
+          </div>
+        </template>
+      </AdminViewsDirectoryTable>
     </div>
 
     <AdminViewQueryDrawer v-model="drawerOpen" :view="editingView" @saved="onSaved" />
@@ -281,13 +268,7 @@ onMounted(load)
   gap: 0.5rem;
 }
 
-.admin-views__filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-}
-
+/* Beside Search in the table's search card, and drawn like it. */
 .admin-views__filter {
   display: flex;
   flex-direction: column;
@@ -295,13 +276,19 @@ onMounted(load)
 }
 
 .admin-views__filter select {
-  height: 40px;
+  min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
   color: var(--teal);
-  width: 100%;
+}
+
+.admin-views__filter select:focus {
+  outline: none;
+  border-color: var(--dark-green);
 }
 
 .admin-views__filter-label {
@@ -310,31 +297,6 @@ onMounted(load)
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-views__search {
-  position: relative;
-  width: 100%;
-}
-
-.admin-views__search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--teal);
-}
-
-.admin-views__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
 }
 
 .admin-views__error {
