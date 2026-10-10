@@ -15,6 +15,7 @@ from apps.common import email_jobs
 from apps.common.rbac import group_participant_qs, is_admin
 from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
+from apps.live.broadcast import notify_changed
 from config.errors import GroupAccessDenied
 
 from .emails import send_submission_confirmation
@@ -213,6 +214,7 @@ class GroupSubmissionFileView(APIView):
         ):
             submission_file_service(slot).delete(previous_key)
 
+        notify_changed("submission", group.id, "files", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -240,6 +242,7 @@ class GroupSubmissionFileView(APIView):
         if key and key not in submission.submitted_storage_keys():
             submission_file_service(slot).delete(key)
 
+        notify_changed("submission", group.id, "files", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -338,6 +341,7 @@ class GroupSubmissionSubmitView(APIView):
         # Never raises, so a failed email cannot fail the submission.
         send_submission_confirmation(submission)
 
+        notify_changed("submission", group.id, "submitted", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -359,6 +363,7 @@ class GroupSubmissionReopenView(APIView):
         submission.reopened_at = timezone.now()
         submission.save(update_fields=["reopened_at", "updated_at"])
 
+        notify_changed("submission", group.id, "reopened", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
