@@ -144,6 +144,22 @@ def form_for(request: GuardianConsentRequest) -> dict:
     }
 
 
+def latest_signature_data_url(
+    profile: StudentProfile, consent: Optional[GuardianConsent] = None,
+) -> Optional[str]:
+    """The newest unwithdrawn drawn signature for ``profile``, as a PNG data URL."""
+    if consent is None:
+        consent = (
+            profile.consents.filter(withdrawn_at__isnull=True)
+            .order_by("-signed_at")
+            .only("signature_png")
+            .first()
+        )
+    if consent is None or not consent.signature_png:
+        return None
+    return SIGNATURE_PREFIX + base64.b64encode(bytes(consent.signature_png)).decode()
+
+
 def decode_signature(data_url: str) -> bytes:
     """The PNG bytes of a drawn signature. Raises ValueError for anything that
     isn't a reasonably sized PNG with something drawn on it."""
