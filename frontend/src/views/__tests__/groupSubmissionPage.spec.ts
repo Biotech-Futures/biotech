@@ -1164,6 +1164,8 @@ describe('what the status line says', () => {
     expect(text).toContain('Submitted')
     expect(text).toContain('unfinished revision was not submitted')
     expect(text).not.toContain('In Progress')
+    expect(text).toContain('Submissions are closed. Your unfinished revision')
+    expect(text).not.toContain('..')
   })
 })
 
@@ -1738,5 +1740,108 @@ describe('changes made elsewhere', () => {
     await buttonNamed(/Poster/)!.trigger('click')
     await flushPromises()
     expect(wrapper!.text()).toContain('poster.pdf')
+  })
+})
+
+describe('the prototype link', () => {
+  const linkInput = () => wrapper!.find('#prototype-url')
+  const linkNote = () => wrapper!.find('#prototype-url-note')
+  const waitForAutosave = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+  }
+
+  const mountEditable = async () => {
+    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    await goToLastStep()
+  }
+
+  it('adds https:// to a link given without it, and saves that', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('www.figma.com/file/abc')
+    await linkInput().trigger('blur')
+    await waitForAutosave()
+
+    expect((linkInput().element as HTMLInputElement).value).toBe('https://www.figma.com/file/abc')
+    expect(linkNote().exists()).toBe(false)
+    expect(saveDraft).toHaveBeenLastCalledWith(
+      '1',
+      expect.objectContaining({ prototype_url: 'https://www.figma.com/file/abc' }),
+    )
+  })
+
+  it('does not flag a link while it is still being typed', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('fig')
+
+    expect(linkNote().exists()).toBe(false)
+  })
+
+  it('flags text that is not a link and keeps saving the rest without it', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('on our drive')
+    await linkInput().trigger('blur')
+    await waitForAutosave()
+
+    expect(linkNote().text()).toContain("doesn't look like a web link")
+    expect(linkInput().attributes('aria-invalid')).toBe('true')
+    const sent = saveDraft.mock.calls.at(-1)![1]
+    expect(sent).not.toHaveProperty('prototype_url')
+    expect(sent).toHaveProperty('answers')
+  })
+
+  it('flags a link over 500 characters', async () => {
+    await mountEditable()
+
+    await linkInput().setValue(`https://example.com/${'a'.repeat(490)}`)
+    await linkInput().trigger('blur')
+
+    expect(linkNote().text()).toContain('longer than 500 characters')
+  })
+
+  it('only sends the link when it was changed here', async () => {
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, prototype_url: 'https://example.com/demo' },
+    })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#inspiration').setValue('An edit')
+    await waitForAutosave()
+
+    expect(saveDraft.mock.calls[0]![1]).not.toHaveProperty('prototype_url')
+  })
+
+  it('stops a submit until the link is fixed or cleared', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('on our drive')
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'The prototype link needs fixing before the entry can be submitted.',
+    )
+    expect(document.activeElement?.id).toBe('prototype-url')
+    expect(linkNote().exists()).toBe(true)
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('stretching an answer box', () => {
+  it('gives each question a grip on its bottom border that sets the box height', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const field = () => wrapper!.find('#inspiration').element.closest('.submission-field')!
+    const handle = wrapper!.findAll('[data-testid="stretch-handle"]')[1]!
+
+    await handle.trigger('keydown', { key: 'ArrowDown' })
+
+    expect(wrapper!.findAll('[data-testid="stretch-handle"]')).toHaveLength(2)
+    expect((field().querySelector('textarea') as HTMLTextAreaElement).style.height).toMatch(/px$/)
   })
 })

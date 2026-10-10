@@ -47,7 +47,6 @@
           >
             {{ timeRemaining }}
           </span>
-          <span v-if="detail.deadline.is_extended" class="status-badge status-info">Extended</span>
         </span>
       </div>
 
@@ -148,21 +147,29 @@
           </label>
           <p v-if="question.help_text" class="submission-muted">{{ question.help_text }}</p>
           <!-- No maxlength: the count warns and the server refuses over-limit answers. -->
-          <textarea
-            :id="question.key"
-            v-model="answers[question.key]"
-            class="form-control submission-textarea"
-            rows="5"
-            v-show="!live.isLocked(question.key)"
-            :disabled="!isEditable || live.isLocked(question.key)"
-            @input="shareTyping(question.key, $event)"
-          ></textarea>
-          <LiveTextPanel
-            v-if="live.isLocked(question.key)"
-            class="submission-textarea"
-            :text="answers[question.key] ?? ''"
-            :caret="live.caretIn(question.key)"
-          />
+          <div class="submission-stretch">
+            <textarea
+              :id="question.key"
+              v-model="answers[question.key]"
+              class="form-control submission-textarea"
+              rows="5"
+              v-show="!live.isLocked(question.key)"
+              :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
+              :disabled="!isEditable || live.isLocked(question.key)"
+              @input="shareTyping(question.key, $event)"
+            ></textarea>
+            <LiveTextPanel
+              v-if="live.isLocked(question.key)"
+              class="submission-textarea"
+              :text="answers[question.key] ?? ''"
+              :caret="live.caretIn(question.key)"
+              :height="boxHeights[question.key] ?? null"
+            />
+            <StretchHandle
+              :height="boxHeights[question.key] ?? null"
+              @update:height="boxHeights[question.key] = $event"
+            />
+          </div>
           <div class="submission-field-meta">
             <p
               v-if="question.max_words && wordCount(question.key) > 0"
@@ -480,7 +487,11 @@
               type="url"
               placeholder="https://…"
               :disabled="!isEditable"
+              :aria-invalid="linkNote ? 'true' : undefined"
+              :aria-describedby="linkNote ? 'prototype-url-note' : undefined"
+              @blur="tidyLink"
             />
+            <p v-if="linkNote" id="prototype-url-note" class="submission-field-note">{{ linkNote }}</p>
           </div>
         </section>
       </div>
@@ -538,6 +549,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
 import { RouterLink, useRoute } from 'vue-router'
@@ -599,11 +611,62 @@ const answers = reactive<Record<string, string>>({})
 const prototypeUrl = ref('')
 const projectTitle = ref('')
 const PROJECT_TITLE_MAX_LENGTH = 150
+const PROTOTYPE_URL_MAX_LENGTH = 500
+
+/** Set once the link field is left, so a half-typed link is not flagged. */
+const linkChecked = ref(false)
+
+/** The link as it will be saved, with https:// added when no scheme was given. */
+function normalisedLink() {
+  const link = prototypeUrl.value.trim()
+  if (!link || /^[a-z][a-z0-9+.-]*:\/\//i.test(link)) return link
+  return `https://${link}`
+}
+
+function linkProblem(): string {
+  const link = normalisedLink()
+  if (!link) return ''
+  if (link.length > PROTOTYPE_URL_MAX_LENGTH) {
+    return `This link is longer than ${PROTOTYPE_URL_MAX_LENGTH} characters. Use a shorter share link.`
+  }
+  try {
+    const url = new URL(link)
+    if (['http:', 'https:'].includes(url.protocol) && url.hostname.includes('.') && !/\s/.test(link)) return ''
+  } catch {
+    // Unparseable, so reported below.
+  }
+  return "This doesn't look like a web link. Paste the full address, for example https://www.figma.com/…"
+}
+
+const linkNote = computed(() => (linkChecked.value ? linkProblem() : ''))
+
+function tidyLink() {
+  if (!isEditable.value) return
+  linkChecked.value = true
+  const link = normalisedLink()
+  if (link !== prototypeUrl.value) prototypeUrl.value = link
+}
+
+/** A link with a problem is left out, so the server keeps the last good one. */
+function draftFields(answers: Record<string, string>): {
+  answers: Record<string, string>
+  project_title?: string
+  prototype_url?: string
+} {
+  const link = linkProblem() ? savedLink : normalisedLink()
+  return {
+    answers,
+    ...titleIfChanged(),
+    ...(link === savedLink ? {} : { prototype_url: link })
+  }
+}
 
 /** Answers the server holds, so only changes are sent. */
 let savedAnswers: Record<string, string> = {}
 /** The title the server holds; it is only sent when changed here, so a teammate's newer title is kept. */
 let savedTitle = ''
+/** Likewise for the prototype link. */
+let savedLink = ''
 
 function titleIfChanged(): { project_title?: string } {
   return projectTitle.value === savedTitle ? {} : { project_title: projectTitle.value }
@@ -662,6 +725,8 @@ const live = useLiveRoom(
   computed(() => isOpen.value && route.name === 'group-submission')
 )
 const TITLE_FIELD = 'project-title'
+/** Heights people have stretched answer boxes to, by question. */
+const boxHeights = reactive<Record<string, number>>({})
 
 function shareTyping(field: string, event: Event) {
   const input = event.target as HTMLInputElement | HTMLTextAreaElement
@@ -846,6 +911,11 @@ const recordedProjectTitle = computed(() => {
 
 const CLOSED = 'Submissions are closed.'
 
+/** Full sentences joined with spaces, so no combination can double a full stop. */
+function sentences(...parts: string[]): string {
+  return parts.filter(Boolean).join(' ')
+}
+
 const state = computed(() => {
   const closed = !isOpen.value
   const by = submittedLine.value
@@ -856,7 +926,7 @@ const state = computed(() => {
         tone: 'submitted',
         icon: 'fa-check',
         headline: 'Submitted',
-        detail: closed ? [by, CLOSED].filter(Boolean).join('. ') : by,
+        detail: closed ? sentences(by && `${by}.`, CLOSED) : by,
       }
     case 'revising':
       return closed
@@ -864,9 +934,7 @@ const state = computed(() => {
             tone: 'submitted',
             icon: 'fa-check',
             headline: 'Submitted',
-            detail: [by, CLOSED, 'Your unfinished revision was not submitted.']
-              .filter(Boolean)
-              .join('. '),
+            detail: sentences(by && `${by}.`, CLOSED, 'Your unfinished revision was not submitted.'),
           }
         : {
             tone: 'progress',
@@ -889,7 +957,7 @@ const state = computed(() => {
             tone: 'missed',
             icon: 'fa-circle-exclamation',
             headline: 'Not Submitted',
-            detail: 'Submissions are closed.',
+            detail: CLOSED,
           }
         : { tone: 'progress', icon: 'fa-pen', headline: 'Not Started', detail: '' }
   }
@@ -1123,6 +1191,7 @@ function syncFromDetail() {
       : submission?.prototype_url) ?? ''
   projectTitle.value = recordedProjectTitle.value
   savedTitle = projectTitle.value
+  savedLink = prototypeUrl.value
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
@@ -1159,20 +1228,15 @@ async function persistDraft() {
 
   isSaving.value = true
   try {
-    const title = titleIfChanged()
-    applyResult(
-      await saveDraft(groupId.value, {
-        answers: sent,
-        prototype_url: prototypeUrl.value,
-        ...title
-      })
-    )
-    // Only keys this save sent join the baseline, so a teammate's newer answer is kept.
+    const fields = draftFields(sent)
+    applyResult(await saveDraft(groupId.value, fields))
+    // Only what this save sent joins the baseline, so a teammate's newer text is kept.
     Object.assign(savedAnswers, sent)
-    if (title.project_title !== undefined) savedTitle = title.project_title
+    if (fields.project_title !== undefined) savedTitle = fields.project_title
+    if (fields.prototype_url !== undefined) savedLink = fields.prototype_url
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = overLimit.length ? 'unsaved' : 'idle'
+    saveState.value = overLimit.length || linkProblem() ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
     setMessage(handleWriteError(error), true)
@@ -1248,14 +1312,16 @@ async function onSubmit() {
       return
     }
 
+    // Left out of saves too, so submitting would send the last good link.
+    if (linkProblem()) {
+      linkChecked.value = true
+      setMessage('The prototype link needs fixing before the entry can be submitted.', true)
+      void goToBlocker({ step: 'extras', focusKey: 'prototype-url' })
+      return
+    }
+
     const sent = changedAnswers()
-    applyResult(
-      await saveDraft(groupId.value, {
-        answers: sent,
-        prototype_url: prototypeUrl.value,
-        ...titleIfChanged()
-      })
-    )
+    applyResult(await saveDraft(groupId.value, draftFields(sent)))
     Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
     syncFromDetail()
