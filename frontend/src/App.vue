@@ -138,35 +138,66 @@
                 <span>Resources</span>
               </RouterLink>
             </li>
+            <!-- A supervisor's own pages, under one entry as Admin's are. -->
             <li class="sidebar-item">
-              <RouterLink
-                to="/profile"
-                class="sidebar-link"
-                :class="{ active: route.path === '/profile' }"
+              <div class="sidebar-link sidebar-link--admin">
+                <RouterLink to="/my-students" class="sidebar-link__main">
+                  <i class="fas fa-chalkboard-user sidebar-icon"></i>
+                  <span>Supervisor</span>
+                </RouterLink>
+                <button
+                  type="button"
+                  class="sidebar-subnav-toggle"
+                  :class="{ 'is-open': !isSupervisorSubnavCollapsed }"
+                  :aria-expanded="!isSupervisorSubnavCollapsed"
+                  :aria-controls="supervisorSubnavId"
+                  :aria-label="isSupervisorSubnavCollapsed ? 'Expand supervisor submenu' : 'Collapse supervisor submenu'"
+                  @click="isSupervisorSubnavCollapsed = !isSupervisorSubnavCollapsed"
+                >
+                  <i
+                    :class="isSupervisorSubnavCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+              </div>
+              <ul
+                :id="supervisorSubnavId"
+                class="sidebar-subnav"
+                v-if="!isSidebarCollapsed && !isSupervisorSubnavCollapsed"
               >
-                <i class="fas fa-user sidebar-icon"></i>
-                <span>My Profile</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-students"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/my-students') }"
-              >
-                <i class="fas fa-user-graduate sidebar-icon"></i>
-                <span>My Students</span>
-              </RouterLink>
-            </li>
-            <li class="sidebar-item">
-              <RouterLink
-                to="/my-groups"
-                class="sidebar-link"
-                :class="{ active: route.path === '/my-groups' }"
-              >
-                <i class="fas fa-users sidebar-icon"></i>
-                <span>My Groups</span>
-              </RouterLink>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/profile"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/profile' }"
+                  >
+                    <span>My Profile</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/my-students"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/my-students') }"
+                  >
+                    <span>My Students</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/my-groups"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path === '/my-groups' }"
+                  >
+                    <span>My Groups</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <a :href="`mailto:${SUPPORT_EMAIL}`" class="sidebar-sublink">
+                    <span>Contact Support</span>
+                  </a>
+                </li>
+              </ul>
             </li>
           </ul>
           <ul v-else class="sidebar-list">
@@ -328,13 +359,6 @@
             </li>
           </ul>
         </nav>
-
-        <section v-if="auth.isSupervisor" class="sidebar-support" aria-label="Support">
-          <a class="sidebar-link" :href="`mailto:${SUPPORT_EMAIL}`">
-            <i class="fas fa-life-ring sidebar-icon"></i>
-            <span>Contact Support</span>
-          </a>
-        </section>
 
         <button
           type="button"
@@ -552,11 +576,15 @@ const programSearchQuery = ref('')
 // with viewport changes (e.g. loading at desktop width then resizing down).
 const isAdminSubnavCollapsed = ref(false)
 const adminSubnavId = 'admin-subnav'
+// The supervisor's own pages fold the same way.
+const isSupervisorSubnavCollapsed = ref(false)
+const supervisorSubnavId = 'supervisor-subnav'
 let adminSubnavMediaQuery: MediaQueryList | null = null
 
 const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
   if (event.matches) {
     isAdminSubnavCollapsed.value = true
+    isSupervisorSubnavCollapsed.value = true
   }
 }
 
@@ -1294,13 +1322,6 @@ select {
   .main-layout:not(.main-layout--full) .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle {
     left: calc(50vw - 840px);
   }
-}
-
-.sidebar-support {
-  flex: 1;
-  margin-top: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-light);
 }
 
 .sidebar-nav {
