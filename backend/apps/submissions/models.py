@@ -193,7 +193,7 @@ class Submission(models.Model):
     poster = models.JSONField(null=True, blank=True)
     report = models.JSONField(null=True, blank=True)
     prototype = models.JSONField(null=True, blank=True)
-    prototype_url = models.URLField(blank=True)
+    prototype_url = models.URLField(max_length=500, blank=True)
 
     # What the format checks found at upload.
     poster_checks = models.JSONField(null=True, blank=True)
@@ -205,7 +205,7 @@ class Submission(models.Model):
     submitted_poster_checks = models.JSONField(null=True, blank=True)
     submitted_report = models.JSONField(null=True, blank=True)
     submitted_prototype = models.JSONField(null=True, blank=True)
-    submitted_prototype_url = models.URLField(blank=True)
+    submitted_prototype_url = models.URLField(max_length=500, blank=True)
 
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(
