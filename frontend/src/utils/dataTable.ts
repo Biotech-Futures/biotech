@@ -7,6 +7,8 @@ export const DATA_TABLE_PAGE_SIZES = [7, 15, 30, DATA_TABLE_ALL]
 // The shared table's heading row and shortest row, in px, as its CSS sets them.
 export const DATA_TABLE_HEAD_HEIGHT = 50
 export const DATA_TABLE_ROW_HEIGHT = 56
+// A row of two separate lines, like a name with an email under it.
+export const DATA_TABLE_TWO_LINE_ROW_HEIGHT = 70
 // The table's own sideways scrollbar and outline.
 const TABLE_EXTRA_HEIGHT = 20
 

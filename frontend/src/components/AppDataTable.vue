@@ -14,7 +14,7 @@
     <div class="data-table-search-card">
       <label
         class="data-table-search-field"
-        :style="searchWidth ? { flexBasis: searchWidth, maxWidth: searchWidth } : undefined"
+        :style="searchFieldWidth ? { flexBasis: `${searchFieldWidth}px`, maxWidth: `${searchFieldWidth}px` } : undefined"
       >
         <span class="data-table-search-label">Search</span>
         <span class="data-table-search-box">
@@ -25,6 +25,10 @@
             type="search"
             :placeholder="searchPlaceholder"
           />
+          <!-- The placeholder, unseen, to measure how wide the box must be. -->
+          <span ref="placeholderEl" class="data-table-search-measure" aria-hidden="true">
+            {{ searchPlaceholder }}
+          </span>
         </span>
       </label>
       <div v-if="$slots.filters" class="data-table-filters">
@@ -46,7 +50,7 @@
         <table>
           <thead ref="headEl">
             <tr>
-              <th class="data-table-check-col" scope="col" @click.stop>
+              <th v-if="selectable" class="data-table-check-col" scope="col" @click.stop>
                 <input
                   type="checkbox"
                   :checked="allPageSelected"
@@ -103,10 +107,16 @@
             <template v-for="row in pagedRows" :key="String(row[rowKey])">
               <tr
                 class="data-table-row"
-                :class="[{ 'data-table-row--clickable': clickableRows || hasDetail }, rowClass?.(row)]"
+                :class="[
+                  {
+                    'data-table-row--clickable': clickableRows || hasDetail,
+                    'data-table-row--two-line': twoLineRows,
+                  },
+                  rowClass?.(row),
+                ]"
                 @click="onRowClick(row)"
               >
-                <td class="data-table-check-col" @click.stop>
+                <td v-if="selectable" class="data-table-check-col" @click.stop>
                   <input
                     type="checkbox"
                     :checked="selectedIds.has(rowId(row))"
@@ -233,6 +243,7 @@ import {
   DATA_TABLE_ALL,
   DATA_TABLE_PAGE_SIZES,
   DATA_TABLE_ROW_HEIGHT,
+  DATA_TABLE_TWO_LINE_ROW_HEIGHT,
   cellText,
   fitPageSize,
 } from '@/utils/dataTable'
@@ -261,9 +272,12 @@ const props = withDefaults(
     actionColumns?: number
     emptyMessage?: string
     searchPlaceholder?: string
-    // Wider than the usual 252px, for a long placeholder.
-    searchWidth?: string
+    // Rows of two separate lines, like a name with an email under it: 70px
+    // tall at least, rather than 56px.
+    twoLineRows?: boolean
     loading?: boolean
+    // Off: no checkbox column, for a table nothing is done to in bulk.
+    selectable?: boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
     rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
@@ -285,8 +299,9 @@ const props = withDefaults(
     actionColumns: 1,
     emptyMessage: 'No matching entries.',
     searchPlaceholder: 'Search',
-    searchWidth: undefined,
+    twoLineRows: false,
     loading: false,
+    selectable: true,
     clickableRows: false,
     rowClass: undefined,
     totalCount: undefined,
@@ -315,7 +330,8 @@ const pageSearches = computed(() => isServer.value || props.search !== undefined
 // page when it changes here.
 const search = ref(props.search ?? '')
 const page = ref(props.page ?? 1)
-const pageSize = ref(props.pageSize ?? fitPageSize())
+const rowHeight = props.twoLineRows ? DATA_TABLE_TWO_LINE_ROW_HEIGHT : DATA_TABLE_ROW_HEIGHT
+const pageSize = ref(props.pageSize ?? fitPageSize(rowHeight))
 const sortKey = ref(props.sort?.key ?? (isServer.value ? '' : props.columns[0]?.key || ''))
 const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
@@ -454,7 +470,11 @@ const onRowClick = (row: Record<string, unknown>) => {
 }
 
 const emptyColspan = computed(
-  () => props.columns.length + 1 + (hasDetail.value ? 1 : 0) + (slots.actions ? props.actionColumns : 0),
+  () =>
+    props.columns.length +
+    (props.selectable ? 1 : 0) +
+    (hasDetail.value ? 1 : 0) +
+    (slots.actions ? props.actionColumns : 0),
 )
 
 const {
@@ -519,7 +539,7 @@ const toggleSort = (key: string) => {
 // scrollbar under the headings stays away.
 const fitting = ref(pageSize.value !== DATA_TABLE_ALL)
 const fittedSize = ref(pageSize.value)
-let tallestRow = DATA_TABLE_ROW_HEIGHT
+let tallestRow = rowHeight
 
 const fitToWindow = () => {
   if (!fitting.value || !wrapEl.value) return
@@ -544,6 +564,23 @@ const sizeOptions = computed(() => {
   if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
   return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
 })
+
+// Search is 252px wide, or wide enough for every word of its placeholder:
+// the text, the space left of it for the icon, and room on the right for the
+// browser's clear button.
+const SEARCH_WIDTH = 252
+const SEARCH_SPACE = 2 * 16 + 2 + 24
+const placeholderEl = ref<HTMLElement | null>(null)
+const searchFieldWidth = ref<number | null>(null)
+
+const fitSearchWidth = () => {
+  const text = placeholderEl.value?.offsetWidth ?? 0
+  const needed = Math.ceil(text + SEARCH_SPACE)
+  searchFieldWidth.value = text && needed > SEARCH_WIDTH ? needed : null
+}
+
+onMounted(fitSearchWidth)
+watch(() => props.searchPlaceholder, () => void nextTick(fitSearchWidth))
 
 const onPageSizeChange = (event: Event) => {
   fitting.value = false
@@ -726,6 +763,15 @@ const togglePageSelection = () => {
   position: relative;
 }
 
+/* Laid out like the input's text, but never seen. */
+.data-table-search-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
 .data-table-search-box .fas {
   position: absolute;
   left: 0.65rem;
@@ -858,9 +904,14 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* Every row at least 56px tall; taller when a cell needs it. */
+/* Every row at least 56px tall, or 70px with two separate lines; taller
+   when a cell needs it. */
 .data-table-row > td {
   height: 3.5rem;
+}
+
+.data-table-row--two-line > td {
+  height: 4.375rem;
 }
 
 /* A header that sorts: the header's own look, and a pointer. */

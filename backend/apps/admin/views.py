@@ -1229,6 +1229,7 @@ class AdminTaskListCreateView(APIView):
             task_type=task_type,
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
+            search=(request.query_params.get("search") or "").strip() or None,
         )
         return Response(result)
 

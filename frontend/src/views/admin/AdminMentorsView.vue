@@ -25,6 +25,7 @@
       :loading="loading"
       empty-message="No mentors registered yet."
       search-placeholder="Name or email"
+      two-line-rows
       :page-size="DATA_TABLE_ALL"
       :selected="[...selectedIds]"
       :sort="sortState"

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize } from '@/utils/dataTable'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminTasksPage from '@/views/admin/AdminTasksPage.vue'
 
@@ -187,7 +188,7 @@ const lastTaskListUrl = (fetchMock: ReturnType<typeof vi.fn>) => {
 
 const sortableButton = (wrapper: VueWrapper, label: string) =>
   wrapper
-    .findAll('.admin-table__sort-btn')
+    .findAll('.data-table-sort-btn')
     .find((button) => button.text().replace(/[^\w ]/g, '').trim() === label)
 
 const mountPage = () => mount(AdminTasksPage, { global: { stubs: { Teleport: true } } })
@@ -236,7 +237,7 @@ describe('AdminTasksPage', () => {
     const url = lastTaskListUrl(fetchMock)
     expect(url.pathname).toBe('/api/v1/admin/task/')
     expect(url.searchParams.get('page')).toBe('1')
-    expect(url.searchParams.get('limit')).toBe('25')
+    expect(url.searchParams.get('limit')).toBe(String(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT)))
     expect(url.searchParams.get('sortBy')).toBe('due')
     expect(url.searchParams.get('sortOrder')).toBe('asc')
     expect(url.searchParams.has('task_type')).toBe(false)
@@ -250,10 +251,11 @@ describe('AdminTasksPage', () => {
     expect(wrapper.text()).toContain('In Progress')
 
     const headers = wrapper
-      .findAll('.admin-table__head')
+      .findAll('.data-table-head')
       .map((header) => header.text().replace(/[^\w ]/g, '').trim())
-    expect(headers).toEqual(['Name', 'Type', 'Target', 'Status', 'Due', 'Actions'])
-    expect(wrapper.findAll('.admin-table__sort-btn').map((button) => button.text().replace(/[^\w ]/g, '').trim()))
+    // Edit and Delete each have a column, both headed Actions for screen readers.
+    expect(headers).toEqual(['Name', 'Type', 'Target', 'Status', 'Due', 'Actions', 'Actions'])
+    expect(wrapper.findAll('.data-table-sort-btn').map((button) => button.text().replace(/[^\w ]/g, '').trim()))
       .toEqual(['Name', 'Type', 'Target', 'Status', 'Due'])
   })
 
@@ -311,14 +313,14 @@ describe('AdminTasksPage', () => {
 
     let params = lastTaskListUrl(fetchMock).searchParams
     expect(params.get('page')).toBe('2')
-    expect(params.get('limit')).toBe('25')
+    expect(params.get('limit')).toBe(String(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT)))
 
-    await wrapper.find<HTMLSelectElement>('.admin-table__page-size select').setValue('50')
+    await wrapper.find<HTMLSelectElement>('.data-table-page-size select').setValue('30')
     await flushPromises()
 
     params = lastTaskListUrl(fetchMock).searchParams
     expect(params.get('page')).toBe('1')
-    expect(params.get('limit')).toBe('50')
+    expect(params.get('limit')).toBe('30')
   })
 
   it('supports row selection with the existing admin table pattern', async () => {
@@ -395,7 +397,8 @@ describe('AdminTasksPage', () => {
   })
 
   it('clamps to the new last page after deleting the final row on the final page', async () => {
-    const fetchMock = fetchMockFor([buildTask({ id: 51 })], 51, { trackDeletedTotal: true })
+    // Two full pages and one row on a third, at the page size that fits the window.
+    const fetchMock = fetchMockFor([buildTask({ id: 51 })], 2 * fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT) + 1, { trackDeletedTotal: true })
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
@@ -451,9 +454,10 @@ describe('AdminTasksPage', () => {
   })
 
   it('clamps to the new last page after bulk deleting final rows on the final page', async () => {
+    // Two full pages and two rows on a third, at the page size that fits the window.
     const fetchMock = fetchMockFor(
       [buildTask({ id: 51 }), buildTask({ id: 52, name: 'Prepare slides', assigned_user: 43 })],
-      52,
+      2 * fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT) + 2,
       { trackDeletedTotal: true }
     )
     vi.stubGlobal('fetch', fetchMock)

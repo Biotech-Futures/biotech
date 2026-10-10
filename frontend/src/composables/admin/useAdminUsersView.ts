@@ -15,7 +15,12 @@ import {
   removeGroupMember
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
+import {
+  DATA_TABLE_ROW_HEIGHT,
+  DATA_TABLE_TWO_LINE_ROW_HEIGHT,
+  fitPageSize,
+  serverPageLimit
+} from '@/utils/dataTable'
 import { defaultAdminUserFilters, type AdminUserFilters } from '@/utils/userOptions'
 import { userName } from '@/utils/userFormat'
 
@@ -54,7 +59,9 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   const rows = ref<AdminUser[]>([])
   const totalCount = ref(0)
   const page = ref(1)
-  const limit = ref(fitPageSize())
+  const limit = ref(
+    fitPageSize(isStudentMode.value ? DATA_TABLE_TWO_LINE_ROW_HEIGHT : DATA_TABLE_ROW_HEIGHT)
+  )
   const sortState = ref<SortState>({
     key: isStudentMode.value ? 'student' : roleFilter.value ? 'name' : 'createdAt',
     direction: roleFilter.value ? 'asc' : 'desc'

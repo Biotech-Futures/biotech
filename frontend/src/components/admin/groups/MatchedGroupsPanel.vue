@@ -14,7 +14,26 @@
             <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} inactive
           </span>
         </div>
-        <div class="matched-groups__actions">
+      </div>
+
+      <p v-if="error" class="matched-groups__error" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>{{ error }}</span>
+      </p>
+
+      <AppDataTable
+        :columns="columns"
+        :rows="groupRows"
+        row-key="id"
+        :selectable="false"
+        :sort="sortState"
+        :page-size="DATA_TABLE_ALL"
+        search-placeholder="Group or mentor"
+        two-line-rows
+        empty-message="No confirmed mentor assignments yet."
+        @update:sort="toggleSort($event.key as SortKey)"
+      >
+        <template #search-side>
           <label class="matched-groups__toggle">
             <input v-model="showFullMentors" type="checkbox" />
             <span>Show mentors at capacity</span>
@@ -27,128 +46,101 @@
           >
             <i class="fas fa-rotate" aria-hidden="true"></i> Replace Inactive Mentors
           </button>
-        </div>
-      </div>
-
-      <p v-if="error" class="matched-groups__error" role="alert">
-        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-        <span>{{ error }}</span>
-      </p>
-
-      <p v-if="!groups.length" class="matched-groups__empty">No confirmed mentor assignments yet.</p>
-
-      <div v-else class="matched-groups__table-wrap">
-        <table class="matched-groups__table">
-          <thead>
-            <tr>
-              <th class="matched-groups__expand-col"></th>
-              <th v-for="col in columns" :key="col.key">
-                <button type="button" class="matched-groups__sort-btn" @click="toggleSort(col.key)">
-                  <span>{{ col.label }}</span>
-                  <i class="fas" :class="sortIconClass(col.key)" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th class="matched-groups__action-col">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="group in sortedGroups" :key="group.membershipId">
-              <tr class="matched-groups__row" @click="toggleExpand(group.membershipId)">
-                <td class="matched-groups__expand-col">
-                  <i
-                    class="fas"
-                    :class="isExpanded(group.membershipId) ? 'fa-chevron-down' : 'fa-chevron-right'"
-                    aria-hidden="true"
-                  ></i>
-                </td>
-                <td class="matched-groups__name">{{ group.groupName }}</td>
-                <td><span class="matched-groups__country-badge">{{ group.countryName || 'Unknown' }}</span></td>
-                <td>{{ group.studentCount }}</td>
-                <td>
-                  <div class="matched-groups__mentor-cell">
-                    <span>
-                      {{ group.mentor.name }}
-                      <span v-if="capacityFor(group.mentor.mentorId)" class="matched-groups__capacity">
-                        · {{ capacityFor(group.mentor.mentorId) }}
-                      </span>
-                    </span>
-                    <span v-if="group.mentor.institution" class="matched-groups__muted">{{ group.mentor.institution }}</span>
-                  </div>
-                </td>
-                <td @click.stop>
-                  <span v-if="group.mentor.isActive" class="matched-groups__status matched-groups__status--active">
-                    <i class="fas fa-circle-check" aria-hidden="true"></i> Active
+        </template>
+        <template #cell-group="{ row }">
+          <span class="matched-groups__name">{{ groupOf(row).groupName }}</span>
+        </template>
+        <template #cell-mentor="{ row }">
+          <div class="matched-groups__mentor-cell">
+            <span>
+              {{ groupOf(row).mentor.name }}
+              <span v-if="capacityFor(groupOf(row).mentor.mentorId)" class="matched-groups__capacity">
+                · {{ capacityFor(groupOf(row).mentor.mentorId) }}
+              </span>
+            </span>
+            <span v-if="groupOf(row).mentor.institution" class="matched-groups__muted">
+              {{ groupOf(row).mentor.institution }}
+            </span>
+          </div>
+        </template>
+        <template #cell-status="{ row }">
+          <span v-if="groupOf(row).mentor.isActive" class="matched-groups__status matched-groups__status--active">
+            <i class="fas fa-circle-check" aria-hidden="true"></i> Active
+          </span>
+          <span v-else class="matched-groups__status matched-groups__status--danger">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Inactive
+          </span>
+        </template>
+        <template #actions="{ row }">
+          <div v-if="replacingId === groupOf(row).membershipId" class="matched-groups__replace-form">
+            <select
+              v-model="selectedMentorId"
+              class="form-input matched-groups__replace-select"
+              :disabled="replaceBusy"
+              :aria-label="`Replacement mentor for ${groupOf(row).groupName}`"
+            >
+              <option value="">Select action</option>
+              <option :value="UNASSIGN_VALUE">— Unassign (leave unmatched)</option>
+              <option v-for="m in optionsFor(groupOf(row))" :key="m.mentorId" :value="String(m.mentorId)">
+                {{ m.name }}{{ m.remainingCapacity === 0 ? ' (full)' : '' }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="!selectedMentorId || replaceBusy"
+              @click="confirmReplace(groupOf(row))"
+            >
+              {{ replaceBusy ? 'Working...' : 'Confirm' }}
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" :disabled="replaceBusy" @click="cancelReplace">
+              Cancel
+            </button>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="btn btn-sm btn-outline"
+            @click="startReplace(groupOf(row).membershipId)"
+          >
+            Replace Mentor
+          </button>
+        </template>
+        <template #row-detail="{ row }">
+          <div class="matched-groups__detail">
+            <div>
+              <p class="matched-groups__detail-label">Students ({{ groupOf(row).studentCount }})</p>
+              <p v-if="!groupOf(row).students.length" class="matched-groups__muted">No student data available.</p>
+              <ul v-else class="matched-groups__student-list">
+                <li v-for="(s, i) in groupOf(row).students" :key="`${s.name}-${i}`">
+                  <span class="matched-groups__student-name">{{ s.name }}</span>
+                  <span v-if="!s.hasLoggedIn" class="matched-groups__login-badge" title="This student has never signed in">
+                    Never signed in
                   </span>
-                  <span v-else class="matched-groups__status matched-groups__status--danger">
-                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Inactive
-                  </span>
-                </td>
-                <td class="matched-groups__action-col" @click.stop>
-                  <div v-if="replacingId === group.membershipId" class="matched-groups__replace-form">
-                    <select
-                      v-model="selectedMentorId"
-                      class="form-input matched-groups__replace-select"
-                      :disabled="replaceBusy"
-                      :aria-label="`Replacement mentor for ${group.groupName}`"
-                    >
-                      <option value="">Select action</option>
-                      <option :value="UNASSIGN_VALUE">— Unassign (leave unmatched)</option>
-                      <option v-for="m in optionsFor(group)" :key="m.mentorId" :value="String(m.mentorId)">
-                        {{ m.name }}{{ m.remainingCapacity === 0 ? ' (full)' : '' }}
-                      </option>
-                    </select>
-                    <button
-                      type="button"
-                      class="btn btn-sm"
-                      :disabled="!selectedMentorId || replaceBusy"
-                      @click="confirmReplace(group)"
-                    >
-                      {{ replaceBusy ? 'Working...' : 'Confirm' }}
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline" :disabled="replaceBusy" @click="cancelReplace">
-                      Cancel
-                    </button>
-                  </div>
-                  <button v-else type="button" class="btn btn-sm btn-outline" @click="startReplace(group.membershipId)">
-                    Replace Mentor
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="isExpanded(group.membershipId)" class="matched-groups__detail-row">
-                <td colspan="7">
-                  <div class="matched-groups__detail">
-                    <div>
-                      <p class="matched-groups__detail-label">Students ({{ group.studentCount }})</p>
-                      <p v-if="!group.students.length" class="matched-groups__muted">No student data available.</p>
-                      <ul v-else class="matched-groups__student-list">
-                        <li v-for="(s, i) in group.students" :key="`${s.name}-${i}`">
-                          <span class="matched-groups__student-name">{{ s.name }}</span>
-                          <span v-if="!s.hasLoggedIn" class="matched-groups__login-badge" title="This student has never signed in">
-                            Never signed in
-                          </span>
-                          <span v-if="s.interests.length" class="matched-groups__muted">{{ s.interests.join(', ') }}</span>
-                        </li>
-                      </ul>
-                    </div>
-                    <div>
-                      <p class="matched-groups__detail-label">Assigned Mentor</p>
-                      <div class="matched-groups__mentor-detail">
-                        <p class="matched-groups__student-name">{{ group.mentor.name }}</p>
-                        <p v-if="group.mentor.institution" class="matched-groups__muted">{{ group.mentor.institution }}</p>
-                        <div class="matched-groups__mentor-detail-meta">
-                          <span class="matched-groups__country-badge">{{ group.mentor.countryName || 'Unknown' }}</span>
-                          <span v-if="group.mentor.isActive" class="matched-groups__status matched-groups__status--active">Active</span>
-                          <span v-else class="matched-groups__status matched-groups__status--danger">Inactive</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+                  <span v-if="s.interests.length" class="matched-groups__muted">{{ s.interests.join(', ') }}</span>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p class="matched-groups__detail-label">Assigned Mentor</p>
+              <div class="matched-groups__mentor-detail">
+                <p class="matched-groups__student-name">{{ groupOf(row).mentor.name }}</p>
+                <p v-if="groupOf(row).mentor.institution" class="matched-groups__muted">
+                  {{ groupOf(row).mentor.institution }}
+                </p>
+                <div class="matched-groups__mentor-detail-meta">
+                  <span class="matched-groups__country-badge">{{ groupOf(row).mentor.countryName || 'Unknown' }}</span>
+                  <span
+                    v-if="groupOf(row).mentor.isActive"
+                    class="matched-groups__status matched-groups__status--active"
+                  >Active</span>
+                  <span v-else class="matched-groups__status matched-groups__status--danger">Inactive</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </AppDataTable>
     </template>
 
     <MentorReplaceDialog
@@ -162,6 +154,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
 import {
   fetchMatchedGroups,
@@ -172,6 +165,7 @@ import {
   type MentorListItem
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const UNASSIGN_VALUE = '__unassign__'
 
@@ -222,7 +216,7 @@ const capacityFor = (mentorId: number): string | null => {
 // one call, with no server-side pagination/sort params to route through.
 type SortKey = 'group' | 'country' | 'students' | 'mentor' | 'status'
 
-const columns: Array<{ key: SortKey; label: string }> = [
+const columns: DataTableColumn[] = [
   { key: 'group', label: 'Group' },
   { key: 'country', label: 'Country' },
   { key: 'students', label: 'Students' },
@@ -266,20 +260,21 @@ const toggleSort = (key: SortKey) => {
       : { key, direction: 'asc' }
 }
 
-const sortIconClass = (key: SortKey) => {
-  if (sortState.value.key !== key) return 'fa-sort'
-  return sortState.value.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
-}
+// Each group as a table row: plain text for search, and the group itself for
+// the cells drawn here. Sorted above, by this panel's own rules.
+const groupRows = computed(() =>
+  sortedGroups.value.map((group) => ({
+    id: group.membershipId,
+    matched: group,
+    group: group.groupName,
+    country: group.countryName || 'Unknown',
+    students: group.studentCount,
+    mentor: group.mentor.name,
+    status: group.mentor.isActive ? 'Active' : 'Inactive'
+  }))
+)
 
-// --- Row expansion -------------------------------------------------------
-const expandedIds = ref<Set<number>>(new Set())
-const isExpanded = (id: number) => expandedIds.value.has(id)
-const toggleExpand = (id: number) => {
-  const next = new Set(expandedIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  expandedIds.value = next
-}
+const groupOf = (row: Record<string, unknown>) => row.matched as MatchedGroup
 
 // --- Per-row replace -------------------------------------------------------
 const replacingId = ref<number | null>(null)
@@ -413,12 +408,6 @@ const onBulkConfirmed = () => {
   color: var(--danger);
 }
 
-.matched-groups__actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
 .matched-groups__toggle {
   display: flex;
   align-items: center;
@@ -434,77 +423,6 @@ const onBulkConfirmed = () => {
   gap: 0.5rem;
   color: var(--danger);
   font-size: 0.9rem;
-}
-
-.matched-groups__empty {
-  padding: 2rem;
-  text-align: center;
-  border: 1px dashed var(--border-light);
-  border-radius: 10px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.matched-groups__table-wrap {
-  width: 100%;
-  overflow-x: auto;
-  background-color: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-}
-
-.matched-groups__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.matched-groups__table th {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: var(--teal);
-  background-color: var(--light-green);
-  border-bottom: 2px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.matched-groups__table td {
-  padding: 0.75rem 1rem;
-  color: var(--teal);
-  border-bottom: 1px solid var(--border-light);
-  vertical-align: middle;
-}
-
-.matched-groups__expand-col {
-  width: 32px;
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.matched-groups__action-col {
-  width: 20rem;
-}
-
-.matched-groups__sort-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-weight: 600;
-  color: inherit;
-  cursor: pointer;
-}
-
-.matched-groups__row {
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.matched-groups__row:hover {
-  background-color: var(--light-green);
 }
 
 .matched-groups__name {
@@ -561,11 +479,6 @@ const onBulkConfirmed = () => {
   min-width: 10rem;
   padding: 0.4rem 0.5rem;
   font-size: 0.8rem;
-}
-
-.matched-groups__detail-row td {
-  padding: 0;
-  background-color: var(--bg-light);
 }
 
 .matched-groups__detail {

@@ -13,6 +13,7 @@
     :search-placeholder="searchPlaceholder"
     :empty-message="emptyMessage"
     :action-columns="isStudentMode ? 1 : 2"
+    :two-line-rows="isStudentMode"
     clickable-rows
     @update:selected="emit('update:selected', $event)"
     @update:sort="emit('update:sort', $event)"

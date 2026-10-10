@@ -48,6 +48,36 @@ class AdminTaskTests(TestCase):
         ids = [item["id"] for item in result["data"]["items"]]
         self.assertEqual(ids, [newer.id, older.id])
 
+    def test_search_matches_name_or_description(self):
+        by_name = Task.objects.create(
+            name="Weekly reflection",
+            task_type=TaskType.GROUP,
+            group=self.group,
+            created_by=self.admin,
+            creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        by_description = Task.objects.create(
+            name="Slides",
+            description="Prepare the REFLECTION slides",
+            task_type=TaskType.GROUP,
+            group=self.group,
+            created_by=self.admin,
+            creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        Task.objects.create(
+            name="Poster",
+            task_type=TaskType.GROUP,
+            group=self.group,
+            created_by=self.admin,
+            creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+
+        result = list_admin_tasks(self.admin, search="reflection")
+
+        ids = {item["id"] for item in result["data"]["items"]}
+        self.assertEqual(ids, {by_name.id, by_description.id})
+        self.assertEqual(result["data"]["total"], 2)
+
     def test_create_group_task(self):
         result = create_admin_task(self.admin, {
             "name": "New Group Task",

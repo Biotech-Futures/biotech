@@ -8,7 +8,7 @@
       :selected="selected"
       :search="search"
       search-placeholder="Search views by name, description..."
-      search-width="320px"
+      two-line-rows
       :page-size="DATA_TABLE_ALL"
       empty-message="No views found."
       :action-columns="3"
