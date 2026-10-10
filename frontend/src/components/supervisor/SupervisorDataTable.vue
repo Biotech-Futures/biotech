@@ -98,7 +98,17 @@
                 </span>
               </span>
             </th>
-            <th v-if="$slots.actions" class="supervisor-table-actions-col" scope="col">Actions</th>
+            <template v-if="$slots.actions">
+              <th
+                v-for="index in actionColumns"
+                :key="`actions-${index}`"
+                class="supervisor-table-actions-col"
+                scope="col"
+              >
+                <template v-if="actionsHeading && index === 1">{{ actionsHeading }}</template>
+                <span v-else class="sr-only">Actions</span>
+              </th>
+            </template>
           </tr>
         </thead>
         <tbody>
@@ -124,9 +134,16 @@
               </RouterLink>
               <template v-else>{{ displayCell(row, column) }}</template>
             </td>
-            <td v-if="$slots.actions" class="supervisor-table-actions-col" @click.stop>
-              <slot name="actions" :row="row" />
-            </td>
+            <template v-if="$slots.actions">
+              <td
+                v-for="index in actionColumns"
+                :key="`actions-${index}`"
+                class="supervisor-table-actions-col"
+                @click.stop
+              >
+                <slot name="actions" :row="row" :column="index - 1" />
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
@@ -193,8 +210,18 @@ const props = withDefaults(
     rowKey?: string
     filename?: string
     extraOptionGroups?: SupervisorTableOptionGroup[]
+    // Empty hides the heading but keeps it for screen readers.
+    actionsHeading?: string
+    // How many columns the actions slot fills; the slot is told which one.
+    actionColumns?: number
   }>(),
-  { rowKey: 'id', filename: 'registered-students', extraOptionGroups: () => [] },
+  {
+    rowKey: 'id',
+    filename: 'registered-students',
+    extraOptionGroups: () => [],
+    actionsHeading: 'Actions',
+    actionColumns: 1,
+  },
 )
 
 const emit = defineEmits<{
@@ -265,7 +292,7 @@ const pagedRows = computed(() => {
 })
 
 const slots = defineSlots<{
-  actions?: (props: { row: Record<string, unknown> }) => unknown
+  actions?: (props: { row: Record<string, unknown>; column: number }) => unknown
   bulk?: (props: { rows: Record<string, unknown>[]; count: number }) => unknown
 }>()
 
@@ -283,7 +310,9 @@ const somePageSelected = computed(
   () => !allPageSelected.value && pagedRows.value.some((row) => selectedIds.value.has(rowId(row))),
 )
 
-const emptyColspan = computed(() => props.columns.length + 1 + (slots.actions ? 1 : 0))
+const emptyColspan = computed(
+  () => props.columns.length + 1 + (slots.actions ? props.actionColumns : 0),
+)
 
 const summaryText = computed(() => {
   const total = filteredRows.value.length

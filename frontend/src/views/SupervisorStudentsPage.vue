@@ -9,9 +9,37 @@
     <p v-if="error" class="supervisor-error">{{ error }}</p>
     <p v-else-if="loading" class="supervisor-muted">Loading students...</p>
 
-    <section v-for="section in sections" :key="section.id" class="supervisor-section">
+    <nav class="supervisor-switcher" role="tablist" aria-label="Student registration">
+      <button
+        v-for="tab in sectionTabs"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === tab.id"
+        class="supervisor-switch"
+        :class="{ active: activeSection === tab.id }"
+        @click="activeSection = tab.id"
+      >
+        {{ tab.label }}
+      </button>
+    </nav>
+
+    <section
+      v-for="section in sections.filter((item) => item.id === activeSection)"
+      :key="section.id"
+      class="supervisor-section"
+    >
       <div class="supervisor-section-head">
         <h2>{{ section.title }}</h2>
+        <button
+          v-if="section.emailAll"
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="emailSending || !section.rows.length"
+          @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
+        >
+          {{ section.emailAll.label }}
+        </button>
         <button
           v-if="section.id === 'fullyRegistered' && section.rows.length"
           type="button"
@@ -26,6 +54,8 @@
         :rows="section.rows"
         :filename="section.filename"
         :extra-option-groups="section.optionGroups"
+        :actions-heading="section.splitRowActions ? '' : undefined"
+        :action-columns="section.splitRowActions ? section.rowActions.length : 1"
         @refresh="loadStudents"
         @action="(value, rows) => onSectionAction(section.id, value, rows)"
       >
@@ -40,10 +70,13 @@
             {{ action.label }}
           </button>
         </template>
-        <template #actions="{ row }">
-          <div class="supervisor-row-actions">
+        <template #actions="{ row, column }">
+          <div
+            class="supervisor-row-actions"
+            :class="{ 'supervisor-row-actions--split': section.splitRowActions }"
+          >
             <button
-              v-for="action in section.rowActions"
+              v-for="action in section.splitRowActions ? [section.rowActions[column]] : section.rowActions"
               :key="action.value"
               type="button"
               class="btn btn-outline btn-sm"
@@ -54,16 +87,6 @@
           </div>
         </template>
       </SupervisorDataTable>
-      <div v-if="section.emailAll" class="supervisor-section-footer">
-        <button
-          type="button"
-          class="btn btn-outline btn-sm"
-          :disabled="emailSending || !section.rows.length"
-          @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
-        >
-          {{ section.emailAll.label }}
-        </button>
-      </div>
     </section>
 
     <div v-if="guardianModal" class="supervisor-modal-backdrop" @click.self="closeGuardianModal">
@@ -121,7 +144,7 @@ import SupervisorDataTable, {
   type SupervisorTableOption,
   type SupervisorTableOptionGroup,
 } from '@/components/supervisor/SupervisorDataTable.vue'
-import { downloadConsentDocuments } from '@/utils/consentDocument'
+import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
   classifyStudent,
@@ -203,6 +226,14 @@ const actionGroup = (options: SupervisorTableOption[]): SupervisorTableOptionGro
   { label: 'Student actions', options },
 ]
 
+// One table at a time, picked from the bar above it as Management's are.
+const sectionTabs = [
+  { id: 'pendingDetails', label: 'Pending Details' },
+  { id: 'pendingPermission', label: 'Pending Permission' },
+  { id: 'fullyRegistered', label: 'Fully Registered' },
+] as const
+const activeSection = ref<SectionId>('pendingDetails')
+
 const sections = computed(() => [
   {
     id: 'pendingDetails' as const,
@@ -234,7 +265,12 @@ const sections = computed(() => [
     filename: 'fully-registered-students',
     columns: fullyRegisteredColumns,
     optionGroups: actionGroup(fullyRegisteredActions),
-    rowActions: [{ value: 'view-consent', label: 'Download PDF' }],
+    rowActions: [
+      { value: 'open-consent', label: 'View' },
+      { value: 'view-consent', label: 'Download' },
+    ],
+    // View and Download each get their own column, with no heading.
+    splitRowActions: true,
     bulkActions: [{ value: 'view-consent-selected', label: 'Download selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
@@ -412,6 +448,13 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     openGuardianModal(rows)
     return
   }
+  if (value === 'open-consent') {
+    viewConsentDocuments(rows).catch(() => {
+      notice.value = ''
+      error.value = 'Consent PDF could not be generated.'
+    })
+    return
+  }
   if (value === 'view-consent' || value === 'view-consent-selected' || value === 'view-consent-all') {
     const source = value === 'view-consent-all'
       ? asRows(sections.value.find((section) => section.id === 'fullyRegistered')?.rows || [])
@@ -464,6 +507,50 @@ onMounted(loadStudents)
   margin-bottom: 2.25rem;
 }
 
+/* The same pill bar as the Management tabs in the admin portal. */
+.supervisor-switcher {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  margin-bottom: 1.75rem;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 1.4rem;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.supervisor-switch {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.supervisor-switch:hover:not(.active) {
+  color: var(--charcoal);
+  background: var(--accent-green-soft);
+}
+
+.supervisor-switch.active {
+  background: var(--dark-green);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+}
+
+.supervisor-switch:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
+}
+
 .supervisor-section-head {
   display: flex;
   align-items: center;
@@ -476,12 +563,6 @@ onMounted(loadStudents)
   margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
-}
-
-.supervisor-section-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin: 0.75rem 0 0;
 }
 
 .email-confirm-list {
@@ -500,6 +581,10 @@ onMounted(loadStudents)
   min-width: 5.5rem;
   text-align: center;
   justify-content: center;
+}
+
+.supervisor-row-actions--split .btn {
+  min-width: 0;
 }
 
 .supervisor-modal-backdrop {
