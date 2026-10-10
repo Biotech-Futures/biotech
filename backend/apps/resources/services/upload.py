@@ -113,6 +113,10 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         "acknowledged_oversized": _get_first(data, "acknowledged_oversized"),
     }
 
+    slides_file = _get_first(files, "slides_file") or _get_first(files, "slides")
+    if slides_file is not None:
+        serializer_data["slides_file"] = slides_file
+
     if type_id is not None:
         serializer_data["type_id"] = type_id
     if group_id is not None:

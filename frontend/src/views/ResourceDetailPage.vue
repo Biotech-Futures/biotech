@@ -33,6 +33,10 @@
               <dt>File size</dt>
               <dd>{{ fileSizeLabel }}</dd>
             </div>
+            <div v-if="hasSlides">
+              <dt>Slides</dt>
+              <dd>PDF ({{ slidesSizeLabel }})</dd>
+            </div>
           </dl>
           <div v-if="resource.labels?.length" class="label-list">
             <span v-for="label in resource.labels" :key="label.id" class="label-chip">
@@ -43,14 +47,24 @@
             {{ accessError }}
           </p>
         </div>
-        <button
-          v-if="downloadTarget"
-          type="button"
-          class="btn btn-primary"
-          @click="downloadResource"
-        >
-          <i class="fas fa-download" aria-hidden="true"></i> Download
-        </button>
+        <div class="detail-actions">
+          <button
+            v-if="downloadTarget"
+            type="button"
+            class="btn btn-primary"
+            @click="downloadResource"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download
+          </button>
+          <button
+            v-if="slidesDownloadTarget"
+            type="button"
+            class="btn btn-outline"
+            @click="downloadSlides"
+          >
+            <i class="fas fa-file-pdf" aria-hidden="true"></i> Download Slides
+          </button>
+        </div>
       </header>
 
       <section class="detail-layout">
@@ -250,6 +264,31 @@ const downloadTarget = computed(() => {
   return null
 })
 
+const hasSlides = computed(() => Boolean(access.value?.has_slides ?? resource.value?.has_slides))
+
+const slidesSizeLabel = computed(() =>
+  formatFileSize(access.value?.slides_file_size ?? resource.value?.slides_file_size),
+)
+
+const slidesDownloadEndpoint = computed(() => {
+  if (!hasSlides.value || !access.value || access.value.access_mode === 'unavailable') return null
+  return (
+    access.value.slides_download_url ||
+    resource.value?.slides_download_url ||
+    `/resources/resource-files/${access.value.resource_id}/download/?field=slides`
+  )
+})
+
+const slidesDownloadTarget = computed(() => {
+  if (!hasSlides.value || !access.value || accessError.value) return null
+
+  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
+    return slidesDownloadEndpoint.value ? buildResourceUrl(slidesDownloadEndpoint.value) : null
+  }
+
+  return null
+})
+
 const pdfPreviewTarget = computed(() => {
   if (!access.value || accessError.value || !isPdfResource.value) return null
   if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
@@ -412,6 +451,19 @@ const downloadResource = (): void => {
   link.remove()
 }
 
+const downloadSlides = (): void => {
+  if (!slidesDownloadTarget.value || !resource.value) return
+  const link = document.createElement('a')
+  link.href = slidesDownloadTarget.value
+  link.rel = 'noopener noreferrer'
+  const baseName = resource.value.file_name || resource.value.name
+  const nameWithoutExt = baseName.replace(/\.[^/.]+$/, '')
+  link.download = `${nameWithoutExt}-slides.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 const previewPdfResource = (): void => {
   if (!pdfPreviewTarget.value || !resource.value) return
   window.open(pdfPreviewTarget.value, '_blank', 'noopener,noreferrer')
@@ -468,6 +520,13 @@ onBeforeUnmount(clearPreview)
   gap: 1.25rem;
   justify-content: space-between;
   margin-bottom: 1.25rem;
+}
+
+.detail-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .detail-header h1 {

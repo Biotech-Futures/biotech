@@ -135,67 +135,82 @@
 
       <!-- File Upload section for file/attachment kinds -->
       <div v-if="form.kind !== 'page'" class="admin-resource-form__section-wrap">
-        <div class="admin-resource-form__section">File Attachment</div>
-        <div class="admin-resource-file-upload">
-          <div class="admin-resource-file-upload__controls">
-            <input
-              ref="fileInputRef"
-              type="file"
-              class="admin-resource-file-input"
-              @change="onFileChange"
-            />
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="triggerFileInput"
-            >
-              <i class="fas fa-folder-open" aria-hidden="true"></i>
-              <span>{{ selectedFile || currentFileName ? 'Change File' : 'Browse Files' }}</span>
-            </button>
-            <button
-              v-if="selectedFile"
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="clearSelectedFile"
-            >
-              <i class="fas fa-times" aria-hidden="true"></i>
-              <span>Clear</span>
-            </button>
-          </div>
-
-          <div v-if="selectedFile" class="admin-resource-file-badge">
-            <i class="fas fa-file" aria-hidden="true"></i>
-            <span class="admin-resource-file-name">{{ selectedFile.name }}</span>
-            <span class="admin-resource-file-size">({{ formatFileSize(selectedFile.size) }})</span>
-          </div>
-          <div v-else-if="currentFileName" class="admin-resource-file-badge admin-resource-file-badge--existing">
-            <i class="fas fa-file-check" aria-hidden="true"></i>
-            <span class="admin-resource-file-name">Current: {{ currentFileName }}</span>
-            <span v-if="currentFileSize" class="admin-resource-file-size">({{ formatFileSize(currentFileSize) }})</span>
-          </div>
-
-          <!-- Large files are allowed once the admin confirms -->
-          <div v-if="isOversized && selectedFile" class="admin-resource-form__oversize" role="alert">
-            <p class="admin-resource-form__oversize-text">
-              <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-              This file is {{ formatFileSize(selectedFile.size) }}, over the 25 MB guideline. Large files
-              take longer to upload and open.
-            </p>
-            <label class="admin-resource-form__checkbox-label">
+        <template v-if="isRecordedSession">
+          <AdminRecordedSessionFields
+            v-model:video-file="selectedFile"
+            v-model:slides-file="selectedSlidesFile"
+            v-model:acknowledged-oversized="acknowledgedOversized"
+            :current-video-name="currentFileName"
+            :current-video-size="currentFileSize"
+            :current-slides-name="currentSlidesName"
+            :current-slides-size="currentSlidesSize"
+            :saving="saving"
+            :is-editing="isEditing"
+          />
+        </template>
+        <template v-else>
+          <div class="admin-resource-form__section">File Attachment</div>
+          <div class="admin-resource-file-upload">
+            <div class="admin-resource-file-upload__controls">
               <input
-                id="res-oversize-ack"
-                v-model="acknowledgedOversized"
-                type="checkbox"
-                :disabled="saving"
+                ref="fileInputRef"
+                type="file"
+                class="admin-resource-file-input"
+                @change="onFileChange"
               />
-              <span>I understand this file is large</span>
-            </label>
-          </div>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="triggerFileInput"
+              >
+                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                <span>{{ selectedFile || currentFileName ? 'Change File' : 'Browse Files' }}</span>
+              </button>
+              <button
+                v-if="selectedFile"
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="clearSelectedFile"
+              >
+                <i class="fas fa-times" aria-hidden="true"></i>
+                <span>Clear</span>
+              </button>
+            </div>
 
-          <p class="admin-resource-form__hint">
-            Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Files over 25 MB need confirmation
-          </p>
-        </div>
+            <div v-if="selectedFile" class="admin-resource-file-badge">
+              <i class="fas fa-file" aria-hidden="true"></i>
+              <span class="admin-resource-file-name">{{ selectedFile.name }}</span>
+              <span class="admin-resource-file-size">({{ formatFileSize(selectedFile.size) }})</span>
+            </div>
+            <div v-else-if="currentFileName" class="admin-resource-file-badge admin-resource-file-badge--existing">
+              <i class="fas fa-file-check" aria-hidden="true"></i>
+              <span class="admin-resource-file-name">Current: {{ currentFileName }}</span>
+              <span v-if="currentFileSize" class="admin-resource-file-size">({{ formatFileSize(currentFileSize) }})</span>
+            </div>
+
+            <!-- Large files are allowed once the admin confirms -->
+            <div v-if="isOversized && selectedFile" class="admin-resource-form__oversize" role="alert">
+              <p class="admin-resource-form__oversize-text">
+                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                This file is {{ formatFileSize(selectedFile.size) }}, over the 25 MB guideline. Large files
+                take longer to upload and open.
+              </p>
+              <label class="admin-resource-form__checkbox-label">
+                <input
+                  id="res-oversize-ack"
+                  v-model="acknowledgedOversized"
+                  type="checkbox"
+                  :disabled="saving"
+                />
+                <span>I understand this file is large</span>
+              </label>
+            </div>
+
+            <p class="admin-resource-form__hint">
+              Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Files over 25 MB need confirmation
+            </p>
+          </div>
+        </template>
       </div>
 
       <!-- Rich Page Content for page kind -->
@@ -250,6 +265,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AdminRecordedSessionFields from './AdminRecordedSessionFields.vue'
 
 const RichEditor = defineAsyncComponent(
   () => import('@/components/admin/RichEditor.vue')
@@ -323,6 +339,7 @@ const resourceTypes = ref<ResourceType[]>([])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
+const selectedSlidesFile = ref<File | null>(null)
 
 // Files over this size are allowed, but only after the admin confirms they
 // know it's large; the backend rejects them without that confirmation.
@@ -343,6 +360,31 @@ const currentFileSize = computed(() => {
   if (!props.resource) return null
   const raw = props.resource as any
   return raw.file_size || null
+})
+
+const currentSlidesName = computed(() => {
+  if (adminDetail.value?.slides_file_name) return adminDetail.value.slides_file_name
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.slides_file_name || null
+})
+
+const currentSlidesSize = computed(() => {
+  if (adminDetail.value?.slides_file_size) return adminDetail.value.slides_file_size
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.slides_file_size || null
+})
+
+const isRecordedSession = computed(() => {
+  const t = resourceTypes.value.find((item) => item.id === form.typeId)
+  return t?.type_name === 'Recorded Session'
+})
+
+watch(isRecordedSession, (val) => {
+  if (val && form.kind !== 'file') {
+    form.kind = 'file'
+  }
 })
 
 const formatRoleName = (role: AdminResourceRoleItem): string => {
@@ -436,6 +478,7 @@ const applyResourceData = (raw: any) => {
 const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
   formError.value = ''
   selectedFile.value = null
+  selectedSlidesFile.value = null
   acknowledgedOversized.value = false
   adminDetail.value = null
   editorKey.value++
@@ -554,7 +597,9 @@ const validateForm = (): boolean => {
     return false
   }
   if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
-    formError.value = 'Please select a file to upload.'
+    formError.value = isRecordedSession.value
+      ? 'Please select a video file for this recorded session.'
+      : 'Please select a file to upload.'
     return false
   }
   if (form.kind !== 'page' && needsOversizeAck.value) {
@@ -601,6 +646,9 @@ const submitForm = async () => {
         if (selectedFile.value) {
           formData.append('file', selectedFile.value)
         }
+        if (selectedSlidesFile.value) {
+          formData.append('slides_file', selectedSlidesFile.value)
+        }
         formData.append('name', form.name.trim())
         formData.append('description', form.description.trim())
         formData.append('kind', form.kind)
@@ -637,14 +685,23 @@ const submitForm = async () => {
 
       await updateAdminResource(props.resource.id, updatePayload)
 
-      // If a new physical file was chosen in edit mode for a file resource, replace it
-      if (selectedFile.value && form.kind !== 'page') {
+      // If a new physical file or slides file was chosen in edit mode for a file resource, replace it
+      if ((selectedFile.value || selectedSlidesFile.value) && form.kind !== 'page') {
         try {
-          await replaceAdminResourceFile(
-            props.resource.id,
-            selectedFile.value,
-            acknowledgedOversized.value
-          )
+          if (selectedSlidesFile.value) {
+            await replaceAdminResourceFile(
+              props.resource.id,
+              selectedFile.value,
+              acknowledgedOversized.value,
+              selectedSlidesFile.value
+            )
+          } else {
+            await replaceAdminResourceFile(
+              props.resource.id,
+              selectedFile.value,
+              acknowledgedOversized.value
+            )
+          }
         } catch (err: unknown) {
           // The details above are already saved; only the file was refused.
           // Keep the sheet open so the admin can pick another file, and

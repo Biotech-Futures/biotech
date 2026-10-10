@@ -478,7 +478,47 @@ class ResourcesViewSet(mixins.ListModelMixin,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _build_access_payload(self, resource):
+    def _build_access_payload(self, resource, field='file'):
+        if field == 'slides':
+            storage_key = (resource.slides_storage_key or "").strip()
+            mime_type = (resource.slides_mime_type or "application/pdf").lower()
+            file_size = resource.slides_file_size
+            default_file_name = f"slides-{resource.id}.pdf"
+            file_name = sanitize_upload_filename(PurePosixPath(storage_key).name) if storage_key else default_file_name
+            if not storage_key:
+                access_mode = "unavailable"
+                detail = "This resource does not have a slides file."
+                storage_status = "unavailable"
+            else:
+                access_mode = "managed_file"
+                detail = None
+                storage_status = "managed_key"
+
+            download_route = reverse("resource-files-download", kwargs={"pk": resource.pk}, request=self.request)
+            separator = "&" if "?" in download_route else "?"
+            download_url = f"{download_route}{separator}field=slides" if storage_key else None
+
+            access_route = reverse("resource-files-access", kwargs={"pk": resource.pk}, request=self.request)
+            separator = "&" if "?" in access_route else "?"
+            access_url = f"{access_route}{separator}field=slides" if storage_key else None
+
+            return {
+                "resource_id": resource.id,
+                "kind": Resources.ResourceKind.FILE,
+                "storage_status": storage_status,
+                "access_mode": access_mode,
+                "access_url": access_url,
+                "download_url": download_url,
+                "external_url": None,
+                "file_name": file_name,
+                "file_mime_type": mime_type,
+                "file_size": file_size,
+                "body_html": None,
+                "detail": detail,
+                "has_slides": bool(resource.slides_storage_key),
+                "slides_download_url": download_url,
+            }
+
         # Resource access is explicit so the frontend can stop guessing whether a resource is
         # directly downloadable, opens as an external page, or is not yet wired to storage.
         storage_key = (resource.storage_key or "").strip()
@@ -524,6 +564,10 @@ class ResourcesViewSet(mixins.ListModelMixin,
             "file_size": resource.file_size,
             "body_html": body_html,
             "detail": detail,
+            "has_slides": bool(resource.slides_storage_key),
+            "slides_mime_type": resource.slides_mime_type,
+            "slides_file_size": resource.slides_file_size,
+            "slides_download_url": resource_data.get("slides_download_url"),
         }
 
     def _read_inline_html_body(self, resource):
@@ -571,7 +615,11 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if not can_access_resource_file(request.user, resource):
             return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
-        payload = self._build_access_payload(resource)
+        field = (request.query_params.get("field") or "file").lower()
+        if field == "slides" and not resource.slides_storage_key:
+            return Response({"detail": "This resource has no slides file."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = self._build_access_payload(resource, field=field)
         return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
@@ -581,7 +629,11 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if not can_access_resource_file(request.user, resource):
             return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
-        payload = self._build_access_payload(resource)
+        field = (request.query_params.get("field") or "file").lower()
+        if field == "slides" and not resource.slides_storage_key:
+            return Response({"detail": "This resource has no slides file."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = self._build_access_payload(resource, field=field)
         external_url = payload["external_url"]
         # ``force=1`` query param: proxy the file bytes through us so the
         # browser sees a ``Content-Disposition: attachment`` header and
@@ -614,7 +666,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 )
             file_name = payload.get("file_name") or resource.name or "resource"
             mime_type = (
-                resource.file_mime_type
+                (resource.slides_mime_type if field == "slides" else resource.file_mime_type)
                 or upstream.headers.get("content-type")
                 or "application/octet-stream"
             )
@@ -634,7 +686,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 status=status.HTTP_409_CONFLICT,
             )
 
-        storage_key = (resource.storage_key or "").strip()
+        storage_key = (resource.slides_storage_key if field == "slides" else resource.storage_key or "").strip()
+        mime_type = resource.slides_mime_type if field == "slides" else resource.file_mime_type
+        size = resource.slides_file_size if field == "slides" else resource.file_size
         # Pages always render inline; files default to attachment so existing
         # download callers are unaffected. ``?inline=1`` lets the frontend opt
         # files into inline rendering for PDF/image previews.
@@ -644,8 +698,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
             open_file=RESOURCE_FILE_SERVICE.open,
             storage_key=storage_key,
             filename=payload["file_name"] or resource.name,
-            mime_type=resource.file_mime_type,
-            size=resource.file_size,
+            mime_type=mime_type,
+            size=size,
             as_attachment=as_attachment,
             on_open_failure_detail="The stored file could not be opened for download.",
         )

@@ -1581,16 +1581,17 @@ class ResourceTypeIntegrationTests(TestCase):
         )
 
     def test_data_migration_populated_types(self):
-        """Test that data migration has populated the 4 types"""
+        """Test that data migration has populated the 5 types"""
         # This test verifies that the data migration has run
         # In a fresh database, the migration should create these types
 
         types = ResourceType.objects.all().order_by('type_name')
         type_names = [t.type_name for t in types]
 
-        # We expect exactly 4 types
-        self.assertEqual(len(type_names), 4)
+        # We expect exactly 5 types (document, guide, video, template, Recorded Session)
+        self.assertEqual(len(type_names), 5)
         self.assertIn('document', type_names)
         self.assertIn('guide', type_names)
         self.assertIn('video', type_names)
         self.assertIn('template', type_names)
+        self.assertIn('Recorded Session', type_names)

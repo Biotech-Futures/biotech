@@ -21,3 +21,13 @@ def stored_resource_file(uploaded_file):
         content_type_field="file_mime_type",
         size_field="file_size",
     )
+
+
+def stored_resource_slides_file(uploaded_file):
+    # Context manager: deletes blob on caller-side error.
+    return RESOURCE_FILE_SERVICE.stored_file(
+        uploaded_file,
+        content_type_field="slides_mime_type",
+        size_field="slides_file_size",
+    )
+

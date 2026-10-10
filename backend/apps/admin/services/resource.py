@@ -71,6 +71,11 @@ class ResourceRowDict(TypedDict):
     file_mime_type: Optional[str]
     file_size: Optional[int]
     storage_key: Optional[str]
+    slides_file_name: Optional[str]
+    slides_mime_type: Optional[str]
+    slides_file_size: Optional[int]
+    slides_storage_key: Optional[str]
+    has_slides: Optional[bool]
     group_id: Optional[int]
     resource_type_id: Optional[int]
 
@@ -327,10 +332,15 @@ def resource_to_row(resource: Resources, include_page_content: bool = False) -> 
         'resource_type_id': resource.type_id,
         'resource_type': resource.type.type_name if resource.type else None,
         'content_html': get_page_content_html(resource) if include_page_content else None,
-        'file_name': None,
+        'file_name': extract_file_name_from_storage_key(resource.storage_key) if resource.storage_key else None,
         'file_mime_type': resource.file_mime_type,
         'file_size': resource.file_size,
         'storage_key': resource.storage_key,
+        'slides_file_name': extract_file_name_from_storage_key(resource.slides_storage_key) if resource.slides_storage_key else None,
+        'slides_mime_type': resource.slides_mime_type,
+        'slides_file_size': resource.slides_file_size,
+        'slides_storage_key': resource.slides_storage_key,
+        'has_slides': bool(resource.slides_storage_key),
     }
 
 
@@ -688,6 +698,11 @@ def create_resource(
         except ResourceType.DoesNotExist:
             resource_type_id = None
 
+    if resource_type_id:
+        rt = ResourceType.objects.filter(id=resource_type_id).first()
+        if rt and rt.type_name == "Recorded Session" and payload.get('resource_kind') == RESOURCE_KIND_PAGE:
+            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
     resource = Resources.objects.create(
         name=payload['resource_name'],
         description=payload.get('resource_description', ''),
@@ -763,51 +778,90 @@ def replace_resource_file(
             'msg': 'HTML page resource cannot replace file',
             'data': None,
         }
-    
-    file_bytes = payload.get('file_bytes', b'')
-    if not isinstance(file_bytes, bytes):
-        file_bytes = bytes(file_bytes)
-
-    # Same checks as a new upload (size, type allow-list, executable
-    # signature) before anything reaches storage. The view sends raw bytes, so
-    # wrap them in a file object when no uploaded file is passed through.
-    uploaded_file = payload.get('uploaded_file') or SimpleUploadedFile(
-        payload.get('file_name') or 'file',
-        file_bytes,
-        content_type=payload.get('file_mime_type') or 'application/octet-stream',
-    )
-    try:
-        validate_uploaded_file(
-            uploaded_file,
-            max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
-            allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
-            allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
-            field_label="Resource file",
-            acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
-        )
-    except ValidationError as exc:
-        # Plain-string msg so the admin UI can show the reason.
-        return {'msg': _first_error_message(exc.detail), 'data': None}
 
     resource = Resources.objects.get(id=resource_id)
-    next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
 
-    # Upload new file via the shared ManagedContainerStorage, so replaced
-    # files land in the same AZURE_RESOURCE_CONTAINER that the resources
-    # app reads from — azure_blob_utils.upload_file() was writing to
-    # AZURE_CONTAINER instead, a different container, which made replaced
-    # files silently unreachable on download.
-    get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
-    
-    resource.storage_key = next_storage_key
-    resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
-    resource.file_size = payload.get('file_size', 0)
+    # Primary file replacement
+    has_primary_file = bool(payload.get('file_bytes') or payload.get('uploaded_file'))
+    if has_primary_file:
+        file_bytes = payload.get('file_bytes', b'')
+        if not isinstance(file_bytes, bytes):
+            file_bytes = bytes(file_bytes)
+
+        uploaded_file = payload.get('uploaded_file') or SimpleUploadedFile(
+            payload.get('file_name') or 'file',
+            file_bytes,
+            content_type=payload.get('file_mime_type') or 'application/octet-stream',
+        )
+        try:
+            validate_uploaded_file(
+                uploaded_file,
+                max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+                allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
+                allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
+                field_label="Resource file",
+                acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
+            )
+        except ValidationError as exc:
+            return {'msg': _first_error_message(exc.detail), 'data': None}
+
+        next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
+        get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
+        if resource.storage_key and is_managed_storage_key(resource.storage_key):
+            try:
+                get_resource_storage().delete(resource.storage_key)
+            except Exception:
+                pass
+
+        resource.storage_key = next_storage_key
+        resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
+        resource.file_size = payload.get('file_size', len(file_bytes))
+
+    # Slides file replacement
+    has_slides_file = bool(payload.get('slides_file_bytes') or payload.get('slides_file'))
+    if has_slides_file:
+        is_recorded_session = bool(resource.type and resource.type.type_name == "Recorded Session")
+        if not is_recorded_session:
+            return {'msg': 'Slides files are only supported for Recorded Session resources.', 'data': None}
+
+        slides_bytes = payload.get('slides_file_bytes', b'')
+        if not isinstance(slides_bytes, bytes):
+            slides_bytes = bytes(slides_bytes)
+
+        slides_uploaded_file = payload.get('slides_file') or SimpleUploadedFile(
+            payload.get('slides_file_name') or 'slides.pdf',
+            slides_bytes,
+            content_type=payload.get('slides_mime_type') or 'application/pdf',
+        )
+        try:
+            validate_uploaded_file(
+                slides_uploaded_file,
+                max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+                allowed_extensions=('pdf',),
+                allowed_mime_types=('application/pdf',),
+                field_label="Slides file",
+                acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
+            )
+        except ValidationError as exc:
+            return {'msg': _first_error_message(exc.detail), 'data': None}
+
+        next_slides_key = build_storage_key(resource_id, payload.get('slides_file_name', 'slides.pdf'))
+        get_resource_storage().save(next_slides_key, ContentFile(slides_bytes))
+        if resource.slides_storage_key and is_managed_storage_key(resource.slides_storage_key):
+            try:
+                get_resource_storage().delete(resource.slides_storage_key)
+            except Exception:
+                pass
+
+        resource.slides_storage_key = next_slides_key
+        resource.slides_mime_type = payload.get('slides_mime_type', 'application/pdf')
+        resource.slides_file_size = payload.get('slides_file_size', len(slides_bytes))
+
     resource.save()
-    
     return query_resource_by_id(resource_id)
 
 
-def download_resource(resource_id: int) -> Dict[str, Any]:
+def download_resource(resource_id: int, field: str = 'file') -> Dict[str, Any]:
     """Download resource file."""
     try:
         resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
@@ -817,25 +871,28 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
             'data': None,
         }
 
-    if not resource.storage_key:
+    target_key = resource.slides_storage_key if field == 'slides' else resource.storage_key
+    target_mime = resource.slides_mime_type if field == 'slides' else resource.file_mime_type
+
+    if not target_key:
         return {
-            'msg': 'This resource has no uploaded file',
+            'msg': 'This resource has no slides file' if field == 'slides' else 'This resource has no uploaded file',
             'data': None,
         }
 
     try:
         content = None
         try:
-            with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+            with RESOURCE_FILE_SERVICE.open(target_key) as fp:
                 content = fp.read()
         except Exception:
             pass
 
         if content is None:
             try:
-                content = download_file_bytes(resource.storage_key)
+                content = download_file_bytes(target_key)
             except Exception:
-                for blob_client in iter_resource_blob_clients(resource.storage_key):
+                for blob_client in iter_resource_blob_clients(target_key):
                     try:
                         if blob_client.exists():
                             content = blob_client.download_blob().readall()
@@ -846,22 +903,23 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
         if content is None:
             raise ValueError("File not found in storage")
 
+        default_name = f"slides-{resource_id}.pdf" if field == 'slides' else f"resource-{resource_id}"
         return {
             'msg': 'Resource download ready',
             'data': {
-                'file_name': extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}",
-                'mime_type': resource.file_mime_type or 'application/octet-stream',
+                'file_name': extract_file_name_from_storage_key(target_key) or default_name,
+                'mime_type': target_mime or ('application/pdf' if field == 'slides' else 'application/octet-stream'),
                 'content': content,
             },
         }
-    except Exception as e:
+    except Exception:
         return {
             'msg': 'File not found in storage',
             'data': None,
         }
 
 
-def access_resource(resource_id: int) -> Dict[str, Any]:
+def access_resource(resource_id: int, field: str = 'file') -> Dict[str, Any]:
     """Open a resource blob for inline streaming."""
     try:
         resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
@@ -871,17 +929,22 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
             'data': None,
         }
 
-    if not resource.storage_key:
+    target_key = resource.slides_storage_key if field == 'slides' else resource.storage_key
+    target_mime = resource.slides_mime_type if field == 'slides' else resource.file_mime_type
+    target_size = resource.slides_file_size if field == 'slides' else resource.file_size
+
+    if not target_key:
         return {
-            'msg': 'This resource has no uploaded file',
+            'msg': 'This resource has no slides file' if field == 'slides' else 'This resource has no uploaded file',
             'data': None,
         }
 
-    file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
+    default_name = f"slides-{resource_id}.pdf" if field == 'slides' else f"resource-{resource_id}"
+    file_name = extract_file_name_from_storage_key(target_key) or default_name
 
     try:
         try:
-            file_handle = RESOURCE_FILE_SERVICE.open(resource.storage_key)
+            file_handle = RESOURCE_FILE_SERVICE.open(target_key)
             def file_chunk_generator(handle, chunk_size=64 * 1024):
                 try:
                     while True:
@@ -898,15 +961,15 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
                     'resource_id': resource.id,
                     'access_type': 'stream',
                     'file_name': file_name,
-                    'mime_type': resource.file_mime_type or 'application/octet-stream',
-                    'file_size': resource.file_size,
+                    'mime_type': target_mime or ('application/pdf' if field == 'slides' else 'application/octet-stream'),
+                    'file_size': target_size,
                     'stream': file_chunk_generator(file_handle),
                 },
             }
         except Exception:
             pass
 
-        for blob_client in iter_resource_blob_clients(resource.storage_key):
+        for blob_client in iter_resource_blob_clients(target_key):
             try:
                 if blob_client.exists():
                     break
@@ -922,12 +985,12 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
         content_settings = getattr(properties, "content_settings", None)
         storage_content_type = getattr(content_settings, "content_type", None)
         mime_type = (
-            resource.file_mime_type
+            target_mime
             or storage_content_type
-            or 'application/octet-stream'
+            or ('application/pdf' if field == 'slides' else 'application/octet-stream')
         )
         download_stream = blob_client.download_blob()
-        file_size = resource.file_size or getattr(properties, "size", None)
+        file_size = target_size or getattr(properties, "size", None)
 
         return {
             'msg': 'Resource stream ready',
@@ -987,16 +1050,25 @@ def update_resource(
         resource.kind = updates['resource_kind']
     
     # Update resource type
+    target_type_id = resource.type_id
     if 'resource_type' in updates:
         if updates['resource_type']:
             try:
                 rt = ResourceType.objects.get(type_name=updates['resource_type'])
                 resource.type_id = rt.id
+                target_type_id = rt.id
             except ResourceType.DoesNotExist:
                 pass
     elif 'resource_type_id' in updates:
         resource.type_id = updates['resource_type_id']
-    
+        target_type_id = updates['resource_type_id']
+
+    target_kind = updates.get('resource_kind', resource.kind)
+    if target_type_id:
+        rt_obj = ResourceType.objects.filter(id=target_type_id).first()
+        if rt_obj and rt_obj.type_name == "Recorded Session" and target_kind == RESOURCE_KIND_PAGE:
+            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
     resource.save()
     
     # Handle page content update

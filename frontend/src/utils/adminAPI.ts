@@ -780,6 +780,11 @@ export interface AdminResourceDetail {
   file_name: string | null
   file_mime_type: string | null
   file_size: number | null
+  slides_file_name?: string | null
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_storage_key?: string | null
+  has_slides?: boolean
   content_html?: string | null
   storage_key?: string | null
   labels?: Array<{ id: number; name: string }>
@@ -863,13 +868,19 @@ export const deleteAdminResource = (id: number | string) =>
 
 export const replaceAdminResourceFile = (
   id: number | string,
-  file: File,
+  file?: File | null,
   // The admin ticked "I understand this file is large"; the backend only
   // accepts a file over the size limit when this is true.
-  acknowledgedOversized = false
+  acknowledgedOversized = false,
+  slidesFile?: File | null
 ) => {
   const formData = new FormData()
-  formData.append('file', file)
+  if (file) {
+    formData.append('file', file)
+  }
+  if (slidesFile) {
+    formData.append('slides_file', slidesFile)
+  }
   formData.append('acknowledged_oversized', String(acknowledgedOversized))
   return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
     method: 'POST',
@@ -884,8 +895,13 @@ export const fetchAdminResourceRoles = () =>
 export const fetchAdminResourceTypes = () =>
   adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
 
-export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
-  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+export const downloadAdminResourceFile = async (
+  id: number | string,
+  fileName?: string,
+  field = 'file'
+) => {
+  const query = field === 'slides' ? '?field=slides' : ''
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/${query}`
   const res = await fetch(url, {
     method: 'GET',
     credentials: 'include'

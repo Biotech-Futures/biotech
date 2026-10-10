@@ -745,7 +745,8 @@ class ResourceDownloadView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = download_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = download_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -768,7 +769,8 @@ class ResourceAccessView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = access_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = access_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -812,18 +814,30 @@ class ResourceFileReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
     def post(self, request, resource_id):
         uploaded_file = request.FILES.get("file")
-        if uploaded_file is None:
+        slides_file = request.FILES.get("slides_file") or request.FILES.get("slides")
+        if uploaded_file is None and slides_file is None:
             return Response(
                 {"msg": "No file was uploaded.", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        payload = {
-            **request.data.dict(),
-            "file_bytes": uploaded_file.read(),
-            "file_name": uploaded_file.name,
-            "file_mime_type": uploaded_file.content_type or "application/octet-stream",
-            "file_size": uploaded_file.size,
-        }
+        data_dict = request.data.dict() if hasattr(request.data, "dict") else dict(request.data)
+        payload = {**data_dict}
+        if uploaded_file is not None:
+            payload.update({
+                "file_bytes": uploaded_file.read(),
+                "file_name": uploaded_file.name,
+                "file_mime_type": uploaded_file.content_type or "application/octet-stream",
+                "file_size": uploaded_file.size,
+                "uploaded_file": uploaded_file,
+            })
+        if slides_file is not None:
+            payload.update({
+                "slides_file_bytes": slides_file.read(),
+                "slides_file_name": slides_file.name,
+                "slides_file_mime_type": slides_file.content_type or "application/pdf",
+                "slides_file_size": slides_file.size,
+                "slides_file": slides_file,
+            })
         result = replace_resource_file(resource_id, payload)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST

@@ -15,6 +15,7 @@ from .services.storage import (
     is_external_storage_key,
     is_managed_storage_key,
     stored_resource_file,
+    stored_resource_slides_file,
 )
 from datetime import date, datetime, time
 from django.utils import timezone
@@ -54,6 +55,8 @@ class ResourceAccessSerializer(serializers.Serializer):
     file_size = serializers.IntegerField(allow_null=True)
     body_html = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     detail = serializers.CharField(allow_null=True)
+    has_slides = serializers.BooleanField(required=False, default=False)
+    slides_download_url = serializers.CharField(allow_null=True, required=False)
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -152,6 +155,8 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
     download_url = serializers.SerializerMethodField()
     storage_status = serializers.SerializerMethodField()
     labels = ResourceLabelSerializer(many=True, read_only=True)
+    has_slides = serializers.SerializerMethodField()
+    slides_download_url = serializers.SerializerMethodField()
 
     def get_uploader_name(self, obj):
         if obj.uploaded_by_id is None:
@@ -175,6 +180,16 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
     def get_download_url(self, obj):
         if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
             return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_has_slides(self, obj):
+        return bool(obj.slides_storage_key)
+
+    def get_slides_download_url(self, obj):
+        if obj.slides_storage_key:
+            url = self._build_route_url(obj, "resource-files-download")
+            separator = "&" if "?" in url else "?"
+            return f"{url}{separator}field=slides"
         return None
 
     def get_storage_status(self, obj):
@@ -212,6 +227,7 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         help_text="List of role IDs that can access this resource"
     )
     uploaded_file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    slides_file = serializers.FileField(write_only=True, required=False, allow_null=True)
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
     audience_rules = ResourceAudienceWriteSerializer(many=True, write_only=True, required=False)
 
@@ -230,6 +246,12 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             'file_size',
             'storage_key',
             'uploaded_file',
+            'slides_mime_type',
+            'slides_file_size',
+            'slides_storage_key',
+            'slides_file',
+            'has_slides',
+            'slides_download_url',
             'group',
             'visibility_scope',
             'uploaded_at',
@@ -288,6 +310,20 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             ),
         )
 
+    def validate_slides_file(self, value):
+        if value is None:
+            return value
+        return validate_uploaded_file(
+            value,
+            max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+            allowed_extensions=("pdf",),
+            allowed_mime_types=("application/pdf",),
+            field_label="Slides file",
+            acknowledged_oversized=is_truthy_flag(
+                self.initial_data.get("acknowledged_oversized")
+            ),
+        )
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -295,7 +331,21 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         kind = attrs.get("kind", getattr(self.instance, "kind", Resources.ResourceKind.FILE))
         storage_key = attrs.get("storage_key", getattr(self.instance, "storage_key", None))
 
-        if uploaded_file and (kind  not in [Resources.ResourceKind.FILE, Resources.ResourceKind.ATTACHMENT]):
+        target_type = attrs.get("type", getattr(self.instance, "type", None))
+        is_recorded_session = bool(target_type and target_type.type_name == "Recorded Session")
+
+        if is_recorded_session and kind != Resources.ResourceKind.FILE:
+            raise serializers.ValidationError(
+                {"kind": "Recorded Session resources must be file resources."}
+            )
+
+        slides_file = attrs.get("slides_file")
+        if slides_file is not None and not is_recorded_session:
+            raise serializers.ValidationError(
+                {"slides_file": "Slides files are only supported for Recorded Session resources."}
+            )
+
+        if uploaded_file and (kind not in [Resources.ResourceKind.FILE, Resources.ResourceKind.ATTACHMENT]):
             raise serializers.ValidationError({"uploaded_file": "Only file and attachment resources can accept uploaded files."})
 
         if kind == Resources.ResourceKind.PAGE:
@@ -368,46 +418,87 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         role_ids = validated_data.pop('role_ids', [])
         audience_rules = validated_data.pop("audience_rules", [])
         uploaded_file = validated_data.pop("uploaded_file", None)
+        slides_file = validated_data.pop("slides_file", None)
 
-        if uploaded_file is None:
-            resource = super().create(validated_data)
+        def _do_create(v_data):
+            v_data["kind"] = v_data.get("kind", Resources.ResourceKind.FILE)
+            resource = super(ResourcesSerializer, self).create(v_data)
             self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
             return resource
 
-        # Blob delete-on-rollback if DB write raises.
-        with stored_resource_file(uploaded_file) as file_data:
-            validated_data.update(file_data)
-            validated_data["kind"] = validated_data.get("kind", Resources.ResourceKind.FILE)
-            resource = super().create(validated_data)
-            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
-        return resource
+        if uploaded_file is not None and slides_file is not None:
+            with stored_resource_file(uploaded_file) as file_data:
+                validated_data.update(file_data)
+                with stored_resource_slides_file(slides_file) as slides_data:
+                    validated_data["slides_storage_key"] = slides_data["storage_key"]
+                    validated_data["slides_mime_type"] = slides_data["slides_mime_type"]
+                    validated_data["slides_file_size"] = slides_data["slides_file_size"]
+                    return _do_create(validated_data)
+        elif uploaded_file is not None:
+            with stored_resource_file(uploaded_file) as file_data:
+                validated_data.update(file_data)
+                return _do_create(validated_data)
+        elif slides_file is not None:
+            with stored_resource_slides_file(slides_file) as slides_data:
+                validated_data["slides_storage_key"] = slides_data["storage_key"]
+                validated_data["slides_mime_type"] = slides_data["slides_mime_type"]
+                validated_data["slides_file_size"] = slides_data["slides_file_size"]
+                return _do_create(validated_data)
+        else:
+            return _do_create(validated_data)
 
     def update(self, instance, validated_data):
         role_ids = validated_data.pop('role_ids', None)
         audience_rules = validated_data.pop("audience_rules", None)
         uploaded_file = validated_data.pop("uploaded_file", None)
+        slides_file = validated_data.pop("slides_file", None)
         old_storage_key = instance.storage_key
         incoming_storage_key = validated_data.get("storage_key", instance.storage_key)
+        old_slides_storage_key = instance.slides_storage_key
+        incoming_slides_storage_key = validated_data.get("slides_storage_key", instance.slides_storage_key)
 
-        if uploaded_file is None:
-            resource = super().update(instance, validated_data)
-            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
+        def _do_update(inst, v_data):
+            res = super(ResourcesSerializer, self).update(inst, v_data)
+            self._replace_audiences(res, role_ids=role_ids, audience_rules=audience_rules)
             if (
-                "storage_key" in validated_data
+                "storage_key" in v_data
                 and old_storage_key != incoming_storage_key
                 and is_managed_storage_key(old_storage_key)
             ):
                 RESOURCE_FILE_SERVICE.delete(old_storage_key)
-            return resource
+            if (
+                "slides_storage_key" in v_data
+                and old_slides_storage_key != incoming_slides_storage_key
+                and is_managed_storage_key(old_slides_storage_key)
+            ):
+                RESOURCE_FILE_SERVICE.delete(old_slides_storage_key)
+            return res
 
-        with stored_resource_file(uploaded_file) as file_data:
-            validated_data.update(file_data)
-            validated_data["kind"] = validated_data.get("kind", Resources.ResourceKind.FILE)
-            resource = super().update(instance, validated_data)
-            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
+        if uploaded_file is not None and slides_file is not None:
+            with stored_resource_file(uploaded_file) as file_data:
+                validated_data.update(file_data)
+                with stored_resource_slides_file(slides_file) as slides_data:
+                    validated_data["slides_storage_key"] = slides_data["storage_key"]
+                    validated_data["slides_mime_type"] = slides_data["slides_mime_type"]
+                    validated_data["slides_file_size"] = slides_data["slides_file_size"]
+                    resource = _do_update(instance, validated_data)
+        elif uploaded_file is not None:
+            with stored_resource_file(uploaded_file) as file_data:
+                validated_data.update(file_data)
+                resource = _do_update(instance, validated_data)
+        elif slides_file is not None:
+            with stored_resource_slides_file(slides_file) as slides_data:
+                validated_data["slides_storage_key"] = slides_data["storage_key"]
+                validated_data["slides_mime_type"] = slides_data["slides_mime_type"]
+                validated_data["slides_file_size"] = slides_data["slides_file_size"]
+                resource = _do_update(instance, validated_data)
+        else:
+            resource = _do_update(instance, validated_data)
 
         if old_storage_key != resource.storage_key and is_managed_storage_key(old_storage_key):
             RESOURCE_FILE_SERVICE.delete(old_storage_key)
+        if old_slides_storage_key != resource.slides_storage_key and is_managed_storage_key(old_slides_storage_key):
+            RESOURCE_FILE_SERVICE.delete(old_slides_storage_key)
 
         return resource
 
@@ -434,6 +525,10 @@ class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
             'download_url',
             'storage_status',
             'labels',
+            'has_slides',
+            'slides_mime_type',
+            'slides_file_size',
+            'slides_download_url',
         ]
 
 
@@ -455,4 +550,8 @@ class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
             'download_url',
             'storage_status',
             'labels',
+            'has_slides',
+            'slides_mime_type',
+            'slides_file_size',
+            'slides_download_url',
         ]
