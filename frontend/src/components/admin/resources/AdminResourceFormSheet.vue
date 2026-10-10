@@ -5,7 +5,7 @@
     :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
     width="min(100vw, 680px)"
   >
-    <form class="admin-resource-form" novalidate @submit.prevent="submitForm">
+    <form ref="formRef" class="admin-resource-form" novalidate @submit.prevent="submitForm">
       <p v-if="formError" class="admin-resource-form__error" role="alert">
         {{ formError }}
       </p>
@@ -133,6 +133,8 @@
           :current-slides-size="currentSlidesSize"
           :saving="saving"
           :is-editing="isEditing"
+          @update:acknowledged-oversized="acknowledgedOversized = $event"
+          @update:acknowledgedOversized="acknowledgedOversized = $event"
         />
         <div v-else class="admin-resource-file-upload">
             <div class="admin-resource-file-upload__controls">
@@ -212,34 +214,36 @@
       </div>
 
       <!-- Footer Actions -->
-      <div class="admin-resource-form__footer">
-        <button
-          v-if="isEditing"
-          type="button"
-          class="btn btn-danger"
-          :disabled="saving || busy"
-          @click="emit('delete')"
-        >
-          <i class="fas fa-trash-can" aria-hidden="true"></i>
-          Delete
-        </button>
-        <span v-if="isEditing" class="admin-resource-form__footer-spacer"></span>
-        <button
-          type="button"
-          class="btn btn-outline"
-          :disabled="saving || busy"
-          @click="onCancel"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="saving || busy || loadingDetail || (form.kind !== 'page' && needsOversizeAck)"
-        >
-          <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
-          {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
-        </button>
+      <div class="admin-resource-form__footer-wrap">
+        <div class="admin-resource-form__footer">
+          <button
+            v-if="isEditing"
+            type="button"
+            class="btn btn-danger"
+            :disabled="saving || busy"
+            @click="emit('delete')"
+          >
+            <i class="fas fa-trash-can" aria-hidden="true"></i>
+            Delete
+          </button>
+          <span v-if="isEditing" class="admin-resource-form__footer-spacer"></span>
+          <button
+            type="button"
+            class="btn btn-outline"
+            :disabled="saving || busy"
+            @click="onCancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="saving || busy || loadingDetail || (form.kind !== 'page' && needsOversizeAck)"
+          >
+            <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
+            {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
+          </button>
+        </div>
       </div>
     </form>
   </FormSheet>
@@ -311,6 +315,7 @@ const defaultFormState = (): ResourceFormState => ({
 })
 
 const form = reactive<ResourceFormState>(defaultFormState())
+const formRef = ref<HTMLFormElement | null>(null)
 const formError = ref('')
 const saving = ref(false)
 const loadingDetail = ref(false)
@@ -418,9 +423,10 @@ const applyResourceData = (raw: any) => {
   let roleIds: number[] = []
   if (Array.isArray(raw.audiences)) {
     roleIds = raw.audiences
-      .map((a: any) => a.role_id || a.role?.id)
+      .map((a: any) => (typeof a.role === 'number' ? a.role : (a.role_id ?? a.role?.id)))
       .filter((id: any): id is number => typeof id === 'number')
-  } else if (Array.isArray(raw.visible_roles)) {
+  }
+  if (roleIds.length === 0 && Array.isArray(raw.visible_roles)) {
     roleIds = raw.visible_roles
       .map((r: any) => r.id)
       .filter((id: any): id is number => typeof id === 'number')
@@ -431,10 +437,21 @@ const applyResourceData = (raw: any) => {
     labelStr = raw.labels.map((l: any) => l.name).filter(Boolean).join(', ')
   }
 
-  const rawTypeId = raw.type_id ?? raw.resource_type_id ?? raw.resource_type_detail?.id ?? null
+  let rawTypeId = raw.type_id ?? raw.resource_type_id ?? raw.resource_type_detail?.id ?? null
+  if (rawTypeId === null && (raw.type_name || raw.resource_type)) {
+    const typeName = (raw.type_name || raw.resource_type || '').toLowerCase().trim()
+    const match = resourceTypes.value.find(
+      (t) => t.type_name?.toLowerCase().trim() === typeName
+    )
+    if (match) {
+      rawTypeId = match.id
+    }
+  }
 
   const hasVisibilityInfo = raw.visibility_scope !== undefined || roleIds.length > 0
-  if (hasVisibilityInfo) {
+  if (hasVisibilityInfo && roleIds.length > 0) {
+    form.roleIds = roleIds
+  } else if (hasVisibilityInfo && form.roleIds.length === 0) {
     form.roleIds = roleIds
   }
 
@@ -457,6 +474,19 @@ const applyResourceData = (raw: any) => {
     form.contentHtml = raw.content_html || ''
   }
 }
+
+watch(resourceTypes, (types) => {
+  if (form.typeId === null && props.resource) {
+    const raw: any = props.resource
+    const typeName = (raw.type_name || raw.resource_type || '').toLowerCase().trim()
+    if (typeName) {
+      const match = types.find((t) => t.type_name?.toLowerCase().trim() === typeName)
+      if (match) {
+        form.typeId = match.id
+      }
+    }
+  }
+})
 
 const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
   formError.value = ''
@@ -564,7 +594,7 @@ const validateForm = (): boolean => {
     return false
   }
   if (form.roleIds.length === 0) {
-    formError.value = 'Please select at least one visible role. Select all roles to make it visible to everyone.'
+    formError.value = 'Please select at least one visible role.'
     return false
   }
   if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
@@ -587,9 +617,18 @@ const validateForm = (): boolean => {
   return true
 }
 
+const scrollToError = () => {
+  if (typeof formRef.value?.scrollIntoView === 'function') {
+    formRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
 const submitForm = async () => {
   formError.value = ''
-  if (!validateForm()) return
+  if (!validateForm()) {
+    scrollToError()
+    return
+  }
 
   saving.value = true
   const labelsList = parseLabels(form.labelInput)
@@ -679,6 +718,7 @@ const submitForm = async () => {
           // refresh the list so it shows the saved details.
           const reason = err instanceof Error && err.message ? err.message : 'unknown error'
           formError.value = `Details were saved, but the new file was rejected: ${reason}`
+          scrollToError()
           emit('saved')
           return
         }
@@ -690,6 +730,7 @@ const submitForm = async () => {
   } catch (err: any) {
     console.error('Failed to save resource:', err)
     formError.value = err?.message || 'Failed to save resource. Please check your inputs.'
+    scrollToError()
   } finally {
     saving.value = false
   }
@@ -876,13 +917,19 @@ const submitForm = async () => {
   font-size: 0.875rem;
 }
 
+.admin-resource-form__footer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
 .admin-resource-form__footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.65rem;
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-light);
 }
 
 .admin-resource-form__footer-spacer {

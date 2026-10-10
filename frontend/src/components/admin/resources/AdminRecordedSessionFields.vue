@@ -145,6 +145,7 @@ const emit = defineEmits<{
   (e: 'update:videoFile', file: File | null): void
   (e: 'update:slidesFile', file: File | null): void
   (e: 'update:acknowledgedOversized', val: boolean): void
+  (e: 'update:acknowledged-oversized', val: boolean): void
 }>()
 
 const videoInputRef = ref<HTMLInputElement | null>(null)
@@ -174,12 +175,17 @@ const triggerSlidesInput = () => {
   slidesInputRef.value?.click()
 }
 
+const setAcknowledgedOversized = (val: boolean) => {
+  emit('update:acknowledgedOversized', val)
+  emit('update:acknowledged-oversized', val)
+}
+
 const onVideoChange = (e: Event) => {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0] || null
   emit('update:videoFile', file)
   if (!file || file.size <= OVERSIZE_THRESHOLD_BYTES) {
-    emit('update:acknowledgedOversized', false)
+    setAcknowledgedOversized(false)
   }
 }
 
@@ -205,7 +211,7 @@ const onSlidesChange = (e: Event) => {
 const clearVideo = () => {
   if (videoInputRef.value) videoInputRef.value.value = ''
   emit('update:videoFile', null)
-  emit('update:acknowledgedOversized', false)
+  setAcknowledgedOversized(false)
 }
 
 const clearSlides = () => {
@@ -216,7 +222,7 @@ const clearSlides = () => {
 
 const onAckChange = (e: Event) => {
   const input = e.target as HTMLInputElement
-  emit('update:acknowledgedOversized', input.checked)
+  setAcknowledgedOversized(input.checked)
 }
 </script>
 

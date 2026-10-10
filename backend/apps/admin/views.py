@@ -1,3 +1,4 @@
+import logging
 from django.contrib.auth import update_session_auth_hash
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
@@ -5,6 +6,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+logger = logging.getLogger(__name__)
 
 from apps.admin.permissions import IsAdminScoped
 from apps.admin.serializers import (
@@ -823,22 +826,44 @@ class ResourceFileReplaceView(APIView):
         data_dict = request.data.dict() if hasattr(request.data, "dict") else dict(request.data)
         payload = {**data_dict}
         if uploaded_file is not None:
+            file_bytes = uploaded_file.read()
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
             payload.update({
-                "file_bytes": uploaded_file.read(),
+                "file_bytes": file_bytes,
                 "file_name": uploaded_file.name,
                 "file_mime_type": uploaded_file.content_type or "application/octet-stream",
                 "file_size": uploaded_file.size,
                 "uploaded_file": uploaded_file,
             })
         if slides_file is not None:
+            slides_bytes = slides_file.read()
+            try:
+                slides_file.seek(0)
+            except Exception:
+                pass
             payload.update({
-                "slides_file_bytes": slides_file.read(),
+                "slides_file_bytes": slides_bytes,
                 "slides_file_name": slides_file.name,
                 "slides_file_mime_type": slides_file.content_type or "application/pdf",
                 "slides_file_size": slides_file.size,
                 "slides_file": slides_file,
             })
-        result = replace_resource_file(resource_id, payload)
+        try:
+            result = replace_resource_file(resource_id, payload)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.exception("Failed to replace resource file: %s", exc)
+            return Response(
+                {"msg": str(exc) or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)

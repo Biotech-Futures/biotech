@@ -15,7 +15,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.exceptions import ValidationError
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
-from apps.resources.services.storage import RESOURCE_FILE_SERVICE, get_resource_storage
+from apps.resources.services.storage import (
+    RESOURCE_FILE_SERVICE,
+    get_resource_storage,
+    is_managed_storage_key,
+)
 from apps.common.upload_validation import is_truthy_flag, validate_uploaded_file
 from apps.groups.models import Groups
 from apps.users.models import User
@@ -820,7 +824,14 @@ def replace_resource_file(
     # Slides file replacement
     has_slides_file = bool(payload.get('slides_file_bytes') or payload.get('slides_file'))
     if has_slides_file:
-        is_recorded_session = bool(resource.type and resource.type.type_name == "Recorded Session")
+        is_recorded_session = bool(
+            resource.type and resource.type.type_name and resource.type.type_name.strip().lower() == "recorded session"
+        )
+        if not is_recorded_session and resource.type_id:
+            rt = ResourceType.objects.filter(id=resource.type_id).first()
+            if rt and rt.type_name and rt.type_name.strip().lower() == "recorded session":
+                is_recorded_session = True
+
         if not is_recorded_session:
             return {'msg': 'Slides files are only supported for Recorded Session resources.', 'data': None}
 
@@ -828,10 +839,11 @@ def replace_resource_file(
         if not isinstance(slides_bytes, bytes):
             slides_bytes = bytes(slides_bytes)
 
+        slides_mime = payload.get('slides_file_mime_type') or payload.get('slides_mime_type') or 'application/pdf'
         slides_uploaded_file = payload.get('slides_file') or SimpleUploadedFile(
             payload.get('slides_file_name') or 'slides.pdf',
             slides_bytes,
-            content_type=payload.get('slides_mime_type') or 'application/pdf',
+            content_type=slides_mime,
         )
         try:
             validate_uploaded_file(
@@ -854,7 +866,7 @@ def replace_resource_file(
                 pass
 
         resource.slides_storage_key = next_slides_key
-        resource.slides_mime_type = payload.get('slides_mime_type', 'application/pdf')
+        resource.slides_mime_type = slides_mime
         resource.slides_file_size = payload.get('slides_file_size', len(slides_bytes))
 
     resource.save()

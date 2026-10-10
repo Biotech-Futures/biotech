@@ -596,6 +596,198 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       sheetWrapper.unmount()
     })
+
+    it('replaces video or slides on edit for a recorded session resource', async () => {
+      const recordedSessionDetail: adminApi.AdminResourceDetail = {
+        id: 105,
+        resource_name: 'Workshop Session 1',
+        resource_description: 'Recorded session video and slides.',
+        resource_kind: 'file',
+        resource_type: 'Recorded Session',
+        resource_type_id: 10,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: 'session1.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        slides_file_name: 'session1_slides.pdf',
+        slides_file_size: 50000,
+        audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+      }
+
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue([
+        { id: 10, type_name: 'Recorded Session', type_description: 'Recordings' }
+      ])
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(recordedSessionDetail)
+      const replaceSpy = vi.spyOn(adminApi, 'replaceAdminResourceFile').mockResolvedValue(recordedSessionDetail)
+      const updateSpy = vi.spyOn(adminApi, 'updateAdminResource').mockResolvedValue(recordedSessionDetail)
+
+      const recResource: resourcesApi.Resource = {
+        id: 105,
+        name: 'Workshop Session 1',
+        description: 'Recorded session video and slides.',
+        kind: 'file',
+        type_name: 'Recorded Session',
+        file_name: 'session1.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        uploaded_at: '2026-03-01T10:00:00Z',
+        labels: []
+      }
+
+      const sheetWrapper = await mountSheet(recResource)
+      await flushPromises()
+
+      // The recorded session component should be rendered
+      expect(sheetWrapper.findComponent({ name: 'AdminRecordedSessionFields' }).exists()).toBe(true)
+
+      // Test updating video file
+      const newVideo = new File(['fake video'], 'new_session.mp4', { type: 'video/mp4' })
+      const videoInput = sheetWrapper.find('#admin-resource-video-file')
+      Object.defineProperty(videoInput.element, 'files', { value: [newVideo], configurable: true })
+      await videoInput.trigger('change')
+      await flushPromises()
+
+      expect(sheetWrapper.text()).toContain('new_session.mp4')
+
+      // Click Save Changes
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(updateSpy).toHaveBeenCalledWith(105, expect.objectContaining({
+        resource_name: 'Workshop Session 1',
+        resource_type_id: 10,
+        role_ids: [1]
+      }))
+      expect(replaceSpy).toHaveBeenCalledWith(105, newVideo, false)
+
+      sheetWrapper.unmount()
+    })
+
+    it('replaces only slides on edit when video is not changed', async () => {
+      const recordedSessionDetail: adminApi.AdminResourceDetail = {
+        id: 106,
+        resource_name: 'Workshop Session 2',
+        resource_description: 'Recorded session video only initially.',
+        resource_kind: 'file',
+        resource_type: 'Recorded Session',
+        resource_type_id: 10,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: 'session2.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        slides_file_name: null,
+        slides_file_size: null,
+        audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+      }
+
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue([
+        { id: 10, type_name: 'Recorded Session', type_description: 'Recordings' }
+      ])
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(recordedSessionDetail)
+      const replaceSpy = vi.spyOn(adminApi, 'replaceAdminResourceFile').mockResolvedValue(recordedSessionDetail)
+      const updateSpy = vi.spyOn(adminApi, 'updateAdminResource').mockResolvedValue(recordedSessionDetail)
+
+      const recResource: resourcesApi.Resource = {
+        id: 106,
+        name: 'Workshop Session 2',
+        description: 'Recorded session video only initially.',
+        kind: 'file',
+        type_name: 'Recorded Session',
+        file_name: 'session2.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        uploaded_at: '2026-03-01T10:00:00Z',
+        labels: []
+      }
+
+      const sheetWrapper = await mountSheet(recResource)
+      await flushPromises()
+
+      // Test updating slides file
+      const newSlides = new File(['%PDF-1.4 fake slides'], 'slides.pdf', { type: 'application/pdf' })
+      const slidesInput = sheetWrapper.find('#admin-resource-slides-file')
+      Object.defineProperty(slidesInput.element, 'files', { value: [newSlides], configurable: true })
+      await slidesInput.trigger('change')
+      await flushPromises()
+
+      expect(sheetWrapper.text()).toContain('slides.pdf')
+
+      // Click Save Changes
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(updateSpy).toHaveBeenCalledWith(106, expect.objectContaining({
+        resource_name: 'Workshop Session 2',
+        resource_type_id: 10,
+        role_ids: [1]
+      }))
+      expect(replaceSpy).toHaveBeenCalledWith(106, null, false, newSlides)
+
+      sheetWrapper.unmount()
+    })
+
+    it('enables submit when large video is acknowledged in AdminRecordedSessionFields', async () => {
+      const recordedSessionDetail: adminApi.AdminResourceDetail = {
+        id: 107,
+        resource_name: 'Workshop Session 3',
+        resource_description: 'Recorded session.',
+        resource_kind: 'file',
+        resource_type: 'Recorded Session',
+        resource_type_id: 10,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: 'session3.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+      }
+
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue([
+        { id: 10, type_name: 'Recorded Session', type_description: 'Recordings' }
+      ])
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(recordedSessionDetail)
+
+      const recResource: resourcesApi.Resource = {
+        id: 107,
+        name: 'Workshop Session 3',
+        description: 'Recorded session.',
+        kind: 'file',
+        type_name: 'Recorded Session',
+        file_name: 'session3.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024 * 1024 * 5,
+        uploaded_at: '2026-03-01T10:00:00Z',
+        labels: []
+      }
+
+      const sheetWrapper = await mountSheet(recResource)
+      await flushPromises()
+
+      const bigVideo = makeFile('big_session.mp4', LARGE)
+      const videoInput = sheetWrapper.find('#admin-resource-video-file')
+      Object.defineProperty(videoInput.element, 'files', { value: [bigVideo], configurable: true })
+      await videoInput.trigger('change')
+      await flushPromises()
+
+      // Submit button should be disabled until acknowledged
+      const submitBtn = sheetWrapper.find('button[type="submit"]').element as HTMLButtonElement
+      expect(submitBtn.disabled).toBe(true)
+
+      // Acknowledge large video
+      const ackBox = sheetWrapper.find('#res-video-oversize-ack')
+      expect(ackBox.exists()).toBe(true)
+      await ackBox.setValue(true)
+      await flushPromises()
+
+      expect(submitBtn.disabled).toBe(false)
+
+      sheetWrapper.unmount()
+    })
   })
 
   describe('Multi-Select & Bulk Actions', () => {
