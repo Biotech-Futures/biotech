@@ -9,6 +9,7 @@
       :search="search"
       search-placeholder="Search views by name, description..."
       search-width="320px"
+      :page-size="DATA_TABLE_ALL"
       empty-message="No views found."
       :action-columns="3"
       clickable-rows
@@ -89,6 +90,7 @@ import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vu
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { deleteAdminView, getAdminViewExportUrl, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const props = withDefaults(
   defineProps<{

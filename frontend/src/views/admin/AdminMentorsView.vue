@@ -25,6 +25,7 @@
       :loading="loading"
       empty-message="No mentors registered yet."
       search-placeholder="Name or email"
+      :page-size="DATA_TABLE_ALL"
       :selected="[...selectedIds]"
       :sort="sortState"
       :row-class="rowClass"
@@ -152,6 +153,7 @@ import AdminMentorImportSheet from '@/components/admin/mentors/AdminMentorImport
 import AdminMentorDetails from '@/components/admin/mentors/AdminMentorDetails.vue'
 import { useAdminMentorsView, type MentorSortKey } from '@/composables/admin/useAdminMentorsView'
 import type { AdminMentorDetail } from '@/utils/adminAPI'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import {
   formatLogin,
   isEffectivelyInactive,

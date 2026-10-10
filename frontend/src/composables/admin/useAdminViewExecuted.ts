@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import { DATA_TABLE_PAGE_SIZES } from '@/utils/dataTable'
+import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
 import { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
 import {
   bulkDeleteUsers,
@@ -85,7 +85,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   const error = ref('')
 
   const page = ref(1)
-  const limit = ref(DATA_TABLE_PAGE_SIZES[0])
+  const limit = ref(fitPageSize())
   const sortState = ref<SortState>({ key: 'name', direction: 'asc' })
   const groupBy = ref<GroupByOption>('none')
 
@@ -132,7 +132,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     try {
       const data = await runAdminView(viewId.value, {
         page: page.value,
-        limit: limit.value,
+        limit: serverPageLimit(limit.value),
         search: appliedSearch.value || undefined,
         sortBy: COLUMN_CONFIG[sortState.value.key]?.sortBy,
         sortOrder: sortState.value.direction,

@@ -183,7 +183,9 @@
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
         <select :value="pageSize" @change="onPageSizeChange">
-          <option v-for="size in DATA_TABLE_PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
+          <option v-for="size in sizeOptions" :key="size" :value="size">
+            {{ size === DATA_TABLE_ALL ? 'All' : `${size} / page` }}
+          </option>
         </select>
       </label>
       <p class="data-table-summary">{{ summaryText }}</p>
@@ -224,10 +226,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
-import { DATA_TABLE_PAGE_SIZES, cellText } from '@/utils/dataTable'
+import {
+  DATA_TABLE_ALL,
+  DATA_TABLE_PAGE_SIZES,
+  DATA_TABLE_ROW_HEIGHT,
+  cellText,
+  fitPageSize,
+} from '@/utils/dataTable'
 
 export type DataTableColumn = {
   key: string
@@ -307,7 +315,7 @@ const pageSearches = computed(() => isServer.value || props.search !== undefined
 // page when it changes here.
 const search = ref(props.search ?? '')
 const page = ref(props.page ?? 1)
-const pageSize = ref(props.pageSize ?? DATA_TABLE_PAGE_SIZES[0])
+const pageSize = ref(props.pageSize ?? fitPageSize())
 const sortKey = ref(props.sort?.key ?? (isServer.value ? '' : props.columns[0]?.key || ''))
 const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
@@ -372,10 +380,15 @@ const filteredRows = computed(() => {
 
 const total = computed(() => (isServer.value ? props.totalCount ?? 0 : filteredRows.value.length))
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const showsAll = computed(() => pageSize.value === DATA_TABLE_ALL)
+
+const totalPages = computed(() =>
+  showsAll.value ? 1 : Math.max(1, Math.ceil(total.value / pageSize.value)),
+)
 
 const pagedRows = computed(() => {
   if (isServer.value) return props.rows
+  if (showsAll.value) return filteredRows.value
   const start = (page.value - 1) * pageSize.value
   return filteredRows.value.slice(start, start + pageSize.value)
 })
@@ -459,6 +472,7 @@ const {
 const summaryText = computed(() => {
   const selected = selectedCount.value ? ` (${selectedCount.value} selected)` : ''
   if (!total.value) return `0 - 0 out of 0${selected}`
+  if (showsAll.value) return `1 - ${total.value} out of ${total.value}${selected}`
   const start = (page.value - 1) * pageSize.value + 1
   const end = Math.min(page.value * pageSize.value, total.value)
   return `${start} - ${end} out of ${total.value}${selected}`
@@ -500,8 +514,40 @@ const toggleSort = (key: string) => {
   if (pageSorts.value) emit('update:sort', { key, direction })
 }
 
+// Until someone picks a size, a table not started on All keeps its page to the
+// rows that fit in the window, judged by the tallest row it has shown, so the
+// scrollbar under the headings stays away.
+const fitting = ref(pageSize.value !== DATA_TABLE_ALL)
+const fittedSize = ref(pageSize.value)
+let tallestRow = DATA_TABLE_ROW_HEIGHT
+
+const fitToWindow = () => {
+  if (!fitting.value || !wrapEl.value) return
+  wrapEl.value.querySelectorAll<HTMLElement>('tr.data-table-row').forEach((row) => {
+    tallestRow = Math.max(tallestRow, row.offsetHeight)
+  })
+  const next = fitPageSize(tallestRow, headEl.value?.offsetHeight || undefined)
+  fittedSize.value = next
+  if (next !== pageSize.value) pageSize.value = next
+}
+
+watch(pagedRows, () => void nextTick(fitToWindow))
+onMounted(() => {
+  fitToWindow()
+  window.addEventListener('resize', fitToWindow)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', fitToWindow))
+
+// 7, 15 and 30, the fitted size among them, then All.
+const sizeOptions = computed(() => {
+  const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
+  if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
+  return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
+})
+
 const onPageSizeChange = (event: Event) => {
-  pageSize.value = Number((event.target as HTMLSelectElement).value) || DATA_TABLE_PAGE_SIZES[0]
+  fitting.value = false
+  pageSize.value = Number((event.target as HTMLSelectElement).value)
 }
 
 const onPageDraftInput = (event: Event) => {
@@ -810,6 +856,11 @@ thead th {
 
 tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Every row at least 56px tall; taller when a cell needs it. */
+.data-table-row > td {
+  height: 3.5rem;
 }
 
 /* A header that sorts: the header's own look, and a pointer. */
