@@ -531,16 +531,12 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=Csv()
 )
 
-# Public base URLs of the SPAs. Used to build the user-visible links in
+# Public base URL of the SPA. Used to build the user-visible links in
 # password-reset and magic-link emails (apps/services/auth_service). MUST
 # be set explicitly in any non-DEBUG deploy — a missing env var would
-# otherwise silently email reset/magic links pointing at
-# http://localhost:5173 (or, worse for ADMIN_FRONTEND_BASE_URL, at the
-# production admin portal from a staging deploy), breaking login and
-# leaking infra info. In DEBUG (local dev) we keep the localhost default
-# for FRONTEND_BASE_URL so `runserver` works out of the box; the admin
-# portal has no public dev URL so it falls back to the canonical prod
-# host only under DEBUG.
+# otherwise silently email reset/magic links pointing at http://localhost:5173,
+# breaking login and leaking infra info. In DEBUG (local dev) we keep the
+# localhost default so `runserver` works out of the box.
 _FRONTEND_BASE_URL_RAW = config("FRONTEND_BASE_URL", default="")
 if not _FRONTEND_BASE_URL_RAW:
     if DEBUG:
@@ -553,24 +549,17 @@ if not _FRONTEND_BASE_URL_RAW:
         )
 FRONTEND_BASE_URL = _FRONTEND_BASE_URL_RAW.rstrip("/")
 
-_ADMIN_FRONTEND_BASE_URL_RAW = config("ADMIN_FRONTEND_BASE_URL", default="")
-if not _ADMIN_FRONTEND_BASE_URL_RAW:
-    if DEBUG:
-        _ADMIN_FRONTEND_BASE_URL_RAW = "https://mentoringadmin.biotechfutures.org"
-    else:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            "ADMIN_FRONTEND_BASE_URL must be set (e.g. https://mentoringadmin.biotechfutures.org) "
-            "outside DEBUG. Admin password-reset and magic-link emails are built from it."
-        )
-ADMIN_FRONTEND_BASE_URL = _ADMIN_FRONTEND_BASE_URL_RAW.rstrip("/")
+# Since the interface merge, admins sign in to the same unified SPA as students
+# and mentors. ADMIN_FRONTEND_BASE_URL is retained as an optional fallback
+# defaulting to FRONTEND_BASE_URL for backward compatibility.
+ADMIN_FRONTEND_BASE_URL = config("ADMIN_FRONTEND_BASE_URL", default=FRONTEND_BASE_URL).rstrip("/")
 
 # Magic link still uses hash routing while the others use path routing —
 # unify in a follow-up once the SPA serves /auth/callback without a hash.
 MAGIC_LINK_REDIRECT_URL             = f"{FRONTEND_BASE_URL}/#/auth/callback"
-ADMIN_MAGIC_LINK_REDIRECT_URL       = f"{ADMIN_FRONTEND_BASE_URL}/auth/callback"
+ADMIN_MAGIC_LINK_REDIRECT_URL       = MAGIC_LINK_REDIRECT_URL
 PASSWORD_RESET_REDIRECT_URL         = f"{FRONTEND_BASE_URL}/#/auth/reset-password"
-ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/reset-password"
+ADMIN_PASSWORD_RESET_REDIRECT_URL   = PASSWORD_RESET_REDIRECT_URL
 
 # Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
 # when no ?next= is present. Keep it on a Django-side URL so an engineer who
