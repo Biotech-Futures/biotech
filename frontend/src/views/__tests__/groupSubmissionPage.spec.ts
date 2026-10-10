@@ -164,7 +164,33 @@ const goToLastStep = async () => {
   await flushPromises()
 }
 
+/** Stands in for the live connection, so no test reaches a real server. */
+class FakeSocket {
+  static OPEN = 1
+  static instances: FakeSocket[] = []
+  readyState = 0
+  sent: unknown[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onclose: ((event: { code: number }) => void) | null = null
+
+  constructor(public url: string) {
+    FakeSocket.instances.push(this)
+  }
+
+  send(data: string) {
+    this.sent.push(JSON.parse(data))
+  }
+
+  close(code = 1000) {
+    this.readyState = 3
+    this.onclose?.({ code })
+  }
+}
+
 beforeEach(() => {
+  FakeSocket.instances = []
+  vi.stubGlobal('WebSocket', FakeSocket)
   pinia = createPinia()
   setActivePinia(pinia)
   vi.clearAllMocks()
@@ -1445,3 +1471,272 @@ describe('the Finalist step', () => {
   })
 })
 
+
+describe('live typing', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const teammateTyping = (field: string) =>
+    socket().onmessage?.({
+      data: JSON.stringify({ type: 'typing', user: { id: 9, name: 'Ben' }, field, typing: true }),
+    })
+
+  it('joins the team’s room while the questions are open for editing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(socket().url).toContain('/ws/live/submission/1/')
+  })
+
+  it('holds no connection once the round has closed', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(FakeSocket.instances.every((s) => s.readyState === 3)).toBe(true)
+  })
+
+  it('stays connected to a submitted entry, so a reopen elsewhere arrives', async () => {
+    await mountPage(submittedDetail())
+
+    expect(socket().readyState).not.toBe(3)
+  })
+
+  it('tells teammates which question is being typed in', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    await wrapper!.find('#inspiration').setValue('A new thought')
+
+    expect(socket().sent).toContainEqual({ type: 'typing', field: 'inspiration', typing: true })
+  })
+
+  it('shows a teammate typing under that question only', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    teammateTyping('inspiration')
+    await flushPromises()
+
+    const field = wrapper!.find('#inspiration').element.closest('.submission-field')!
+    expect(field.textContent).toContain('Ben is typing…')
+    expect(wrapper!.findAll('.typing-indicator')).toHaveLength(1)
+  })
+
+  it('shows a teammate typing the project title', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    teammateTyping('project-title')
+    await flushPromises()
+
+    const field = wrapper!.find('#project-title').element.closest('.submission-field')!
+    expect(field.textContent).toContain('Ben is typing…')
+  })
+})
+
+describe('live text', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+  it('shares what you type with teammates', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    await wrapper!.find('#inspiration').setValue('A new thought')
+
+    expect(socket().sent).toContainEqual({ type: 'text', field: 'inspiration', text: 'A new thought', caret: 13 })
+  })
+
+  it('shows a teammate’s text as they type and locks that box only', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await flushPromises()
+
+    const box = wrapper!.find('#inspiration')
+    expect((box.element as HTMLTextAreaElement).value).toBe('Ben’s draft')
+    expect(box.attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('#solution_purpose').attributes('disabled')).toBeUndefined()
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await flushPromises()
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+  })
+
+  it('never saves a teammate’s text as your own', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps your own unsaved edits elsewhere when a teammate’s text arrives', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    openSocket()
+
+    await wrapper!.find('#solution_purpose').setValue('My change')
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(saveDraft.mock.calls[0]![1].answers).toEqual({ solution_purpose: 'My change' })
+  })
+
+  it('shows a teammate typing the project title', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'project-title', text: 'Coral Rescue' })
+    await flushPromises()
+
+    expect((wrapper!.find('#project-title').element as HTMLInputElement).value).toBe('Coral Rescue')
+  })
+})
+
+describe('bringing boxes back in line after live text', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+  const savedByBen = (inspiration: string) =>
+    buildDetail({ submission: { answers: { ...ANSWERED, inspiration } } })
+
+  async function benFinishes(saved: string) {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draf' })
+    fetchSubmission.mockResolvedValue(savedByBen(saved))
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+  }
+
+  it('shows what was actually saved once a teammate’s box unlocks', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    await benFinishes('Ben’s draft, finished')
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('leaves a box you are editing alone', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockReturnValue(new Promise(() => undefined))
+
+    await wrapper!.find('#solution_purpose').setValue('My unsaved change')
+    await benFinishes('Ben’s draft, finished')
+
+    expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My unsaved change')
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
+  })
+})
+
+describe('live panel and title', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+  it('swaps a locked box for the live panel with the cursor', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft', caret: 5 })
+    await flushPromises()
+
+    const field = wrapper!.find('#inspiration').element.closest('.submission-field')!
+    expect(field.querySelector('[data-testid="live-text"]')).not.toBeNull()
+    expect(field.querySelector('.live-text__caret')).not.toBeNull()
+    expect(wrapper!.find('#inspiration').isVisible()).toBe(false)
+  })
+
+  it('only sends the title when it was changed here', async () => {
+    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#inspiration').setValue('An edit')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft.mock.calls[0]![1]).not.toHaveProperty('project_title')
+
+    await wrapper!.find('#project-title').setValue('A new title')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft.mock.calls[1]![1]).toHaveProperty('project_title', 'A new title')
+  })
+})
+
+describe('changes made elsewhere', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const changed = (item: string) =>
+    socket().onmessage?.({ data: JSON.stringify({ type: 'changed', item, user: { id: 9, name: 'Matt' } }) })
+
+  it('shows at once when a teammate submits, and says who', async () => {
+    await mountPage(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(submittedDetail())
+
+    changed('submitted')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain('Matt submitted the entry.')
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeDefined()
+  })
+
+  it('opens up at once when a teammate reopens the entry', async () => {
+    await mountPage(submittedDetail())
+    openSocket()
+    fetchSubmission.mockResolvedValue(reopenedDetail())
+
+    changed('reopened')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain('Matt reopened the entry for editing.')
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+  })
+
+  it('picks up a teammate’s new poster without touching what you are typing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+    await wrapper!.find('#inspiration').setValue('Half typed')
+    const withPoster = buildDetail({ submission: { answers: ANSWERED, poster: POSTER } })
+    fetchSubmission.mockResolvedValue(withPoster)
+    // Leaving the step saves the typing; the server's reply already includes the poster.
+    saveDraft.mockResolvedValue({ deadline: withPoster.deadline, submission: withPoster.submission! })
+
+    changed('files')
+    await flushPromises()
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Half typed')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('poster.pdf')
+  })
+})
