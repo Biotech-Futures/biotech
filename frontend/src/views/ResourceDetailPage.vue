@@ -141,6 +141,9 @@
             class="preview-media"
             :src="previewUrl"
             controls
+            preload="metadata"
+            playsinline
+            @loadedmetadata="onVideoLoadedMetadata"
           ></video>
 
           <audio
@@ -467,6 +470,21 @@ const downloadSlides = (): void => {
 const previewPdfResource = (): void => {
   if (!pdfPreviewTarget.value || !resource.value) return
   window.open(pdfPreviewTarget.value, '_blank', 'noopener,noreferrer')
+}
+
+const onVideoLoadedMetadata = (event: Event): void => {
+  const video = event.target as HTMLVideoElement
+  if (!video) return
+  // If the video container reports an invalid/incomplete duration (1s or Infinity) on initial load,
+  // seeking to a high timestamp causes the browser to parse the true duration header, then resets to 0.
+  if (video.duration === Infinity || (video.duration <= 1 && video.duration > 0)) {
+    video.currentTime = 1e10
+    const onTimeUpdate = () => {
+      video.currentTime = 0
+      video.removeEventListener('timeupdate', onTimeUpdate)
+    }
+    video.addEventListener('timeupdate', onTimeUpdate, { once: true })
+  }
 }
 
 const formatTypeName = (value?: string | null): string => {

@@ -702,6 +702,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             size=size,
             as_attachment=as_attachment,
             on_open_failure_detail="The stored file could not be opened for download.",
+            request=request,
         )
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsResourceAdmin])
