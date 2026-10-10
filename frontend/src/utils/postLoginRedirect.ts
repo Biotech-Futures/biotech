@@ -93,7 +93,7 @@ export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) =
   }
 
   if (auth.isSupervisor) {
-    await router.replace('/profile')
+    await router.replace(returnTo || '/profile')
     return
   }
 

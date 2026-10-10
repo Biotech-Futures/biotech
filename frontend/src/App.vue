@@ -90,6 +90,56 @@
           <ul v-if="auth.isSupervisor" class="sidebar-list">
             <li class="sidebar-item">
               <RouterLink
+                to="/dashboard"
+                class="sidebar-link"
+                :class="{ active: route.path === '/dashboard' }"
+              >
+                <i class="fas fa-home sidebar-icon"></i>
+                <span>Home</span>
+              </RouterLink>
+            </li>
+            <li class="sidebar-item">
+              <RouterLink
+                to="/groups"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/groups') }"
+              >
+                <i class="fas fa-users sidebar-icon"></i>
+                <span>Groups</span>
+              </RouterLink>
+            </li>
+            <li class="sidebar-item">
+              <RouterLink
+                to="/events"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/events') }"
+              >
+                <i class="fas fa-calendar sidebar-icon"></i>
+                <span>Events</span>
+              </RouterLink>
+            </li>
+            <li class="sidebar-item">
+              <RouterLink
+                to="/announcements"
+                class="sidebar-link"
+                :class="{ active: route.path === '/announcements' }"
+              >
+                <i class="fas fa-bullhorn sidebar-icon"></i>
+                <span>Announcements</span>
+              </RouterLink>
+            </li>
+            <li class="sidebar-item">
+              <RouterLink
+                to="/resources"
+                class="sidebar-link"
+                :class="{ active: route.path === '/resources' }"
+              >
+                <i class="fas fa-book sidebar-icon"></i>
+                <span>Resources</span>
+              </RouterLink>
+            </li>
+            <li class="sidebar-item">
+              <RouterLink
                 to="/profile"
                 class="sidebar-link"
                 :class="{ active: route.path === '/profile' }"
@@ -112,7 +162,7 @@
               <RouterLink
                 to="/my-groups"
                 class="sidebar-link"
-                :class="{ active: route.path === '/my-groups' || route.path.includes('/groups') }"
+                :class="{ active: route.path === '/my-groups' }"
               >
                 <i class="fas fa-users sidebar-icon"></i>
                 <span>My Groups</span>
@@ -459,7 +509,7 @@ const isLoginPage = computed(() =>
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
-  () => !isLoginPage.value && !auth.isSupervisor && route.path.startsWith('/groups'),
+  () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
 
 const sidebarGroups = ref<SidebarGroupOption[]>([])
