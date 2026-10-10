@@ -31,6 +31,9 @@ export interface FinalistEntry {
 export interface FinalistDetail {
   group: { id: number; name: string }
   deadline: SubmissionDeadline
+  /** Whether Management has shared the times yet; until then none, and
+   *  none are needed to submit. */
+  times_shown: boolean
   /** This year's presentation times. */
   sessions: FinalistSession[]
   /** The day they're on (set on Notify Finalists); null until it is. */

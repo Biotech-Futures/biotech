@@ -14,7 +14,7 @@ from apps.services.email_branding import LOGO_CID, logo_data_uri
 from ..models import CertificatesRelease, MarksRelease, ResultsEmailSettings
 from ..services import results_notify, test_email
 from ..services.finalist_notify import symposium_today
-from ..services.send_guard import AlreadySending, person_name, run_state, submissions_open_reason
+from ..services.send_guard import person_name, run_state, submissions_open_reason
 
 
 class ResultsEmailSettingsSerializer(serializers.ModelSerializer):
@@ -31,6 +31,8 @@ class ResultsEmailSettingsSerializer(serializers.ModelSerializer):
 
 
 def _payload(details: ResultsEmailSettings) -> dict:
+    # First, so a queued send this starts is in the counts.
+    runs = {audience: run_state(key) for audience, key in results_notify.EMAIL_KEYS.items()}
     today = symposium_today()
     audience = results_notify.results_audience()
     return {
@@ -48,7 +50,7 @@ def _payload(details: ResultsEmailSettings) -> dict:
         # Why sending waits for submissions to close, or "".
         "submissions_open": submissions_open_reason(),
         # Whether a run is sending each email now, and its progress.
-        "runs": {audience: run_state(key) for audience, key in results_notify.EMAIL_KEYS.items()},
+        "runs": runs,
         **audience.counts(),
     }
 
@@ -168,9 +170,10 @@ class ResultsEmailSendView(APIView):
     """POST /api/v1/management/results-email/send/ — start a run emailing
     ``audience`` ("groups" or "supervisors") to every group or supervisor not
     yet emailed, on the server, so the page can be closed; returns the
-    details with the run's progress. Refused until marks and certificates are
-    released, for groups until the survey details are set, while submissions
-    are open, and while a run of that email is going."""
+    details with the run's progress. Queued behind any send going (see
+    ``send_guard``). Refused until marks and certificates are released, for
+    groups until the survey details are set, and while submissions are
+    open."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
@@ -181,11 +184,11 @@ class ResultsEmailSendView(APIView):
                 {"detail": 'audience must be "groups" or "supervisors"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        which = request.data.get("which") or ""
+        if which not in ("", "missed"):
+            return Response({"detail": "which must be missed"}, status=status.HTTP_400_BAD_REQUEST)
         reason = results_notify.send_blocked_reason(ResultsEmailSettings.load(), audience)
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            results_notify.start_send(request.user, audience)
-        except AlreadySending:
-            return Response({"detail": results_notify.ALREADY_SENDING}, status=status.HTTP_409_CONFLICT)
+        results_notify.start_send(request.user, audience, which)
         return Response(_payload(ResultsEmailSettings.load()))

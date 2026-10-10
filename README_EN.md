@@ -18,7 +18,7 @@ Deployment is Azure: the backend to App Service, both SPAs to Static Web Apps (s
 ### Database
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d   # Postgres 16 on localhost:5432
+docker compose -f docker-compose.dev.yml up -d   # Postgres 16 on localhost:5433 (POSTGRES_HOST_PORT overrides)
 ```
 
 ### Backend
@@ -35,6 +35,29 @@ python manage.py runserver     # http://127.0.0.1:8000
 Local settings live in `config/settings_local.py`; production configuration is environment-variable driven (see `config/settings.py` — Azure storage, SMTP, Redis, frontend base URLs are all env-gated and fail loud when missing outside DEBUG).
 
 API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
+
+### Student profile and guardian invitations
+
+Students without a linked supervisor can edit their name, school, year, country,
+region and interests from their profile. Guardian editing uses the separate
+Guardian Details section: after consent, the current guardian stays on file
+until the new guardian signs the platform's consent form.
+
+The resend button uses the same `guardian_consent_request` email service as the
+admin page, including its ten-minute cooldown and single-use consent link.
+Links use `FRONTEND_BASE_URL` and open `/#/consent/<token>`; the earlier
+`GUARDIAN_CONSENT_URL` placeholder is no longer needed. Signatures are stored
+with the consent record, and its PDF is made from it whenever an admin views
+or downloads it, as Mark Summaries and certificates are; no PDF is stored.
+With `config.settings_local`, outgoing emails are saved under
+`backend/sent_emails/`, not delivered to real inboxes.
+
+Automatic reminders are disabled by default. After arranging a regular scheduler
+for `python manage.py send_guardian_reminders`, set
+`GUARDIAN_REMINDER_INTERVAL_DAYS` (for example, `7`). Successfully sent invitations
+then record a next reminder due date. The command only processes due reminders
+for active students who still need permission or have a pending guardian change; it doesn't send an initial email
+to every existing student. No scheduler is created by these code changes.
 
 ### Frontend
 
@@ -65,3 +88,7 @@ npm run type-check
 - Work on feature branches; merge to `main` via Pull Request.
 - Pre-commit hooks type-check `frontend/` and `adminweb/` when files in those trees are staged.
 - Backend deploys are gated on the test suite in `.github/workflows/main_biotechbe.yml`.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.md) for details.

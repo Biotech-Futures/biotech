@@ -1,6 +1,6 @@
-"""Send Test Email on the email tabs: who each email can be tested as, and a
-test going to any address exactly as the chosen person would get it, with
-nothing recorded as sent."""
+"""Send Test Email on the email tabs: which group or supervisor each email can
+be tested as, and a test going to any address exactly as the chosen one would
+get it, with nothing recorded as sent."""
 from datetime import timedelta
 from email.mime.base import MIMEBase
 
@@ -100,31 +100,28 @@ class TestEmailTests(_GradingFixture):
             format="json",
         )
 
-    def test_each_email_lists_who_it_can_go_to(self):
+    def test_each_email_lists_the_groups_it_can_go_to(self):
+        # Each group gets one email, so the list is groups, by name.
         team = self.group.group_name
-        self.assertEqual(
-            [o["label"] for o in self._options("nonfinalists")],
-            [f"({team}) Mem amy", f"({team}, mentor) Mem mo"],
-        )
-        self.assertEqual([o["label"] for o in self._options("nonsubmissions")], ["(No Entry) Mem nia"])
-        self.assertEqual([o["label"] for o in self._options("finalist")], ["(Picked) Mem fin"])
-        # The results group email goes to students and mentors (supervisors have
-        # their own), and not to finalists while certificates exclude them.
-        self.assertEqual(
-            [o["label"] for o in self._options("results-groups")],
-            [f"({team}) Mem amy", f"({team}, mentor) Mem mo"],
-        )
+        self.assertEqual(self._options("nonfinalists"), [{"value": str(self.group.id), "label": team}])
+        self.assertEqual([o["label"] for o in self._options("nonsubmissions")], ["No Entry"])
+        self.assertEqual([o["label"] for o in self._options("finalist")], ["Picked"])
+        # Not finalists while certificates exclude them.
+        self.assertEqual([o["label"] for o in self._options("results-groups")], [team])
         self.assertEqual(self._options("results-supervisors"), [{"value": str(self.supervisor.id), "label": "Sam Lee"}])
 
     def test_a_test_goes_to_the_typed_address_as_the_chosen_team_gets_it(self):
         option = self._options("nonfinalists")[0]
         r = self._send("nonfinalists", option["value"])
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
-        self.assertEqual(r.json(), {"sent_to": "tester@example.com"})
+        # And where it comes back to if it can't be delivered.
+        self.assertEqual(r.json(), {"sent_to": "tester@example.com", "sent_from": "info@biotechfutures.org"})
         [message] = mail.outbox
         self.assertEqual(message.to, ["tester@example.com"])
         self.assertEqual(message.subject, "Thank you for your submission – Invitation to the Symposium")
         self.assertIn(f"Dear members of {self.group.group_name},", " ".join(message.body.split()))
+        # Replies go back to the sender, as the real one's do.
+        self.assertEqual(message.reply_to, [])
         # A test isn't the real thing: the team still hasn't had it.
         self.assertFalse(NonFinalistEmail.objects.exists())
 
@@ -141,11 +138,12 @@ class TestEmailTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertIn("https://events.example.com/draft", mail.outbox[0].body)
+        # Replies go back to the sender, as the real one's do.
+        self.assertEqual(mail.outbox[0].reply_to, [])
         self.assertEqual(FinalistEmailSettings.load().registration_url, "https://events.example.com/symposium")
 
     def test_results_tests_carry_their_files_and_record_nothing(self):
-        amy = next(o for o in self._options("results-groups") if o["label"].endswith("Mem amy"))
-        self.assertEqual(self._send("results-groups", amy["value"]).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._send("results-groups", str(self.group.id)).status_code, status.HTTP_200_OK)
         self.assertEqual(self._send("results-supervisors", str(self.supervisor.id)).status_code, status.HTTP_200_OK)
         year = self.group.year
         files = [
@@ -171,10 +169,10 @@ class TestEmailTests(_GradingFixture):
         value = self._options("nonfinalists")[0]["value"]
         self.assertEqual(self._send("nonfinalists", value, to="not-an-address").json()["detail"], "Enter a valid email address.")
         self.assertEqual(self._send("nonfinalists", value, to="").json()["detail"], "Enter an email address.")
-        # Someone who isn't on that email's list, such as a finalist for the non-finalist email.
+        # A group that isn't on that email's list, such as a finalist for the non-finalist email.
         other = self._options("finalist")[0]["value"]
-        self.assertEqual(self._send("nonfinalists", other).json()["detail"], "Pick someone from the list.")
-        self.assertEqual(self._send("nonfinalists", "").json()["detail"], "Pick someone from the list.")
+        self.assertEqual(self._send("nonfinalists", other).json()["detail"], "Pick one from the list.")
+        self.assertEqual(self._send("nonfinalists", "").json()["detail"], "Pick one from the list.")
         self.assertEqual(mail.outbox, [])
 
     def test_unknown_emails_and_non_graders_are_refused(self):
@@ -183,46 +181,46 @@ class TestEmailTests(_GradingFixture):
         self.assertEqual(
             self.client.get(reverse("management:test-email", args=["finalist"])).status_code, status.HTTP_403_FORBIDDEN,
         )
-        self.assertEqual(self._send("finalist", "1:1").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._send("finalist", "1").status_code, status.HTTP_403_FORBIDDEN)
 
-    # -- the preview follows the person picked ----------------------------------------
+    # -- the preview follows the group picked -----------------------------------------
 
     def _value(self, kind, label):
         return next(o["value"] for o in self._options(kind) if o["label"] == label)
 
-    def test_the_finalist_preview_is_addressed_to_the_picked_persons_team(self):
+    def test_the_finalist_preview_is_addressed_to_the_picked_group(self):
         other = _submitted_team("Zed Pick", self.staff)
         _member("zed@example.com", other)
         FinalistFlag.objects.create(group=other, flagged_by=self.staff)
         url = reverse("management:finalist-email-preview")
         # Nobody picked: the first team not yet emailed.
         self.assertEqual(self.client.post(url, {}, format="json").json()["group_name"], "Picked")
-        r = self.client.post(url, {"recipient": self._value("finalist", "(Zed Pick) Mem zed")}, format="json")
+        r = self.client.post(url, {"recipient": self._value("finalist", "Zed Pick")}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
         self.assertEqual(r.json()["group_name"], "Zed Pick")
         self.assertIn("Zed Pick", r.json()["html"])
 
-    def test_the_symposium_previews_are_addressed_to_the_picked_persons_team(self):
+    def test_the_symposium_previews_are_addressed_to_the_picked_group(self):
         other = Groups.objects.create(group_name="Zed None")
         _member("zoe@example.com", other)
         url = reverse("management:nonsubmission-email-preview")
         self.assertEqual(self.client.post(url, {}, format="json").json()["to"], "No Entry")
-        r = self.client.post(url, {"recipient": self._value("nonsubmissions", "(Zed None) Mem zoe")}, format="json")
+        r = self.client.post(url, {"recipient": self._value("nonsubmissions", "Zed None")}, format="json")
         self.assertEqual(r.json()["to"], "Zed None")
         self.assertIn("Zed None", r.json()["html"])
-        # A person from the other email's list isn't on this one.
-        amy = self._value("nonfinalists", f"({self.group.group_name}) Mem amy")
-        r = self.client.post(url, {"recipient": amy}, format="json")
+        # A group from the other email's list isn't on this one.
+        team = self._value("nonfinalists", self.group.group_name)
+        r = self.client.post(url, {"recipient": team}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(r.json()["detail"], "Pick someone from the list.")
+        self.assertEqual(r.json()["detail"], "Pick one from the list.")
 
-    def test_the_results_previews_show_the_picked_persons_email_and_files(self):
+    def test_the_results_previews_show_the_picked_ones_email_and_files(self):
         other = _submitted_team("Zed Team", self.staff)
         _member("zed@example.com", other)
         url = reverse("management:results-email-preview")
         year = self.group.year
         r = self.client.post(url, {
-            "audience": "groups", "recipient": self._value("results-groups", "(Zed Team) Mem zed"),
+            "audience": "groups", "recipient": self._value("results-groups", "Zed Team"),
             "survey_url": "https://example.com/draft",
         }, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
@@ -246,5 +244,5 @@ class TestEmailTests(_GradingFixture):
             _member(f"{name.lower()}@example.com", Groups.objects.create(group_name=name))
         self.assertEqual(
             [o["label"] for o in self._options("nonsubmissions")],
-            ["(BTF1) Mem btf1", "(BTF2) Mem btf2", "(BTF10) Mem btf10", "(No Entry) Mem nia"],
+            ["BTF1", "BTF2", "BTF10", "No Entry"],
         )

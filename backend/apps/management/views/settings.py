@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
@@ -26,6 +27,11 @@ MAX_DOCUMENT_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class GradingSettingsSerializer(serializers.ModelSerializer):
+    # Uploaded as image files and kept in the database (see GradingSettings);
+    # read back as the name each was uploaded as, or null. Null clears one.
+    director_1_signature = serializers.FileField(required=False, allow_null=True, write_only=True)
+    director_2_signature = serializers.FileField(required=False, allow_null=True, write_only=True)
+
     class Meta:
         model = GradingSettings
         fields = [
@@ -80,17 +86,36 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
     def validate_director_2_signature(self, value):
         return self._checked_upload(value, lambda svc, data: svc.check_signature_upload(data))
 
+    def update(self, instance, validated_data):
+        for index in (1, 2):
+            key = f"director_{index}_signature"
+            if key not in validated_data:
+                continue
+            uploaded = validated_data.pop(key)
+            image = uploaded.read() if uploaded else None
+            name = os.path.basename(uploaded.name or "")[:255] if uploaded else ""
+            setattr(instance, f"{key}_image", image)
+            setattr(instance, f"{key}_name", name or ("signature" if image else ""))
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        for index in (1, 2):
+            data[f"director_{index}_signature"] = getattr(instance, f"director_{index}_signature_name") or None
+        return data
+
 
 class GradingSettingsView(RetrieveUpdateAPIView):
     """GET/PATCH /api/v1/management/settings/
 
     Singleton — returns and patches the one ``GradingSettings`` row.
-    File fields (signatures, docx templates) use multipart uploads; the JSON
+    Files (signatures, docx templates) use multipart uploads; the JSON
     field (component_weights) accepts a dict via either parser.
 
     Incoming files are checked before they replace anything (see the
-    serializer), and a replaced or cleared file's old blob is deleted after
-    the save — re-uploads must not accumulate orphans in the media container.
+    serializer). Signatures are kept in the database; a replaced or cleared
+    template's old blob is deleted after the save, so re-uploads don't
+    accumulate orphans in the media container.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -102,8 +127,6 @@ class GradingSettingsView(RetrieveUpdateAPIView):
     http_method_names = ["get", "patch"]
 
     _FILE_FIELDS = (
-        "director_1_signature",
-        "director_2_signature",
         "marks_summary_template",
         "certificate_template",
         "mentor_certificate_template",

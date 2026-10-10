@@ -91,6 +91,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
+  // Guardians open this from the consent email; no account needed.
+  { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-students/:id(\\d+)/guardian', name: 'guardian-summary', component: () => import('@/views/SupervisorPersonSummaryPage.vue'), beforeEnter: requireSupervisor },
@@ -111,6 +113,13 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminPeoplePage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  {
+    path: '/admin/views',
+    name: 'admin-views',
+    component: () => import('@/views/admin/AdminViewsDirectoryPage.vue'),
+    meta: { requiresAdmin: true }
+  },
+  { path: '/admin/views/:id(\\d+)', name: 'admin-view-detail', component: () => import('@/views/admin/AdminViewExecutedPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },

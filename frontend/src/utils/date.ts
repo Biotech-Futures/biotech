@@ -119,6 +119,20 @@ export function formatAnnouncementDateAU(value: string | Date): string {
   })
 }
 
+/** Sydney's clock on a day ("YYYY-MM-DD"): AEDT in daylight saving
+ *  (UTC+11), else AEST (UTC+10). */
+export function sydneyClockOn(isoDate: string): { name: 'AEDT' | 'AEST'; daylight: boolean; offset: string } {
+  // Midday in Sydney that day, well clear of a clock change in the small hours.
+  const at = new Date(`${isoDate}T02:00:00Z`)
+  const zone = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', timeZoneName: 'longOffset' })
+    .formatToParts(at)
+    .find((part) => part.type === 'timeZoneName')?.value
+  const daylight = zone === 'GMT+11:00'
+  return daylight
+    ? { name: 'AEDT', daylight, offset: 'UTC+11' }
+    : { name: 'AEST', daylight, offset: 'UTC+10' }
+}
+
 export const DEFAULT_TIME_ZONE = 'UTC'
 
 const toValidDate = (value: string | Date | null | undefined): Date | null => {
@@ -198,6 +212,39 @@ export function getTimeZoneDateParts(
 
   if (!year || !month || !day) return null
   return { year, month, day }
+}
+
+// Spelled out: browsers differ on "Sep" and "Sept".
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const dayMonthYearParts = (value: string | Date | null | undefined, timeZone: string) => {
+  const date = toValidDate(value)
+  if (!date) return null
+  const parts = getFormatter('en-GB', {
+    timeZone: normalizeTimeZone(timeZone),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const part = new Map(parts.map((item) => [item.type, item.value]))
+  const month = SHORT_MONTHS[Number(part.get('month')) - 1]
+  if (!month) return null
+  return { day: part.get('day'), month, year: part.get('year'), hour: part.get('hour'), minute: part.get('minute') }
+}
+
+/** "14 Sep 2026" in ``timeZone``. */
+export function formatDayMonthYear(value: string | Date | null | undefined, timeZone = DEFAULT_TIME_ZONE): string {
+  const parts = dayMonthYearParts(value, timeZone)
+  return parts ? `${parts.day} ${parts.month} ${parts.year}` : ''
+}
+
+/** "14 Sep 2026 15:30" (DD MMM YYYY HH:mm, 24-hour) in ``timeZone``. */
+export function formatDayMonthYearTime(value: string | Date | null | undefined, timeZone = DEFAULT_TIME_ZONE): string {
+  const parts = dayMonthYearParts(value, timeZone)
+  return parts ? `${parts.day} ${parts.month} ${parts.year} ${parts.hour}:${parts.minute}` : ''
 }
 
 export function formatEventDate(

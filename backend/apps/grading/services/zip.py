@@ -8,7 +8,8 @@ the folder and every file carry the current year:
 
     <Year>_<GroupName>/
         <Year>_<GroupName>_<Component>.<ext>        # stored file, original ext
-        <Year>_<GroupName>_SAQs.txt                 # SAQ answer text
+        <Year>_<GroupName>_SAQs.pdf                 # SAQ answers (saq_pdf), or
+        <Year>_<GroupName>_SAQs.txt                 #   as text when asked for
         <Year>_<GroupName>_Prototype_Link.txt       # prototype link
         <Year>_<GroupName>_<Component>_MISSING.txt  # blob gone — see below
 
@@ -22,28 +23,19 @@ from __future__ import annotations
 import io
 import logging
 import os
-import re
 import zipfile
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Iterable
 
+from fpdf import FPDF
+
+from apps.common.filenames import safe_name
 from apps.submissions.services import current_cohort
 
 from .content import ComponentEntry, open_file
 
 logger = logging.getLogger(__name__)
-
-
-_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
-
-
-def safe_name(name: str) -> str:
-    """Filesystem-safe segment. Collapses runs of unsafe chars to ``_`` and
-    trims leading/trailing dots to keep Windows extractors happy."""
-    cleaned = _UNSAFE.sub("_", (name or "").strip())
-    cleaned = cleaned.strip("._")
-    return cleaned or "unnamed"
 
 
 def _read_entry_bytes(entry: ComponentEntry) -> bytes | None:
@@ -78,9 +70,27 @@ _COMPONENT_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PRO
 _FETCH_WORKERS = 10
 _FETCH_AHEAD = _FETCH_WORKERS * 2
 
+# Types the program that made them already compressed (PDF makers, cameras,
+# Office, video apps): they go into the zip as they are, since compressing
+# them again takes time and saves almost nothing. Anything else, our own
+# text files and unknown types included, is compressed as before.
+_ALREADY_COMPRESSED = frozenset({
+    "pdf",
+    "jpg", "jpeg", "png", "gif", "webp", "heic",
+    "docx", "pptx", "xlsx",
+    "zip", "rar", "7z", "gz",
+    "mp4", "mov", "mkv", "webm", "avi", "mp3", "m4a",
+})
+
+
+def _compression_for(filename: str) -> int:
+    """How a file goes into the zip: stored as-is if already compressed."""
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return zipfile.ZIP_STORED if extension in _ALREADY_COMPRESSED else zipfile.ZIP_DEFLATED
+
 
 def build_submissions_zip(
-    entries: Iterable[ComponentEntry], *, group_folder: bool = True
+    entries: Iterable[ComponentEntry], *, group_folder: bool = True, saq_text: bool = False
 ) -> bytes:
     """Materialise a zip archive of the given component entries to memory.
 
@@ -143,12 +153,57 @@ def build_submissions_zip(
                 else:
                     ext = os.path.splitext(original)[1]
                     ext = f".{safe_name(ext[1:])}" if ext else ".bin"
-                    zf.writestr(f"{base}{ext}", data)
+                    zf.writestr(f"{base}{ext}", data, compress_type=_compression_for(ext))
 
-            if entry.text:
-                zf.writestr(f"{base}.txt", entry.text)
+            if entry.answers and not saq_text:
+                # The SAQ answers as a PDF, under the team's project title;
+                # compressed already, so stored as it is.
+                zf.writestr(f"{base}.pdf", saq_pdf(entry), compress_type=zipfile.ZIP_STORED)
+            elif entry.text:
+                # As text (SAQ's txt download), under the project title.
+                text = f"Title: {entry.project_title}\n\n{entry.text}" if entry.project_title else entry.text
+                zf.writestr(f"{base}.txt", text)
 
             if entry.link:
                 zf.writestr(f"{base}_Link.txt", entry.link + "\n")
 
     return buffer.getvalue()
+
+
+# --- SAQ answers as PDFs ---------------------------------------------------------------
+
+# The PDF's built-in fonts write Windows-1252: accented letters, curly quotes,
+# dashes and bullets come through; anything else (emoji, other scripts) is "?".
+_PDF_ENCODING = "cp1252"
+
+
+def _pdf_text(text: str) -> str:
+    return text.encode(_PDF_ENCODING, "replace").decode(_PDF_ENCODING)
+
+
+def saq_pdf(entry: ComponentEntry) -> bytes:
+    """One group's SAQ answers as a PDF: "Title: " and its project title, then
+    each question in bold, as the submission page has them, with its answer
+    below. The group's name is in the file's name."""
+    pdf = FPDF(format="A4")
+    pdf.core_fonts_encoding = _PDF_ENCODING
+    pdf.set_margins(20, 20, 20)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_title(_pdf_text(entry.group_name))
+    pdf.add_page()
+
+    # The project title in 14pt, not bold.
+    if entry.project_title:
+        pdf.set_font("Helvetica", "", 14)
+        pdf.multi_cell(0, 7.5, _pdf_text(f"Title: {entry.project_title}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # Questions and answers in 12pt.
+    for prompt, answer in entry.answers:
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.multi_cell(0, 6.5, _pdf_text(prompt), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "", 12)
+        pdf.multi_cell(0, 6.5, _pdf_text(answer), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(5)
+    return bytes(pdf.output())

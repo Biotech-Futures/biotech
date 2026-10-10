@@ -78,18 +78,30 @@
         <div class="finalist-part" data-testid="finalist-availability">
         <header class="section-head">
           <h2 class="card-title">Availability</h2>
-          <p class="section-head__sub">
-            While we hope you can join us for the whole day, we understand that not all teams are
-            able to. Please select which sessions you will be able to join us for to ensure we
-            schedule you into an appropriate presentation slot. You may select multiple options.
-          </p>
-          <p v-if="symposiumDay" class="section-head__sub">The sessions are on {{ symposiumDay }}.</p>
+          <template v-if="detail.times_shown">
+            <p class="section-head__sub">
+              While we hope you can join us for the whole day, we understand that not all teams are
+              able to. Please select which sessions you will be able to join us for to ensure we
+              schedule you into an appropriate presentation slot. You may select multiple options.
+            </p>
+            <p v-if="symposiumDay" class="section-head__sub">
+              The sessions are on {{ symposiumDay }}, in Sydney time ({{ sydneyClock }}).
+            </p>
+          </template>
         </header>
 
-        <p v-if="!detail.sessions.length" class="submission-muted">
+        <!-- Until Management releases the sessions: what's coming, and what to do
+             then, under the heading's line like the sessions would be. -->
+        <p v-if="!detail.times_shown" class="section-head__sub finalist-not-shown" data-testid="sessions-not-shown">
+          The presentation sessions haven't been released yet. Stay tuned, and once they're
+          released, come back here and select the sessions your team can join so we can schedule
+          you into a presentation slot.
+        </p>
+
+        <p v-if="detail.times_shown && !detail.sessions.length" class="submission-muted">
           No sessions have been set up yet.
         </p>
-        <fieldset v-else class="finalist-sessions" :disabled="!isEditable || isSaving">
+        <fieldset v-else-if="detail.times_shown" class="finalist-sessions" :disabled="!isEditable || isSaving">
           <legend class="submission-label">
             Sessions
             <span class="submission-required" title="Required" aria-label="required">*</span>
@@ -237,6 +249,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { sydneyClockOn } from '@/utils/date'
 import {
   fetchFinalist,
   presentationDownloadUrl,
@@ -296,6 +309,15 @@ const isPreviewShut = computed(() => !isEditable.value && !shownPresentation.val
 const isPreviewFolded = computed(() => previewCollapsed.value || isPreviewShut.value)
 const maxSizeLabel = computed(() => formatFileSize(detail.value?.max_file_size ?? 25 * 1024 * 1024))
 // "Friday, 23 October 2026", as the finalist email words the Symposium day.
+// "AEDT, UTC+11" on the Symposium day: the sessions are Sydney time
+// wherever the team is.
+const sydneyClock = computed(() => {
+  const iso = detail.value?.symposium_date
+  if (!iso) return ''
+  const clock = sydneyClockOn(iso)
+  return `${clock.name}, ${clock.offset}`
+})
+
 const symposiumDay = computed(() => {
   const iso = detail.value?.symposium_date
   if (!iso) return ''
@@ -517,7 +539,8 @@ async function removeFile() {
 }
 
 async function onSubmit() {
-  if (!entry.value?.availability_submitted_at || availabilityChanged.value) {
+  // Availability is only needed once the sessions are shown.
+  if (detail.value?.times_shown && (!entry.value?.availability_submitted_at || availabilityChanged.value)) {
     setMessage("Submit your team's availability first.", true)
     showPart('availability')
     return
@@ -639,6 +662,10 @@ onBeforeUnmount(() => {
   margin-top: 1.75rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--panel-border);
+}
+
+.finalist-not-shown {
+  margin: 0;
 }
 
 .finalist-sessions {

@@ -59,6 +59,7 @@ const router = createRouter({
 })
 
 import { useAuthStore } from '../stores/auth'
+import { rememberReturnTo } from '../utils/postLoginRedirect'
 
 router.beforeEach((to, from, next) => {
 
@@ -69,7 +70,11 @@ router.beforeEach((to, from, next) => {
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (to.meta.public === true) {
+    // Open to anyone, signed in or not, and never redirected away.
+    next()
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
@@ -79,6 +84,8 @@ router.beforeEach((to, from, next) => {
     next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
+    // Signing in brings them back here, e.g. to the page an email linked to.
+    rememberReturnTo(to.fullPath)
     next('/login')
 
   } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {

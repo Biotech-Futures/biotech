@@ -22,6 +22,79 @@ from apps.submissions.models import Submission
 from .fixtures import _GradingFixture
 
 
+class SaqPdfTests(SimpleTestCase):
+    """One group's SAQ answers as a PDF: its name and title, then each
+    question with its answer; characters its fonts can't draw become "?"."""
+
+    def test_its_name_title_and_each_question_with_its_answer(self):
+        from pypdf import PdfReader
+
+        entry = ComponentEntry(
+            submission_id=1, group_id=1, group_name="BTF07", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="", link="",
+            answers=(("What problem?", "Caf\u00e9 owners\u2019 waste \u2013 \u201creal\u201d"), ("Emoji?", "\U0001f9ea yes")),
+            project_title="Plant Sensors",
+        )
+        text = PdfReader(io.BytesIO(zip_service.saq_pdf(entry))).pages[0].extract_text()
+        # The group's name alone, then "Title: ", then the questions unnumbered.
+        self.assertTrue(text.startswith("Title: Plant Sensors\nWhat problem?\n"), text[:80])
+        for expected in ("Caf\u00e9 owners\u2019 waste \u2013 \u201creal\u201d", "\nEmoji?\n", "? yes"):
+            self.assertIn(expected, text)
+        self.assertNotIn("BTF07", text)
+        self.assertNotIn("SAQs", text)
+        self.assertNotIn("1. ", text)
+
+
+class SaqAnswersInZipTests(SimpleTestCase):
+    def test_the_answers_come_as_a_pdf_under_the_project_title(self):
+        from pypdf import PdfReader
+
+        entry = ComponentEntry(
+            submission_id=1, group_id=1, group_name="BTF07", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="What problem?\nThis one.", link="",
+            answers=(("What problem?", "This one."),), project_title="Plant Sensors",
+        )
+        with mock.patch.object(zip_service, "current_cohort", return_value=2026):
+            payload = zip_service.build_submissions_zip([entry], group_folder=False)
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+        self.assertEqual(archive.namelist(), ["2026_BTF07_SAQs.pdf"])
+        text = PdfReader(io.BytesIO(archive.read("2026_BTF07_SAQs.pdf"))).pages[0].extract_text()
+        self.assertEqual(text, "Title: Plant Sensors\nWhat problem?\nThis one.")
+
+
+class ZipCompressionTests(SimpleTestCase):
+    """Files already compressed go in as they are; everything else, our text
+    files and unknown types included, is compressed."""
+
+    def test_each_file_goes_in_as_its_type_needs_and_comes_out_the_same(self):
+        payloads = {name: f"payload of {name} ".encode() * 200 for name in (
+            "poster.pdf", "photo.JPG", "slides.pptx", "bundle.zip", "demo.mp4", "model.stl", "data.weird", "noext",
+        )}
+        entries = [
+            ComponentEntry(
+                submission_id=i, group_id=i, group_name=f"G{i}", component_id=4, component_code="PROTOTYPE",
+                submitted_at=None, is_late=False, file={"storage_key": name, "name": name}, text="", link="",
+            )
+            for i, name in enumerate(payloads)
+        ]
+        entries.append(ComponentEntry(
+            submission_id=99, group_id=99, group_name="G99", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="Answers. " * 200, link="",
+            answers=(("Question?", "Answers. " * 200),),
+        ))
+        with mock.patch.object(zip_service, "open_file", side_effect=lambda e: io.BytesIO(payloads[e.file["name"]])), \
+                mock.patch.object(zip_service, "current_cohort", return_value=2026):
+            archive = zipfile.ZipFile(io.BytesIO(zip_service.build_submissions_zip(entries, group_folder=False)))
+        how = {info.filename.split("_", 2)[-1]: info.compress_type for info in archive.infolist()}
+        for stored in ("Prototype.pdf", "Prototype.JPG", "Prototype.pptx", "Prototype.zip", "Prototype.mp4", "SAQs.pdf"):
+            self.assertEqual(how[stored], zipfile.ZIP_STORED, stored)
+        for compressed in ("Prototype.stl", "Prototype.weird", "Prototype.bin"):
+            self.assertEqual(how[compressed], zipfile.ZIP_DEFLATED, compressed)
+        # Byte for byte either way.
+        self.assertEqual(archive.read("2026_G0_Prototype.pdf"), payloads["poster.pdf"])
+        self.assertEqual(archive.read("2026_G5_Prototype.stl"), payloads["model.stl"])
+
+
 class BuildSubmissionsZipTests(SimpleTestCase):
     """Direct coverage of the zip builder's concurrent blob prefetch: with
     far more entries than pool workers, the archive must still come out in
@@ -100,12 +173,15 @@ class GroupDownloadViewTests(_GradingFixture):
         # <Year>_<Group>_<Component> files at the archive root.
         year = timezone.now().year
         base = f"{year}_BTF-TEST-1"
-        self.assertIn(f"{base}_SAQs.txt", names)
+        self.assertIn(f"{base}_SAQs.pdf", names)
         self.assertIn(f"{base}_Prototype_Link.txt", names)
         # The fixture's poster storage key has no backing blob; the archive
         # notes it instead of failing.
         self.assertIn(f"{base}_Poster_MISSING.txt", names)
-        self.assertIn("Some student answers.", zf.read(f"{base}_SAQs.txt").decode())
+        from pypdf import PdfReader
+
+        saqs = PdfReader(io.BytesIO(zf.read(f"{base}_SAQs.pdf"))).pages[0].extract_text()
+        self.assertIn("Some student answers.", saqs)
         self.assertEqual(
             zf.read(f"{base}_Prototype_Link.txt").decode().strip(),
             "https://example.com/prototype",
@@ -117,7 +193,7 @@ class GroupDownloadViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
         year = timezone.now().year
-        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.txt"])
+        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.pdf"])
 
     def test_names_carry_the_challenge_year_while_its_deadline_is_current(self):
         # January after a challenge: the calendar year has moved on, but last
@@ -133,7 +209,7 @@ class GroupDownloadViewTests(_GradingFixture):
         url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
         resp = self.client.get(url)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
-        self.assertEqual(names, [f"{last_year}_BTF-TEST-1_SAQs.txt"])
+        self.assertEqual(names, [f"{last_year}_BTF-TEST-1_SAQs.pdf"])
         self.assertIn(f"{last_year}_BTF-TEST-1", resp["Content-Disposition"])
 
     def test_non_staff_denied(self):
@@ -160,7 +236,14 @@ class ComponentDownloadViewTests(_GradingFixture):
         self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
         self.assertTrue(job.result_url)
         # Storage may add a suffix if the name is taken.
-        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.zip$")
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs_TXT(_\w+)?\.zip$")
+        # SAQ's txt download: its answers as text files, under the title.
+        from django.core.files.storage import default_storage
+
+        with default_storage.open(job.result_url) as stored:
+            archive = zipfile.ZipFile(io.BytesIO(stored.read()))
+        self.assertEqual(archive.namelist(), [f"{timezone.now().year}_BTF-TEST-1_SAQs.txt"])
+        self.assertIn("Some student answers.", archive.read(archive.namelist()[0]).decode())
 
     def test_saq_sheet_is_named_btf(self):
         url = reverse("grading:component-download", kwargs={"code": "SAQ"})
@@ -174,6 +257,27 @@ class ComponentDownloadViewTests(_GradingFixture):
         resp = self.client.post(url, {"format": "xlsx"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_pdf_zips_each_groups_saq_answers_as_a_pdf(self):
+        from django.core.files.storage import default_storage
+        from pypdf import PdfReader
+
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "pdf"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs_PDF(_\w+)?\.zip$")
+        with default_storage.open(job.result_url) as stored:
+            archive = zipfile.ZipFile(io.BytesIO(stored.read()))
+        self.assertEqual(archive.namelist(), [f"{timezone.now().year}_BTF-TEST-1_SAQs.pdf"])
+        text = PdfReader(io.BytesIO(archive.read(archive.namelist()[0]))).pages[0].extract_text()
+        self.assertNotIn("BTF-TEST-1", text)
+
+    def test_pdf_only_for_saq(self):
+        url = reverse("grading:component-download", kwargs={"code": "POSTER"})
+        resp = self.client.post(url, {"format": "pdf"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_bad_format_rejected(self):
         url = reverse("grading:component-download", kwargs={"code": "SAQ"})
         resp = self.client.post(url, {"format": "docx"}, format="json")
@@ -184,6 +288,51 @@ class ComponentDownloadViewTests(_GradingFixture):
         url = reverse("grading:component-download", kwargs={"code": "SAQ"})
         resp = self.client.post(url, {"format": "zip"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+class GradingJobDirectDownloadTests(_GradingFixture):
+    """On Azure, a finished export's download is a redirect to a short-lived
+    signed link, so the browser fetches it straight from Azure."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_DONE,
+            params={"kind": "all_zip"},
+            result_url="grading/jobs/1/2026_BTF_All.zip",
+        )
+
+    def test_it_redirects_to_a_signed_link_on_azure(self):
+        from apps.grading.views import download as download_views
+
+        with mock.patch.object(
+            download_views, "_direct_link", return_value="https://blob.example/2026_BTF_All.zip?sig=x",
+        ) as link:
+            resp = self.client.get(reverse("grading:job-download", kwargs={"pk": self.job.pk}))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://blob.example/2026_BTF_All.zip?sig=x")
+        # The content type is the system's name for a zip (it differs on Windows).
+        link.assert_called_once_with("grading/jobs/1/2026_BTF_All.zip", "2026_BTF_All.zip", mock.ANY)
+
+    def test_the_link_is_signed_short_lived_and_saves_under_its_name(self):
+        from apps.grading.views import download as download_views
+
+        class FakeAzure:
+            def url(self, name, expire=None, parameters=None):
+                return f"https://blob.example/{name}?expire={expire}&cd={parameters['content_disposition']}"
+
+        with mock.patch("storages.backends.azure_storage.AzureStorage", FakeAzure), \
+                mock.patch.object(download_views, "default_storage", FakeAzure()):
+            link = download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip")
+        self.assertEqual(link, 'https://blob.example/grading/jobs/1/x.zip?expire=600&cd=attachment; filename="x.zip"')
+
+    def test_local_storage_streams_instead(self):
+        from apps.grading.views import download as download_views
+
+        self.assertIsNone(download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip"))
 
 
 @override_settings(GRADING_JOB_DISPATCH_SYNC=True)

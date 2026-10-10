@@ -28,7 +28,7 @@
               <button type="button" class="grading-settings__file-btn" @click="sig1Input?.click()">
                 Browse…
               </button>
-              <span class="grading-settings__file-name">{{ sig1?.name || baseName(settings.director_1_signature) || 'No file selected.' }}</span>
+              <span class="grading-settings__file-name">{{ sig1?.name || settings.director_1_signature || 'No file selected.' }}</span>
             </div>
             <p
               v-if="director1Changed"
@@ -52,7 +52,7 @@
               <button type="button" class="grading-settings__file-btn" @click="sig2Input?.click()">
                 Browse…
               </button>
-              <span class="grading-settings__file-name">{{ sig2?.name || baseName(settings.director_2_signature) || 'No file selected.' }}</span>
+              <span class="grading-settings__file-name">{{ sig2?.name || settings.director_2_signature || 'No file selected.' }}</span>
             </div>
             <p
               v-if="director2Changed"
@@ -108,7 +108,7 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('marks-summary')" :key="name">{{ name }}</code>
             </p>
-            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <!-- Download Sample Marks Doc fills in made-up details; Download Group Marks a real group's. -->
             <div class="grading-settings__test-row">
               <button
                 type="button"
@@ -116,7 +116,7 @@
                 :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
                 @click="testRender('marks-summary')"
               >
-                {{ testing === 'marks-summary' ? 'Rendering…' : 'Test' }}
+                {{ testing === 'marks-summary' ? 'Rendering…' : 'Download Sample Marks Doc' }}
               </button>
               <div class="grading-settings__person-test">
                 <button
@@ -125,15 +125,15 @@
                   :disabled="testing !== '' || !person['marks-summary'] || !(summaryTpl || settings.marks_summary_template)"
                   @click="testRender('marks-summary', true)"
                 >
-                  {{ testing === 'marks-summary-person' ? 'Rendering…' : 'Test Student' }}
+                  {{ testing === 'marks-summary-person' ? 'Rendering…' : 'Download Group Marks' }}
                 </button>
                 <select
                   v-model="person['marks-summary']"
                   class="grading-settings__person-select"
-                  aria-label="Student"
+                  aria-label="Group"
                   :disabled="!people['marks-summary'].length"
                 >
-                  <option v-if="!people['marks-summary'].length" value="">Nobody yet</option>
+                  <option v-if="!people['marks-summary'].length" value="">No groups yet</option>
                   <option v-for="option in people['marks-summary']" :key="option.value" :value="option.value">
                     {{ option.label }}
                   </option>
@@ -177,7 +177,8 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('certificate')" :key="name">{{ name }}</code>
             </p>
-            <!-- Test fills in made-up details; Test Student a real student's. -->
+            <!-- Download Sample Certificate Doc fills in made-up details; Download Student Certificate a
+                 real student's. -->
             <div class="grading-settings__test-row">
               <button
                 type="button"
@@ -185,7 +186,7 @@
                 :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
                 @click="testRender('certificate')"
               >
-                {{ testing === 'certificate' ? 'Rendering…' : 'Test' }}
+                {{ testing === 'certificate' ? 'Rendering…' : 'Download Sample Certificate Doc' }}
               </button>
               <div class="grading-settings__person-test">
                 <button
@@ -194,7 +195,7 @@
                   :disabled="testing !== '' || !person['certificate'] || !(certTpl || settings.certificate_template)"
                   @click="testRender('certificate', true)"
                 >
-                  {{ testing === 'certificate-person' ? 'Rendering…' : 'Test Student' }}
+                  {{ testing === 'certificate-person' ? 'Rendering…' : 'Download Student Certificate' }}
                 </button>
                 <select
                   v-model="person['certificate']"
@@ -246,7 +247,8 @@
               Variables present in the selected file but not recognised (these render blank):
               <code v-for="name in unknownIn('mentor-certificate')" :key="name">{{ name }}</code>
             </p>
-            <!-- Test fills in made-up details; Test Mentor a real mentor's. -->
+            <!-- Download Sample Certificate Doc fills in made-up details; Download Mentor Certificate a
+                 real mentor's. -->
             <div class="grading-settings__test-row">
               <button
                 type="button"
@@ -254,7 +256,7 @@
                 :disabled="testing !== '' || !(mentorTpl || settings.mentor_certificate_template)"
                 @click="testRender('mentor-certificate')"
               >
-                {{ testing === 'mentor-certificate' ? 'Rendering…' : 'Test' }}
+                {{ testing === 'mentor-certificate' ? 'Rendering…' : 'Download Sample Certificate Doc' }}
               </button>
               <div class="grading-settings__person-test">
                 <button
@@ -263,7 +265,7 @@
                   :disabled="testing !== '' || !person['mentor-certificate'] || !(mentorTpl || settings.mentor_certificate_template)"
                   @click="testRender('mentor-certificate', true)"
                 >
-                  {{ testing === 'mentor-certificate-person' ? 'Rendering…' : 'Test Mentor' }}
+                  {{ testing === 'mentor-certificate-person' ? 'Rendering…' : 'Download Mentor Certificate' }}
                 </button>
                 <select
                   v-model="person['mentor-certificate']"
@@ -548,8 +550,8 @@ const MENTOR_CERTIFICATE_FIELDS: Placeholder[] = [
   'Director2Position'
 ].map(token)
 
-// Which Test is rendering: a kind, or "<kind>-person" for its Test Student
-// or Test Mentor.
+// Which Test is rendering: a kind, or "<kind>-person" for its Download
+// button with a real group, student or mentor.
 const testing = ref<'' | TemplateKind | `${TemplateKind}-person`>('')
 
 // What the saved template actually contains, so chips can show which
@@ -748,7 +750,6 @@ const save = async () => {
 
 <style scoped>
 .grading-settings {
-  max-width: 42rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -889,7 +890,7 @@ const save = async () => {
 }
 
 /* Yellow nudge under Test while a picked file is still unsaved. */
-/* Test, then Test Student or Test Mentor with its dropdown. */
+/* Test, then the Download button with its dropdown. */
 .grading-settings__test-row {
   display: flex;
   flex-wrap: wrap;

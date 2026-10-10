@@ -105,10 +105,10 @@
       :title="`${component.name} preview`"
       class="submission-preview__frame"
       :class="{ 'submission-preview__frame--dragging': frameDragging }"
-      :style="frameHeight != null ? { height: `${frameHeight}px` } : undefined"
+      :style="frameResizable && frameHeight != null ? { height: `${frameHeight}px` } : undefined"
     ></iframe>
     <div
-      v-if="fileUrl && isPreviewable"
+      v-if="fileUrl && isPreviewable && frameResizable"
       class="submission-preview__resize"
       role="separator"
       aria-orientation="horizontal"
@@ -121,8 +121,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { resolveApiFileUrl, type Submission, type SubmissionComponent } from '@/utils/gradingAPI'
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/utils/storage'
 
 const props = defineProps<{
   submission: Submission | null
@@ -134,7 +135,15 @@ const props = defineProps<{
   /** Hoisted-stamp views: the parent renders one shared "Submitted …" line
    *  carrying the Open/Download actions, so the whole meta row is hidden. */
   hideSubmitted?: boolean
+  /** Which subtab's heights these are, so each keeps its own; the
+   *  component's code if not given. */
+  memory?: string
 }>()
+
+// The A2 poster keeps its frame's own height: no handle under it.
+const frameResizable = computed(() => props.component.code !== 'POSTER')
+
+const memoryName = props.memory ?? props.component.code
 
 const fileUrl = computed(() => resolveApiFileUrl(props.submission?.file_url ?? null))
 const downloadUrl = computed(() =>
@@ -153,23 +162,37 @@ const isPreviewable = computed(() => {
   }
 })
 
-// Ask the browser's PDF viewer to start with the thumbnail sidebar closed.
-// Fragment params are viewer hints: Chromium/Adobe honour navpanes=0, pdf.js
-// (Firefox) honours pagemode=none; others ignore them. The fragment is never
-// sent to the server, so Azure SAS query strings are unaffected.
+// Ask the browser's PDF viewer to start with the thumbnail sidebar closed,
+// and to fit the page to the frame's width, so it re-fits as the dividers
+// are dragged (a fixed zoom would stay as it loaded). Fragment params are
+// viewer hints: Chromium/Adobe honour navpanes=0 and view=FitH, pdf.js
+// (Firefox) pagemode=none and zoom=page-width; others ignore them. The
+// fragment is never sent to the server, so Azure SAS query strings are
+// unaffected.
 const frameUrl = computed(() => {
   const url = fileUrl.value
   if (!url) return null
-  return isPreviewable.value ? `${url}#navpanes=0&pagemode=none` : url
+  return isPreviewable.value ? `${url}#navpanes=0&pagemode=none&view=FitH&zoom=page-width` : url
 })
 
 // Drag the bar under a block to change its height — the PDF frame and the
 // SAQ answers share the mechanic. null = the block's default CSS height.
 const MIN_BLOCK_PX = 240
 
-function useHeightDrag(target: () => HTMLElement | null) {
-  const height = ref<number | null>(null)
+// A height dragged to is remembered under ``memory``, so it stays put across
+// groups (the page rebuilds while the next one loads) and visits.
+function useHeightDrag(target: () => HTMLElement | null, memory: string) {
+  const storageKey = `grading-height:${memory}`
+  const saved = Number(safeLocalStorageGet(storageKey))
+  const height = ref<number | null>(saved >= MIN_BLOCK_PX ? saved : null)
   const dragging = ref(false)
+  watch(height, (px) => {
+    if (px !== null) safeLocalStorageSet(storageKey, String(px))
+  })
+  const reset = () => {
+    height.value = null
+    safeLocalStorageRemove(storageKey)
+  }
 
   const start = (event: PointerEvent) => {
     const el = target()
@@ -206,7 +229,7 @@ function useHeightDrag(target: () => HTMLElement | null) {
     }
   }
 
-  return { height, dragging, start, keydown }
+  return { height, dragging, start, keydown, reset }
 }
 
 const frameEl = ref<HTMLIFrameElement | null>(null)
@@ -214,15 +237,28 @@ const {
   height: frameHeight,
   dragging: frameDragging,
   start: startFrameDrag,
-  keydown: onFrameKeydown
-} = useHeightDrag(() => frameEl.value)
+  keydown: onFrameKeydown,
+  reset: resetFrameHeight
+} = useHeightDrag(() => frameEl.value, `${memoryName}:frame`)
 
 const answersEl = ref<HTMLDivElement | null>(null)
 const {
   height: answersHeight,
   start: startAnswersDrag,
-  keydown: onAnswersKeydown
-} = useHeightDrag(() => answersEl.value)
+  keydown: onAnswersKeydown,
+  reset: resetAnswersHeight
+} = useHeightDrag(() => answersEl.value, `${memoryName}:answers`)
+
+// For the marking page's Reset view: whether either height was changed, and
+// putting both back.
+const moved = computed(
+  () => (frameResizable.value && frameHeight.value !== null) || answersHeight.value !== null
+)
+const reset = () => {
+  resetFrameHeight()
+  resetAnswersHeight()
+}
+defineExpose({ moved, reset })
 
 const submittedLabel = computed(() =>
   props.submission ? new Date(props.submission.submitted_at).toLocaleString() : ''

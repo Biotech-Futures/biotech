@@ -1,6 +1,6 @@
 <template>
-  <!-- Beside an email's preview: send it, exactly as the chosen person would
-       get it, to any address. Nothing is recorded as sent. -->
+  <!-- Beside an email's preview: send it, exactly as the chosen group or
+       supervisor would get it, to any address. Nothing is recorded as sent. -->
   <div class="test-email">
     <button
       type="button"
@@ -67,7 +67,7 @@ const props = defineProps<{
 
 const recipients = ref<TestEmailRecipient[]>([])
 // Shared with the page (v-model:recipient), so its preview shows the email
-// as the person picked here gets it.
+// as the one picked here gets it.
 const recipient = defineModel<string>('recipient', { default: '' })
 const loadError = ref(false)
 const to = ref('')
@@ -89,7 +89,11 @@ const send = async () => {
   result.value = null
   try {
     const sent = await sendTestEmail(props.kind, recipient.value, to.value.trim(), props.fields?.() ?? {})
-    result.value = { ok: true, text: `Test sent to ${sent.sent_to}.` }
+    // A test can take a few minutes too, and bounces like the real thing.
+    const note = sent.sent_from
+      ? ` It can take a few minutes to arrive. If it can't be delivered, it comes back to ${sent.sent_from}.`
+      : ''
+    result.value = { ok: true, text: `Test sent to ${sent.sent_to}.${note}` }
   } catch (err) {
     result.value = { ok: false, text: apiErrorFromUnknown(err).message }
   } finally {
@@ -104,6 +108,8 @@ const send = async () => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  /* The rest of its row: it never drops below the button beside it. */
+  flex: 1 1 0;
 }
 
 .test-email__word {
@@ -127,7 +133,10 @@ const send = async () => {
 }
 
 .test-email__to {
-  width: 12rem;
+  /* At least 13rem, taking the room there is up to 17rem. */
+  flex: 1 1 13rem;
+  min-width: 13rem;
+  max-width: 17rem;
 }
 
 .test-email__select:focus,
@@ -138,6 +147,8 @@ const send = async () => {
 
 .test-email__result {
   font-size: 0.85rem;
+  /* Its own line, so it never pushes the address box down. */
+  flex-basis: 100%;
 }
 
 .test-email__result--ok {

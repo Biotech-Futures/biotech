@@ -5,8 +5,10 @@ name: Hourly RSVP reminders
 # and the REMINDER_KINDS registry.
 #
 # Required configuration:
-#   secret  RSVP_REMINDER_TOKEN         must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
+#   secret  RSVP_REMINDER_TOKEN   shared by every email job for now; must
+#                                 match the backend env of the same name.
+#                                 Moves to EMAIL_JOBS_TOKEN once that's set
+#                                 on GitHub and Azure.
 #
 # Off-peak minute (23) avoids GitHub's top-of-hour cron load spike,
 # which can otherwise drift the run by 10+ minutes and miss the window.
@@ -23,14 +25,10 @@ jobs:
     steps:
       - name: Trigger RSVP reminder dispatch
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
-          REMINDER_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
-          if [ -z "${REMINDER_TOKEN}" ]; then
+          if [ -z "${JOBS_TOKEN}" ]; then
             echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
@@ -38,6 +36,6 @@ jobs:
           # surfaces auth or server failures instead of silently
           # succeeding. -sS keeps output quiet but still prints errors.
           curl -fsS -X POST \
-            -H "X-Reminder-Token: ${REMINDER_TOKEN}" \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
             -H "Content-Type: application/json" \
             "${BACKEND_URL%/}/events/v1/admin/send-rsvp-reminders/"

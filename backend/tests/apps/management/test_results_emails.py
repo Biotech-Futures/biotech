@@ -126,7 +126,8 @@ class ResultsEmailTests(_GradingFixture):
         return [{**body, "emailed": run["run"]["emailed"], "failed": run["run"]["failed"], "run": run["run"]}]
 
     def _recipients(self):
-        return sorted(m.to[0] for m in mail.outbox)
+        """Everyone the emails went to, To and CC."""
+        return sorted(address for m in mail.outbox for address in m.to + m.cc)
 
     # -- who gets it ------------------------------------------------------------
 
@@ -134,21 +135,30 @@ class ResultsEmailTests(_GradingFixture):
         results = self._send_all("groups")
         # The supervisor who is a member gets the supervisor email instead.
         self.assertEqual(self._recipients(), ["amy@example.com", "ben@example.com", "mentor@example.com"])
+        # One email: the students and the mentor in To.
+        self.assertEqual(
+            [(m.to, m.cc) for m in mail.outbox], [(["amy@example.com", "ben@example.com", "mentor@example.com"], [])],
+        )
 
         message = mail.outbox[0]
         text = " ".join(message.body.split())  # the plain text wraps its lines
         self.assertEqual(message.subject, f"Your {self.group.year} BIOTech Futures Challenge results")
-        self.assertIn(f"Dear {self.group.group_name},", text)
+        self.assertIn(f"Dear members of {self.group.group_name},", text)
         self.assertIn(f"Congratulations on your participation in the {self.group.year} BIOTech Futures Challenge!", text)
         self.assertIn("https://example.com/survey", text)
         closes = ResultsEmailSettings.load().survey_closes
         self.assertIn(f"until the {closes.day}", text)
         self.assertIn(f" of {closes:%B}.", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["emailed"], 3)
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 1})
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 0})
+        # The group email's students and mentor, all emailed.
+        self.assertEqual(results[-1]["people"], {
+            "students": {"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}},
+            "mentors": {"total": 1, "emailed": 1, "times": {"total": 1, "emailed": 1}},
+        })
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     def test_supervisors_are_emailed_separately_once_each(self):
@@ -158,7 +168,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(message.subject, f"Your students’ {self.group.year} BIOTech Futures Challenge results")
         self.assertIn("Dear Sam Lee,", message.body)
         self.assertIn("Merit certificates for each of your students", " ".join(message.body.split()))
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
         self.assertEqual(results[-1]["supervisors"], {"total": 1, "emailed": 1})
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
         self.assertTrue(ResultsSupervisorEmail.objects.filter(supervisor=self.supervisor).exists())
@@ -189,21 +199,27 @@ class ResultsEmailTests(_GradingFixture):
     def _runs(self):
         return self.client.get(reverse("management:results-email")).json()["runs"]
 
-    def test_a_second_run_is_refused_while_one_is_sending(self):
-        # Another tab, or a run started before the page was reopened.
+    def test_a_send_pressed_while_another_runs_is_queued_until_it_finishes(self):
+        # Another email's run, e.g. one started on another page.
         self._hold_send("results_team", timezone.now() + timedelta(minutes=4))
         self.assertEqual((self._runs()["groups"]["sending"], self._runs()["supervisors"]["sending"]), (True, False))
-        r = self.client.post(reverse(SEND), {"audience": "groups"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(r.json()["detail"], "Results emails are already being sent. Wait for that to finish.")
+        r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()["runs"]["supervisors"]["queued"], 1)
         self.assertEqual(mail.outbox, [])
-        self.assertFalse(ResultsTeamEmail.objects.exists())
+
+        # Once that run finishes, the page's next check sends it.
+        self._hold_send("results_team", None)
+        self.assertEqual(self._runs()["supervisors"]["queued"], 0)
+        self.assertTrue(mail.outbox)
         # The supervisor email has a run of its own.
         self._send_all("supervisors")
         self.assertEqual(self._recipients(), ["sam.lee@example.com"])
 
     def test_the_page_is_told_the_runs_progress(self):
-        self.assertEqual(self._runs()["groups"], {"sending": False, "run": None})
+        self.assertEqual(
+            self._runs()["groups"], {"sending": False, "queued": 0, "ahead": [], "sent_from": "info@biotechfutures.org", "run": None}
+        )
         self._send_all("groups")
         run = self._runs()["groups"]
         self.assertFalse(run["sending"])
@@ -235,7 +251,8 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_run_that_cannot_reach_the_mail_server_says_so_and_frees_the_send(self):
         unreachable = mock.Mock()
         unreachable.open.side_effect = OSError("mail server down")
-        with mock.patch("apps.management.services.send_guard.get_connection", return_value=unreachable), \
+        # Connections are opened, signed in as the sender, by system_email.
+        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable), \
                 self.assertLogs("apps.management.services.send_guard", level="ERROR"):
             run = self._send_all("groups")[-1]["run"]
         self.assertEqual(
@@ -245,8 +262,13 @@ class ResultsEmailTests(_GradingFixture):
         # Nobody it was for got it, so all are listed.
         group = self.group.group_name
         self.assertEqual(
-            sorted(run["missed"]), [f"({group}) Mo Mentor", f"({group}) Stu amy", f"({group}) Stu ben"],
+            sorted(m["who"] for m in run["missed"]), [
+                f"amy@example.com ({group}, Stu amy)",
+                f"ben@example.com ({group}, Stu ben)",
+                f"mentor@example.com ({group}, Mo Mentor)",
+            ],
         )
+        self.assertEqual({m["reason"] for m in run["missed"]}, {"couldn't reach the mail server"})
         self.assertFalse(ResultsTeamEmail.objects.exists())
         # Pressing again sends it.
         self._send_all("groups")
@@ -257,9 +279,9 @@ class ResultsEmailTests(_GradingFixture):
     def test_everyone_in_the_group_gets_all_its_certificates_and_the_marks_summary(self):
         self._send_all("groups")
         year = self.group.year
-        self.assertEqual(len(mail.outbox), 3)
+        # The one email the students and mentor share: each sees the others' certificates.
+        self.assertEqual(len(mail.outbox), 1)
         for message in mail.outbox:
-            # Students and mentor alike: each sees the others' certificates.
             files = _files(message)
             self.assertEqual(list(files), [
                 f"{year}_BTF_Student_Certificate_Stu_amy.docx",
@@ -382,9 +404,45 @@ class ResultsEmailTests(_GradingFixture):
 
     def test_a_supervisor_it_could_not_reach_is_listed_with_their_groups(self):
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=OSError("rejected")), \
-                self.assertLogs("apps.management.services.results_notify", level="ERROR"):
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             run = self._send_all("supervisors")[-1]["run"]
-        self.assertEqual(run["missed"], [f"({self.group.group_name}) Sam Lee"])
+        self.assertEqual(run["missed"], [{"who": f"sam.lee@example.com ({self.group.group_name}, Sam Lee)", "reason": "lost the mail server connection"}])
+
+    def _resend(self, audience):
+        r = self.client.post(reverse(SEND), {"audience": audience, "which": "missed"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        return r.json()
+
+    def test_resend_to_those_missed_emails_only_the_supervisor_missed(self):
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
+            body = self._send_all("supervisors")[-1]
+        self.assertEqual(body["missed"]["supervisors"], {"count": 1, "people": 1})
+        # The group email hasn't been tried, so it has nobody to resend to.
+        self.assertEqual(body["missed"]["groups"], {"count": 0, "people": 0})
+
+        body = self._resend("supervisors")
+        self.assertEqual([m.to for m in mail.outbox], [["sam.lee@example.com"]])
+        self.assertEqual(body["missed"]["supervisors"], {"count": 0, "people": 0})
+
+    def test_resend_to_those_missed_emails_only_who_the_group_email_missed(self):
+        from apps.management.models import EmailDelivery
+
+        # An earlier send reached everyone but ben; this one doesn't go at all.
+        for address in ("amy@example.com", "mentor@example.com"):
+            EmailDelivery.objects.create(email="results_team", group=self.group, address=address)
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
+            body = self._send_all("groups")[-1]
+        self.assertEqual(body["missed"]["groups"], {"count": 1, "people": 1})
+
+        self._resend("groups")
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["ben@example.com"], [])])
+        self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
+
+    def test_resend_refuses_an_unknown_which(self):
+        r = self.client.post(reverse(SEND), {"audience": "groups", "which": "everyone"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_one_press_emails_every_group(self):
         for n in range(6):
@@ -395,26 +453,28 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual((result["run"]["due"], result["emailed"]), (9, 9))
         self.assertEqual(result["groups"], {"total": 7, "emailed": 7})
 
-    def test_a_team_whose_student_misses_it_stays_pending_and_is_not_retried_in_the_run(self):
-        real_send = mail.EmailMultiAlternatives.send
+    def test_a_team_whose_student_misses_it_stays_pending(self):
+        from apps.management.models import EmailDelivery
 
-        def fail_for_ben(message, *args, **kwargs):
-            if message.to == ["ben@example.com"]:
-                raise OSError("rejected")
-            return real_send(message, *args, **kwargs)
-
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
-                self.assertLogs("apps.management.services.results_notify", level="ERROR"):
+        # An earlier send reached everyone but ben; this one doesn't go at all.
+        for address in ("amy@example.com", "mentor@example.com"):
+            EmailDelivery.objects.create(email="results_team", group=self.group, address=address)
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all("groups")
         self.assertEqual(sum(r["failed"] for r in results), 1)
-        # The page lists who it couldn't reach.
-        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Stu ben"])
+        # The page lists who it couldn't reach, and why.
+        self.assertEqual(
+            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Stu ben)", "reason": "lost the mail server connection"}],
+        )
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
 
-        # The next press reaches the team again.
+        # The next press emails only the student it missed, files and all.
         mail.outbox = []
         self._send_all("groups")
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["ben@example.com"], [])])
+        self.assertEqual(len(_files(mail.outbox[0])), 4)
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     # -- when it may be sent ----------------------------------------------------------
@@ -475,7 +535,7 @@ class ResultsEmailTests(_GradingFixture):
     def test_a_switched_off_email_is_refused(self):
         SystemEmailTemplate.objects.create(key="results_supervisor", is_enabled=False)
         r = self.client.post(reverse(SEND), {"audience": "supervisors"}, format="json")
-        self.assertEqual(r.json()["detail"], "Results (To supervisors) is switched off on System Emails.")
+        self.assertEqual(r.json()["detail"], "Results (to supervisors) is switched off on System Emails.")
         r = self.client.get(reverse("management:results-email"))
         self.assertEqual(r.json()["emails_on"], {"groups": True, "supervisors": False})
 
@@ -657,7 +717,8 @@ class ResultsEmailTests(_GradingFixture):
             [o["label"] for o in self._people("certificate")],
             ["(BTF-TEST-1) Stu amy", "(BTF-TEST-1) Stu ben", "(Finalist Team) Stu fin"],
         )
-        self.assertEqual(self._people("marks-summary"), self._people("certificate"))
+        # The marks summary is a group's: the groups, by name.
+        self.assertEqual([o["label"] for o in self._people("marks-summary")], ["BTF-TEST-1", "Finalist Team"])
         self.assertEqual([o["label"] for o in self._people("mentor-certificate")], ["(BTF-TEST-1) Mo Mentor"])
         self.assertEqual(
             self.client.get(reverse("management:settings-test-people", args=["nope"])).status_code,
@@ -679,9 +740,9 @@ class ResultsEmailTests(_GradingFixture):
         self.assertIn(f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx", r["Content-Disposition"])
         self.assertIn("Mo Mentor mentored BTF-TEST-1", _docx_text(r.content))
 
-        # The marks summary is the student's group's, with its real marks.
+        # The marks summary is the group's, with its real marks.
         url = reverse("management:settings-test-render", args=["marks-summary"])
-        r = self.client.get(url, {"person": self._value("marks-summary", "(BTF-TEST-1) Stu ben")})
+        r = self.client.get(url, {"person": self._value("marks-summary", "BTF-TEST-1")})
         self.assertIn(f"{year}_BTF_Marks_BTF-TEST-1.docx", r["Content-Disposition"])
         self.assertIn("Team BTF-TEST-1 S1 8", _docx_text(r.content))
 

@@ -75,6 +75,10 @@ AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
 AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
 AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
 AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Keep profile photos separate from general media and user submissions. The
+# container is private; the application returns time-limited URLs when a
+# profile is serialized.
+AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
 # Finalists' presentation slides for the Symposium, apart from their entries.
 AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
@@ -231,6 +235,9 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # The public consent page, per IP: generous for a family sharing a
+        # connection, tight enough to make guessing links pointless.
+        'guardian_consent': '60/hour',
     },
 }
 
@@ -373,6 +380,27 @@ EMAIL_CONNECT_HOST_USER = config(
 EMAIL_CONNECT_HOST_PASSWORD = config("EMAIL_CONNECT_HOST_PASSWORD", default="")
 CONNECT_FROM_ADDRESS = "connect@biotechfutures.org"
 CONNECT_DEFAULT_FROM_EMAIL = f"{BRAND_CONNECT} <{CONNECT_FROM_ADDRESS}>"
+
+# The mailboxes the site can send from, picked per email on System Emails
+# (``apps.services.system_email.sender_for``). Hostinger rejects an email whose
+# From doesn't match the signed-in mailbox or one of its aliases, so each
+# carries its own SMTP login: adding a sender means adding its login settings
+# (its password in the environment) and an entry here. Each names the
+# settings it's read from when sending: its address, its From header, and the
+# prefix of its EMAIL_*_HOST, _PORT, _HOST_USER, _HOST_PASSWORD and _USE_SSL
+# login settings (none for the default account, EMAIL_HOST_USER above).
+EMAIL_SENDERS = {
+    "info": {
+        "address": "EMAIL_FROM_ADDRESS",
+        "from_email": "DEFAULT_FROM_EMAIL",
+        "login": None,
+    },
+    "connect": {
+        "address": "CONNECT_FROM_ADDRESS",
+        "from_email": "CONNECT_DEFAULT_FROM_EMAIL",
+        "login": "EMAIL_CONNECT_",
+    },
+}
 
 REDIS_URL = config("REDIS_URL", default="")
 
@@ -600,16 +628,18 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
-# /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
-# schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
-# fails loud instead of silently exposing an unauthenticated trigger.
+# Shared secret for the scheduled email jobs GitHub runs (apps.common.email_jobs):
+# POST /api/v1/events/admin/send-rsvp-reminders/ (and its legacy
+# /events/v1/... route), /api/v1/submissions/admin/send-reminders/,
+# /api/v1/chat/admin/send-unread-digest/,
+# /api/v1/admin/send-guardian-details-reminders/ and
+# /api/v1/admin/send-guardian-consent-reminders/. Each workflow sends it in the
+# X-Email-Jobs-Token header. Unset means the endpoints answer 503, so a
+# misconfigured deploy fails loud instead of exposing unauthenticated triggers.
+EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
+# The token the workflows send until EMAIL_JOBS_TOKEN is set on both GitHub and
+# Azure. Accepted alongside it while the jobs move over; removed after.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
-
-# Shared secret for POST /api/v1/submissions/admin/send-reminders/, the daily
-# nudge to teams whose entry is still outstanding. Same fail-loud contract as
-# above: unset means the endpoint answers 503 rather than standing open.
-SUBMISSION_REMINDER_TOKEN = config("SUBMISSION_REMINDER_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
@@ -618,9 +648,13 @@ SUBMISSION_POSTER_CHECKS_ENABLED = config(
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as
-# ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
+# ``EMAIL_JOBS_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# Days between the consent form reminders to a guardian who hasn't signed
+# (the daily guardian-consent-reminders workflow runs them). 0 switches them off.
+GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=1, cast=int)
 
 # --- Grading platform --------------------------------------------------------
 # GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
@@ -632,8 +666,14 @@ GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false",
 # on the server once started, over this many mail server connections at once.
 # Raise it only as far as the mailbox's sending limits allow. Tests set the
 # sync flag to send inline, one at a time.
-BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=4, cast=int)
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed.
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
+# Bulk email runs send one at a time; each starts this many seconds after the
+# one before it finished.
+BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -641,16 +681,13 @@ BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", c
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit every 15
-# minutes by .github/workflows/unread-digest.yml so the first notification is
-# fast. Same fail-loud contract as RSVP_REMINDER_TOKEN: empty value => 503, so
-# a misconfigured deploy can't silently expose an unauthenticated trigger.
-# MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# The unread messages digest, run every 15 minutes by
+# .github/workflows/unread-digest.yml (with EMAIL_JOBS_TOKEN) so the first
+# notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
 # user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
 # hold all sends overnight and re-anchor them to daytime. The quiet block is
 # what makes a sub-24h interval safe — without it, delivery times walk
 # around the clock into the small hours (20h => -4h/day).
-UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
 UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
     "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=8, cast=int
 )

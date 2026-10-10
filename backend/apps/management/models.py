@@ -85,10 +85,14 @@ class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
     director_1_position = models.CharField(max_length=255, blank=True)
-    director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    # Each signature image is kept here, with the name it was uploaded as
+    # (shown on Document Setup); certificates and marks sheets embed it.
+    director_1_signature_image = models.BinaryField(blank=True, null=True)
+    director_1_signature_name = models.CharField(max_length=255, blank=True, default="")
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
-    director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    director_2_signature_image = models.BinaryField(blank=True, null=True)
+    director_2_signature_name = models.CharField(max_length=255, blank=True, default="")
     marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
@@ -100,6 +104,49 @@ class GradingSettings(SingletonModel):
 
     def __str__(self):
         return "GradingSettings"
+
+
+class OutcomeAnnouncement(models.Model):
+    """The in-app announcement that goes with one of the emails telling
+    groups their Challenge outcome (finalist, non-finalist, non-submission,
+    and the results emails to groups and to supervisors), posted from that
+    email's page to whoever it has reached (see
+    ``services.outcome_announcement``). Its wording is the email's until
+    edited; the announcement it last posted is updated when it's posted
+    again."""
+
+    # Which email's: a key of ``services.outcome_announcement.KINDS``.
+    key = models.CharField(max_length=32, unique=True)
+    # The edited wording; unused until ``edited_at`` is set.
+    title = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    # Who saved the edited wording; shown as "Last edited by" in Edit.
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    announcement = models.ForeignKey(
+        "announcements.Announcement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    posted_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "outcome_announcement"
 
 
 class FinalistEmailSettings(SingletonModel):
@@ -130,6 +177,17 @@ class FinalistEmailSettings(SingletonModel):
     def dates_before(self, today) -> list[str]:
         """The date fields set to a day before ``today`` (last year's, say)."""
         return [name for name in self.DATE_FIELDS if (day := getattr(self, name)) and day < today]
+
+
+class PresentationSettings(SingletonModel):
+    """Whether finalists see this year's presentation times to give their
+    availability. Off until the times are final, so teams only ever pick
+    from the real ones."""
+
+    times_shown = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "presentation_settings"
 
 
 class PresentationSlot(models.Model):
@@ -252,13 +310,35 @@ class ResultsEmailSettings(SingletonModel):
         return bool(self.survey_url and self.survey_closes)
 
 
+class EmailDelivery(models.Model):
+    """One person a team's bulk email reached: the finalist, non-finalist,
+    non-submission or group results email (``email``, the run's key). A team
+    is only recorded as emailed once everyone on it has the email; these let a
+    retry email just the people a run missed, so nobody gets a second copy."""
+
+    email = models.CharField(max_length=64)
+    group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE, related_name="+")
+    address = models.EmailField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "email_delivery"
+        constraints = [
+            models.UniqueConstraint(fields=["email", "group", "address"], name="uniq_email_delivery"),
+        ]
+
+    def __str__(self):
+        return f"{self.email}: {self.group_id} {self.address}"
+
+
 class EmailSendRun(models.Model):
-    """One bulk email's send (Notify Finalists, Email Nonfinalist, Release
-    Results): the run going now, or the last one. Pressing Send starts a run on
+    """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
+    Results): the run going now, or the last one. Pressing Send queues a run on
     the server that emails everyone due, whether or not the page stays open.
-    One run at a time per email, so nobody is emailed twice: ``held_until`` is
-    a lease the run renews as it goes, so one that dies frees it once it
-    passes. One row per email, made on first use; see ``services.send_guard``."""
+    One run at a time across every email: ``held_until`` is a lease the run
+    renews as it goes, so one that dies frees it once it passes. One row per
+    email, made on first use, and one more that holds the queue while it
+    sends; see ``services.send_guard``."""
 
     key = models.CharField(max_length=64, unique=True)
     held_until = models.DateTimeField(null=True, blank=True)
@@ -278,7 +358,8 @@ class EmailSendRun(models.Model):
     failed = models.PositiveIntegerField(default=0)
     # Why the run stopped short, e.g. the mail server couldn't be reached.
     error = models.CharField(max_length=300, blank=True)
-    # Who it couldn't reach, as the page lists them: "(BTF07) Amy Chen".
+    # Who it couldn't reach and why, as the page lists them:
+    # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
 
     class Meta:
@@ -286,6 +367,31 @@ class EmailSendRun(models.Model):
 
     def __str__(self):
         return f"EmailSendRun({self.key})"
+
+
+class QueuedEmailSend(models.Model):
+    """A bulk email send waiting its turn: one starts only once the one
+    before it has finished. Who it emails is worked out when it starts (see
+    ``services.send_guard``)."""
+
+    key = models.CharField(max_length=64)
+    # What the press asked for, e.g. {"which": "missed"}.
+    options = models.JSONField(default=dict, blank=True)
+    queued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    queued_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "email_send_queue"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"QueuedEmailSend({self.key})"
 
 
 class ResultsTeamEmail(models.Model):
@@ -346,7 +452,7 @@ class ResultsSupervisorEmail(models.Model):
 
 class NonFinalistEmail(models.Model):
     """A team that wasn't picked, emailed the invitation to the Symposium from
-    Email Nonfinalist; sending skips it after that. Only recorded once every
+    Notify Nonfinalist; sending skips it after that. Only recorded once every
     member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(
@@ -372,7 +478,7 @@ class NonFinalistEmail(models.Model):
 
 class NonSubmissionEmail(models.Model):
     """A team that didn't submit, emailed the notice (and invitation to the
-    Symposium) from Email Nonfinalist; sending skips it after that. Only
+    Symposium) from Notify Nonfinalist; sending skips it after that. Only
     recorded once every member got the email, so a retry reaches the rest."""
 
     group = models.OneToOneField(

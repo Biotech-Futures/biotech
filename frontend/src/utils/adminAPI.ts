@@ -15,18 +15,24 @@ import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
 import type { MentorImportRow } from './adminMentorCsv'
 import {
+  systemEmailLogSchema,
+  systemEmailUnseenSchema,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
   systemEmailTemplateSchema,
+  systemEmailTestRecipientsSchema,
   systemEmailTestSendSchema
 } from './systemEmail'
 import type {
+  SystemEmailLogEntry,
   SystemEmailPreview,
   SystemEmailPreviewPayload,
+  SystemEmailTestSendPayload,
   SystemEmailSettings,
   SystemEmailTemplate,
   SystemEmailTemplateUpdatePayload,
+  SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
 
@@ -203,6 +209,13 @@ export interface AdminUserSupervisee {
   email: string
 }
 
+export interface AdminPendingGuardian {
+  firstName: string
+  lastName: string
+  email: string | null
+  requestedAt: string
+}
+
 export interface AdminUser {
   id: number
   firstName: string | null
@@ -219,7 +232,16 @@ export interface AdminUser {
   mentorReason: string | null
   mentorMaxGroupCount: number | null
   yearLevel: number | null
+  guardianFirstName: string | null
+  guardianLastName: string | null
+  guardianEmail: string | null
   joinPermissionReceived: boolean
+  joinpermResponseId: string | null
+  joinPermissionGrantedAt: string | null
+  pendingGuardian: AdminPendingGuardian | null
+  /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
+  mediaConsent: boolean | null
+  consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
   isActive: boolean
@@ -231,6 +253,9 @@ export interface AdminUser {
   supervisorName: string | null
   supervisorEmail: string | null
   supervisees: AdminUserSupervisee[]
+  /** Who last changed this user's details (an admin, the user or their supervisor), and when. */
+  lastEditedBy?: string | null
+  lastEditedAt?: string | null
 }
 
 export interface UserListParams {
@@ -358,6 +383,58 @@ export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
     (env) => env.msg
   )
+
+export const sendGuardianConsentRequest = (userId: string | number) =>
+  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-request/`).then((env) => ({
+    msg: env.msg,
+    data: env.data
+  }))
+
+export interface AdminGuardianConsent {
+  id: number
+  reference: string
+  /** What its PDF record downloads as, e.g. "2026_318_BTF_1.pdf". */
+  fileName: string
+  guardianFullName: string
+  guardianEmail: string
+  mediaConsent: boolean
+  consentVersion: string
+  signedAt: string
+  withdrawnAt: string | null
+  mediaWithdrawnAt: string | null
+  /** The drawn signature as a PNG data URL. */
+  signature: string
+}
+
+export const fetchGuardianConsents = (userId: string | number) =>
+  adminGet<AdminEnvelope<AdminGuardianConsent[]>>(`/user/${userId}/guardian-consents/`).then(
+    (env) => env.data || []
+  )
+
+/** Download a signed consent's PDF record, sent with the admin's session like any admin call. */
+export const downloadGuardianConsentRecord = async (
+  userId: string | number,
+  consent: Pick<AdminGuardianConsent, 'id' | 'fileName'>
+) => {
+  const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: 'application/pdf' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`${ADMIN_API_BASE}/user/${userId}/guardian-consents/${consent.id}/record/`, {
+    credentials: 'include',
+    headers
+  })
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Could not download the consent record.')
+
+  const blobUrl = window.URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = consent.fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
@@ -654,6 +731,8 @@ export interface AdminEventRsvpItem {
   lastName?: string
   rsvpStatus: 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
   respondedAt: string | null
+  /** A student without media consent, on an event with an in-person part. */
+  noMediaConsent?: boolean
 }
 
 export interface AdminEventDetail {
@@ -1365,13 +1444,19 @@ export const previewSystemEmailTemplate = (
     systemEmailPreviewSchema.parse(env.data)
   )
 
-/** Send the email to the requesting admin. Deliberately ignores the toggle. */
+/** Send the email to `to`, else the requesting admin. Deliberately ignores the toggle. */
 export const testSendSystemEmailTemplate = (
   key: string,
-  payload: SystemEmailPreviewPayload = {}
+  payload: SystemEmailTestSendPayload = {}
 ): Promise<SystemEmailTestSend> =>
   adminPost<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-send/`, payload).then((env) =>
     systemEmailTestSendSchema.parse(env.data)
+  )
+
+/** Who a test of the email can be "of"; null when it has nothing of a person's own. */
+export const fetchSystemEmailTestRecipients = (key: string): Promise<SystemEmailTestRecipient[] | null> =>
+  adminGet<AdminEnvelope<unknown>>(`${emailTemplatePath(key)}test-recipients/`).then(
+    (env) => systemEmailTestRecipientsSchema.parse(env.data).recipients
   )
 
 export const fetchSystemEmailSettings = (): Promise<SystemEmailSettings> =>
@@ -1383,3 +1468,100 @@ export const updateSystemEmailSettings = (enabled: boolean): Promise<SystemEmail
   adminPatch<AdminEnvelope<unknown>>('/email-settings/', { enabled }).then((env) =>
     systemEmailSettingsSchema.parse(env.data)
   )
+
+export const fetchSystemEmailLog = (): Promise<SystemEmailLogEntry[]> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/').then((env) => systemEmailLogSchema.parse(env.data))
+
+export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Seen by every admin from now on; returns the count left, normally 0. */
+export const markSystemEmailFailuresSeen = (): Promise<number> =>
+  adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+// ---------------------------------------------------------------------------
+// Admin User Views
+// ---------------------------------------------------------------------------
+
+export interface ViewCondition {
+  field: string
+  operator: 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_set' | string
+  value: string
+  logic?: 'AND' | 'OR'
+}
+
+export interface AdminView {
+  id: number
+  name: string
+  description: string
+  isDefault: boolean
+  targetRoles: string[]
+  accountStatus: 'all' | 'active' | 'inactive'
+  engagementStatus: 'all' | 'matched' | 'unmatched' | 'pending'
+  advancedConditions: ViewCondition[]
+  visibleColumns: string[]
+  lastRunAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export interface ViewListData {
+  items: AdminView[]
+  total: number
+}
+
+export interface ViewRunParams {
+  page?: number
+  limit?: number
+  search?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+  groupBy?: string
+}
+
+export interface ViewRunData {
+  items: AdminUser[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+  view: AdminView
+}
+
+/** Fetch all saved views with optional tab/role/search filter (GET /view/) */
+export const fetchAdminViews = (params: { tab?: string; role?: string; search?: string } = {}) =>
+  adminGet<AdminEnvelope<ViewListData>>(`/view/${buildAdminQuery(params)}`).then((env) => env.data)
+
+/** Fetch a single saved view definition (GET /view/:id/) */
+export const fetchAdminView = (id: number) =>
+  adminGet<AdminEnvelope<AdminView>>(`/view/${id}/`).then((env) => env.data)
+
+/** Create a new custom view (POST /view/) */
+export const createAdminView = (payload: Partial<AdminView>) =>
+  adminPost<AdminEnvelope<AdminView>>('/view/', payload).then((env) => env.data)
+
+/** Update an existing custom view (PUT /view/:id/) */
+export const updateAdminView = (id: number, payload: Partial<AdminView>) =>
+  adminPut<AdminEnvelope<AdminView>>(`/view/${id}/`, payload).then((env) => env.data)
+
+/** Delete a custom view (DELETE /view/:id/) */
+export const deleteAdminView = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/view/${id}/`).then((env) => env.data)
+
+/** Bulk delete multiple custom views (POST /view/bulk-delete/) */
+export const bulkDeleteAdminViews = (viewIds: number[]) =>
+  adminPost<AdminEnvelope<{ deletedCount: number }>>('/view/bulk-delete/', { viewIds }).then(
+    (env) => env.data
+  )
+
+/** Execute a view query with pagination and sorting (GET /view/:id/run/) */
+export const runAdminView = (id: number, params: ViewRunParams = {}) =>
+  adminGet<AdminEnvelope<ViewRunData>>(`/view/${id}/run/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+/** Get export CSV download URL for a view */
+export const getAdminViewExportUrl = (id: number, search?: string) => {
+  const query = search ? `?search=${encodeURIComponent(search)}` : ''
+  return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
+}

@@ -1,21 +1,23 @@
 """The Symposium emails to teams that won't present there, sent from the
-Email Nonfinalist tab: the client's invitation for teams that submitted but
+Notify Nonfinalist tab: the client's invitation for teams that submitted but
 weren't picked as finalists, and their notice for teams that didn't submit.
 
 Same path as the finalist email: the shared system email path, so admins can
-switch them off or reword them on System Emails; every current member of the
-team (students, mentors and supervisors) gets their own copy; and replies go
-to the support mailbox. The Symposium date and registration link are the
+switch them off or reword them on System Emails; each team gets one email,
+its students in To and its mentors and supervisors in CC; and replies go to
+the support mailbox. The Symposium date and registration link are the
 ones set on Notify Finalists, and nothing is sent until both are set.
 
 Neither goes out while submissions are still open, the deadline's or any
-team's extension, and each is sent by one request at a time (see
+team's extension, and each send waits its turn behind any going (see
 ``send_guard``). The non-finalist invitation also waits until the finalists
 have been notified, which is when the picks are settled.
 
-Pressing Send starts a run on the server that emails every team due (see
+Pressing Send queues a run on the server that emails every team due (see
 ``send_guard``). A team is recorded as emailed only once every member got it,
-so the next run reaches whoever missed it, and is skipped after that.
+so the next run reaches whoever missed it, and is skipped after that. Email
+Newly Added emails only the teams no run has tried yet, and Resend Email To
+Missed Individuals only the people earlier runs missed.
 """
 from __future__ import annotations
 
@@ -24,7 +26,6 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Callable
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
 
@@ -35,7 +36,6 @@ from apps.services.email_branding import brand_context
 from apps.services.email_registry import get_email_type
 from apps.services.system_email import (
     RenderedEmail,
-    build_message,
     is_email_enabled,
     render_system_email,
 )
@@ -44,8 +44,18 @@ from apps.submissions.models import Submission
 from apps.submissions.services import current_cohort
 
 from ..models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
+from .delivery import already_sent, send_group, still_due
 from .finalist_notify import NOT_SET, _long_date, symposium_today
-from .send_guard import Work, member_labels, start_run, submissions_open_reason
+from .send_guard import (
+    BUILDERS,
+    NOT_SENT,
+    Work,
+    member_labels,
+    missed_people,
+    queue_send,
+    submissions_open_reason,
+    tried_teams,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,19 +141,40 @@ def member_ids(group_ids) -> dict[str, dict[int, set[int]]]:
     return members
 
 
-def role_counts(members: dict, team_ids, emailed_ids) -> dict:
+def reached_ids(email: str, group_ids) -> dict[int, set[int]]:
+    """Each team's current members ``email`` has reached, by the address it
+    went to (see ``delivery.already_sent``): ``{group_id: {user_id, ...}}``."""
+    sent = already_sent(email, group_ids)
+    reached: dict[int, set[int]] = {}
+    rows = GroupMembership.objects.filter(group_id__in=list(sent), left_at__isnull=True).values_list(
+        "group_id", "user_id", "user__email",
+    )
+    for group_id, user_id, address in rows:
+        if address and address.lower() in sent[group_id]:
+            reached.setdefault(group_id, set()).add(user_id)
+    return reached
+
+
+def role_counts(members: dict, team_ids, emailed_ids, reached: dict | None = None) -> dict:
     """For each role, how many people are due the email and how many have
     had it (at least once), and how many emails that is: someone on several
-    teams gets one per team, so "times" can be more than the people.
+    teams gets one per team, so "times" can be more than the people. A
+    team's members count as emailed once the team is, and before that those
+    a run reached (``reached``, see ``reached_ids``).
 
     ``{"mentors": {"total", "emailed", "times": {"total", "emailed"}}, ...}``
     """
     team_ids = list(team_ids)
+    reached = reached or {}
     counts = {}
     for key in COUNTED_ROLES:
         per_team = members.get(key, {})
         due = [per_team.get(team_id, set()) for team_id in team_ids]
-        sent = [per_team.get(team_id, set()) for team_id in team_ids if team_id in emailed_ids]
+        sent = [
+            per_team.get(team_id, set()) if team_id in emailed_ids
+            else per_team.get(team_id, set()) & reached.get(team_id, set())
+            for team_id in team_ids
+        ]
         counts[key] = {
             "total": len(set().union(*due)),
             "emailed": len(set().union(*sent)),
@@ -162,38 +193,60 @@ class TeamAudience:
     # Members with an address, by role then team (see ``member_ids``).
     members: dict = field(default_factory=dict)
     emailed: set = field(default_factory=set)
+    # Members of teams not yet emailed whom a run reached (see ``reached_ids``).
+    reached: dict = field(default_factory=dict)
+    # Teams not yet emailed, with the addresses on each still due it: those
+    # no run has tried yet, and those a run missed someone on (see
+    # ``send_guard.tried_teams``).
+    new: dict = field(default_factory=dict)
+    missed: dict = field(default_factory=dict)
 
     def counts(self) -> dict:
-        """Teams, and each role's people, due the email and emailed; a team's
-        members count as emailed once the team is (see ``role_counts``)."""
+        """Teams, and each role's people, due the email and emailed (see
+        ``role_counts``), and who Email Newly Added and Resend Email To
+        Missed Individuals would email. ``teams`` counts a team emailed once everyone on
+        it has the email; ``groups``, for the page's count, once its email
+        went, even if someone on it missed it."""
+        reached = {group_id for group_id, ids in self.reached.items() if ids}
         return {
             "teams": {"total": len(self.teams), "emailed": len(self.emailed)},
-            **role_counts(self.members, (t.id for t in self.teams), self.emailed),
+            "groups": {"total": len(self.teams), "emailed": len(self.emailed | reached)},
+            **role_counts(self.members, (t.id for t in self.teams), self.emailed, self.reached),
+            "waiting": {
+                which: {"teams": len(due), "people": sum(len(addresses) for addresses in due.values())}
+                for which, due in (("new", self.new), ("missed", self.missed))
+            },
         }
 
 
 def audience(email: TeamEmail, year: int | None = None) -> TeamAudience:
-    """Every current member of this year's teams due ``email`` gets it, each
-    their own copy."""
+    """Every current member of this year's teams due ``email`` gets it, in
+    their team's one email."""
     teams = list(email.teams(year or current_cohort()).order_by("id"))
     recipients = {team.id: recipients_for(team) for team in teams}
     # A team with nobody to email can't be emailed; it isn't counted.
     teams = [team for team in teams if recipients[team.id]]
+    emailed = set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True))
+    pending = [team for team in teams if team.id not in emailed]
+    tried = tried_teams(email.key, pending)
+    sent = already_sent(email.key, tried)
+    still_due_on = {
+        team.id: [a for a in recipients[team.id] if a.lower() not in sent.get(team.id, set())] for team in pending
+    }
 
     return TeamAudience(
         teams=teams,
         recipients={team.id: recipients[team.id] for team in teams},
         # For the page's counts of students, mentors and supervisors.
         members=member_ids(team.id for team in teams),
-        emailed=set(email.record.objects.filter(group__in=teams).values_list("group_id", flat=True)),
+        emailed=emailed,
+        reached=reached_ids(email.key, (team.id for team in teams)),
+        new={team.id: still_due_on[team.id] for team in pending if team.id not in tried},
+        missed={team.id: still_due_on[team.id] for team in pending if team.id in tried},
     )
 
 
 # --- sending ---------------------------------------------------------------------
-
-
-def already_sending(email: TeamEmail) -> str:
-    return f"{email.name} is already being sent. Wait for that to finish."
 
 
 def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str:
@@ -214,50 +267,37 @@ def send_blocked_reason(email: TeamEmail, details: FinalistEmailSettings) -> str
     return ""
 
 
-def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
-    """The email for one team: an admin's saved wording if there is some,
-    otherwise the client's template, with its plain-text twin."""
-    context = {
+def email_context(group_name: str, details: FinalistEmailSettings) -> dict:
+    """The values the emails' merge tags and templates read."""
+    return {
         "GROUP_NAME": group_name,
         "SYMPOSIUM_DATE": _long_date(details.symposium_date),
         "REGISTER_URL": details.registration_url or NOT_SET,
     }
+
+
+def render_email(email: TeamEmail, group_name: str, details: FinalistEmailSettings) -> RenderedEmail:
+    """The email for one team: an admin's saved wording if there is some,
+    otherwise the client's template, with its plain-text twin."""
+    context = email_context(group_name, details)
     default_text = render_to_string(f"emails/{email.key}.txt", {**brand_context(), **context})
     return render_system_email(email.key, context, default_text=default_text)
-
-
-def _send_each(rendered: RenderedEmail, recipients, connection, *, email: TeamEmail, group_id: int) -> list[str]:
-    """One copy per member, so nobody sees the others. Returns the addresses
-    it couldn't reach."""
-    missed = []
-    for address in recipients:
-        message = build_message(
-            rendered, address, from_email=settings.DEFAULT_FROM_EMAIL, connection=connection,
-        )
-        # Replies reach support, as for the finalist email.
-        message.reply_to = [settings.SUPPORT_EMAIL]
-        try:
-            message.send(fail_silently=False)
-        except Exception as exc:  # noqa: BLE001
-            # Error type only: SMTP errors carry the recipient address.
-            logger.error("%s: send failed group=%s error=%s", email.key, group_id, type(exc).__name__)
-            missed.append(address)
-    return missed
 
 
 def _send_team(
     email: TeamEmail, team, people: dict[str, str], details: FinalistEmailSettings, actor, connection, cache: dict,
 ) -> list[str]:
-    """One team's copies; recorded as emailed only once every member got it.
-    Returns who it didn't reach, as ``people`` labels them."""
+    """One team's copies, to the members still due them; recorded as emailed
+    only once every member has it. Returns who it didn't reach and why, as
+    ``people`` labels them."""
     try:
         rendered = render_email(email, team.group_name, details)
     except Exception:  # noqa: BLE001
         logger.exception("%s: failed to render group=%s", email.key, team.id)
-        return list(people.values())
-    missed = _send_each(rendered, list(people), connection, email=email, group_id=team.id)
-    if missed:
-        return [people[address] for address in missed]
+        return [{"who": who, "reason": NOT_SENT} for who in people.values()]
+    failed = send_group(rendered, list(people), connection, email=email.key, group=team, log_as=f"group={team.id}")
+    if failed:
+        return missed_people(people, failed)
     try:
         with transaction.atomic():
             email.record.objects.create(group=team, sent_by=actor)
@@ -266,15 +306,27 @@ def _send_team(
     return []
 
 
-def start_send(email: TeamEmail, actor) -> None:
-    """Start a run emailing ``email`` to every team due it and not yet
-    emailed (see ``send_guard.start_run``). Raises ``AlreadySending`` while a
-    run is going."""
+def start_send(email: TeamEmail, actor, *, which: str = "") -> None:
+    """Queue a run emailing ``email`` to every team due it and not yet
+    emailed (see ``send_guard.queue_send``): all of them, only those no run
+    has tried yet (``which="new"``), or only the people earlier runs missed
+    (``which="missed"``, see ``TeamAudience``)."""
+    queue_send(email.key, actor, {"which": which})
+
+
+def _work(email: TeamEmail, actor, options: dict) -> list[Work]:
+    """A queued send of ``email``, when its turn comes: the teams due then."""
     details = FinalistEmailSettings.load()
     due = audience(email)
+    limit = {"new": due.new, "missed": due.missed}.get(options.get("which", ""))
     work = []
     for team in due.teams:
-        if team.id not in due.emailed:
-            people = member_labels(team, due.recipients[team.id])
+        if team.id not in due.emailed and (limit is None or team.id in limit):
+            # Anyone a run already reached isn't emailed again.
+            people = member_labels(team, still_due(email.key, team, due.recipients[team.id]))
             work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor)))
-    start_run(email.key, actor, work)
+    return work
+
+
+for _email in (NONFINALIST, NONSUBMISSION):
+    BUILDERS[_email.key] = partial(_work, _email)

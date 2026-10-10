@@ -7,9 +7,10 @@ name: Unread-messages digest
 # latency — a couple of daytime emails per user per day at most.
 #
 # Required configuration:
-#   secret  UNREAD_DIGEST_TOKEN         must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL   shared backend base URL, e.g.
-#                                        https://biotechbe.azurewebsites.net
+#   secret  RSVP_REMINDER_TOKEN   shared by every email job for now; must
+#                                 match the backend env of the same name.
+#                                 Moves to EMAIL_JOBS_TOKEN once that's set
+#                                 on GitHub and Azure.
 #
 # Off-peak minutes (7,22,37,52) dodge GitHub's top-of-hour scheduler spike,
 # which delays :00/:15/:30/:45 crons the most. Scheduled runs can still lag a
@@ -33,15 +34,11 @@ jobs:
     steps:
       - name: Trigger unread-messages digest
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
-          DIGEST_TOKEN: ${{ secrets.UNREAD_DIGEST_TOKEN }}
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
-          if [ -z "${DIGEST_TOKEN}" ]; then
-            echo "UNREAD_DIGEST_TOKEN is not set (repository secret)." >&2
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
@@ -51,6 +48,6 @@ jobs:
           # response now means something is actually wrong: fail fast at 60s.
           # Sent/failed counts are in the backend logs (unread_digest.completed).
           curl -fsS --max-time 60 -X POST \
-            -H "X-Digest-Token: ${DIGEST_TOKEN}" \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
             -H "Content-Type: application/json" \
             "${BACKEND_URL%/}/api/v1/chat/admin/send-unread-digest/"

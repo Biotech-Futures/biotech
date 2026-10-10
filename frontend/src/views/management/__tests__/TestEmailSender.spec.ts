@@ -62,6 +62,19 @@ describe('Send Test Email', () => {
     expect(result.classes()).toContain('test-email__result--ok')
   })
 
+  it('says a test can take a few minutes, and where it comes back to if undeliverable', async () => {
+    sendMock.mockResolvedValue({ sent_to: 'me@example.com', sent_from: 'info@biotechfutures.org' })
+    const wrapper = await mountSender({ kind: 'results-students' })
+    await wrapper.find('select').setValue('7:22')
+    await wrapper.find('input').setValue('me@example.com')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.test-email__result').text()).toBe(
+      'Test sent to me@example.com. It can take a few minutes to arrive. ' +
+        "If it can't be delivered, it comes back to info@biotechfutures.org."
+    )
+  })
+
   it('says what went wrong', async () => {
     sendMock.mockRejectedValue(new Error('Enter a valid email address.'))
     const wrapper = await mountSender()

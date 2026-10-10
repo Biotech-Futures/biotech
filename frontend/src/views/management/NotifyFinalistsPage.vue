@@ -1,12 +1,12 @@
 <template>
   <div class="notify-finalists">
-    <section class="card notify-finalists__setup">
+    <section class="card">
       <div class="card-header">
         <h3 class="card-title">Notify Finalists</h3>
       </div>
-      <h3 class="notify-finalists__section-title">Email Details</h3>
+      <h3 class="notify-finalists__section-title">Set Details</h3>
       <p class="notify-finalists__hint">
-        These go into the finalist email. Set them before sending.
+        These go into the finalist email and announcement. Set them before sending.
       </p>
       <p v-if="detailsError" class="notify-finalists__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -39,6 +39,9 @@
           >
             {{ savingDetails ? 'Saving…' : 'Save' }}
           </button>
+        </div>
+        <!-- Preview and test on their own line, under Save. -->
+        <div class="notify-finalists__email-actions">
           <button
             type="button"
             class="btn btn-outline btn-sm"
@@ -52,14 +55,17 @@
       </template>
     </section>
 
-    <section class="card notify-finalists__email-section">
-      <h3 class="notify-finalists__section-title">Send Email Notification</h3>
+    <section class="card">
+      <h3 class="notify-finalists__section-title">Notify Finalist</h3>
       <p class="notify-finalists__hint">
-        Send a notification email to the finalist teams. Tick Notify on specific teams
-        to email only those.
+        Send a notification email to the finalist teams.
       </p>
       <p class="notify-finalists__hint">
-        Students, mentors and supervisors in these groups each get the email. Anyone in multiple groups gets multiple emails, one for each group.
+        Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
+      </p>
+      <p v-if="loadError" class="notify-finalists__load-error">
+        Failed to load the finalist groups. {{ loadError }}
+        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
       </p>
       <!-- Same status line as Release Marks. A team only counts as notified
            once every member got the email. -->
@@ -76,6 +82,7 @@
       </p>
       <!-- A notified team is one where every member got the email. -->
       <p v-if="finalists.length && details" class="notify-finalists__counts">
+        <strong>Groups: {{ details.counts.groups.emailed }} of {{ details.counts.groups.total }} emailed</strong><br />
         Students: {{ details.counts.students.emailed }} of {{ details.counts.students.total }} emailed ·
         Mentors: {{ details.counts.mentors.emailed }} of {{ details.counts.mentors.total }} emailed
         (Times {{ details.counts.mentors.times.emailed }} of {{ details.counts.mentors.times.total }}) ·
@@ -90,26 +97,43 @@
           :disabled="sendingMode !== null || !canSend"
           @click="sendEmails('all')"
         >
-          {{ sendingMode === 'all' || (details?.sending && sendingMode === null) ? 'Sending…' : 'Send Email to All Groups' }}
+          {{ sendingMode === 'all' ? 'Sending…' : 'Email All' }}
         </button>
         <button
           type="button"
           class="btn btn-outline btn-sm"
-          :disabled="sendingMode !== null || !canSend || selectedIds.size === 0"
-          @click="sendEmails('selected')"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.new.teams"
+          @click="sendEmails('new')"
         >
-          {{ sendingMode === 'selected' ? 'Sending…' : 'Send Email to Selected Groups' }}
+          {{ sendingMode === 'new' ? 'Sending…' : 'Email Newly Added' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          :disabled="sendingMode !== null || !canSend || !details?.waiting.missed.teams"
+          @click="sendEmails('missed')"
+        >
+          {{ sendingMode === 'missed' ? 'Sending…' : 'Resend Email To Missed Individuals' }}
         </button>
         <span v-if="details?.sending && details.run" class="notify-finalists__progress" role="status">
           Emailed {{ details.run.emailed }} of {{ plural(details.run.due, 'person', 'people') }} so far…
+        </span>
+        <span v-if="details?.queued" class="notify-finalists__queued" role="status">
+          {{ queuedNote(details.queued, details.ahead) }}
         </span>
       </div>
       <div v-if="details?.run?.missed.length" class="notify-finalists__missed" data-testid="missed">
         <p class="notify-finalists__missed-title">Couldn't be emailed:</p>
         <ul>
-          <li v-for="(who, i) in details.run.missed" :key="i">{{ who }}</li>
+          <li v-for="(m, i) in details.run.missed" :key="i">
+            <MissedPerson :who="m.who" /><span v-if="m.reason" class="notify-finalists__missed-reason"> · {{ m.reason }}</span>
+          </li>
         </ul>
       </div>
+      <p v-if="details?.waiting.new.groups.length" class="notify-finalists__newly-added">
+        Newly added, not emailed yet: {{ details.waiting.new.groups.join(', ') }}
+      </p>
+      <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
         {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
@@ -118,6 +142,13 @@
           by {{ lastEmailed.notified_by }}</template
         >.
       </p>
+      <!-- The same news in the app, for the finalist groups emailed so far. -->
+      <OutcomeAnnouncement
+        ref="announcement"
+        kind="finalists"
+        @flash="flashAction"
+        @error="(text) => (actionError = text)"
+      />
     </section>
 
     <p v-if="actionError" class="notify-finalists__banner notify-finalists__banner--error">
@@ -126,55 +157,6 @@
     <p v-if="actionMessage" class="notify-finalists__banner notify-finalists__banner--ok">
       {{ actionMessage }}
     </p>
-
-    <section>
-      <h3 class="card-title notify-finalists__list-title">Finalist Teams</h3>
-      <p v-if="isLoading" class="notify-finalists__hint">Loading…</p>
-      <div v-else-if="loadError" class="card">
-        <p class="notify-finalists__load-error">Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
-      </div>
-      <div v-else class="notify-finalists__scroll">
-        <table class="notify-finalists__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Notified at</th>
-              <th class="notify-finalists__cell--center">Notify</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="finalists.length === 0">
-              <td colspan="3" class="notify-finalists__empty">No finalists yet.</td>
-            </tr>
-            <tr v-for="f in finalists" :key="f.group_id">
-              <td class="notify-finalists__cell--strong">{{ f.group_name }}</td>
-              <td>
-                <span v-if="f.notified" class="notify-finalists__notified">
-                  <i class="fas fa-envelope-circle-check" aria-hidden="true"></i>
-                  {{
-                    f.notified_at
-                      ? `${new Date(f.notified_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-                      : 'Sent'
-                  }}
-                </span>
-                <span v-else class="notify-finalists__muted">—</span>
-              </td>
-              <td class="notify-finalists__cell--center">
-                <input
-                  type="checkbox"
-                  class="notify-finalists__checkbox"
-                  :checked="selectedIds.has(f.group_id)"
-                  :disabled="f.notified"
-                  :aria-label="`Notify ${f.group_name} by email`"
-                  @change="toggleSelected(f.group_id)"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
 
     <Teleport to="body">
       <div v-if="pendingSendMode" class="notify-finalists__overlay" @click.self="pendingSendMode = null">
@@ -235,13 +217,22 @@
         </div>
       </div>
     </Teleport>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
-import { describeRun, useEmailRun } from '@/composables/useEmailRun'
+import {
+  deliveryNote,
+  describeRun,
+  isBusy,
+  queuedMessage,
+  queuedNote,
+  RUN_MESSAGE_MS,
+  useEmailRun
+} from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { fetchFinalists, type FinalistListResponse } from '@/utils/gradingAPI'
 import {
@@ -251,43 +242,33 @@ import {
   previewFinalistEmail,
   updateFinalistEmailDetails,
   type FinalistEmailDetails,
-  type FinalistEmailFields
+  type FinalistEmailFields,
+  type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { plural } from '@/utils/string'
+import MissedPerson from '@/views/management/MissedPerson.vue'
+import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
+// The finalist groups, for the status line and Last Emailed.
 const list = ref<FinalistListResponse | null>(null)
-const isLoading = ref(false)
 const loadError = ref('')
 const actionError = ref('')
 const { message: actionMessage, show: flashAction } = useFlashMessage()
-const sendingMode = ref<'all' | 'selected' | null>(null)
+type SendMode = 'all' | FinalistSendWhich
+const sendingMode = ref<SendMode | null>(null)
 
 const finalists = computed(() => list.value?.finalists ?? [])
 const allNotified = computed(() => finalists.value.every((f) => f.notified))
 
-
-// Teams ticked in the Notify column. Empty selection = email all un-notified.
-const selectedIds = ref(new Set<number>())
-
-const toggleSelected = (id: number) => {
-  const next = new Set(selectedIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  selectedIds.value = next
-}
-
 const load = async () => {
-  isLoading.value = true
   loadError.value = ''
   try {
     list.value = await fetchFinalists()
   } catch (err) {
     list.value = null
     loadError.value = apiErrorFromUnknown(err).message
-  } finally {
-    isLoading.value = false
   }
 }
 
@@ -373,6 +354,8 @@ const saveDetails = async () => {
     showDetails(await updateFinalistEmailDetails(formFields()))
     saveTried.value = false
     flashAction('Email details saved.')
+    // Its wording has the dates and link in it.
+    void announcement.value?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -395,16 +378,19 @@ const sendBlockedReason = computed(() => {
 })
 
 const canSend = computed(
-  () => details.value !== null && !details.value.sending && !sendBlockedReason.value
+  () => details.value !== null && !sendBlockedReason.value
 )
 
 // The email exactly as a finalist would get it, for the details as typed.
-// The person picked in Send Test Email: the preview is their team's email.
+// The group picked in Send Test Email: the preview is its email.
 const testRecipient = ref('')
 const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewFinalistEmail(formFields(), testRecipient.value),
   actionError
 )
+
+// The same news in the app, reloaded once a send finishes.
+const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
 
 onMounted(() => {
   void load()
@@ -419,18 +405,26 @@ const lastEmailed = computed(() => {
 })
 
 // Which send is awaiting confirmation in the dialog; null = dialog closed.
-const pendingSendMode = ref<'all' | 'selected' | null>(null)
+const pendingSendMode = ref<SendMode | null>(null)
 
 const confirmText = computed(() => {
   if (pendingSendMode.value === 'all') {
     return 'This will send the notification email to every finalist team that has not been notified yet.'
   }
-  const count = selectedIds.value.size
-  return `This will send the notification email to the ${count} selected ${count === 1 ? 'team' : 'teams'}.`
+  const waiting = details.value?.waiting
+  if (pendingSendMode.value === 'new' && waiting) {
+    return `This will send the notification email to the ${plural(waiting.new.teams, 'finalist team')} not emailed yet.`
+  }
+  if (pendingSendMode.value === 'missed' && waiting) {
+    return (
+      `This will email only the ${plural(waiting.missed.people, 'person', 'people')} earlier sends missed, ` +
+      `on ${plural(waiting.missed.teams, 'team')}.`
+    )
+  }
+  return ''
 })
 
-const sendEmails = (mode: 'all' | 'selected') => {
-  if (mode === 'selected' && selectedIds.value.size === 0) return
+const sendEmails = (mode: SendMode) => {
   pendingSendMode.value = mode
 }
 
@@ -444,11 +438,14 @@ const confirmSend = async () => {
   actionError.value = ''
   sendingMode.value = mode
   try {
-    const result = await notifyFinalists(mode === 'selected' ? [...selectedIds.value] : undefined)
-    if (details.value) details.value = { ...details.value, sending: result.sending, run: result.run }
-    selectedIds.value = new Set()
+    const result = await (mode === 'all' ? notifyFinalists() : notifyFinalists(undefined, mode))
+    if (details.value) {
+      const { sending, queued, ahead, run } = result
+      details.value = { ...details.value, sending, queued, ahead, run }
+    }
     // A run with little or nothing to send can be over by the reply.
-    if (!result.sending && result.run) reportRun(result.run)
+    if (result.queued) flashAction(queuedMessage(result.ahead))
+    else if (!isBusy(result) && result.run) reportRun(result.run)
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -461,12 +458,15 @@ const reportRun = (run: EmailRun) => {
   const { text, isError } = describeRun(run, {
     emailed: ['person', 'people'],
     failed: 'team',
-    button: 'Send Email to All Groups',
-    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.'
+    button: 'Resend Email To Missed Individuals',
+    nobodyDue: 'No emails sent - every finalist team is already notified or has no members to email.',
+    sentFrom: details.value?.sent_from
   })
   if (isError) actionError.value = text
-  else flashAction(text)
+  else flashAction(text, RUN_MESSAGE_MS)
   void load()
+  // More groups emailed: more who'd see the announcement.
+  void announcement.value?.reload()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
 </script>
@@ -476,16 +476,6 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.notify-finalists__email-section {
-  max-width: 48rem;
-}
-
-/* Laid out like Document Setup: the page title over a divider, then a
-   section heading ("Directors" there, "Email Details" here). */
-.notify-finalists__setup {
-  max-width: 48rem;
 }
 
 .notify-finalists__section-title {
@@ -612,6 +602,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   gap: 0.75rem 1.25rem;
 }
 
+.notify-finalists__email-actions + .notify-finalists__email-actions {
+  margin-top: 0.75rem;
+}
+
 .notify-finalists__progress {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -629,16 +623,43 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--danger);
 }
 
+/* What a queued send waits behind: the colour of Couldn't be emailed. */
+.notify-finalists__queued {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
 .notify-finalists__missed ul {
   margin: 0;
   padding-left: 1.2rem;
 }
 
+.notify-finalists__missed-reason {
+  color: var(--text-muted);
+}
+
+.notify-finalists__newly-added,
+.notify-finalists__delivery-note,
 .notify-finalists__last-emailed {
   color: var(--text-muted);
   font-size: 0.85rem;
   font-style: normal;
   margin: 1rem 0 0;
+}
+
+.notify-finalists__newly-added {
+  color: var(--charcoal);
+  font-weight: 600;
+}
+
+/* The same amber as the blocked message above the buttons. */
+.notify-finalists__delivery-note {
+  color: #b8860b;
+}
+
+.notify-finalists__newly-added + .notify-finalists__delivery-note,
+.notify-finalists__delivery-note + .notify-finalists__last-emailed {
+  margin-top: 0.25rem;
 }
 
 .notify-finalists__banner {
@@ -658,82 +679,15 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--dark-green);
 }
 
-.notify-finalists__list-title {
-  margin-bottom: 0.5rem;
-}
-
+/* Above the status line, with Try again beside it. */
 .notify-finalists__load-error {
-  margin: 0 0 0.5rem;
-}
-
-.notify-finalists__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--surface-elevated);
-}
-
-.notify-finalists__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.notify-finalists__table th,
-.notify-finalists__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.notify-finalists__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.notify-finalists__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.notify-finalists__empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 1.5rem 0.75rem;
-}
-
-.notify-finalists__cell--strong {
-  font-weight: 600;
-}
-
-.notify-finalists__table .notify-finalists__cell--center {
-  text-align: center;
-}
-
-.notify-finalists__checkbox {
-  width: 1.25rem;
-  height: 1.25rem;
-  accent-color: var(--dark-green);
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-.notify-finalists__checkbox:disabled {
-  cursor: not-allowed;
-}
-
-.notify-finalists__muted {
-  color: var(--text-muted);
-}
-
-.notify-finalists__notified {
-  color: var(--dark-green);
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.5rem 0.75rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
 }
 
 .notify-finalists__overlay {

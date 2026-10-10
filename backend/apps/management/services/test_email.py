@@ -1,60 +1,38 @@
-"""Test sends from the email tabs: one email, exactly as a chosen person on
-its list would get it (with its attachments), sent to any address an admin
-types. Nothing is recorded as sent, and it goes even while the email is
-switched off, as a test from System Emails does.
+"""Test sends from the email tabs: one email, exactly as a chosen group or
+supervisor on its list would get it (with its attachments), sent to any
+address an admin types. Nothing is recorded as sent, and it goes even while
+the email is switched off, as a test from System Emails does.
 
 Each kind is one email: the finalist email, the two Symposium emails, and the
-results emails to groups and to supervisors. Its list is everyone that
-email can go to, so the test shows a real team's or person's version.
+results emails to groups and to supervisors. Its list is every group (each
+gets one email) or supervisor it can go to, so the test shows a real one's
+version.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 
-from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
-from apps.services.system_email import RenderedEmail, build_message
+from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
 from . import results_notify, symposium_emails
+from .finalist_notify import EMAIL_KEY as FINALIST_EMAIL_KEY
 from .finalist_notify import render_finalist_email
 from .send_guard import person_name
-
-_ROLES = GroupMembership.MembershipRoleChoices
-# Students first on each team, then mentors, then supervisors.
-_ROLE_ORDER = {_ROLES.STUDENT: 0, _ROLES.MENTOR: 1, _ROLES.SUPERVISOR: 2}
-
 
 class TestEmailError(ValueError):
     """Why a test can't be sent, worded for the page."""
 
 
-def _member_options(teams, *, roles=None) -> list[dict]:
-    """Everyone on ``teams`` who gets the team's email, as "(Team) Name"
-    options, a team's members together; a mentor or supervisor has their
-    role after the team: "(Team, mentor) Name"."""
-    teams = {team.id: team for team in teams}
-    memberships = GroupMembership.objects.filter(
-        group_id__in=list(teams), left_at__isnull=True, user__is_active=True,
-    ).exclude(user__email="").select_related("user")
-    if roles:
-        memberships = memberships.filter(membership_role__in=roles)
-    rows = {}
-    for m in memberships:
-        name = person_name(m.user)
-        role = "" if m.membership_role == _ROLES.STUDENT else f", {m.membership_role}"
-        team = teams[m.group_id]
-        rows[f"{m.group_id}:{m.user_id}"] = (
-            (results_notify.natural_key(team.group_name), _ROLE_ORDER.get(m.membership_role, 3), name.lower()),
-            f"({team.group_name}{role}) {name}",
-        )
+def _team_options(teams) -> list[dict]:
+    """Each of ``teams`` by its name, in name order: each gets one email."""
     return [
-        {"value": value, "label": label}
-        for value, (_, label) in sorted(rows.items(), key=lambda item: item[1][0])
+        {"value": str(team.id), "label": team.group_name}
+        for team in sorted(teams, key=lambda team: results_notify.natural_key(team.group_name))
     ]
 
 
@@ -93,7 +71,7 @@ def _finalist_render(value: str, fields: dict):
 
 def _symposium(email):
     def options() -> list[dict]:
-        return _member_options(symposium_emails.audience(email).teams)
+        return _team_options(symposium_emails.audience(email).teams)
 
     def render(value: str, fields: dict):
         details = FinalistEmailSettings.load()
@@ -103,10 +81,7 @@ def _symposium(email):
 
 
 def _results_groups_options() -> list[dict]:
-    # The group email goes to students and mentors; supervisors have their own.
-    return _member_options(
-        results_notify.results_audience().teams, roles=(_ROLES.STUDENT, _ROLES.MENTOR),
-    )
+    return _team_options(results_notify.results_audience().teams)
 
 
 def _results_groups_render(value: str, fields: dict):
@@ -154,16 +129,27 @@ class TestKind:
     audience: str | None = None
     # Who the email is addressed to, as its preview names them.
     addressee: Callable[[str], str] = _team_name
+    # Its System Emails key: the test goes from that email's sender.
+    email: str = ""
 
 
 KINDS = {
-    "finalist": TestKind(lambda: _member_options(_finalist_teams()), _finalist_render),
-    "nonfinalists": TestKind(*_symposium(symposium_emails.NONFINALIST)),
-    "nonsubmissions": TestKind(*_symposium(symposium_emails.NONSUBMISSION)),
-    "results-groups": TestKind(_results_groups_options, _results_groups_render, results_notify.GROUPS),
+    "finalist": TestKind(
+        lambda: _team_options(_finalist_teams()), _finalist_render, email=FINALIST_EMAIL_KEY,
+    ),
+    "nonfinalists": TestKind(
+        *_symposium(symposium_emails.NONFINALIST), email=symposium_emails.NONFINALIST.key,
+    ),
+    "nonsubmissions": TestKind(
+        *_symposium(symposium_emails.NONSUBMISSION), email=symposium_emails.NONSUBMISSION.key,
+    ),
+    "results-groups": TestKind(
+        _results_groups_options, _results_groups_render, results_notify.GROUPS,
+        email=results_notify.EMAIL_KEYS[results_notify.GROUPS],
+    ),
     "results-supervisors": TestKind(
         _results_supervisors_options, _results_supervisors_render, results_notify.SUPERVISORS,
-        _supervisor_name,
+        _supervisor_name, email=results_notify.EMAIL_KEYS[results_notify.SUPERVISORS],
     ),
 }
 
@@ -178,7 +164,7 @@ def preview(kind: str, recipient: str, fields: dict) -> tuple[RenderedEmail, str
     made). Raises TestEmailError when they aren't on the list."""
     test = KINDS[kind]
     if recipient not in {option["value"] for option in test.options()}:
-        raise TestEmailError("Pick someone from the list.")
+        raise TestEmailError("Pick one from the list.")
     rendered, planned = test.render(recipient, fields)
     return rendered, test.addressee(recipient), [f.name for f in planned]
 
@@ -188,11 +174,14 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     TestEmailError when it can't be made; mail errors propagate."""
     test = KINDS[kind]
     if recipient not in {option["value"] for option in test.options()}:
-        raise TestEmailError("Pick someone from the list.")
+        raise TestEmailError("Pick one from the list.")
     if test.audience and not results_notify.templates_ready()[test.audience]:
         raise TestEmailError(results_notify.TEMPLATES_MISSING[test.audience])
     rendered, planned = test.render(recipient, fields)
     files = [(f.name, f.make(), f.mimetype) for f in planned]
-    message = build_message(rendered, to, from_email=settings.DEFAULT_FROM_EMAIL, files=files)
-    message.reply_to = [settings.SUPPORT_EMAIL]
+    # From the email's sender, as the real one goes.
+    sender = sender_for(test.email)
+    message = build_message(
+        rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
+    )
     message.send(fail_silently=False)

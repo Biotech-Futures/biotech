@@ -251,6 +251,35 @@ class ConfirmPasswordResetServiceTest(TestCase):
         # notification only fires after a successful reset
         mock_mail.assert_not_called()
 
+    def test_weak_password_leaves_the_link_usable(self, _mock_mail):
+        # A rejected password must not spend the token: the user is still on the
+        # page and expects to be able to try a different one.
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+
+        self.token_row.refresh_from_db()
+        self.assertFalse(self.token_row.used)
+        self.assertIsNone(self.token_row.used_at)
+
+    def test_second_attempt_with_a_good_password_succeeds(self, _mock_mail):
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+
+        auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(STRONG_PWD_NEW))
+        self.token_row.refresh_from_db()
+        self.assertTrue(self.token_row.used)
+
+    def test_link_is_still_single_use_after_a_rejected_attempt(self, _mock_mail):
+        with self.assertRaises(WeakPassword):
+            auth_service.confirm_password_reset(token=self.token, new_password="abc")
+        auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
+        with self.assertRaises(InvalidOrExpiredResetToken):
+            auth_service.confirm_password_reset(token=self.token, new_password=STRONG_PWD_NEW)
+
     def test_notification_email_failure_does_not_rollback(self, mock_mail):
         # Render call inside the notification helper; force send() to blow up.
         msg = MagicMock()
@@ -384,21 +413,26 @@ class PasswordResetEndpointsTest(TestCase):
         self.assertIn("fields", body)
         self.assertIn("new_password", body["fields"])
 
-    def test_confirm_brute_force_lockout(self, _mock_mail):
+    def test_rejected_passwords_are_never_rate_limited(self, _mock_mail):
+        # Getting the password rules wrong is not an attack: the user keeps
+        # their link and keeps trying until it expires.
         token = PasswordResetToken.create_for_user(self.user)
-        # 5 bad attempts on the SAME token (token itself is wrong, so each fails)
-        for _ in range(5):
-            self.client.post(
+        for _ in range(8):
+            r = self.client.post(
                 "/services/password-reset/confirm/",
-                {"token": "wrong-token", "new_password": STRONG_PWD_NEW},
+                {"token": token.token, "new_password": "abc"},
                 format="json",
             )
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(r.json().get("code"), "weak_password")
+
+        # The link still works once they pick something acceptable.
         r = self.client.post(
             "/services/password-reset/confirm/",
-            {"token": "wrong-token", "new_password": STRONG_PWD_NEW},
+            {"token": token.token, "new_password": STRONG_PWD_NEW},
             format="json",
         )
-        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.status_code, 200)
 
     def test_confirm_per_ip_lockout_across_distinct_tokens(self, _mock_mail):
         # Per-token limit doesn't fire because each guess is unique. The per-IP

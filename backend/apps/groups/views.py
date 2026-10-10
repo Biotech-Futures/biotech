@@ -58,7 +58,7 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
     serializer_class = GroupMembershipSerializer
 
     def get_queryset(self):
-        queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
+        queryset = GroupMembership.objects.select_related("group", "user", "user__studentprofile__supervisor__user").order_by("id")
         user = self.request.user
         admin = is_admin(user)
         # Non-admins may only read rosters for groups they actively belong to.

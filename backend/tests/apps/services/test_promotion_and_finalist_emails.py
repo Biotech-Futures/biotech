@@ -133,17 +133,18 @@ class FinalistEmailTests(TestCase):
         self.admin = User.objects.create_user(email="admin@example.com", password="x")
         self.flag = FinalistFlag.objects.create(group=self.group, flagged_by=self.admin)
 
-    def test_sends_one_email_per_member_and_marks_notified(self):
+    def test_sends_the_team_one_email_and_marks_notified(self):
         self.assertTrue(notify_finalist(self.flag, actor=self.admin))
 
-        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["one@example.com", "two@example.com"])
+        # Both students in To; no mentor or supervisor to copy in.
+        self.assertEqual([(sorted(m.to), m.cc) for m in mail.outbox], [(["one@example.com", "two@example.com"], [])])
         for message in mail.outbox:
-            self.assertEqual(len(message.to), 1)  # members never see each other's addresses
             self.assertEqual(message.subject, "Congratulations – You’re a BIOTech Futures Finalist!")
             self.assertIn("Dear members of CRISPR Research 01,", message.body)
             self.assertIn("Your team has been selected as a finalist", message.body)
             self.assertIn("CRISPR Research 01", _html(message))
-            self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+            # Replies go back to the sender, info@.
+            self.assertEqual(message.reply_to, [])
         self.flag.refresh_from_db()
         self.assertTrue(self.flag.notified)
         self.assertEqual(self.flag.notified_by, self.admin)
@@ -175,20 +176,13 @@ class FinalistEmailTests(TestCase):
         self.assertFalse(self.flag.notified)
         self.assertFalse(any("@example.com" in line for line in logs.output))
 
-    def test_partial_delivery_leaves_flag_unnotified_for_a_retry(self):
-        real_send = mail.EmailMultiAlternatives.send
+    def test_a_member_who_already_has_it_is_left_out(self):
+        from apps.management.models import EmailDelivery
 
-        def fail_for_one(message, *args, **kwargs):
-            if message.to == ["one@example.com"]:
-                raise OSError("rejected")
-            return real_send(message, *args, **kwargs)
-
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_one), \
-                self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
-            self.assertFalse(notify_finalist(self.flag))
+        # An earlier send reached one of them.
+        EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="one@example.com")
+        self.assertTrue(notify_finalist(self.flag))
         self.assertEqual([m.to for m in mail.outbox], [["two@example.com"]])
-        self.flag.refresh_from_db()
-        self.assertFalse(self.flag.notified)
 
     def test_edited_email_uses_the_saved_wording(self):
         SystemEmailTemplate.objects.create(

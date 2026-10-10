@@ -164,7 +164,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 36rem;
 }
 
 .year__value {

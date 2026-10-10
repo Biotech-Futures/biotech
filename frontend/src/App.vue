@@ -1,5 +1,8 @@
 <template>
-  <div class="app-container">
+  <div
+    class="app-container"
+    :class="{ 'student-dashboard-colours': auth.isStudent && ['/dashboard', '/profile'].includes(route.path) }"
+  >
     <!-- Hidden on the marking pages, so the preview and rubric get the
          height; the arrow below brings it back. -->
     <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
@@ -43,7 +46,8 @@
               type="button"
               aria-label="Open account menu"
             >
-              <span class="user-avatar-text">{{ auth.initials }}</span>
+              <img v-if="profileAvatarUrl" class="user-avatar-image" :src="profileAvatarUrl" alt="" />
+              <span v-else class="user-avatar-text">{{ auth.initials }}</span>
 <!--              <span v-if="hasUserMenuBadge" class="notification-badge"></span>-->
             </button>
           </div>
@@ -172,6 +176,12 @@
             </li>
 
             <!-- In-app Admin management (Users, Groups, Tasks) -->
+            <li class="sidebar-item" v-if="auth.isStudent">
+              <a href="mailto:support@biotechfutures.org" class="sidebar-link">
+                <i class="fas fa-envelope sidebar-icon" aria-hidden="true"></i>
+                <span>Contact Support</span>
+              </a>
+            </li>
             <li class="sidebar-item" v-if="auth.isAdmin">
               <div
                 class="sidebar-link sidebar-link--admin"
@@ -208,6 +218,15 @@
                     :class="{ active: route.path === '/admin/users' }"
                   >
                     <span>Users</span>
+                  </RouterLink>
+                </li>
+                <li class="sidebar-subitem">
+                  <RouterLink
+                    to="/admin/views"
+                    class="sidebar-sublink"
+                    :class="{ active: route.path.startsWith('/admin/views') }"
+                  >
+                    <span>Views</span>
                   </RouterLink>
                 </li>
                 <li class="sidebar-subitem">
@@ -339,7 +358,7 @@
       >
         <div class="notification-header">
           <div class="account-summary">
-            <div class="account-avatar">{{ auth.initials }}</div>
+            <div class="account-avatar"><img v-if="profileAvatarUrl" class="account-avatar-image" :src="profileAvatarUrl" alt="" /><span v-else>{{ auth.initials }}</span></div>
 
             <div class="account-copy">
               <h4 class="notification-title">My account</h4>
@@ -435,7 +454,8 @@ const toggleTheme = () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
+  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path) ||
+  route.meta.public === true,
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
@@ -451,6 +471,7 @@ const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
+const profileAvatarUrl = computed(() => auth.user?.profile_image_url || '')
 const isSidebarCollapsed = ref(false)
 
 // Marking pages start with the sidebar collapsed (meta.hideSidebar on the
@@ -789,6 +810,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* BTF light green, matching the brand email buttons. Keep the change within
+   student dashboard/profile pages, including their navigation and account panel. */
+.student-dashboard-colours {
+  --light-green: #c3ebca;
+  --accent-green-soft: #c3ebca;
+}
+
+:global(html[data-theme="dark"] .student-dashboard-colours) {
+  --light-green: rgba(1, 113, 81, 0.18);
+  --accent-green-soft: rgba(1, 113, 81, 0.18);
+}
+
 :global(html),
 :global(body),
 :global(#app) {
@@ -1073,6 +1106,8 @@ select {
 .user-avatar-text {
   font-size: 0.95rem;
 }
+
+.user-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 
 .notification-badge {
   position: absolute;
@@ -1528,6 +1563,8 @@ select {
   font-weight: 800;
   box-shadow: 0 10px 24px rgba(8, 14, 13, 0.16);
 }
+
+.account-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 
 .account-copy {
   min-width: 0;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,13 +12,15 @@ from rest_framework.views import APIView
 
 from apps.common.rbac import IsStaffOrAdmin
 
+from apps.services.system_email import sender_for
+
 from ..services import test_email
 
 logger = logging.getLogger(__name__)
 
 
 class TestEmailSerializer(serializers.Serializer):
-    recipient = serializers.CharField(error_messages={"blank": "Pick someone from the list."})
+    recipient = serializers.CharField(error_messages={"blank": "Pick one from the list."})
     to = serializers.EmailField(
         error_messages={"invalid": "Enter a valid email address.", "blank": "Enter an email address."}
     )
@@ -58,4 +61,6 @@ class TestEmailView(APIView):
                 {"detail": "The test email couldn't be sent. Try again shortly."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({"sent_to": to})
+        # Undeliverable mail comes back to the address it's sent from.
+        sent_from = sender_for(test_email.KINDS[kind].email).address
+        return Response({"sent_to": to, "sent_from": sent_from})

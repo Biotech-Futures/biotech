@@ -10,7 +10,7 @@ set ``GRADING_JOB_DISPATCH_SYNC=True`` to run inline.
 Job params (dict on ``GradingJob.params``):
 
     {
-      "kind": "component_zip" | "component_xlsx",
+      "kind": "component_zip" | "component_xlsx" | "component_pdf",
       "component_code": "POSTER",
       "group_ids": [1, 2, 3],   # optional; empty/absent = all groups
     }
@@ -67,7 +67,7 @@ def _run_job(job_id: int) -> None:
 
         # Only the per-component exports need a component.
         component = entries = None
-        if kind in ("component_zip", "component_xlsx"):
+        if kind in ("component_zip", "component_xlsx", "component_pdf"):
             component_code = job.params.get("component_code")
             if not component_code:
                 raise ValueError(f"job {job_id} missing component_code in params")
@@ -80,9 +80,12 @@ def _run_job(job_id: int) -> None:
         if kind == "component_zip":
             # Flat — one component per bundle, so group file names can't
             # collide and folders would just be an extra layer.
-            payload = build_submissions_zip(entries, group_folder=False)
+            # SAQ's txt download: its answers as text files. Its pdf
+            # download is component_pdf.
+            payload = build_submissions_zip(entries, group_folder=False, saq_text=True)
             label = _COMPONENT_LABELS.get(component.code, component.code)
-            filename = f"{current_cohort()}_BTF_{label}.zip"
+            suffix = "_TXT" if component.code == "SAQ" else ""
+            filename = f"{current_cohort()}_BTF_{label}{suffix}.zip"
         elif kind == "component_xlsx":
             criteria = list(
                 RubricCriterion.objects
@@ -130,6 +133,11 @@ def _run_job(job_id: int) -> None:
                 years_by_group=years_by_group,
             )
             filename = f"{current_cohort()}_BTF_SAQs.xlsx"
+        elif kind == "component_pdf":
+            # SAQ only: each group's answers as its own PDF, zipped, as the
+            # component zip has them.
+            payload = build_submissions_zip(entries, group_folder=False)
+            filename = f"{current_cohort()}_BTF_SAQs_PDF.zip"
         elif kind == "all_zip":
             # Everything: every group, every component, full folder structure.
             payload = build_submissions_zip(submission_entries())

@@ -68,6 +68,10 @@ class PrototypeAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_PROTOTYPE_CONTAINER"
 
 
+class ProfileImageAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_PROFILE_IMAGE_CONTAINER"
+
+
 class SlidesAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_SLIDES_CONTAINER"
 
@@ -165,8 +169,11 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ) -> dict:
-        storage_name = self.build_storage_name(getattr(uploaded_file, "name", ""))
+        # A caller can name the file itself (e.g. "2026_BTF01_Poster.pdf");
+        # otherwise it goes under the day and a random folder.
+        storage_name = storage_name or self.build_storage_name(getattr(uploaded_file, "name", ""))
         saved_name = self._storage().save(storage_name, uploaded_file)
         file_data = {
             "storage_key": saved_name,
@@ -191,6 +198,7 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ):
         # Storage writes are not part of the surrounding DB transaction, so any
         # DB error after the upload would leave a blob with no row pointing at
@@ -201,6 +209,7 @@ class ManagedFileService:
             content_type_field=content_type_field,
             size_field=size_field,
             original_filename_field=original_filename_field,
+            storage_name=storage_name,
         )
         try:
             yield file_data
@@ -325,6 +334,11 @@ def get_prototype_storage() -> ManagedContainerStorage:
 
 
 @lru_cache(maxsize=2)
+def get_profile_image_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("profile-images", ProfileImageAzureStorage)
+
+
+@lru_cache(maxsize=2)
 def get_slides_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("slides", SlidesAzureStorage)
 
@@ -338,4 +352,5 @@ def reset_managed_storage_caches() -> None:
     get_poster_storage.cache_clear()
     get_report_storage.cache_clear()
     get_prototype_storage.cache_clear()
+    get_profile_image_storage.cache_clear()
     get_slides_storage.cache_clear()

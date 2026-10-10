@@ -1,4 +1,4 @@
-"""The Symposium emails from the Email Nonfinalist tab, to teams that
+"""The Symposium emails from the Notify Nonfinalist tab, to teams that
 submitted but weren't picked and to teams that didn't submit: who gets them,
 the client's wording with the Symposium details from Notify Finalists,
 preview, and sending in batches."""
@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
-from apps.management.models import FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
+from apps.management.models import EmailDelivery, FinalistEmailSettings, NonFinalistEmail, NonSubmissionEmail
 from apps.management.services.finalist_notify import symposium_today
 from apps.services.models import SystemEmailTemplate
 from apps.submissions.models import Deadline, GroupExtension, Submission
@@ -45,6 +45,11 @@ def _submitted_team(name, staff):
     return team
 
 
+def _recipients():
+    """Everyone the emails went to, To and CC."""
+    return sorted(address for m in mail.outbox for address in m.to + m.cc)
+
+
 def _press(test, name):
     """One press: the run sends every team (inline under test settings). The
     run's result, with the counts after it, as a one-item list."""
@@ -53,6 +58,14 @@ def _press(test, name):
     body = r.json()
     test.assertFalse(body["sending"])
     return [{**body, "emailed": body["run"]["emailed"], "failed": body["run"]["failed"]}]
+
+
+def _press_which(test, name, which):
+    """Email Newly Added (``"new"``) or Resend Email To Missed Individuals
+    (``"missed"``): the run's result, with the counts after it."""
+    r = test.client.post(reverse(name), {"which": which}, format="json")
+    test.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+    return r.json()
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
@@ -87,14 +100,12 @@ class NonFinalistEmailTests(_GradingFixture):
     def _send_all(self):
         return _press(self, SEND)
 
-    def _recipients(self):
-        return sorted(m.to[0] for m in mail.outbox)
-
     def test_every_current_member_of_a_team_not_picked_gets_it(self):
         results = self._send_all()
+        # One email: the students in To, the mentor and supervisor in CC.
         self.assertEqual(
-            self._recipients(),
-            ["amy@example.com", "ben@example.com", "mo@example.com", "sue@example.com"],
+            [(m.to, m.cc) for m in mail.outbox],
+            [(["amy@example.com", "ben@example.com"], ["mo@example.com", "sue@example.com"])],
         )
         message = mail.outbox[0]
         text = " ".join(message.body.split())
@@ -104,7 +115,7 @@ class NonFinalistEmailTests(_GradingFixture):
         day = FinalistEmailSettings.load().symposium_date
         self.assertIn(f"Symposium on {day:%A}, {day.day} {day:%B %Y}", text)
         self.assertIn("https://events.example.com/symposium", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["emailed"], 4)
         self.assertEqual(results[-1]["teams"], {"total": 1, "emailed": 1})
@@ -127,25 +138,57 @@ class NonFinalistEmailTests(_GradingFixture):
         self.assertEqual(result["teams"], {"total": 7, "emailed": 7})
 
     def test_a_team_whose_member_misses_it_stays_pending(self):
-        real_send = mail.EmailMultiAlternatives.send
-
-        def fail_for_ben(message, *args, **kwargs):
-            if message.to == ["ben@example.com"]:
-                raise OSError("rejected")
-            return real_send(message, *args, **kwargs)
-
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=fail_for_ben), \
-                self.assertLogs("apps.management.services.symposium_emails", level="ERROR"):
+        # An earlier send reached everyone but ben; this one doesn't go at all.
+        for address in ("amy@example.com", "mo@example.com", "sue@example.com"):
+            EmailDelivery.objects.create(email="nonfinalist_invitation", group=self.group, address=address)
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
-        # The page lists who it couldn't reach.
-        self.assertEqual(results[-1]["run"]["missed"], [f"({self.group.group_name}) Mem ben"])
-        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}})
+        # The page lists who it couldn't reach, and why.
+        self.assertEqual(
+            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Mem ben)", "reason": "lost the mail server connection"}],
+        )
+        # The student it reached counts as emailed; ben doesn't.
+        self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 1, "times": {"total": 2, "emailed": 1}})
+        # The group counts as emailed, though it isn't done until ben has it.
+        self.assertEqual((results[-1]["groups"], results[-1]["teams"]), ({"total": 1, "emailed": 1}, {"total": 1, "emailed": 0}))
         self.assertFalse(NonFinalistEmail.objects.filter(group=self.group).exists())
 
-        # The next press reaches the team again.
-        self._send_all()
+        # The next press emails only the member it missed.
+        mail.outbox = []
+        result = self._send_all()[-1]
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["ben@example.com"], [])])
+        self.assertEqual(result["run"]["due"], 1)
         self.assertTrue(NonFinalistEmail.objects.filter(group=self.group).exists())
+
+    def test_newly_added_and_resend_to_those_missed_each_email_only_their_own(self):
+        # An earlier send reached everyone but ben; this one doesn't go at all.
+        for address in ("amy@example.com", "mo@example.com", "sue@example.com"):
+            EmailDelivery.objects.create(email="nonfinalist_invitation", group=self.group, address=address)
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+                self.assertLogs("apps.management.services.delivery", level="ERROR"):
+            result = self._send_all()[-1]
+        self.assertEqual(result["waiting"]["missed"], {"teams": 1, "people": 1})
+        # A team that submitted since hasn't been tried, so isn't resent to.
+        _member("new@example.com", _submitted_team("Late", self.staff))
+
+        mail.outbox = []
+        result = _press_which(self, SEND, "missed")
+        self.assertEqual([(m.to, m.cc) for m in mail.outbox], [(["ben@example.com"], [])])
+        self.assertEqual(result["waiting"], {"new": {"teams": 1, "people": 1}, "missed": {"teams": 0, "people": 0}})
+        self.assertEqual(result["teams"], {"total": 2, "emailed": 1})
+
+        # Email Newly Added emails only the team that submitted since.
+        mail.outbox = []
+        result = _press_which(self, SEND, "new")
+        self.assertEqual([m.to for m in mail.outbox], [["new@example.com"]])
+        self.assertEqual(result["waiting"], {"new": {"teams": 0, "people": 0}, "missed": {"teams": 0, "people": 0}})
+        self.assertEqual(result["teams"], {"total": 2, "emailed": 2})
+
+    def test_resend_refuses_an_unknown_which(self):
+        r = self.client.post(reverse(SEND), {"which": "everyone"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_sending_waits_for_the_symposium_details_on_notify_finalists(self):
         FinalistEmailSettings.objects.update(symposium_date=None)
@@ -210,19 +253,26 @@ class NonFinalistEmailTests(_GradingFixture):
             extended_until=timezone.now() + timedelta(days=1), revoked_at=timezone.now(),
         )
         self._send_all()
-        self.assertEqual(len(mail.outbox), 4)
+        self.assertEqual(len(_recipients()), 4)
 
-    def test_a_second_run_is_refused_while_one_is_sending(self):
+    def test_a_send_pressed_while_another_runs_is_queued_until_it_finishes(self):
         from apps.management.models import EmailSendRun
 
+        # Another email's run, e.g. Notify Finalists.
         EmailSendRun.objects.create(
-            key="nonfinalist_invitation", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
+            key="finalist_notification", held_until=timezone.now() + timedelta(minutes=4), started_at=timezone.now(),
         )
-        self.assertTrue(self.client.get(reverse("management:nonfinalist-email")).json()["sending"])
         r = self.client.post(reverse(SEND), {}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(r.json()["detail"], "Non-finalist invitation is already being sent. Wait for that to finish.")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual((r.json()["sending"], r.json()["queued"]), (False, 1))
+        self.assertEqual(r.json()["ahead"], ["Finalist notification"])
         self.assertEqual(mail.outbox, [])
+
+        # Once that run finishes, the page's next check sends it.
+        EmailSendRun.objects.filter(key="finalist_notification").update(held_until=None, finished_at=timezone.now())
+        body = self.client.get(reverse("management:nonfinalist-email")).json()
+        self.assertEqual((body["queued"], body["teams"]["emailed"]), (0, 1))
+        self.assertEqual(len(_recipients()), 4)
 
         # The other email has a send of its own.
         self.assertFalse(self.client.get(reverse("management:nonsubmission-email")).json()["sending"])
@@ -231,7 +281,7 @@ class NonFinalistEmailTests(_GradingFixture):
         EmailSendRun.objects.update(held_until=timezone.now() - timedelta(seconds=1))
         self.assertFalse(self.client.get(reverse("management:nonfinalist-email")).json()["sending"])
         self._send_all()
-        self.assertEqual(len(mail.outbox), 4)
+        self.assertEqual(len(_recipients()), 4)
         self.assertIsNone(EmailSendRun.objects.get(key="nonfinalist_invitation").held_until)
 
     def test_a_switched_off_email_is_refused(self):
@@ -245,11 +295,17 @@ class NonFinalistEmailTests(_GradingFixture):
         # The student who left isn't counted.
         self.assertEqual(r.json(), {
             "teams": {"total": 1, "emailed": 0},
+            "groups": {"total": 1, "emailed": 0},
             "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            # Nobody tried yet: the team is newly added.
+            "waiting": {"new": {"teams": 1, "people": 4}, "missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
+            "queued": 0,
+            "ahead": [],
+            "sent_from": "info@biotechfutures.org",
             "run": None,
         })
 
@@ -304,11 +360,16 @@ class NonSubmissionEmailTests(_GradingFixture):
         # Not the mentor of the group that never entered.
         self.assertEqual(r.json(), {
             "teams": {"total": 2, "emailed": 0},
+            "groups": {"total": 2, "emailed": 0},
             "students": {"total": 2, "emailed": 0, "times": {"total": 2, "emailed": 0}},
             "mentors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
             "supervisors": {"total": 1, "emailed": 0, "times": {"total": 1, "emailed": 0}},
+            "waiting": {"new": {"teams": 2, "people": 4}, "missed": {"teams": 0, "people": 0}},
             "blocked": "",
             "sending": False,
+            "queued": 0,
+            "ahead": [],
+            "sent_from": "info@biotechfutures.org",
             "run": None,
         })
 
@@ -332,11 +393,8 @@ class NonSubmissionEmailTests(_GradingFixture):
 
     def test_every_current_member_of_a_team_that_did_not_submit_gets_it(self):
         results = self._send_all()
-        self.assertEqual(
-            sorted(m.to[0] for m in mail.outbox),
-            ["dee@example.com", "mo@example.com", "nia@example.com", "sue@example.com"],
-        )
-        message = next(m for m in mail.outbox if m.to == ["nia@example.com"])
+        self.assertEqual(_recipients(), ["dee@example.com", "mo@example.com", "nia@example.com", "sue@example.com"])
+        message = next(m for m in mail.outbox if "nia@example.com" in m.to)
         text = " ".join(message.body.split())
         self.assertEqual(message.subject, "BIOTech Futures – No Submission Received")
         self.assertIn("Dear members of No Entry,", text)
@@ -344,7 +402,7 @@ class NonSubmissionEmailTests(_GradingFixture):
         day = FinalistEmailSettings.load().symposium_date
         self.assertIn(f"University of Sydney on {day:%A}, {day.day} {day:%B %Y} (in-person only)", text)
         self.assertIn("https://events.example.com/symposium", text)
-        self.assertEqual(message.reply_to, ["support@biotechfutures.org"])
+        self.assertEqual(message.reply_to, [])
 
         self.assertEqual(results[-1]["teams"], {"total": 2, "emailed": 2})
         self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 2, "times": {"total": 2, "emailed": 2}})

@@ -1,0 +1,43 @@
+name: Daily guardian details reminders
+
+# Emails students who have no parent/guardian email on file, once a day, until
+# they add one on their profile. The backend decides who is due, so this only
+# has to fire once a day.
+#
+# Firing more often than that is harmless: a student already emailed today is
+# skipped, so a retry or an overlapping run cannot email anyone twice.
+#
+# Required configuration:
+#   secret  RSVP_REMINDER_TOKEN   shared by every email job for now; must
+#                                 match the backend env of the same name.
+#                                 Moves to EMAIL_JOBS_TOKEN once that's set
+#                                 on GitHub and Azure.
+#
+# 06:41 UTC is late afternoon in Sydney, after school. The odd minute avoids
+# GitHub's top-of-hour cron congestion.
+on:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger guardian details reminders
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding.
+          curl -fsS -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/admin/send-guardian-details-reminders/"
