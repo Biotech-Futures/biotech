@@ -1,8 +1,8 @@
 <template>
   <div class="admin-recorded-session-fields">
     <!-- Video File Section (Required) -->
-    <div class="admin-resource-form__section-wrap">
-      <div class="admin-resource-form__section">Session Video Recording *</div>
+    <div class="admin-resource-form__field-wrap">
+      <label class="form-label" for="admin-resource-video-file">Session Video Recording *</label>
       <div class="admin-resource-file-upload">
         <div class="admin-resource-file-upload__controls">
           <input
@@ -69,8 +69,8 @@
     </div>
 
     <!-- Slides File Section (Optional) -->
-    <div class="admin-resource-form__section-wrap">
-      <div class="admin-resource-form__section">Presentation Slides (Optional)</div>
+    <div class="admin-resource-form__field-wrap">
+      <label class="form-label" for="admin-resource-slides-file">Presentation Slides (Optional)</label>
       <div class="admin-resource-file-upload">
         <div class="admin-resource-file-upload__controls">
           <input
@@ -224,7 +224,110 @@ const onAckChange = (e: Event) => {
 .admin-recorded-session-fields {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1.25rem;
+}
+
+.admin-resource-form__field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--charcoal);
+  margin-bottom: 0.15rem;
+}
+
+.admin-resource-file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.admin-resource-file-upload__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-resource-file-input {
+  display: none;
+}
+
+.admin-resource-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  background-color: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--charcoal);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.admin-resource-file-badge--existing {
+  background-color: rgba(1, 113, 81, 0.06);
+  border-color: rgba(1, 113, 81, 0.2);
+  color: var(--dark-green);
+}
+
+.admin-resource-file-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-resource-file-size {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.admin-resource-form__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.admin-resource-form__oversize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.admin-resource-form__oversize-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+.admin-resource-form__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.admin-resource-form__checkbox-label input {
+  accent-color: var(--dark-green);
+  width: 16px;
+  height: 16px;
 }
 
 .admin-resource-form__error {

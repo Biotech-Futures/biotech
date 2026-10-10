@@ -135,22 +135,20 @@
 
       <!-- File Upload section for file/attachment kinds -->
       <div v-if="form.kind !== 'page'" class="admin-resource-form__section-wrap">
-        <template v-if="isRecordedSession">
-          <AdminRecordedSessionFields
-            v-model:video-file="selectedFile"
-            v-model:slides-file="selectedSlidesFile"
-            v-model:acknowledged-oversized="acknowledgedOversized"
-            :current-video-name="currentFileName"
-            :current-video-size="currentFileSize"
-            :current-slides-name="currentSlidesName"
-            :current-slides-size="currentSlidesSize"
-            :saving="saving"
-            :is-editing="isEditing"
-          />
-        </template>
-        <template v-else>
-          <div class="admin-resource-form__section">File Attachment</div>
-          <div class="admin-resource-file-upload">
+        <div class="admin-resource-form__section">File Attachment</div>
+        <AdminRecordedSessionFields
+          v-if="isRecordedSession"
+          v-model:video-file="selectedFile"
+          v-model:slides-file="selectedSlidesFile"
+          v-model:acknowledged-oversized="acknowledgedOversized"
+          :current-video-name="currentFileName"
+          :current-video-size="currentFileSize"
+          :current-slides-name="currentSlidesName"
+          :current-slides-size="currentSlidesSize"
+          :saving="saving"
+          :is-editing="isEditing"
+        />
+        <div v-else class="admin-resource-file-upload">
             <div class="admin-resource-file-upload__controls">
               <input
                 ref="fileInputRef"
@@ -210,7 +208,6 @@
               Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Files over 25 MB need confirmation
             </p>
           </div>
-        </template>
       </div>
 
       <!-- Rich Page Content for page kind -->
