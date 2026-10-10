@@ -1,24 +1,5 @@
 <template>
   <div class="admin-users">
-    <!-- Top actions: supervisor search only (add / CSV import move to the People tabs line) -->
-    <AdminUsersToolbar
-      v-if="isSupervisorMode"
-      :is-supervisor-mode="isSupervisorMode"
-      v-model:search="searchInput"
-    />
-
-    <!-- Users tab filters: search / role / country / state / in-group / status -->
-    <AdminUsersFilters
-      v-if="!isSupervisorMode"
-      :filters="filters"
-      v-model:search="searchInput"
-      :is-student-mode="isStudentMode"
-      :is-role-fixed="isRoleFixed"
-      :filter-countries="filterCountries"
-      :states="states"
-      @patch="applyFilterPatch"
-    />
-
     <p v-if="error" class="admin-users__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -85,9 +66,8 @@
       :total-count="totalCount"
       :empty-message="emptyMessage"
       :is-student-mode="isStudentMode"
-      :page-size-options="PAGE_SIZE_OPTIONS"
-      pager-label="Users pagination"
-      :select-all-label="`Select all ${pluralNoun} on this page`"
+      v-model:search="searchInput"
+      :search-placeholder="isSupervisorMode ? 'Search supervisors...' : 'Name or email'"
       @view="openView"
       @edit="openEdit"
       @group-action="onGroupAction"
@@ -97,7 +77,19 @@
       @page-change="onPageChange"
       @page-size-change="onPageSizeChange"
       @row-click="onRowClick"
-    />
+    >
+      <!-- Role / country / state / in-group / status, beside Search. Supervisors have Search only. -->
+      <template v-if="!isSupervisorMode" #filters>
+        <AdminUsersFilters
+          :filters="filters"
+          :is-student-mode="isStudentMode"
+          :is-role-fixed="isRoleFixed"
+          :filter-countries="filterCountries"
+          :states="states"
+          @patch="applyFilterPatch"
+        />
+      </template>
+    </AdminUsersTable>
 
     <!-- Bulk status confirm -->
     <ConfirmDialog
@@ -257,7 +249,6 @@ import { onMounted, ref, toRef } from 'vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
-import AdminUsersToolbar from '@/components/admin/users/AdminUsersToolbar.vue'
 import AdminUsersFilters from '@/components/admin/users/AdminUsersFilters.vue'
 import AdminUsersTable from '@/components/admin/users/AdminUsersTable.vue'
 import AdminUsersBulkBar from '@/components/admin/users/AdminUsersBulkBar.vue'
@@ -265,7 +256,6 @@ import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import type { AdminUser } from '@/utils/adminAPI'
-import { PAGE_SIZE_OPTIONS } from '@/utils/userOptions'
 import { useAdminUsersView } from '@/composables/admin/useAdminUsersView'
 
 const props = withDefaults(

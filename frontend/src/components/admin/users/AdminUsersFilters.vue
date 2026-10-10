@@ -1,19 +1,5 @@
 <template>
-  <section class="admin-users__filters card" aria-label="Filter and search">
-    <div class="admin-users__filter">
-      <label class="admin-users__filter-label" for="user-search">Search</label>
-      <div class="admin-users__search">
-        <i class="fas fa-magnifying-glass admin-users__search-icon" aria-hidden="true"></i>
-        <input
-          id="user-search"
-          v-model="search"
-          type="search"
-          class="admin-users__search-input"
-          placeholder="Name or email"
-          aria-label="Search users"
-        />
-      </div>
-    </div>
+  <div class="admin-users__filters" role="group" aria-label="Filters">
 
     <div v-if="!isRoleFixed" class="admin-users__filter">
       <label class="admin-users__filter-label" for="role-filter">Role</label>
@@ -58,7 +44,7 @@
         <option value="inactive">Inactive</option>
       </select>
     </div>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -71,7 +57,6 @@ type FilterField = 'role' | 'country' | 'state' | 'inGroup' | 'status'
 
 const props = defineProps<{
   filters: AdminUserFilters
-  search?: string
   isStudentMode: boolean
   isRoleFixed: boolean
   filterCountries: AdminUserCountry[]
@@ -79,14 +64,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:search', value: string): void
   (e: 'patch', payload: { field: FilterField; value: string }): void
 }>()
-
-const search = computed({
-  get: () => props.search ?? '',
-  set: (value: string) => emit('update:search', value)
-})
 
 const filterCountryNames = computed(() =>
   [...new Set(props.filterCountries.map((country) => country.countryName))].sort((a, b) =>
@@ -110,12 +89,12 @@ const emitPatch = (field: FilterField, event: Event) => {
 </script>
 
 <style scoped>
+/* Laid out beside Search in the table's search card, and drawn like it. */
 .admin-users__filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
 .admin-users__filter {
@@ -125,13 +104,19 @@ const emitPatch = (field: FilterField, event: Event) => {
 }
 
 .admin-users__filter select {
-  height: 40px;
+  min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
   color: var(--teal);
-  width: 100%;
+}
+
+.admin-users__filter select:focus {
+  outline: none;
+  border-color: var(--dark-green);
 }
 
 .admin-users__filter-label {
@@ -140,30 +125,5 @@ const emitPatch = (field: FilterField, event: Event) => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-users__search {
-  position: relative;
-  width: 100%;
-}
-
-.admin-users__search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--teal);
-}
-
-.admin-users__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
 }
 </style>
