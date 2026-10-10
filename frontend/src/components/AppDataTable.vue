@@ -68,6 +68,7 @@
                 v-for="column in columns"
                 :key="column.key"
                 class="data-table-head"
+                :class="column.align && `data-table-head--${column.align}`"
                 scope="col"
                 :title="column.title"
                 :aria-sort="canSort(column) ? ariaSort(column.key) : undefined"
@@ -130,6 +131,7 @@
                 </td>
                 <td v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" @click.stop>
                   <button
+                    v-if="rowHasDetail(row)"
                     type="button"
                     class="data-table-expand-btn"
                     :aria-expanded="expandedIds.has(rowId(row))"
@@ -146,7 +148,13 @@
                 <td
                   v-for="column in columns"
                   :key="column.key"
-                  :class="{ 'data-table-cell--wrap': column.wrap }"
+                  :class="[
+                    {
+                      'data-table-cell--wrap': column.wrap,
+                      [`data-table-cell--${column.align}`]: Boolean(column.align),
+                    },
+                    column.cellClass?.(row),
+                  ]"
                 >
                   <!-- A page can draw a cell itself with a cell-<key> slot. -->
                   <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
@@ -172,7 +180,7 @@
                 </template>
               </tr>
               <tr
-                v-if="hasDetail() && (showAllDetails || expandedIds.has(rowId(row)))"
+                v-if="hasDetail() && rowHasDetail(row) && (showAllDetails || expandedIds.has(rowId(row)))"
                 class="data-table-detail-row"
               >
                 <td :colspan="emptyColspan()">
@@ -264,6 +272,10 @@ export type DataTableColumn = {
   sortable?: boolean
   // Shown on hovering the heading.
   title?: string
+  // Text alignment for the heading and cells; left when not given.
+  align?: 'left' | 'center' | 'right'
+  // Classes for a cell, worked out from its row.
+  cellClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
 }
 
@@ -288,6 +300,8 @@ const props = withDefaults(
     selectable?: boolean
     // On: every row's details shown under it at once, with no chevrons.
     showAllDetails?: boolean
+    // Which rows have details; every row when not given.
+    detailFor?: (row: Record<string, unknown>) => boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
     rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
@@ -313,6 +327,7 @@ const props = withDefaults(
     loading: false,
     selectable: true,
     showAllDetails: false,
+    detailFor: undefined,
     clickableRows: false,
     rowClass: undefined,
     totalCount: undefined,
@@ -484,8 +499,10 @@ const toggleDetail = (row: Record<string, unknown>) => {
   expandedIds.value = next
 }
 
+const rowHasDetail = (row: Record<string, unknown>) => props.detailFor?.(row) ?? true
+
 const onRowClick = (row: Record<string, unknown>) => {
-  if (hasDetail() && !props.showAllDetails) toggleDetail(row)
+  if (hasDetail() && !props.showAllDetails && rowHasDetail(row)) toggleDetail(row)
   else if (props.clickableRows) emit('row-click', row)
 }
 
@@ -950,6 +967,16 @@ tbody tr:last-child td {
 .data-table-sort-btn .fas {
   font-size: 0.7rem;
   opacity: 0.6;
+}
+
+.data-table-head--center,
+.data-table-cell--center {
+  text-align: center;
+}
+
+.data-table-head--right,
+.data-table-cell--right {
+  text-align: right;
 }
 
 .data-table-cell--wrap {

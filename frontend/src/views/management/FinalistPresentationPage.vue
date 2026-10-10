@@ -156,62 +156,57 @@
         <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
       </div>
       <template v-else>
-        <div class="finalist-presentation__scroll">
-          <table class="finalist-presentation__table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Answered</th>
-                <th>Allocate</th>
-                <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
-                  {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!teams.length">
-                <td :colspan="columns.length + 3" class="finalist-presentation__empty">
-                  No finalist teams yet.
-                </td>
-              </tr>
-              <tr v-for="team in teams" :key="team.group_id">
-                <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
-                <td v-if="team.answered_at" :title="team.answered_by ? `By ${team.answered_by}` : undefined">
-                  {{ formatSubmitted(team.answered_at) }}
-                </td>
-                <td v-else class="finalist-presentation__muted">No response</td>
-                <td>
-                  <select
-                    class="finalist-presentation__allocate-select"
-                    :aria-label="`Time for ${team.group_name}`"
-                    :value="team.allocated_slot_id ?? ''"
-                    :disabled="allocating === team.group_id"
-                    @change="allocate(team, $event)"
-                  >
-                    <option value="">Not allocated</option>
-                    <option v-for="slot in columns" :key="slot.id" :value="slot.id">
-                      {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
-                    </option>
-                  </select>
-                </td>
-                <td
-                  v-for="slot in columns"
-                  :key="slot.id"
-                  class="finalist-presentation__tick"
-                  :class="{ 'is-allocated': team.allocated_slot_id === slot.id }"
-                >
-                  <i
-                    v-if="team.slot_ids.includes(slot.id)"
-                    class="fas fa-check"
-                    title="Can make it"
-                    aria-label="Can make it"
-                  ></i>
-                  <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <AppDataTable
+          :columns="allocateColumns"
+          :rows="teamRows"
+          row-key="id"
+          :selectable="false"
+          :page-size="DATA_TABLE_ALL"
+          :sort="NO_SORT"
+          search-placeholder="Group name"
+          empty-message="No finalist teams yet."
+        >
+          <template #cell-group="{ row }">
+            <span class="finalist-presentation__cell--strong">{{ teamOf(row).group_name }}</span>
+          </template>
+          <template #cell-answered="{ row }">
+            <span
+              v-if="teamOf(row).answered_at"
+              :title="teamOf(row).answered_by ? `By ${teamOf(row).answered_by}` : undefined"
+            >
+              {{ formatSubmitted(teamOf(row).answered_at) }}
+            </span>
+            <span v-else class="finalist-presentation__muted">No response</span>
+          </template>
+          <template #cell-allocate="{ row }">
+            <select
+              class="finalist-presentation__allocate-select"
+              :aria-label="`Time for ${teamOf(row).group_name}`"
+              :value="teamOf(row).allocated_slot_id ?? ''"
+              :disabled="allocating === teamOf(row).group_id"
+              @change="allocate(teamOf(row), $event)"
+            >
+              <option value="">Not allocated</option>
+              <option v-for="slot in columns" :key="slot.id" :value="slot.id">
+                {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
+              </option>
+            </select>
+          </template>
+          <!-- A column for each time: its heading as written, and a tick where
+               the team said it can make it. -->
+          <template v-for="slot in columns" :key="`head-${slot.id}`" #[`head-slot-${slot.id}`]="{ column }">
+            <span class="finalist-presentation__time-head">{{ column.label }}</span>
+          </template>
+          <template v-for="slot in columns" :key="`cell-${slot.id}`" #[`cell-slot-${slot.id}`]="{ row }">
+            <i
+              v-if="teamOf(row).slot_ids.includes(slot.id)"
+              class="fas fa-check"
+              title="Can make it"
+              aria-label="Can make it"
+            ></i>
+            <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
+          </template>
+        </AppDataTable>
         <p v-if="allocateError" class="finalist-presentation__error" role="alert">{{ allocateError }}</p>
       </template>
     </section>
@@ -233,60 +228,57 @@
         <p>Failed to load the slides. {{ slidesError }}</p>
         <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
       </div>
-      <div v-else class="finalist-presentation__scroll">
-        <table class="finalist-presentation__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Submitted</th>
-              <th>Type</th>
-              <th class="finalist-presentation__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!slidesTeams.length">
-              <td colspan="4" class="finalist-presentation__empty">No finalist teams yet.</td>
-            </tr>
-            <tr v-for="team in slidesTeams" :key="team.group_id">
-              <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
-              <template v-if="team.submitted">
-                <td>{{ formatSubmitted(team.submitted_at) }}</td>
-                <td>{{ fileType(team.file_name) }}</td>
-                <td class="finalist-presentation__cell--right">
-                  <span class="finalist-presentation__row-actions">
-                    <!-- A PDF opens in a new tab; PowerPoint can't show in the
-                         browser, so it only downloads. The name is on hover. -->
-                    <a
-                      v-if="fileType(team.file_name) === 'PDF'"
-                      :href="presentationSlidesUrl(team.group_id)"
-                      target="_blank"
-                      rel="noopener"
-                      class="btn btn-outline btn-sm"
-                      :title="team.file_name"
-                    >
-                      Open
-                    </a>
-                    <a
-                      :href="presentationSlidesDownloadUrl(team.group_id)"
-                      class="btn btn-outline btn-sm"
-                      :title="team.file_name"
-                    >
-                      Download
-                    </a>
-                  </span>
-                </td>
-              </template>
-              <td v-else colspan="3" class="finalist-presentation__muted">Not submitted yet</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <AppDataTable
+        v-else
+        :columns="submissionColumns"
+        :rows="submissionRows"
+        row-key="id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        :sort="NO_SORT"
+        search-placeholder="Group name"
+        empty-message="No finalist teams yet."
+        :action-columns="2"
+      >
+        <template #cell-group="{ row }">
+          <span class="finalist-presentation__cell--strong">{{ slidesOf(row).group_name }}</span>
+        </template>
+        <template #cell-submitted="{ row }">
+          <template v-if="slidesOf(row).submitted">{{ formatSubmitted(slidesOf(row).submitted_at) }}</template>
+          <span v-else class="finalist-presentation__muted">Not submitted yet</span>
+        </template>
+        <!-- Open | Download. A PDF opens in a new tab; PowerPoint can't show in
+             the browser, so it only downloads. The name is on hover. -->
+        <template #actions="{ row, column }">
+          <template v-if="slidesOf(row).submitted">
+            <a
+              v-if="column === 0 && fileType(slidesOf(row).file_name) === 'PDF'"
+              :href="presentationSlidesUrl(slidesOf(row).group_id)"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-outline btn-sm"
+              :title="slidesOf(row).file_name"
+            >
+              Open
+            </a>
+            <a
+              v-else-if="column === 1"
+              :href="presentationSlidesDownloadUrl(slidesOf(row).group_id)"
+              class="btn btn-outline btn-sm"
+              :title="slidesOf(row).file_name"
+            >
+              Download
+            </a>
+          </template>
+        </template>
+      </AppDataTable>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import {
   addPresentationSlot,
   allocatePresentationSlot,
@@ -304,6 +296,7 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { sydneyClockOn } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
@@ -349,7 +342,42 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slots: giving a team its time.
+// Both tables keep the teams in the order they come; nothing sorts them.
+const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+
+// Allocate Slots: each team as a row, with plain text for search; the team
+// itself for the cells drawn here.
+const teamRows = computed(() =>
+  teams.value.map((team) => ({
+    id: team.group_id,
+    team,
+    group: team.group_name,
+    answered: team.answered_at ? formatSubmitted(team.answered_at) : 'No response',
+    allocate: slotLabel(columns.value.find((slot) => slot.id === team.allocated_slot_id)) || 'Not allocated'
+  }))
+)
+
+const teamOf = (row: Record<string, unknown>) => row.team as PresentationResponseTeam
+
+// Group, Answered, Allocate, then a column for each time, centred, the
+// team's given time tinted.
+const allocateColumns = computed<DataTableColumn[]>(() => [
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'answered', label: 'Answered', sortable: false },
+  { key: 'allocate', label: 'Allocate', sortable: false },
+  ...columns.value.map((slot) => ({
+    key: `slot-${slot.id}`,
+    label: slotLabel(slot),
+    sortable: false,
+    align: 'center' as const,
+    cellClass: (row: Record<string, unknown>) => ({
+      'finalist-presentation__tick': true,
+      'is-allocated': teamOf(row).allocated_slot_id === slot.id
+    })
+  }))
+])
+
+// Giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
@@ -388,6 +416,25 @@ const loadSlides = async () => {
     isLoadingSlides.value = false
   }
 }
+
+// Finalist Submissions: each team as a row, with plain text for search.
+const submissionColumns: DataTableColumn[] = [
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'submitted', label: 'Submitted', sortable: false },
+  { key: 'type', label: 'Type', sortable: false }
+]
+
+const submissionRows = computed(() =>
+  slidesTeams.value.map((team) => ({
+    id: team.group_id,
+    team,
+    group: team.group_name,
+    submitted: team.submitted ? formatSubmitted(team.submitted_at) : 'Not submitted yet',
+    type: team.submitted ? fileType(team.file_name) : '—'
+  }))
+)
+
+const slidesOf = (row: Record<string, unknown>) => row.team as PresentationSlidesTeam
 
 onMounted(() => {
   void load()
@@ -432,6 +479,10 @@ const formatTime = (hhmm: string) => {
   const total = minutesOf(hhmm)
   return clock(Math.floor(total / 60), total % 60)
 }
+
+// "9:30 – 10:00".
+const slotLabel = (slot: PresentationSlot | undefined) =>
+  slot ? `${formatTime(slot.starts_at)} – ${formatTime(slot.ends_at)}` : ''
 
 // "17/10/26 23:06", as the other management tables write it.
 const formatSubmitted = (iso: string | null) => {
@@ -610,16 +661,10 @@ const remove = async (id: number) => {
   font-weight: 600;
 }
 
-/* Times read as written, not in the header's capitals. */
-.finalist-presentation__table thead .finalist-presentation__time-col {
+/* Times read as written, not in the heading's capitals. */
+.finalist-presentation__time-head {
   text-transform: none;
-  text-align: center;
   line-height: 1.3;
-}
-
-/* Scoped under the table so it outweighs the text-align: left above. */
-.finalist-presentation__table .finalist-presentation__tick {
-  text-align: center;
 }
 
 .finalist-presentation__tick .fa-check {
@@ -627,8 +672,8 @@ const remove = async (id: number) => {
 }
 
 /* The time the team has been given: a green tint and outline, apart from
-   the header's and hover's pale pink. */
-.finalist-presentation__tick.is-allocated {
+   the hover's. The cell is the shared table's, so this reaches in. */
+.finalist-presentation__allocate :deep(.finalist-presentation__tick.is-allocated) {
   background: color-mix(in srgb, var(--dark-green) 14%, transparent);
   box-shadow: inset 0 0 0 1px var(--dark-green);
 }
