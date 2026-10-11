@@ -199,6 +199,50 @@ async function fetchStudentLinks(
   return payload.links || []
 }
 
+/** A sheet row that would set a student's guardian. */
+export type GuardianUploadEntry = {
+  row: number
+  student_id: number
+  student_name: string
+  guardian_first_name: string
+  guardian_last_name: string
+  guardian_email: string
+}
+
+/** What Upload Guardian Details found in a sheet, as Upload marks reports. */
+export type GuardianUploadResult = {
+  checks: {
+    missing_headers: string[]
+    header_order: string
+    unknown_students: { row: number; email: string }[]
+    bad_rows: { row: number; reason: string }[]
+    consented: { row: number; email: string }[]
+  }
+  creates: GuardianUploadEntry[]
+  updates: GuardianUploadEntry[]
+  unchanged: GuardianUploadEntry[]
+  summary: { creates: number; updates: number; unchanged: number; errors: number }
+  saved?: number
+}
+
+/** Preview (``dryRun``) or save a sheet of guardian details. */
+export async function uploadGuardianDetails(file: File, dryRun: boolean): Promise<GuardianUploadResult> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const form = new FormData()
+  form.append('file', file)
+  form.append('dry_run', dryRun ? 'true' : 'false')
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/guardian-upload/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({ includeCSRF: true, isFormData: true, headers: { Accept: 'application/json' } }),
+    body: form,
+  })
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+  return response.json()
+}
+
 export async function fetchSupervisedStudents(headers: HeadersInit): Promise<SupervisedStudent[]> {
   const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/`, {
     method: 'GET',

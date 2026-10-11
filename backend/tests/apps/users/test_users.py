@@ -1210,6 +1210,63 @@ class SupervisedStudentEmailViewTests(TestCase):
         response = self.client.get("/api/v1/guardian-details/not-a-real-token/")
         self.assertEqual(response.status_code, 404)
 
+    def _upload(self, text, dry_run=True, name="guardians.csv"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile(name, text.encode()), "dry_run": "true" if dry_run else "false"},
+            format="multipart",
+        )
+
+    UPLOAD_HEADER = "student_email,guardian_first_name,guardian_last_name,guardian_email\n"
+
+    def test_guardian_upload_previews_then_saves(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,Parent,jamie@example.com\n"
+            "needs-consent@test.com,Pat,Parent,pat.new@example.com\n"
+        )
+        preview = self._upload(sheet).json()
+        self.assertEqual(preview["summary"], {"creates": 1, "updates": 1, "unchanged": 0, "errors": 0})
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+        applied = self._upload(sheet, dry_run=False)
+        self.assertEqual(applied.status_code, 200)
+        self.assertEqual(applied.json()["saved"], 2)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email, "jamie@example.com")
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_consent).pg_email, "pat.new@example.com")
+
+    def test_guardian_upload_reports_each_problem_and_saves_nothing(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,,jamie@example\n"
+            "outsider-mail@test.com,Out,Sider,out@example.com\n"
+        )
+        checks = self._upload(sheet).json()["checks"]
+        self.assertEqual(checks["bad_rows"], [{"row": 2, "reason": "guardian_last_name, guardian_email not an email"}])
+        self.assertEqual(checks["unknown_students"], [{"row": 3, "email": "outsider-mail@test.com"}])
+        self.assertEqual(self._upload(sheet, dry_run=False).status_code, 400)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+    def test_guardian_upload_checks_the_headers(self):
+        checks = self._upload("student_email,guardian_email\nx@test.com,y@test.com\n").json()["checks"]
+        self.assertEqual(checks["missing_headers"], ["guardian_first_name", "guardian_last_name"])
+
+    def test_guardian_upload_is_for_supervisors(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.outsider)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile("g.csv", self.UPLOAD_HEADER.encode())},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_no_details_link_once_a_guardian_email_is_on_file(self):
         response = self._details_link(self.pending_consent.id)
         self.assertEqual(response.status_code, 400)

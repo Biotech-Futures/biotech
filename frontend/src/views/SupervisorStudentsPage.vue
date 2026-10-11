@@ -65,16 +65,8 @@
           >
             {{ section.emailAll.label }}
           </button>
-          <!-- Not working yet: a placeholder for uploading guardian details. -->
-          <button
-            v-if="section.id === 'pendingDetails'"
-            type="button"
-            class="btn btn-outline btn-sm"
-            disabled
-            title="Coming soon"
-          >
-            Upload Guardian Details
-          </button>
+          <!-- A sheet of guardians, as Grading's Upload marks. -->
+          <GuardianUploadDialog v-if="section.id === 'pendingDetails'" @applied="onGuardiansUploaded" />
           <button
             v-if="section.id === 'fullyRegistered' && section.rows.length"
             type="button"
@@ -169,6 +161,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import GuardianUploadDialog from '@/components/supervisor/GuardianUploadDialog.vue'
 import SupervisorStudentSheet from '@/components/supervisor/SupervisorStudentSheet.vue'
 import SupervisorTableOptions from '@/components/supervisor/SupervisorTableOptions.vue'
 import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
@@ -363,6 +356,11 @@ const copyInviteLinks = async (sectionId: SectionId, rows: StudentRow[]) => {
     notice.value = ''
     error.value = linkError instanceof Error ? linkError.message : `The ${kind} links could not be made.`
   }
+}
+
+const onGuardiansUploaded = async (saved: number) => {
+  await loadStudents()
+  flashNotice(`Guardian details saved for ${saved} student${saved === 1 ? '' : 's'}.`)
 }
 
 const openGuardianModal = (rows: StudentRow[]) => {

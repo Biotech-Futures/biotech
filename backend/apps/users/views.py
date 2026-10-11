@@ -671,6 +671,43 @@ class SupervisedStudentEmailView(APIView):
         return Response(payload, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SupervisedGuardianUploadView(APIView):
+    """POST a sheet of guardian details for the supervisor's students, as
+    Grading's Upload marks: ``dry_run`` ("true", the default) previews it,
+    "false" saves it if nothing is wrong."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+    parser_classes = [MultiPartParser]
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"detail": "Choose a file to upload."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from . import guardian_upload
+
+        try:
+            result = guardian_upload.parse_guardian_upload(upload, upload.name, request.user)
+        except Exception:  # noqa: BLE001 - an unreadable file, whatever the reason
+            return Response(
+                {"detail": "That file couldn't be read. Upload a .csv or .xlsx."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if str(request.data.get("dry_run", "true")).lower() != "false":
+            return Response(result)
+        if result["summary"]["errors"]:
+            return Response(
+                {"detail": "The sheet has problems; fix them before applying.", **result},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        saved = guardian_upload.commit_guardian_upload(result, supervisor=request.user, log_edit=_log_edit)
+        return Response({"applied": True, "saved": saved, **result})
+
+
 class SupervisedStudentDetailsLinksView(APIView):
     """POST: links to a public form for supervised students' guardian details,
     for students with no guardian email yet."""
