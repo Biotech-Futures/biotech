@@ -125,6 +125,9 @@
     <div v-if="picker" class="picker-overlay">
     <section class="picker-card" role="dialog" aria-modal="true">
       <h3>Add Students</h3>
+      <p v-if="capacityFlash.message.value" class="picker-flash" role="status">
+        {{ capacityFlash.message.value }}
+      </p>
       <label v-for="option in pickerOptions" :key="option.id" class="picker-option">
         <input v-model="pickedIds" type="checkbox" :value="option.id" />
         <span>
@@ -200,6 +203,8 @@ import {
   type GroupPerson,
   type SupervisedGroup,
 } from '@/utils/supervisedGroups'
+import { DEFAULT_GROUP_MAX_SIZE, GROUP_FULL_MESSAGE } from '@/utils/groupCapacity'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 
 const props = withDefaults(
   defineProps<{
@@ -226,6 +231,7 @@ const pendingDelete = ref(false)
 const pendingSchoolMix = ref<{ kind: 'inside' | 'outside'; message: string } | null>(null)
 const localMembers = ref<GroupPerson[]>([...props.group.members])
 const selectedInterests = ref<string[]>([...(props.group.interests || [])])
+const capacityFlash = useFlashMessage(5000)
 
 const isCreate = computed(() => props.mode === 'create')
 const displayName = computed(() => (isCreate.value ? 'New Group' : props.group.group_name))
@@ -273,6 +279,15 @@ const closePicker = () => {
   picker.value = null
   pickedIds.value = []
   pendingSchoolMix.value = null
+  capacityFlash.message.value = ''
+}
+
+const exceedsGroupLimit = () => students.value.length + pickedIds.value.length > DEFAULT_GROUP_MAX_SIZE
+
+const groupLimitMessage = () => {
+  const remaining = Math.max(0, DEFAULT_GROUP_MAX_SIZE - students.value.length)
+  if (!remaining) return GROUP_FULL_MESSAGE
+  return `Groups can have at most ${DEFAULT_GROUP_MAX_SIZE} students. You can add ${remaining} more.`
 }
 
 const schoolLabel = (person?: AvailableMentor | null) => person?.school_name?.trim() || ''
@@ -310,6 +325,11 @@ const schoolMixPrompt = () => {
 
 const applyPicker = async (skipSchoolConfirm = false) => {
   if (!picker.value || !pickedIds.value.length) return
+  if (exceedsGroupLimit()) {
+    pendingSchoolMix.value = null
+    capacityFlash.show(groupLimitMessage())
+    return
+  }
   if (!skipSchoolConfirm) {
     const prompt = schoolMixPrompt()
     if (prompt) {
@@ -385,6 +405,10 @@ const confirmRemove = async () => {
 }
 
 const createGroup = async () => {
+  if (students.value.length > DEFAULT_GROUP_MAX_SIZE) {
+    error.value = GROUP_FULL_MESSAGE
+    return
+  }
   busy.value = true
   error.value = ''
   try {
@@ -694,6 +718,17 @@ const saveGroup = async () => {
 .picker-card h3,
 .picker-card p {
   margin: 0 0 0.85rem;
+}
+
+.picker-card .picker-flash {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #f0b4b0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--danger, #b42318);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 
 .picker-option {
