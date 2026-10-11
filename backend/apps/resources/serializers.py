@@ -1,4 +1,5 @@
 from pathlib import PurePosixPath
+import re
 
 from drf_spectacular.utils import extend_schema_field
 from django.conf import settings
@@ -165,7 +166,9 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
 
     def get_file_name(self, obj):
         if obj.storage_key:
-            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
+            raw_name = PurePosixPath(obj.storage_key).name
+            stripped_name = re.sub(r"^\d+-\d+-", "", raw_name)
+            return sanitize_upload_filename(stripped_name or raw_name)
         return obj.name
 
     def _build_route_url(self, obj, route_name):

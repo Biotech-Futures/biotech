@@ -125,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const OVERSIZE_THRESHOLD_BYTES = 25 * 1024 * 1024
 
@@ -143,13 +143,33 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:videoFile', file: File | null): void
+  (e: 'update:video-file', file: File | null): void
   (e: 'update:slidesFile', file: File | null): void
+  (e: 'update:slides-file', file: File | null): void
   (e: 'update:acknowledgedOversized', val: boolean): void
   (e: 'update:acknowledged-oversized', val: boolean): void
 }>()
 
 const videoInputRef = ref<HTMLInputElement | null>(null)
 const slidesInputRef = ref<HTMLInputElement | null>(null)
+
+watch(
+  () => props.videoFile,
+  (nextFile) => {
+    if (!nextFile && videoInputRef.value) {
+      videoInputRef.value.value = ''
+    }
+  }
+)
+
+watch(
+  () => props.slidesFile,
+  (nextFile) => {
+    if (!nextFile && slidesInputRef.value) {
+      slidesInputRef.value.value = ''
+    }
+  }
+)
 
 const isVideoOversized = computed(() => {
   return Boolean(props.videoFile && props.videoFile.size > OVERSIZE_THRESHOLD_BYTES)
@@ -175,6 +195,16 @@ const triggerSlidesInput = () => {
   slidesInputRef.value?.click()
 }
 
+const setVideoFile = (file: File | null) => {
+  emit('update:videoFile', file)
+  emit('update:video-file', file)
+}
+
+const setSlidesFile = (file: File | null) => {
+  emit('update:slidesFile', file)
+  emit('update:slides-file', file)
+}
+
 const setAcknowledgedOversized = (val: boolean) => {
   emit('update:acknowledgedOversized', val)
   emit('update:acknowledged-oversized', val)
@@ -183,10 +213,8 @@ const setAcknowledgedOversized = (val: boolean) => {
 const onVideoChange = (e: Event) => {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0] || null
-  emit('update:videoFile', file)
-  if (!file || file.size <= OVERSIZE_THRESHOLD_BYTES) {
-    setAcknowledgedOversized(false)
-  }
+  setVideoFile(file)
+  setAcknowledgedOversized(false)
 }
 
 const slidesError = ref('')
@@ -202,22 +230,22 @@ const onSlidesChange = (e: Event) => {
   if (file && !isPdf(file)) {
     slidesError.value = 'Presentation slides must be a PDF file.'
     if (slidesInputRef.value) slidesInputRef.value.value = ''
-    emit('update:slidesFile', null)
+    setSlidesFile(null)
     return
   }
-  emit('update:slidesFile', file)
+  setSlidesFile(file)
 }
 
 const clearVideo = () => {
   if (videoInputRef.value) videoInputRef.value.value = ''
-  emit('update:videoFile', null)
+  setVideoFile(null)
   setAcknowledgedOversized(false)
 }
 
 const clearSlides = () => {
   slidesError.value = ''
   if (slidesInputRef.value) slidesInputRef.value.value = ''
-  emit('update:slidesFile', null)
+  setSlidesFile(null)
 }
 
 const onAckChange = (e: Event) => {

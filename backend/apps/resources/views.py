@@ -22,11 +22,15 @@
 #             return [IsAdminUser()]
 #         return [IsAuthenticated()]
 
+from pathlib import PurePosixPath
+import re
 from rest_framework import mixins, pagination, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
+from rest_framework.reverse import reverse
 from urllib.parse import urlparse
+from apps.common.filenames import sanitize_upload_filename
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel
 from .serializers import (
     RoleSerializer,
@@ -484,7 +488,12 @@ class ResourcesViewSet(mixins.ListModelMixin,
             mime_type = (resource.slides_mime_type or "application/pdf").lower()
             file_size = resource.slides_file_size
             default_file_name = f"slides-{resource.id}.pdf"
-            file_name = sanitize_upload_filename(PurePosixPath(storage_key).name) if storage_key else default_file_name
+            if storage_key:
+                raw_slides_name = PurePosixPath(storage_key).name
+                stripped_slides_name = re.sub(r"^\d+-\d+-", "", raw_slides_name)
+                file_name = sanitize_upload_filename(stripped_slides_name or raw_slides_name)
+            else:
+                file_name = default_file_name
             if not storage_key:
                 access_mode = "unavailable"
                 detail = "This resource does not have a slides file."

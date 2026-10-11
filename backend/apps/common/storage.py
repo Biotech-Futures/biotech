@@ -367,6 +367,7 @@ def serve_managed_file(
             response["Content-Range"] = f"bytes {start}-{end}/{total_size}"
             response["Content-Length"] = str(content_length)
             response["Accept-Ranges"] = "bytes"
+            response["Cache-Control"] = "private, no-cache"
             disposition = "attachment" if as_attachment else "inline"
             response["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
             return response
@@ -379,6 +380,7 @@ def serve_managed_file(
     if mime_type:
         response["Content-Type"] = mime_type
     response["Accept-Ranges"] = "bytes"
+    response["Cache-Control"] = "private, no-cache"
     if total_size and total_size > 0:
         response["Content-Length"] = str(total_size)
     return response

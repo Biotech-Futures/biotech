@@ -250,10 +250,10 @@ def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[s
         return None
     parts = storage_key.split("/")
     raw = parts[-1] if parts else ""
-    dash_index = raw.find("-", raw.find("-") + 1)
-    if dash_index == -1:
-        return raw or None
-    return raw[dash_index + 1:] or None
+    match = re.match(r"^\d+-\d+-(.+)$", raw)
+    if match:
+        return match.group(1) or None
+    return raw or None
 
 
 def stream_blob_chunks(download_stream):
@@ -809,8 +809,10 @@ def replace_resource_file(
         except ValidationError as exc:
             return {'msg': _first_error_message(exc.detail), 'data': None}
 
-        next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
-        get_resource_storage().save(next_storage_key, ContentFile(file_bytes))
+        next_storage_key = get_resource_storage().save(
+            build_storage_key(resource_id, payload.get('file_name', 'file')),
+            ContentFile(file_bytes),
+        )
         if resource.storage_key and is_managed_storage_key(resource.storage_key):
             try:
                 get_resource_storage().delete(resource.storage_key)
@@ -857,8 +859,10 @@ def replace_resource_file(
         except ValidationError as exc:
             return {'msg': _first_error_message(exc.detail), 'data': None}
 
-        next_slides_key = build_storage_key(resource_id, payload.get('slides_file_name', 'slides.pdf'))
-        get_resource_storage().save(next_slides_key, ContentFile(slides_bytes))
+        next_slides_key = get_resource_storage().save(
+            build_storage_key(resource_id, payload.get('slides_file_name', 'slides.pdf')),
+            ContentFile(slides_bytes),
+        )
         if resource.slides_storage_key and is_managed_storage_key(resource.slides_storage_key):
             try:
                 get_resource_storage().delete(resource.slides_storage_key)
@@ -1084,12 +1088,19 @@ def update_resource(
     resource.save()
     
     # Handle page content update
-    if updates.get('resource_kind') == RESOURCE_KIND_PAGE and 'content_html' in updates:
+    if target_kind == RESOURCE_KIND_PAGE and 'content_html' in updates and updates['content_html'] is not None:
+        old_storage_key = resource.storage_key
         html_text = updates['content_html'] or ''
         file_name = f"{(updates.get('resource_name') or resource_data['resource_name']) or 'resource'}.html"
         html_bytes = html_text.encode('utf-8')
         storage_key = RESOURCE_FILE_SERVICE.save_content(file_name, ContentFile(html_bytes))
-        
+
+        if old_storage_key and old_storage_key != storage_key and is_managed_storage_key(old_storage_key):
+            try:
+                RESOURCE_FILE_SERVICE.delete(old_storage_key)
+            except Exception:
+                pass
+
         resource.storage_key = storage_key
         resource.file_mime_type = 'text/html'
         resource.file_size = len(html_bytes)

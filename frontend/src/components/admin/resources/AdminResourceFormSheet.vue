@@ -133,6 +133,10 @@
           :current-slides-size="currentSlidesSize"
           :saving="saving"
           :is-editing="isEditing"
+          @update:video-file="selectedFile = $event"
+          @update:videoFile="selectedFile = $event"
+          @update:slides-file="selectedSlidesFile = $event"
+          @update:slidesFile="selectedSlidesFile = $event"
           @update:acknowledged-oversized="acknowledgedOversized = $event"
           @update:acknowledgedOversized="acknowledgedOversized = $event"
         />
@@ -526,6 +530,9 @@ const initForm = async (currentResource?: Resource | AdminResourceDetail | null)
       if (detail && open.value && (!props.resource || props.resource.id === currentResource.id)) {
         adminDetail.value = detail
         applyResourceData(detail)
+        if (detail.content_html !== undefined) {
+          editorKey.value++
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch admin resource detail:', err)

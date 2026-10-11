@@ -292,6 +292,18 @@ const slidesDownloadTarget = computed(() => {
   return null
 })
 
+const cacheBustQuery = computed(() => {
+  if (!access.value) return ''
+  const versionToken = [
+    access.value.file_name || '',
+    access.value.file_size ?? '',
+    resource.value?.uploaded_at || '',
+  ]
+    .filter(Boolean)
+    .join('-')
+  return versionToken ? `v=${encodeURIComponent(versionToken)}` : ''
+})
+
 const pdfPreviewTarget = computed(() => {
   if (!access.value || accessError.value || !isPdfResource.value) return null
   if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
@@ -302,7 +314,8 @@ const pdfPreviewTarget = computed(() => {
   // ``?inline=1`` tells the backend to return ``Content-Disposition: inline``
   // so window.open renders the PDF in the browser instead of forcing a save.
   const separator = target.includes('?') ? '&' : '?'
-  return buildResourceUrl(`${target}${separator}inline=1`)
+  const suffix = cacheBustQuery.value ? `&${cacheBustQuery.value}` : ''
+  return buildResourceUrl(`${target}${separator}inline=1${suffix}`)
 })
 
 const isTextLike = computed(() => {
@@ -393,7 +406,8 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  previewUrl.value = buildResourceUrl(`${target}${target.includes('?') ? '&' : '?'}inline=1`)
+  const suffix = cacheBustQuery.value ? `&${cacheBustQuery.value}` : ''
+  previewUrl.value = buildResourceUrl(`${target}${target.includes('?') ? '&' : '?'}inline=1${suffix}`)
   if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
   else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
   else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
