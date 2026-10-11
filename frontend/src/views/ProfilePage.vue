@@ -1175,6 +1175,12 @@ onMounted(async () => {
   color: var(--teal);
 }
 
+/* Dark theme: the timezone box and its list on black, rather than white. */
+:root[data-theme='dark'] .timezone-input {
+  background: #000;
+  color-scheme: dark;
+}
+
 .timezone-actions {
   display: flex;
   flex-wrap: wrap;

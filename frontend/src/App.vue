@@ -977,6 +977,47 @@ select {
   color: var(--teal);
 }
 
+/* Dark theme: the account menu on the dark grey cards, with light text,
+   rather than staying white. */
+:root[data-theme='dark'] .notification-panel {
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme='dark'] .notification-header {
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .notification-title,
+:root[data-theme='dark'] .panel-quick-copy strong {
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .account-subtitle,
+:root[data-theme='dark'] .panel-quick-copy small {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .panel-quick-link {
+  background: var(--white);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .panel-quick-icon,
+:root[data-theme='dark'] .account-close-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .account-close-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme='dark'] .logout-button {
+  background: var(--dark-green);
+}
+
 .theme-toggle {
   width: 40px;
   height: 40px;
@@ -1358,10 +1399,12 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0 0.65rem 0.5rem;
+  /* No left padding, so the label lines up with the dropdown's edge. */
+  padding: 0 0.65rem 0.5rem 0;
   color: var(--text-soft);
   font-size: 0.72rem;
-  font-weight: 800;
+  /* 700, as Windows shows heavier Arial as Arial Black. */
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

@@ -355,7 +355,7 @@ const insertIntoSubject = (token: string) => {
 
 /* Black would vanish on the dark card, so dark mode keeps light text. */
 :root[data-theme='dark'] .email-editor :deep(.merge-tags__list .merge-tags__tag) {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .email-editor :deep(.merge-tags__list .merge-tags__tag:hover) {

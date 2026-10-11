@@ -10590,6 +10590,19 @@ onBeforeUnmount(() => {
   color: var(--teal);
 }
 
+/* Other people's chat messages and the message box on black in the dark
+   theme; your own messages keep their green tint. */
+:root[data-theme='dark'] .message:not(.own) .message-content,
+:root[data-theme='dark'] .chat-input-field {
+  background: #000;
+}
+
+/* A reply quote inside another person's message takes the chat area's grey,
+   so it stands out from the black message. */
+:root[data-theme='dark'] .message:not(.own) .message-reply {
+  background: var(--surface-elevated);
+}
+
 :root[data-theme='dark'] .task-state-menu-item {
   color: var(--teal);
 }

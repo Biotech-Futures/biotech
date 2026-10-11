@@ -942,10 +942,11 @@ tbody tr:not(.data-table-detail-row):hover td {
   box-shadow: 1px 0 0 var(--light-green);
 }
 
-/* A Dark Green heading row, 50px tall, with white text. */
+/* A Dark Green heading row, 50px tall, with white text, or the dark theme's
+   dark text. */
 thead th {
   height: 3.125rem;
-  color: #fff;
+  color: var(--white);
   font-weight: 600;
   font-size: 0.8rem;
   text-transform: uppercase;
