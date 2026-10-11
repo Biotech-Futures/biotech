@@ -36,6 +36,16 @@ class AdminViewApiTests(TestCase):
                 'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
             },
             {
+                'name': 'All Students',
+                'description': 'Active students across all schools and cohorts',
+                'is_default': True,
+                'target_roles': ['student'],
+                'account_status': 'active',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+            },
+            {
                 'name': 'All Mentors',
                 'description': 'Active certified mentors across all domains',
                 'is_default': True,
@@ -169,13 +179,13 @@ class AdminViewApiTests(TestCase):
     def test_default_views_exist_from_migration(self):
         defaults = AdminView.objects.filter(is_default=True)
         names = set(defaults.values_list("name", flat=True))
-        self.assertTrue({"All Users", "All Mentors", "All Supervisors", "All Admins"}.issubset(names))
+        self.assertTrue({"All Users", "All Students", "All Mentors", "All Supervisors", "All Admins"}.issubset(names))
 
     def test_list_views_endpoint(self):
         res = self.client.get("/api/v1/admin/view/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("items", res.data["data"])
-        self.assertGreaterEqual(res.data["data"]["total"], 4)
+        self.assertGreaterEqual(res.data["data"]["total"], 5)
 
     def test_list_views_tab_filtering(self):
         # Create a custom view

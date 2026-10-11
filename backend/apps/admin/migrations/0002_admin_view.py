@@ -18,6 +18,16 @@ def seed_default_views(apps, schema_editor):
             'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
         },
         {
+            'name': 'All Students',
+            'description': 'Active students across all schools and cohorts',
+            'is_default': True,
+            'target_roles': ['student'],
+            'account_status': 'active',
+            'engagement_status': 'all',
+            'advanced_conditions': [],
+            'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+        },
+        {
             'name': 'All Mentors',
             'description': 'Active certified mentors across all domains',
             'is_default': True,
