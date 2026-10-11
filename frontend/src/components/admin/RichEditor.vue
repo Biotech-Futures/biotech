@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -7,6 +7,7 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
 import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import { FontFamily, FONT_STYLES, type AllowedFont } from './fontFamilyExtension'
 import LinkDialog from './LinkDialog.vue'
 
 interface Props {
@@ -53,6 +54,8 @@ const rawHtml = ref(props.modelValue || '')
 const uploadingAttachment = ref(false)
 const attachmentError = ref<string | null>(null)
 const showHeadingDropdown = ref(false)
+const showFontDropdown = ref(false)
+const selectedFont = ref<AllowedFont>('Arial')
 
 const updateTick = ref(0)
 
@@ -64,6 +67,7 @@ const editor = useEditor({
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
       }
     }),
+    FontFamily,
     Image.configure({ inline: false, allowBase64: true }),
     Table.configure({ resizable: false }),
     TableRow,
@@ -117,7 +121,12 @@ watch(
   }
 )
 
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+})
+
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
   editor.value?.destroy()
 })
 
@@ -131,6 +140,39 @@ const currentHeadingLabel = computed(() => {
   }
   return 'Normal'
 })
+
+const currentFontLabel = computed<AllowedFont>(() => {
+  void updateTick.value
+  if (!editor.value) return selectedFont.value
+  const fontAttr = editor.value.getAttributes('fontFamily')?.fontFamily
+  if (fontAttr === 'Times New Roman') return 'Times New Roman'
+  if (fontAttr === 'Arial') return 'Arial'
+  if (editor.value.isActive('fontFamily')) {
+    return selectedFont.value
+  }
+  return 'Arial'
+})
+
+const currentFontFamilyStyle = computed(() => {
+  return FONT_STYLES[currentFontLabel.value] || 'inherit'
+})
+
+function selectFont(font: AllowedFont) {
+  if (!editor.value) return
+  selectedFont.value = font
+  editor.value.chain().focus().setFontFamily(font).run()
+  showFontDropdown.value = false
+}
+
+function onDocumentClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  if (!target.closest('.heading-dropdown-container')) {
+    showHeadingDropdown.value = false
+    showFontDropdown.value = false
+    emailMenu.value = null
+  }
+}
 
 const isInTable = computed(() => {
   void updateTick.value
@@ -160,6 +202,7 @@ function selectHeading(level: number | 0) {
     editor.value.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 }).run()
   }
   showHeadingDropdown.value = false
+  showFontDropdown.value = false
 }
 
 // -- Link dialog: text links, and email buttons -------------------------------
@@ -220,6 +263,7 @@ function toggleEmailMenu(menu: 'box' | 'button', event: MouseEvent) {
   const toolbar = target.closest('.rich-editor-toolbar')?.getBoundingClientRect()
   emailMenuOnRight.value = !!toolbar && button.left + button.width / 2 > toolbar.left + toolbar.width / 2
   showHeadingDropdown.value = false
+  showFontDropdown.value = false
   emailMenu.value = menu
 }
 
@@ -377,7 +421,7 @@ defineExpose({ insertText })
               type="button"
               class="toolbar-btn heading-btn"
               :title="`Current style: ${currentHeadingLabel}`"
-              @click="showHeadingDropdown = !showHeadingDropdown; emailMenu = null"
+              @click="showHeadingDropdown = !showHeadingDropdown; showFontDropdown = false; emailMenu = null"
             >
               <span>{{ currentHeadingLabel }}</span>
               <i class="fas fa-chevron-down heading-chevron"></i>
@@ -422,6 +466,37 @@ defineExpose({ insertText })
                 @click="selectHeading(4)"
               >
                 Heading 4
+              </button>
+            </div>
+          </div>
+
+          <!-- Font Family Dropdown -->
+          <div class="heading-dropdown-container font-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn heading-btn font-btn"
+              :title="`Current font: ${currentFontLabel}`"
+              @click="showFontDropdown = !showFontDropdown; showHeadingDropdown = false; emailMenu = null"
+            >
+              <span :style="{ fontFamily: currentFontFamilyStyle }">{{ currentFontLabel }}</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div v-if="showFontDropdown" class="heading-dropdown-menu font-dropdown-menu">
+              <button
+                type="button"
+                class="dropdown-item font-item-arial"
+                :class="{ active: currentFontLabel === 'Arial' }"
+                @click="selectFont('Arial')"
+              >
+                Arial
+              </button>
+              <button
+                type="button"
+                class="dropdown-item font-item-times"
+                :class="{ active: currentFontLabel === 'Times New Roman' }"
+                @click="selectFont('Times New Roman')"
+              >
+                Times New Roman
               </button>
             </div>
           </div>
@@ -981,9 +1056,25 @@ defineExpose({ insertText })
 }
 
 .dropdown-item.active {
-  background-color: #eff6ff;
-  color: #2563eb;
+  background-color: #e8f5f1;
+  color: #017151;
   font-weight: 600;
+}
+
+.font-btn {
+  min-width: 9.5rem;
+}
+
+.font-dropdown-menu {
+  min-width: 9.5rem;
+}
+
+.font-item-arial {
+  font-family: Arial, sans-serif;
+}
+
+.font-item-times {
+  font-family: 'Times New Roman', Times, serif;
 }
 
 .email-look-menu {
@@ -1148,6 +1239,7 @@ defineExpose({ insertText })
 .rich-editor-content-area .tiptap.ProseMirror {
   outline: none;
   min-height: 18rem;
+  font-family: Arial, sans-serif;
   font-size: 0.875rem;
   line-height: 1.625;
   color: #1f2937;

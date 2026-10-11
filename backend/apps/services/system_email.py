@@ -102,6 +102,7 @@ EMAIL_STYLE_PROPERTIES = frozenset({
 _BODY_ATTRIBUTES = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items()}
 _BODY_ATTRIBUTES["div"] = _BODY_ATTRIBUTES.get("div", set()) | {"style"}
 _BODY_ATTRIBUTES["a"] = _BODY_ATTRIBUTES.get("a", set()) | {"style"}
+_BODY_ATTRIBUTES["span"] = _BODY_ATTRIBUTES.get("span", set()) | {"style"}
 
 
 def clean_email_body(html: str) -> str:
