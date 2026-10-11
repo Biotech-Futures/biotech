@@ -185,6 +185,23 @@ const currentTextColor = computed<AllowedColorHex>(() => {
   return '#000000'
 })
 
+const colorMenuOnRight = ref(false)
+
+function toggleColorDropdown(event: MouseEvent) {
+  if (showColorDropdown.value) {
+    showColorDropdown.value = false
+    return
+  }
+  const target = event.currentTarget as HTMLElement
+  const button = target.getBoundingClientRect()
+  const toolbar = target.closest('.rich-editor-toolbar')?.getBoundingClientRect()
+  colorMenuOnRight.value = !!toolbar && button.left + 280 > toolbar.right
+  showHeadingDropdown.value = false
+  showFontDropdown.value = false
+  emailMenu.value = null
+  showColorDropdown.value = true
+}
+
 function selectColor(color: AllowedColorHex) {
   if (!editor.value) return
   selectedColor.value = color
@@ -579,7 +596,7 @@ defineExpose({ insertText })
               class="toolbar-btn icon-btn color-picker-btn"
               :class="{ 'color-picker-btn--open': showColorDropdown || isActive('textColor') }"
               :title="`Text color (${currentTextColor})`"
-              @click="showColorDropdown = !showColorDropdown; showHeadingDropdown = false; showFontDropdown = false; emailMenu = null"
+              @click="toggleColorDropdown($event)"
             >
               <span class="color-picker-glyph">A</span>
               <span
@@ -588,7 +605,11 @@ defineExpose({ insertText })
                 :style="{ backgroundColor: currentTextColor }"
               ></span>
             </button>
-            <div v-if="showColorDropdown" class="color-dropdown-menu">
+            <div
+              v-if="showColorDropdown"
+              class="color-dropdown-menu"
+              :class="{ 'color-dropdown-menu--right': colorMenuOnRight }"
+            >
               <div
                 v-for="section in COLOR_SECTIONS"
                 :key="section.title"
@@ -1016,7 +1037,7 @@ defineExpose({ insertText })
   border-radius: 0.5rem;
   background-color: #ffffff;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s ease-in-out;
 }
 
@@ -1031,6 +1052,7 @@ defineExpose({ insertText })
   gap: 0.25rem;
   padding: 0.375rem 0.5rem;
   border-bottom: 1px solid #e5e7eb;
+  border-radius: 0.5rem 0.5rem 0 0;
   background-color: #f9fafb;
 }
 
@@ -1204,6 +1226,11 @@ defineExpose({ insertText })
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.color-dropdown-menu--right {
+  left: auto;
+  right: 0;
 }
 
 .color-section {

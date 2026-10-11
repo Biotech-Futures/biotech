@@ -3,7 +3,7 @@
     v-model="open"
     :title="isEditing ? 'Edit Resource' : 'Upload Resource'"
     :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
-    width="min(100vw, 680px)"
+    width="min(100vw, 760px)"
   >
     <form ref="formRef" class="admin-resource-form" novalidate @submit.prevent="submitForm">
       <p v-if="formError" class="admin-resource-form__error" role="alert">
