@@ -20,7 +20,6 @@ from .serializers import (
     GroupMeetingSerializer,
     GroupMeetingUpdateSerializer,
     MeetingNoteSerializer,
-    MeetingNoteWriteSerializer,
     MeetingSummarySerializer,
     MeetingSummaryWriteSerializer,
 )
@@ -156,7 +155,7 @@ class GroupMeetingViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
-        methods=["get", "patch"],
+        methods=["get"],
         url_path="note",
         permission_classes=[permissions.IsAuthenticated, IsGroupParticipant],
     )
@@ -169,25 +168,6 @@ class GroupMeetingViewSet(viewsets.ModelViewSet):
                 MeetingNoteSerializer(services.get_or_create_note(meeting)).data
             )
 
-        payload = MeetingNoteWriteSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        try:
-            note = services.update_note(
-                meeting,
-                user=request.user,
-                body=payload.validated_data["body"],
-                revision=payload.validated_data.get("revision"),
-            )
-        except services.StaleRevision as exc:
-            # 409 not 400: the request was well-formed, it just lost the
-            # race. The FE should re-fetch and merge, not blindly re-submit.
-            return Response(
-                {"detail": str(exc), "current_revision": exc.current},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        services.broadcast_note(meeting, note)
-        return Response(MeetingNoteSerializer(note).data)
 
     @action(detail=True, methods=["get", "put"], url_path="summary")
     def summary(self, request, pk=None):

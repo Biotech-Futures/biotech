@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -13,16 +15,6 @@ class MeetingNoteSerializer(serializers.ModelSerializer):
         model = MeetingNote
         fields = ["body", "revision", "updated_by", "updated_at"]
         read_only_fields = ["revision", "updated_by", "updated_at"]
-
-
-class MeetingNoteWriteSerializer(serializers.Serializer):
-    # trim_whitespace off: the note is a document, trailing newlines matter.
-    body = serializers.CharField(
-        allow_blank=True, trim_whitespace=False, max_length=100_000
-    )
-    # Omit for last-writer-wins; send the revision you read to get a 409
-    # on conflict instead.
-    revision = serializers.IntegerField(required=False, min_value=0)
 
 
 class MeetingSummarySerializer(serializers.ModelSerializer):
@@ -118,7 +110,7 @@ class GroupMeetingCreateSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, default="")
     agenda = serializers.CharField(required=False, allow_blank=True, default="")
     start_datetime = serializers.DateTimeField()
-    ends_datetime = serializers.DateTimeField()
+    ends_datetime = serializers.DateTimeField(required=False)
     duration_minutes = serializers.IntegerField(required=False,min_value=5,max_value=480)
     timezone_name = serializers.CharField(required=False, default="UTC", max_length=50)
     join_link = serializers.URLField(max_length=255)
@@ -131,17 +123,17 @@ class GroupMeetingCreateSerializer(serializers.Serializer):
                     {"duration_minutes": "Must be provided if ends_datetime is not."}
                 )
             attrs["ends_datetime"] = attrs["start_datetime"] + timedelta(minutes=duration)
-            start, end = attrs["start_datetime"], attrs["ends_datetime"]
-            # Mirrors check_event_end_after_start so a bad payload is a 400,
-            # not an IntegrityError surfacing as a 500.
-            if end <= start:
-                raise serializers.ValidationError(
-                    {"ends_datetime": "Must be after start_datetime."}
-                )
-            if start < timezone.now():
-                raise serializers.ValidationError(
-                    {"start_datetime": "Cannot schedule a meeting in the past."}
-                )
+        start, end = attrs["start_datetime"], attrs["ends_datetime"]
+        # Mirrors check_event_end_after_start so a bad payload is a 400,
+        # not an IntegrityError surfacing as a 500.
+        if end <= start:
+            raise serializers.ValidationError(
+                {"ends_datetime": "Must be after start_datetime."}
+            )
+        if start < timezone.now():
+            raise serializers.ValidationError(
+                {"start_datetime": "Cannot schedule a meeting in the past."}
+            )
         return attrs
 
 

@@ -285,44 +285,6 @@ export const fetchMeetingNote = async (
   return response.json()
 }
 
-export const updateMeetingNote = async (
-  meetingId: number,
-  body: string,
-  revision?: number
-): Promise<MeetingNote> => {
-  await ensureCsrf()
-
-  const payload: {
-    body: string
-    revision?: number
-  } = { body }
-
-  if (revision !== undefined) {
-    payload.revision = revision
-  }
-
-  const response = await fetch(
-    `${MEETINGS_API_BASE}/${meetingId}/note/`,
-    {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: authHeaders({
-        includeCSRF: true,
-      }),
-      body: JSON.stringify(payload),
-    }
-  )
-
-  if (!response.ok) {
-    throw await apiErrorFromResponse(
-      response,
-      'Failed to update meeting note'
-    )
-  }
-
-  return response.json()
-}
-
 export const fetchMeetingSummary = async (
   meetingId: number
 ): Promise<MeetingSummary> => {

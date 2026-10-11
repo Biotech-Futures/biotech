@@ -11,8 +11,6 @@ is reimplemented here.
 
 import logging
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.db import transaction
 from django.utils import timezone
 
@@ -22,6 +20,8 @@ from apps.groups.models import GroupMembership
 
 from .models import GroupMeeting, MeetingNote, MeetingSummary
 
+from pycrdt import Doc,Text
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,12 +30,6 @@ logger = logging.getLogger(__name__)
 MEETING_EVENT_TYPE = Events.EventTypeChoices.GROUP_MEETING
 
 
-class StaleRevision(Exception):
-    """The client's note revision no longer matches the stored row."""
-
-    def __init__(self, current):
-        self.current = current
-        super().__init__(f"Note has moved on; current revision is {current}.")
 
 
 def meeting_channel_name(meeting_id) -> str:
@@ -217,59 +211,48 @@ def visible_meetings_queryset(user, *, include_cancelled=False):
 # ---------------------------------------------------------------------------
 
 
+def _load_note_doc(note):
+    doc = Doc()
+    doc["note"] = text = Text()
+    if note.ydoc_state:
+        doc.apply_update(bytes(note.ydoc_state))
+    elif note.body:
+        # First open of a noe written before live editing existed.
+        text += note.body
+    return doc, text
+
+@transaction.atomic
+def get_note_state(meeting_id) -> bytes:
+    """Full document state, sent to a client when it connects."""
+    note, _ = MeetingNote.objects.select_for_update().get_or_create(
+        meeting_id=meeting_id
+    )
+    doc, _ = _load_note_doc(note)
+    state = doc.get_update()
+    if not note.ydoc_state:
+        note.ydoc_state = state
+        note.save(update_fields=["ydoc_state"])
+    return state
+
+@transaction.atomic
+def apply_note_update(meeting_id, user_id, update: bytes):
+    """Merge one client's update into the stored document."""
+    note, _ = MeetingNote.objects.select_for_update().get_or_create(
+        meeting_id=meeting_id
+    )
+    doc, text = _load_note_doc(note)
+    doc.apply_update(update)
+    note.ydoc_state = doc.get_update()
+    note.body = str(text)
+    note.revision += 1
+    note.updated_by_id = user_id
+    note.save(update_fields=["ydoc_state", "body", "revision", "updated_by", "updated_at"])
+    
+
+
 def get_or_create_note(meeting):
     note, _ = MeetingNote.objects.get_or_create(meeting=meeting)
     return note
-
-
-@transaction.atomic
-def update_note(meeting, *, user, body, revision=None):
-    """Write the shared note under optimistic concurrency.
-
-    ``revision`` is the value the client last read. Pass None to force a
-    last-writer-wins write; pass the read revision to get StaleRevision
-    (-> 409) instead of a silent clobber.
-    """
-    note = MeetingNote.objects.select_for_update().filter(meeting=meeting).first()
-    if note is None:
-        note = MeetingNote.objects.create(meeting=meeting)
-
-    if revision is not None and revision != note.revision:
-        raise StaleRevision(note.revision)
-
-    note.body = body
-    note.revision = note.revision + 1
-    note.updated_by = user
-    note.save(update_fields=["body", "revision", "updated_by", "updated_at"])
-    return note
-
-
-def broadcast_note(meeting, note):
-    """Fan the new body out to everyone on the meeting's socket.
-
-    Same split as apps.chat: REST persists, the socket is pure fan-out. A
-    dead Redis must not fail the user's save -- the note is already
-    committed and the next fetch will show it.
-    """
-    layer = get_channel_layer()
-    if layer is None:
-        return
-    payload = {
-        "event": "note.updated",
-        "type": "note.updated",
-        "meeting_id": meeting.id,
-        "body": note.body,
-        "revision": note.revision,
-        "updated_by": note.updated_by_id,
-        "updated_at": note.updated_at.isoformat() if note.updated_at else None,
-    }
-    try:
-        async_to_sync(layer.group_send)(
-            meeting_channel_name(meeting.id),
-            {"type": "meeting.event", "payload": payload},
-        )
-    except Exception:
-        logger.exception("Failed to broadcast note update for meeting %s", meeting.id)
 
 
 # ---------------------------------------------------------------------------

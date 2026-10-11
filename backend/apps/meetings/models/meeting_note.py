@@ -17,6 +17,8 @@ class MeetingNote(models.Model):
         related_name="note",
     )
     body = models.TextField(blank=True, default="")
+    # Yjs document state. 'body' stays as the plain-text snapshot of it.
+    ydoc_state = models.BinaryField(null=True, blank=True)
     revision = models.PositiveIntegerField(default=0)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

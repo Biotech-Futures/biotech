@@ -94,20 +94,15 @@
           <section class="detail-section shared-notes-panel">
             <div class="section-heading">
               <h2>Shared Meeting Notes</h2>
-
-              <button
-                class="secondary-button"
-                :disabled="savingNote"
-                @click="saveNote"
-              >
-                {{ savingNote ? 'Saving...' : 'Save Note' }}
-              </button>
             </div>
 
             <textarea
-              v-model="noteBody"
+              ref="noteTextarea"
               class="note-textarea shared-note-textarea"
               placeholder="Write shared meeting notes here..."
+              @input="onNoteInput"
+              @compositionstart="composing = true"
+              @compositionend="onCompositionEnd"
               @focus="sendNotePresence(true)"
               @blur="sendNotePresence(false)"
             />
@@ -243,16 +238,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import * as Y from 'yjs'
 
 import {
   fetchMeetingById,
-  fetchMeetingNote,
   fetchMeetingSummary,
   updateMeeting,
   cancelMeeting,
-  updateMeetingNote,
   updateMeetingSummary,
   type GroupMeeting,
 } from '@/utils/meetingsAPI'
@@ -265,9 +259,6 @@ const meeting = ref<GroupMeeting | null>(null)
 const loading = ref(true)
 const errorMessage = ref('')
 
-const noteBody = ref('')
-const noteRevision = ref<number | undefined>(undefined)
-const savingNote = ref(false)
 const noteMessage = ref('')
 
 const summaryBody = ref('')
@@ -298,6 +289,194 @@ const formErrors = ref({
 const noteSocket = ref<WebSocket | null>(null)
 const otherUserEditing = ref(false)
 
+// ---------------------------------------------------------------------------
+// Shared live note (Yjs)
+//
+// The note is a Y.Text. Local typing is diffed into it, its updates are
+// relayed through the meeting socket, and remote updates are written back
+// into the textarea. The server merges and persists every update.
+// ---------------------------------------------------------------------------
+
+type TextDelta = Y.YTextEvent['delta']
+
+const REMOTE_ORIGIN = 'remote'
+const UPDATE_FLUSH_MS = 200
+const RECONNECT_MS = 2000
+// Close codes the server uses for "bad meeting id" / "not allowed".
+const FATAL_CLOSE_CODES = [4400, 4403]
+
+const ydoc = new Y.Doc()
+// Must match the root name the backend uses: doc["note"].
+const ytext = ydoc.getText('note')
+
+const noteTextarea = ref<HTMLTextAreaElement | null>(null)
+const composing = ref(false)
+
+// What the textarea showed the last time it was in step with ytext.
+let renderedText = ''
+// Remote changes held back while an IME composition is in progress --
+// rewriting the textarea mid-composition would cancel it.
+let deferredDeltas: TextDelta[] = []
+
+let pendingUpdates: Uint8Array[] = []
+let flushTimer: number | undefined
+let reconnectTimer: number | undefined
+let pageClosed = false
+
+const toBase64 = (bytes: Uint8Array) => {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+}
+
+const fromBase64 = (text: string) =>
+  Uint8Array.from(atob(text), (char) => char.charCodeAt(0))
+
+/** Where `index` ends up after a remote change is applied. */
+const shiftIndex = (index: number, delta: TextDelta) => {
+  let position = 0
+  let shifted = index
+
+  for (const op of delta) {
+    if (op.retain !== undefined) {
+      position += op.retain
+    } else if (typeof op.insert === 'string') {
+      if (position <= shifted) shifted += op.insert.length
+      position += op.insert.length
+    } else if (op.delete !== undefined) {
+      if (position < shifted) {
+        shifted -= Math.min(op.delete, shifted - position)
+      }
+    }
+  }
+
+  return shifted
+}
+
+const renderNote = (selectionStart: number, selectionEnd: number) => {
+  const el = noteTextarea.value
+  if (!el) return
+
+  renderedText = ytext.toString()
+  el.value = renderedText
+
+  // Setting a selection range on an unfocused textarea would steal focus
+  // in some browsers.
+  if (document.activeElement === el) {
+    el.setSelectionRange(selectionStart, selectionEnd)
+  }
+}
+
+const onNoteInput = () => {
+  const el = noteTextarea.value
+  if (composing.value || !el) return
+
+  // Reduce the edit to "replace prev[start:prevEnd] with next[start:nextEnd]".
+  const prev = renderedText
+  const next = el.value
+
+  let start = 0
+  while (
+    start < prev.length &&
+    start < next.length &&
+    prev[start] === next[start]
+  ) {
+    start++
+  }
+
+  let prevEnd = prev.length
+  let nextEnd = next.length
+  while (
+    prevEnd > start &&
+    nextEnd > start &&
+    prev[prevEnd - 1] === next[nextEnd - 1]
+  ) {
+    prevEnd--
+    nextEnd--
+  }
+
+  const inserted = next.slice(start, nextEnd)
+
+  // Remote changes that landed mid-composition moved the text under us.
+  let from = start
+  let to = prevEnd
+  for (const delta of deferredDeltas) {
+    from = shiftIndex(from, delta)
+    to = shiftIndex(to, delta)
+  }
+
+  ydoc.transact(() => {
+    if (to > from) ytext.delete(from, to - from)
+    if (inserted) ytext.insert(from, inserted)
+  })
+
+  if (deferredDeltas.length) {
+    deferredDeltas = []
+    const caret = from + inserted.length
+    renderNote(caret, caret)
+  } else {
+    renderedText = next
+  }
+}
+
+const onCompositionEnd = () => {
+  composing.value = false
+  onNoteInput()
+}
+
+ytext.observe((event, transaction) => {
+  if (transaction.local) return
+
+  const el = noteTextarea.value
+  if (!el) return
+
+  if (composing.value) {
+    deferredDeltas.push(event.delta)
+    return
+  }
+
+  renderNote(
+    shiftIndex(el.selectionStart, event.delta),
+    shiftIndex(el.selectionEnd, event.delta)
+  )
+})
+
+// The textarea only exists once the meeting has loaded, which can be after
+// the first sync frame has already arrived.
+watch(noteTextarea, (el) => {
+  if (el) renderNote(0, 0)
+})
+
+const flushNoteUpdates = () => {
+  flushTimer = undefined
+
+  if (!pendingUpdates.length) return
+  // Kept until the socket is back; the reconnect sends the full state.
+  if (noteSocket.value?.readyState !== WebSocket.OPEN) return
+
+  const merged = Y.mergeUpdates(pendingUpdates)
+  pendingUpdates = []
+
+  noteSocket.value.send(
+    JSON.stringify({
+      type: 'update',
+      update: toBase64(merged),
+    })
+  )
+}
+
+ydoc.on('update', (update: Uint8Array, origin: unknown) => {
+  if (origin === REMOTE_ORIGIN) return
+
+  pendingUpdates.push(update)
+
+  if (flushTimer === undefined) {
+    flushTimer = window.setTimeout(flushNoteUpdates, UPDATE_FLUSH_MS)
+  }
+})
+
 const connectNoteSocket = () => {
   const meetingId = Number(route.params.meetingId)
   if (!meetingId) return
@@ -311,13 +490,34 @@ const connectNoteSocket = () => {
     `${protocol}://${host}/ws/meetings/${meetingId}/note/`
   )
 
+  socket.onopen = () => {
+    noteMessage.value = ''
+
+    // Push anything typed while offline. Updates are idempotent, so
+    // resending what the server already has is harmless. An empty doc
+    // encodes to 2 bytes -- nothing worth sending.
+    const state = Y.encodeStateAsUpdate(ydoc)
+    pendingUpdates = []
+
+    if (state.length > 2) {
+      socket.send(
+        JSON.stringify({
+          type: 'update',
+          update: toBase64(state),
+        })
+      )
+    }
+  }
+
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
 
-      if (data.event === 'note.updated') {
-        noteBody.value = data.body || ''
-        noteRevision.value = data.revision
+      if (
+        (data.event === 'note.sync' || data.event === 'note.update') &&
+        typeof data.update === 'string'
+      ) {
+        Y.applyUpdate(ydoc, fromBase64(data.update), REMOTE_ORIGIN)
       }
 
       if (data.event === 'note.presence') {
@@ -328,8 +528,20 @@ const connectNoteSocket = () => {
     }
   }
 
-  socket.onclose = () => {
-    noteSocket.value = null
+  socket.onclose = (event) => {
+    if (noteSocket.value === socket) {
+      noteSocket.value = null
+    }
+
+    if (pageClosed) return
+
+    if (FATAL_CLOSE_CODES.includes(event.code)) {
+      noteMessage.value = 'You do not have access to this note.'
+      return
+    }
+
+    noteMessage.value = 'Connection lost. Reconnecting...'
+    reconnectTimer = window.setTimeout(connectNoteSocket, RECONNECT_MS)
   }
 
   noteSocket.value = socket
@@ -353,14 +565,7 @@ const loadMeeting = async () => {
   try {
     meeting.value = await fetchMeetingById(meetingId)
 
-    try {
-      const note = await fetchMeetingNote(meetingId)
-      noteBody.value = note.body || ''
-      noteRevision.value = note.revision
-    } catch (error) {
-      console.error('Failed to load meeting note:', error)
-    }
-
+    // The note itself arrives over the socket (note.sync), not REST.
     try {
       const summary = await fetchMeetingSummary(meetingId)
       summaryBody.value = summary.body || ''
@@ -372,28 +577,6 @@ const loadMeeting = async () => {
     errorMessage.value = 'Unable to load this meeting.'
   } finally {
     loading.value = false
-  }
-}
-
-const saveNote = async () => {
-  savingNote.value = true
-  noteMessage.value = ''
-
-  try {
-    const updated = await updateMeetingNote(
-      meetingId,
-      noteBody.value,
-      noteRevision.value
-    )
-
-    noteBody.value = updated.body || ''
-    noteRevision.value = updated.revision
-    noteMessage.value = 'Note saved.'
-  } catch (error) {
-    console.error('Failed to save note:', error)
-    noteMessage.value = 'Unable to save note. Please try again.'
-  } finally {
-    savingNote.value = false
   }
 }
 
@@ -543,10 +726,19 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  pageClosed = true
+
+  window.clearTimeout(reconnectTimer)
+  window.clearTimeout(flushTimer)
+  // Send the last keystrokes that were still waiting on the flush timer.
+  flushNoteUpdates()
+
   if (noteSocket.value) {
     noteSocket.value.close()
     noteSocket.value = null
   }
+
+  ydoc.destroy()
 })
 </script>
 
