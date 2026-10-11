@@ -1507,7 +1507,7 @@ class ResourceTypeIntegrationTests(TestCase):
         )
         AdminScope.objects.create(user=self.admin_user)
 
-        # Get or create all 4 resource types (migration may have already created them)
+        # Get or create all 5 resource types (migration may have already created them)
         self.document_type, _ = ResourceType.objects.get_or_create(
             type_name='document',
             defaults={'type_description': 'Document resources such as PDFs, guides, and written materials'}
@@ -1523,6 +1523,10 @@ class ResourceTypeIntegrationTests(TestCase):
         self.template_type, _ = ResourceType.objects.get_or_create(
             type_name='template',
             defaults={'type_description': 'Templates and boilerplate files'}
+        )
+        self.recorded_session_type, _ = ResourceType.objects.get_or_create(
+            type_name='Recorded Session',
+            defaults={'type_description': 'Recorded session video and presentation slides'}
         )
 
         # Create test roles
