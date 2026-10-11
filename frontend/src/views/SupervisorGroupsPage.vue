@@ -168,8 +168,9 @@ import {
   fullName,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
+import { DEFAULT_GROUP_MAX_SIZE, GROUP_FULL_MESSAGE } from '@/utils/groupCapacity'
 
-const GROUP_LIMIT = 5
+const GROUP_LIMIT = DEFAULT_GROUP_MAX_SIZE
 const groupLimit = GROUP_LIMIT
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -350,7 +351,7 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
     }
     const destCount = students.value.filter((student) => assignment.value[student.id] === groupId).length
     if (destCount >= GROUP_LIMIT) {
-      showFlash(`This group already has ${GROUP_LIMIT} students.`)
+      showFlash(GROUP_FULL_MESSAGE)
       return
     }
   }
