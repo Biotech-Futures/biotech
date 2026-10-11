@@ -34,6 +34,7 @@
         :columns="section.columns"
         :rows="section.rows"
         :action-columns="section.rowActions.length"
+        :default-sort="section.defaultSort"
         clickable-rows
         @row-click="openSheet"
       >
@@ -236,7 +237,8 @@ const registeredColumns: DataTableColumn[] = [
 
 const fullyRegisteredColumns: DataTableColumn[] = [
   ...registeredColumns,
-  { key: 'permissionGiven', label: 'Permission' },
+  // Sorted by when, not by the shown "09/10/26 16:12".
+  { key: 'permissionGiven', label: 'Permission', sortValue: (row) => Date.parse(String(row.permissionGivenAt)) || 0 },
 ]
 
 // A button on the rows or in the selected bar, and whether it needs ticked rows.
@@ -267,6 +269,7 @@ const sections = computed(() => [
     title: 'Pending Guardian Details',
     filename: 'pending-guardian-details',
     columns: pendingColumns,
+    defaultSort: undefined,
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingDetailsActions,
     emailAll: { value: 'email-students-all', label: 'Email All Students' },
@@ -277,6 +280,7 @@ const sections = computed(() => [
     title: 'Pending Guardian Permission',
     filename: 'pending-guardian-permission',
     columns: registeredColumns,
+    defaultSort: undefined,
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
     emailAll: { value: 'email-guardians-all', label: 'Email All Guardians' },
@@ -289,6 +293,8 @@ const sections = computed(() => [
     title: 'Fully Registered with Guardian Permission',
     filename: 'fully-registered-students',
     columns: fullyRegisteredColumns,
+    // Latest permission first.
+    defaultSort: { key: 'permissionGiven', direction: 'desc' } as const,
     rowActions: [
       { value: 'open-consent', label: 'View' },
       { value: 'view-consent', label: 'Download' },

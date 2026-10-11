@@ -268,6 +268,8 @@ export type DataTableColumn = {
   key: string
   label: string
   type?: 'string' | 'number'
+  // What the column sorts by, when not its shown text, like a date's time.
+  sortValue?: (row: Record<string, unknown>) => string | number
   // Long text that may wrap; every other cell stays on one line.
   wrap?: boolean
   // Off by default when the server sorts; on by default otherwise.
@@ -317,6 +319,8 @@ const props = withDefaults(
     search?: string
     // Given, the page sorts the rows itself, in either mode.
     sort?: DataTableSort
+    // The sort the table starts with when it sorts the rows itself.
+    defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
   }>(),
@@ -337,6 +341,7 @@ const props = withDefaults(
     pageSize: undefined,
     search: undefined,
     sort: undefined,
+    defaultSort: undefined,
     selected: undefined,
   },
 )
@@ -362,12 +367,14 @@ const search = ref(props.search ?? '')
 const page = ref(props.page ?? 1)
 const rowHeight = props.twoLineRows ? DATA_TABLE_TWO_LINE_ROW_HEIGHT : DATA_TABLE_ROW_HEIGHT
 const pageSize = ref(props.pageSize ?? fitPageSize(rowHeight))
-// With no sort given, the first column that sorts; a server sorts itself.
+// With no sort given, the default sort or else the first column that sorts;
+// a server sorts itself.
 const sortKey = ref(
   props.sort?.key ??
+    props.defaultSort?.key ??
     (isServer.value ? '' : props.columns.find((column) => column.sortable ?? true)?.key ?? ''),
 )
-const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
+const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? props.defaultSort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
 const ownSelection = ref<Set<RowKey>>(new Set())
 
@@ -402,6 +409,11 @@ const compare = (
   column?: DataTableColumn,
 ) => {
   if (!column) return 0
+  if (column.sortValue) {
+    const [a, b] = [column.sortValue(left), column.sortValue(right)]
+    if (typeof a === 'number' && typeof b === 'number') return a - b
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })
+  }
   if (column.type === 'number') {
     return (Number(left[column.key]) || 0) - (Number(right[column.key]) || 0)
   }

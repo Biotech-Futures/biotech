@@ -37,30 +37,6 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-export function formatDateAU(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) return ''
-
-  return date.toLocaleDateString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-export function formatDateTimeAU(value: string | Date | null | undefined): string {
-  const date = value instanceof Date ? value : value ? new Date(value) : null
-  if (!date || Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
 /** Sydney's clock on a day ("YYYY-MM-DD"): AEDT in daylight saving
  *  (UTC+11), else AEST (UTC+10). */
 export function sydneyClockOn(isoDate: string): { name: 'AEDT' | 'AEST'; daylight: boolean; offset: string } {
@@ -332,6 +308,12 @@ export function formatDayMonthTime(value: string | Date | null | undefined, time
   const hour12 = p.hour % 12 || 12
   const meridiem = p.hour < 12 ? 'am' : 'pm'
   return `${p.day} ${SHORT_MONTHS[p.month - 1]}${yearSuffix(p.year, timeZone)}, ${hour12}:${p.MM} ${meridiem}`
+}
+
+/** A date written out: "9th October 2026". */
+export function formatOrdinalDate(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${ordinal(p.day)} ${LONG_MONTHS[p.month - 1]} ${p.year}` : ''
 }
 
 /** Set events: "Friday, 9th October 2026". */

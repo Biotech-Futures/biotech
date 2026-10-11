@@ -6,6 +6,7 @@ import {
   formatEventCalendarDay,
   formatEventDay,
   formatExactTime,
+  formatOrdinalDate,
   formatShortDate,
   formatShortDateTime,
   formatStatementTime,
@@ -31,6 +32,7 @@ describe('the date styles', () => {
     expect(formatExactTime(AT, SYDNEY)).toBe('09/10/26 16:12:01')
     expect(formatStatementTime(AT, SYDNEY)).toBe('09/10/2026 at 16:12')
     expect(formatEventDay(AT, SYDNEY)).toBe('Friday, 9th October 2026')
+    expect(formatOrdinalDate(AT, SYDNEY)).toBe('9th October 2026')
   })
 
   it('leaves the year off this year and adds it for another year', () => {

@@ -424,6 +424,8 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   dates_in_past: string[]
   /** Why sending waits for submissions (and extensions) to close, or "". */
   submissions_open: string
+  /** Why the email can't go because it's off on System Emails, or "". */
+  switched_off: string
   /** Everyone the finalist email goes to, by role; a notified team's
    *  members count as emailed. */
   counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount> & { groups: EmailedCount }
