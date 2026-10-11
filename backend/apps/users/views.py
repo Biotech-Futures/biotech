@@ -671,6 +671,47 @@ class SupervisedStudentEmailView(APIView):
         return Response(payload, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SupervisedStudentDetailsLinksView(APIView):
+    """POST: links to a public form for supervised students' guardian details,
+    for students with no guardian email yet."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(request=SupervisedStudentIdsSerializer)
+    def post(self, request):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        serializer = SupervisedStudentIdsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profiles = _supervised_profiles(request.user, serializer.validated_data["student_ids"])
+
+        from . import guardian_details
+
+        links = []
+        for profile in profiles:
+            if (profile.pg_email or "").strip() or profile.has_join_permission:
+                links.append({
+                    "studentId": profile.user_id,
+                    "link": None,
+                    "msg": "This student already has guardian details.",
+                })
+            else:
+                links.append({
+                    "studentId": profile.user_id,
+                    "link": guardian_details.details_form_link(profile),
+                    "msg": "Details link ready.",
+                })
+
+        if any(item["link"] for item in links):
+            return Response({"links": links}, status=status.HTTP_200_OK)
+        return Response(
+            {"links": links, "msg": links[0]["msg"] if len(links) == 1 else "No links could be made."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class SupervisedStudentConsentLinksView(APIView):
     """POST: consent links for supervised students' guardians, to share by
     hand. A link already out is given again, so an emailed one keeps working."""

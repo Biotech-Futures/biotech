@@ -160,18 +160,26 @@ export async function sendSupervisedEmails(
   }
 }
 
-export type SupervisedConsentLink = {
+export type SupervisedStudentLink = {
   studentId: number
-  /** The consent link, or null when one couldn't be made (see msg). */
+  /** The link, or null when one couldn't be made (see msg). */
   link: string | null
   msg: string
 }
 
 /** Consent links for the students' guardians, to share by hand. A link
  *  already out is given again, so an emailed one keeps working. */
-export async function fetchConsentLinks(studentIds: number[]): Promise<SupervisedConsentLink[]> {
+export const fetchConsentLinks = (studentIds: number[]) => fetchStudentLinks('consent-links', studentIds)
+
+/** Links to a public form for each student's guardian name and email. */
+export const fetchDetailsLinks = (studentIds: number[]) => fetchStudentLinks('details-links', studentIds)
+
+async function fetchStudentLinks(
+  kind: 'consent-links' | 'details-links',
+  studentIds: number[],
+): Promise<SupervisedStudentLink[]> {
   await ensureCsrfCookie(API_BASE_URL)
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/consent-links/`, {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/${kind}/`, {
     method: 'POST',
     credentials: 'include',
     headers: buildSessionHeaders({
@@ -181,12 +189,12 @@ export async function fetchConsentLinks(studentIds: number[]): Promise<Supervise
     body: JSON.stringify({ student_ids: studentIds }),
   })
   const payload = (await response.json().catch(() => ({}))) as {
-    links?: SupervisedConsentLink[]
+    links?: SupervisedStudentLink[]
     msg?: string
     error?: string
   }
   if (!response.ok) {
-    throw new Error(payload.msg || payload.error || 'Consent links could not be made.')
+    throw new Error(payload.msg || payload.error || 'Links could not be made.')
   }
   return payload.links || []
 }

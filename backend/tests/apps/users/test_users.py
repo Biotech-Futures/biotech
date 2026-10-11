@@ -1131,6 +1131,90 @@ class SupervisedStudentEmailViewTests(TestCase):
         self.assertEqual(self._links([self.outsider.id]).status_code, 403)
         self.assertEqual(self._links([self.pending_consent.id], user=self.outsider).status_code, 403)
 
+    def _details_link(self, student_id):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/details-links/",
+            {"student_ids": [student_id]},
+            format="json",
+        )
+        return response
+
+    def _details_token(self):
+        link = self._details_link(self.pending_details.id).json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/guardian-details/"))
+        self.client.logout()
+        return link.rsplit("/", 1)[1]
+
+    def test_details_form_shows_the_student(self):
+        token = self._details_token()
+        response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["studentName"], "Alex Student")
+
+    def test_details_form_saves_the_guardian_and_sends_the_consent_form(self):
+        from django.core import mail
+
+        from apps.users.models import StudentProfile
+
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Jamie", "lastName": "Parent", "email": "Jamie@Example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        profile = StudentProfile.objects.get(user=self.pending_details)
+        self.assertEqual(
+            (profile.pg_first_name, profile.pg_last_name, profile.pg_email),
+            ("Jamie", "Parent", "jamie@example.com"),
+        )
+        self.assertIn(["jamie@example.com"], [message.to for message in mail.outbox])
+        # Once given, the link has done its job.
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 410)
+
+    def test_details_form_names_the_wrong_field(self):
+        token = self._details_token()
+        url = f"/api/v1/guardian-details/{token}/"
+        bad_email = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "Parent", "email": "jamie@example"}, format="json",
+        )
+        self.assertEqual(bad_email.status_code, 400)
+        self.assertEqual(bad_email.json()["badFields"], ["email"])
+        self.assertIn("full email address", bad_email.json()["error"])
+        no_last_name = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "", "email": "jamie@example.com"}, format="json",
+        )
+        self.assertEqual(no_last_name.json()["error"], "Please enter the last name.")
+
+    def test_details_form_refuses_the_students_own_email(self):
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Alex", "lastName": "Student", "email": "needs-details@test.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_details_form_link_expires(self):
+        from datetime import timedelta
+        from unittest import mock
+
+        token = self._details_token()
+        with mock.patch("apps.users.guardian_details.FORM_LINK_LIFETIME", timedelta(seconds=-1)):
+            response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "details_link_expired")
+
+    def test_details_form_rejects_a_made_up_link(self):
+        response = self.client.get("/api/v1/guardian-details/not-a-real-token/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_no_details_link_once_a_guardian_email_is_on_file(self):
+        response = self._details_link(self.pending_consent.id)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
+
 
 class MeGuardianDetailsTests(TestCase):
     """/users/me/ carries the guardian details shown on the student profile."""

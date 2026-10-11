@@ -37,12 +37,12 @@
         clickable-rows
         @row-click="openSheet"
       >
-        <!-- A student, or their parent/guardian, opens the student's panel. -->
+        <!-- A student, or their guardian, opens the student's panel. -->
         <template #cell-student="{ row, value }">
           <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
         </template>
         <template #cell-parentGuardian="{ row, value }">
-          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
+          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row, 'guardian')">{{ value }}</button>
         </template>
         <!-- Options sits beside Search, in the table's search card. -->
         <template #filters="{ rows, pageRows, selectedRows }">
@@ -64,6 +64,16 @@
             @click="onSectionAction(section.id, section.emailAll.value, section.rows)"
           >
             {{ section.emailAll.label }}
+          </button>
+          <!-- Not working yet: a placeholder for uploading guardian details. -->
+          <button
+            v-if="section.id === 'pendingDetails'"
+            type="button"
+            class="btn btn-outline btn-sm"
+            disabled
+            title="Coming soon"
+          >
+            Upload Guardian Details
           </button>
           <button
             v-if="section.id === 'fullyRegistered' && section.rows.length"
@@ -100,7 +110,7 @@
 
     <div v-if="guardianModal" class="supervisor-modal-backdrop" @click.self="closeGuardianModal">
       <form class="supervisor-modal" @submit.prevent="submitGuardianDetails">
-        <h3>Enter parent/guardian details</h3>
+        <h3>Enter guardian details</h3>
         <p>
           Applies to {{ guardianModal.studentIds.length }} student{{
             guardianModal.studentIds.length === 1 ? '' : 's'
@@ -144,13 +154,19 @@
       </section>
     </div>
 
-    <SupervisorStudentSheet :student="sheetStudent" @close="closeSheet" />
+    <SupervisorStudentSheet
+      :student="sheetStudent"
+      :at-guardian="route.query.show === 'guardian' || route.query.show === 'edit-guardian'"
+      :edit-guardian="route.query.show === 'edit-guardian'"
+      @close="closeSheet"
+      @saved="students = $event"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import SupervisorStudentSheet from '@/components/supervisor/SupervisorStudentSheet.vue'
@@ -160,6 +176,7 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import {
   classifyStudent,
   fetchConsentLinks,
+  fetchDetailsLinks,
   fetchSupervisedStudents,
   saveGuardianDetails,
   sendSupervisedEmails,
@@ -189,18 +206,23 @@ const emailConfirm = ref<{
   copy: string
 } | null>(null)
 
-// The student whose panel is open, kept in the address (?student=12) so a
-// copied details link or a refresh opens it again.
+// The student whose panel is open, kept in the address (?student=12, plus
+// show=guardian to open at their guardian, or show=edit-guardian with its
+// form open) so a refresh opens it again.
 const route = useRoute()
 const router = useRouter()
 const sheetStudentId = computed(() => Number(route.query.student) || null)
 const sheetStudent = computed(() => students.value.find((student) => student.id === sheetStudentId.value) ?? null)
-const openSheet = (row: Record<string, unknown>) => {
-  void router.replace({ query: { ...route.query, student: String(row.id) } })
+const openSheet = (row: Record<string, unknown>, show?: 'guardian' | 'edit-guardian') => {
+  const query: LocationQueryRaw = { ...route.query, student: String(row.id) }
+  if (show) query.show = show
+  else delete query.show
+  void router.replace({ query })
 }
 const closeSheet = () => {
   const query = { ...route.query }
   delete query.student
+  delete query.show
   void router.replace({ query })
 }
 
@@ -213,7 +235,7 @@ const pendingColumns: DataTableColumn[] = [
 
 const registeredColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student' },
-  { key: 'parentGuardian', label: 'Parent/Guardian' },
+  { key: 'parentGuardian', label: 'Guardian' },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year', type: 'number' },
   { key: 'interests', label: 'Area(s) of Interest', wrap: true },
@@ -234,7 +256,7 @@ const pendingDetailsActions: StudentAction[] = [
 ]
 
 const pendingPermissionActions: StudentAction[] = [
-  { value: 'email-guardians', label: 'Email Parent/Guardian', needsSelection: true },
+  { value: 'email-guardians', label: 'Email Guardian', needsSelection: true },
   { value: 'copy-invite', label: 'Copy Consent Link', needsSelection: true },
 ]
 
@@ -249,7 +271,7 @@ const activeSection = ref<SectionId>('pendingDetails')
 const sections = computed(() => [
   {
     id: 'pendingDetails' as const,
-    title: 'Pending Parent/Guardian Details',
+    title: 'Pending Guardian Details',
     filename: 'pending-guardian-details',
     columns: pendingColumns,
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
@@ -259,19 +281,19 @@ const sections = computed(() => [
   },
   {
     id: 'pendingPermission' as const,
-    title: 'Pending Parent/Guardian Permission',
+    title: 'Pending Guardian Permission',
     filename: 'pending-guardian-permission',
     columns: registeredColumns,
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
-    emailAll: { value: 'email-guardians-all', label: 'Email All Parents/Guardians' },
+    emailAll: { value: 'email-guardians-all', label: 'Email All Guardians' },
     rows: students.value
       .filter((student) => classifyStudent(student) === 'pendingPermission')
       .map(toStudentRow),
   },
   {
     id: 'fullyRegistered' as const,
-    title: 'Fully Registered with Parent/Guardian Permission',
+    title: 'Fully Registered with Guardian Permission',
     filename: 'fully-registered-students',
     columns: fullyRegisteredColumns,
     rowActions: [
@@ -314,38 +336,32 @@ const copyText = async (value: string, success: string) => {
   flashNotice(success)
 }
 
-// Pending details: My Students with the student's panel open.
-const detailsLink = (row: StudentRow) =>
-  new URL(router.resolve({ name: 'my-students', query: { student: String(row.id) } }).href, window.location.href).href
-
 // One student copies the link alone; several copy a "Name: link" line each.
 const linkLines = (made: { name: string; link: string }[]) =>
   made.length === 1 ? made[0]!.link : made.map(({ name, link }) => `${name}: ${link}`).join('\n')
 
-// Pending details: each student's panel. Pending permission: each guardian's
-// consent link.
+// Pending details: a public form for each guardian's name and email.
+// Pending permission: each guardian's consent link.
 const copyInviteLinks = async (sectionId: SectionId, rows: StudentRow[]) => {
   error.value = ''
-  if (sectionId === 'pendingDetails') {
-    const made = rows.map((row) => ({ name: row.student, link: detailsLink(row) }))
-    await copyText(linkLines(made), made.length === 1 ? 'Details link copied.' : `${made.length} details links copied.`)
-    return
-  }
+  const details = sectionId === 'pendingDetails'
+  const kind = details ? 'details' : 'consent'
   try {
-    const links = await fetchConsentLinks(studentIdsFrom(rows))
+    const links = await (details ? fetchDetailsLinks : fetchConsentLinks)(studentIdsFrom(rows))
     const linkFor = new Map(links.map((item) => [item.studentId, item.link]))
     const made = rows.flatMap((row) => {
       const link = linkFor.get(Number(row.id))
       return link ? [{ name: row.student, link }] : []
     })
-    await copyText(linkLines(made), made.length === 1 ? 'Consent link copied.' : `${made.length} consent links copied.`)
+    const copied = made.length === 1 ? `${details ? 'Details' : 'Consent'} link copied.` : `${made.length} ${kind} links copied.`
+    await copyText(linkLines(made), copied)
     const missed = links.filter((item) => !item.link)
     if (missed.length && made.length) {
       flashNotice(`${notice.value} ${missed.length} could not be made: ${missed[0]!.msg}`)
     }
   } catch (linkError) {
     notice.value = ''
-    error.value = linkError instanceof Error ? linkError.message : 'Consent links could not be made.'
+    error.value = linkError instanceof Error ? linkError.message : `The ${kind} links could not be made.`
   }
 }
 
@@ -427,7 +443,7 @@ const submitGuardianDetails = async () => {
       pg_last_name: guardianForm.value.lastName.trim(),
       pg_email: guardianForm.value.email.trim(),
     })
-    flashNotice('Parent/guardian details saved.')
+    flashNotice('Guardian details saved.')
     closeGuardianModal()
   } catch (saveError) {
     guardianError.value =
@@ -449,8 +465,8 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
       rows,
       value === 'email-students-all' ? 'Email all students?' : 'Email student?',
       value === 'email-students-all'
-        ? 'Send the System Email asking these students to add parent/guardian details?'
-        : 'Send the System Email asking this student to add parent/guardian details?',
+        ? 'Send the System Email asking these students to add guardian details?'
+        : 'Send the System Email asking this student to add guardian details?',
     )
     return
   }
@@ -458,10 +474,10 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     askToSend(
       'guardian_consent',
       rows,
-      value === 'email-guardians-all' ? 'Email all parents/guardians?' : 'Email parent/guardian?',
+      value === 'email-guardians-all' ? 'Email all guardians?' : 'Email guardian?',
       value === 'email-guardians-all'
-        ? 'Send the consent form System Email to these parents/guardians?'
-        : 'Send the consent form System Email to this parent/guardian?',
+        ? 'Send the consent form System Email to these guardians?'
+        : 'Send the consent form System Email to this guardian?',
     )
     return
   }
@@ -470,7 +486,10 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     return
   }
   if (value === 'enter-guardian') {
-    openGuardianModal(rows)
+    // One student: their panel with the guardian form open. Several share the
+    // popup, which saves the same guardian for each.
+    if (rows.length === 1) openSheet(rows[0]!, 'edit-guardian')
+    else openGuardianModal(rows)
     return
   }
   if (value === 'open-consent') {
