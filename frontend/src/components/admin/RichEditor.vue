@@ -8,6 +8,12 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
 import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
 import { FontFamily, FONT_STYLES, type AllowedFont } from './fontFamilyExtension'
+import {
+  TextColor,
+  COLOR_SECTIONS,
+  normalizeAllowedColor,
+  type AllowedColorHex
+} from './textColorExtension'
 import LinkDialog from './LinkDialog.vue'
 
 interface Props {
@@ -55,7 +61,9 @@ const uploadingAttachment = ref(false)
 const attachmentError = ref<string | null>(null)
 const showHeadingDropdown = ref(false)
 const showFontDropdown = ref(false)
+const showColorDropdown = ref(false)
 const selectedFont = ref<AllowedFont>('Arial')
+const selectedColor = ref<AllowedColorHex>('#000000')
 
 const updateTick = ref(0)
 
@@ -68,6 +76,7 @@ const editor = useEditor({
       }
     }),
     FontFamily,
+    TextColor,
     Image.configure({ inline: false, allowBase64: true }),
     Table.configure({ resizable: false }),
     TableRow,
@@ -164,12 +173,32 @@ function selectFont(font: AllowedFont) {
   showFontDropdown.value = false
 }
 
+const currentTextColor = computed<AllowedColorHex>(() => {
+  void updateTick.value
+  if (!editor.value) return selectedColor.value
+  const rawColor = editor.value.getAttributes('textColor')?.color
+  const normalized = normalizeAllowedColor(rawColor)
+  if (normalized) return normalized
+  if (editor.value.isActive('textColor')) {
+    return selectedColor.value
+  }
+  return '#000000'
+})
+
+function selectColor(color: AllowedColorHex) {
+  if (!editor.value) return
+  selectedColor.value = color
+  editor.value.chain().focus().setTextColor(color).run()
+  showColorDropdown.value = false
+}
+
 function onDocumentClick(e: MouseEvent) {
   const target = e.target as HTMLElement | null
   if (!target) return
   if (!target.closest('.heading-dropdown-container')) {
     showHeadingDropdown.value = false
     showFontDropdown.value = false
+    showColorDropdown.value = false
     emailMenu.value = null
   }
 }
@@ -203,6 +232,7 @@ function selectHeading(level: number | 0) {
   }
   showHeadingDropdown.value = false
   showFontDropdown.value = false
+  showColorDropdown.value = false
 }
 
 // -- Link dialog: text links, and email buttons -------------------------------
@@ -264,6 +294,7 @@ function toggleEmailMenu(menu: 'box' | 'button', event: MouseEvent) {
   emailMenuOnRight.value = !!toolbar && button.left + button.width / 2 > toolbar.left + toolbar.width / 2
   showHeadingDropdown.value = false
   showFontDropdown.value = false
+  showColorDropdown.value = false
   emailMenu.value = menu
 }
 
@@ -421,7 +452,7 @@ defineExpose({ insertText })
               type="button"
               class="toolbar-btn heading-btn"
               :title="`Current style: ${currentHeadingLabel}`"
-              @click="showHeadingDropdown = !showHeadingDropdown; showFontDropdown = false; emailMenu = null"
+              @click="showHeadingDropdown = !showHeadingDropdown; showFontDropdown = false; showColorDropdown = false; emailMenu = null"
             >
               <span>{{ currentHeadingLabel }}</span>
               <i class="fas fa-chevron-down heading-chevron"></i>
@@ -476,7 +507,7 @@ defineExpose({ insertText })
               type="button"
               class="toolbar-btn heading-btn font-btn"
               :title="`Current font: ${currentFontLabel}`"
-              @click="showFontDropdown = !showFontDropdown; showHeadingDropdown = false; emailMenu = null"
+              @click="showFontDropdown = !showFontDropdown; showHeadingDropdown = false; showColorDropdown = false; emailMenu = null"
             >
               <span :style="{ fontFamily: currentFontFamilyStyle }">{{ currentFontLabel }}</span>
               <i class="fas fa-chevron-down heading-chevron"></i>
@@ -540,6 +571,54 @@ defineExpose({ insertText })
           >
             <i class="fas fa-strikethrough"></i>
           </button>
+
+          <!-- Text Color Dropdown -->
+          <div class="heading-dropdown-container color-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn icon-btn color-picker-btn"
+              :class="{ 'color-picker-btn--open': showColorDropdown || isActive('textColor') }"
+              :title="`Text color (${currentTextColor})`"
+              @click="showColorDropdown = !showColorDropdown; showHeadingDropdown = false; showFontDropdown = false; emailMenu = null"
+            >
+              <span class="color-picker-glyph">A</span>
+              <span
+                class="color-picker-bar"
+                :class="{ 'color-picker-bar--light': currentTextColor === '#FFFFFF' }"
+                :style="{ backgroundColor: currentTextColor }"
+              ></span>
+            </button>
+            <div v-if="showColorDropdown" class="color-dropdown-menu">
+              <div
+                v-for="section in COLOR_SECTIONS"
+                :key="section.title"
+                class="color-section"
+              >
+                <div class="color-section-title">{{ section.title }}</div>
+                <div class="color-section-grid">
+                  <button
+                    v-for="option in section.colors"
+                    :key="option.hex"
+                    type="button"
+                    class="color-option-card"
+                    :class="{ active: currentTextColor === option.hex }"
+                    @click="selectColor(option.hex)"
+                  >
+                    <span
+                      class="color-option-swatch"
+                      :class="{ 'color-option-swatch--white': option.hex === '#FFFFFF' }"
+                      :style="{ backgroundColor: option.hex }"
+                    ></span>
+                    <span class="color-option-info">
+                      <span class="color-option-name">{{ option.name }}</span>
+                      <span class="color-option-hex">{{ option.hex }}</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button
             type="button"
             class="toolbar-btn icon-btn"
@@ -1075,6 +1154,135 @@ defineExpose({ insertText })
 
 .font-item-times {
   font-family: 'Times New Roman', Times, serif;
+}
+
+.color-picker-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  border: 1px solid transparent;
+  border-radius: 0.3125rem;
+}
+
+.color-picker-btn--open {
+  border-color: #017151;
+  background-color: #f0fdf4;
+}
+
+.color-picker-glyph {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1f2937;
+}
+
+.color-picker-bar {
+  width: 0.875rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.color-picker-bar--light {
+  box-shadow: inset 0 0 0 1px #94a3b8;
+}
+
+.color-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: 0.375rem;
+  width: 17.5rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 10px -4px rgba(15, 23, 42, 0.07);
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.color-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.color-section-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.color-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.color-option-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.color-option-card:hover {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+
+.color-option-card.active {
+  border-color: #017151;
+  background-color: #f0fdf4;
+  box-shadow: 0 0 0 1px #017151;
+}
+
+.color-option-swatch {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+}
+
+.color-option-swatch--white {
+  border: 1px solid #94a3b8;
+}
+
+.color-option-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.color-option-name {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.color-option-hex {
+  font-size: 0.5625rem;
+  font-weight: 500;
+  color: #64748b;
+  letter-spacing: 0.01em;
 }
 
 .email-look-menu {
