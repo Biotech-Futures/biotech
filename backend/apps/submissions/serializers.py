@@ -63,7 +63,15 @@ class SubmissionDraftSerializer(serializers.Serializer):
         child=serializers.CharField(allow_blank=True, trim_whitespace=False),
         required=False,
     )
-    prototype_url = serializers.URLField(required=False, allow_blank=True)
+    prototype_url = serializers.URLField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        error_messages={
+            "max_length": "This link is longer than 500 characters. Use a shorter share link.",
+            "invalid": "This doesn't look like a web link. Paste the full address, for example https://www.figma.com/…",
+        },
+    )
 
     def validate_answers(self, value):
         questions = {q.key: q for q in SubmissionQuestion.active()}
